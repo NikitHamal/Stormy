@@ -3,53 +3,51 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 
-// Load environment variables (Ensure these are stored in Vercel)
+// Load environment variables
 const GROK_API_KEY = process.env.GROK_API_KEY;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN; // Ensure this is set in Vercel
 
-// Test route
+// Combined route for Facebook verification and manual testing
 app.get('/api/webhook', (req, res) => {
-  res.send('Stormy is running!');
-});
-
-// Verify Facebook Webhook
-app.get('/api/webhook', (req, res) => {
-  // Check if the mode and token match
-  if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === VERIFY_TOKEN) {
-    // Respond with the challenge if verification is successful
-    return res.status(200).send(req.query['hub.challenge']);
-  } else {
-    // Respond with Forbidden if the token is incorrect
-    return res.sendStatus(403);
+  // Handle Facebook verification
+  if (req.query['hub.mode'] === 'subscribe') {
+    if (req.query['hub.verify_token'] === VERIFY_TOKEN) {
+      res.status(200).send(req.query['hub.challenge']);
+    } else {
+      res.sendStatus(403);
+    }
+  } 
+  // Handle manual testing (optional)
+  else {
+    res.send('Stormy is running! 🚀');
   }
 });
 
 // Handle incoming messages
-app.post('/webhook', async (req, res) => {
+app.post('/api/webhook', async (req, res) => { // Fix: Changed to /api/webhook
   if (!req.body.entry || !req.body.entry[0].messaging) {
     return res.sendStatus(400);
   }
 
   const messaging = req.body.entry[0].messaging[0];
+  const messageText = messaging.message?.text;
+  const senderId = messaging.sender.id;
 
-  if (!messaging.message || !messaging.message.text) {
+  if (!messageText) {
     return res.sendStatus(200); // Ignore non-text messages
   }
 
-  const messageText = messaging.message.text;
-  const senderId = messaging.sender.id;
-
   try {
-    // Call Grok API (Replace with the actual Grok API endpoint)
-    const grokResponse = await axios.post('https://api.grok.com/ask', {
+    // Call Grok API (replace with your endpoint)
+    const grokResponse = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       prompt: messageText,
       api_key: GROK_API_KEY
     });
 
     const reply = grokResponse.data.reply || "Sorry, I couldn't understand that.";
 
-    // Send reply back to Facebook
+    // Send reply to Facebook
     await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
       recipient: { id: senderId },
       message: { text: reply }
@@ -62,10 +60,5 @@ app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
 });
 
-// Start Express server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
+// Start server (Vercel handles this automatically)
 module.exports = app;
