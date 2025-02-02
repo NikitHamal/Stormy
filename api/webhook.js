@@ -15,10 +15,14 @@ app.get('/api/webhook', (req, res) => {
 
 // Verify Facebook Webhook
 app.get('/webhook', (req, res) => {
+  // Check if the mode and token match
   if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === VERIFY_TOKEN) {
+    // Respond with the challenge if verification is successful
     return res.status(200).send(req.query['hub.challenge']);
+  } else {
+    // Respond with Forbidden if the token is incorrect
+    return res.sendStatus(403);
   }
-  res.sendStatus(403);
 });
 
 // Handle incoming messages
