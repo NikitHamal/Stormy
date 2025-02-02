@@ -38,20 +38,25 @@ app.post('/api/webhook', async (req, res) => { // Fix: Changed to /api/webhook
     return res.sendStatus(200); // Ignore non-text messages
   }
 
+  console.log(`Received message: ${messageText} from sender: ${senderId}`);
+
   try {
     // Call Grok API (replace with your endpoint)
-    const grokResponse = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+    const grokResponse = await axios.post('https://api.grok.com/v1/chat/completions', {
       prompt: messageText,
       api_key: GROK_API_KEY
     });
 
     const reply = grokResponse.data.reply || "Sorry, I couldn't understand that.";
+    console.log(`Grok response: ${reply}`);
 
     // Send reply to Facebook
-    await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
+    const facebookResponse = await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
       recipient: { id: senderId },
       message: { text: reply }
     });
+
+    console.log('Facebook response:', facebookResponse.data);
 
   } catch (error) {
     console.error('Error:', error.response?.data || error.message);
