@@ -1,12 +1,15 @@
 const express = require('express');
 const axios = require('axios');
+const Groq = require('groq-sdk');  // Import Groq SDK
 const app = express();
 app.use(express.json());
 
+// Initialize Groq with your API Key
+const groq = new Groq({ apiKey: process.env.GROK_API_KEY });
+
 // Load environment variables
-const GROK_API_KEY = process.env.GROK_API_KEY;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN; // Ensure this is set in Vercel
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 // Combined route for Facebook verification and manual testing
 app.get('/api/webhook', (req, res) => {
@@ -17,7 +20,7 @@ app.get('/api/webhook', (req, res) => {
     } else {
       res.sendStatus(403);
     }
-  } 
+  }
   // Handle manual testing (optional)
   else {
     res.send('Stormy is running! 🚀');
@@ -25,7 +28,7 @@ app.get('/api/webhook', (req, res) => {
 });
 
 // Handle incoming messages
-app.post('/api/webhook', async (req, res) => { // Fix: Changed to /api/webhook
+app.post('/api/webhook', async (req, res) => { 
   if (!req.body.entry || !req.body.entry[0].messaging) {
     return res.sendStatus(400);
   }
@@ -38,25 +41,25 @@ app.post('/api/webhook', async (req, res) => { // Fix: Changed to /api/webhook
     return res.sendStatus(200); // Ignore non-text messages
   }
 
-  console.log(`Received message: ${messageText} from sender: ${senderId}`);
-
   try {
-    // Call Grok API (replace with your endpoint)
-    const grokResponse = await axios.post('https://api.grok.com/v1/chat/completions', {
-      prompt: messageText,
-      api_key: GROK_API_KEY
+    // Call Groq API using the new SDK method
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "user",
+          content: messageText,  // Send the incoming message as input
+        },
+      ],
+      model: "llama-3.3-70b-versatile",  // You can change the model if needed
     });
 
-    const reply = grokResponse.data.reply || "Sorry, I couldn't understand that.";
-    console.log(`Grok response: ${reply}`);
+    const reply = completion.choices[0].message.content || "Sorry, I couldn't understand that.";
 
     // Send reply to Facebook
-    const facebookResponse = await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
+    await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
       recipient: { id: senderId },
       message: { text: reply }
     });
-
-    console.log('Facebook response:', facebookResponse.data);
 
   } catch (error) {
     console.error('Error:', error.response?.data || error.message);
