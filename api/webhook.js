@@ -14,7 +14,7 @@ app.get('/api/webhook', (req, res) => {
 });
 
 // Verify Facebook Webhook
-app.get('/api/webhook', (req, res) => {
+app.get('/webhook', (req, res) => {
   // Check if the mode and token match
   if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === VERIFY_TOKEN) {
     // Respond with the challenge if verification is successful
