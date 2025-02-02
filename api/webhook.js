@@ -7,6 +7,10 @@ app.use(express.json());
 const GROK_API_KEY = process.env.GROK_API_KEY; // Store in Vercel Environment Variables
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN; // Store in Vercel Environment Variables
 
+app.get('/api/webhook', (req, res) => {
+  res.send('Stormy is running!');
+});
+
 // Verify Facebook Webhook
 app.get('/webhook', (req, res) => {
   if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === 'YOUR_VERIFY_TOKEN') {
