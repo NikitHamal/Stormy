@@ -1,34 +1,43 @@
 const express = require('express');
 const axios = require('axios');
-const Groq = require('groq-sdk');  // Import Groq SDK
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 app.use(express.json());
 
-// Initialize Groq with your API Key
-const groq = new Groq({ apiKey: process.env.GROK_API_KEY });
-
 // Load environment variables
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+
+// Gemini API helper function
+async function generateGeminiResponse(prompt) {
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (error) {
+    console.error('Gemini API error:', error.response?.data || error.message);
+    return "Sorry, I couldn't understand that.";
+  }
+}
 
 // Combined route for Facebook verification and manual testing
 app.get('/api/webhook', (req, res) => {
   // Handle Facebook verification
   if (req.query['hub.mode'] === 'subscribe') {
     if (req.query['hub.verify_token'] === VERIFY_TOKEN) {
-      res.status(200).send(req.query['hub.challenge']);
+      return res.status(200).send(req.query['hub.challenge']);
     } else {
-      res.sendStatus(403);
+      return res.sendStatus(403);
     }
   }
-  // Handle manual testing (optional)
-  else {
-    res.send('Stormy is running! 🚀');
-  }
+  // Handle manual testing
+  res.send('Stormy is running! 🚀');
 });
 
 // Handle incoming messages
-app.post('/api/webhook', async (req, res) => { 
+app.post('/api/webhook', async (req, res) => {
   if (!req.body.entry || !req.body.entry[0].messaging) {
     return res.sendStatus(400);
   }
@@ -41,32 +50,28 @@ app.post('/api/webhook', async (req, res) => {
     return res.sendStatus(200); // Ignore non-text messages
   }
 
-  try {
-    // Call Groq API using the new SDK method
-    const completion = await groq.chat.completions.create({
-      messages: [
-        {
-          role: "user",
-          content: messageText,  // Send the incoming message as input
-        },
-      ],
-      model: "llama-3.3-70b-versatile",  // You can change the model if needed
-    });
+  console.log(`Received message: ${messageText} from sender: ${senderId}`);
 
-    const reply = completion.choices[0].message.content || "Sorry, I couldn't understand that.";
+  try {
+    // Generate response using Gemini AI
+    const reply = await generateGeminiResponse(messageText);
+    console.log(`Gemini reply: ${reply}`);
 
     // Send reply to Facebook
-    await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`, {
-      recipient: { id: senderId },
-      message: { text: reply }
-    });
-
+    const facebookResponse = await axios.post(
+      `https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
+      {
+        recipient: { id: senderId },
+        message: { text: reply }
+      }
+    );
+    console.log('Facebook response:', facebookResponse.data);
   } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
+    console.error('Error handling message:', error.response?.data || error.message);
   }
 
   res.sendStatus(200);
 });
 
-// Start server (Vercel handles this automatically)
+// Export the Express app (Vercel will handle starting the server)
 module.exports = app;
