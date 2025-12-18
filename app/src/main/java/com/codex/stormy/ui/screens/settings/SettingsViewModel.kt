@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.codex.stormy.CodeXApplication
+import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.repository.PreferencesRepository
 import com.codex.stormy.data.repository.ThemeMode
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,7 +22,8 @@ data class SettingsUiState(
     val wordWrap: Boolean = true,
     val autoSave: Boolean = true,
     val apiKey: String = "",
-    val aiModel: String = "gpt-4"
+    val aiModel: String = DeepInfraModels.defaultModel.id,
+    val availableModels: List<AiModel> = DeepInfraModels.allModels
 )
 
 class SettingsViewModel(

@@ -109,7 +109,17 @@ data class ExtendedColors(
     val syntaxFunction: Color,
     val syntaxTag: Color,
     val syntaxAttribute: Color,
-    val syntaxOperator: Color
+    val syntaxOperator: Color,
+    // Diff view colors
+    val diffAddedBackground: Color,
+    val diffAddedText: Color,
+    val diffRemovedBackground: Color,
+    val diffRemovedText: Color,
+    val diffContextText: Color,
+    val diffHeaderBackground: Color,
+    val diffHeaderText: Color,
+    val diffBackground: Color,
+    val diffLineNumber: Color
 )
 
 val LightExtendedColors = ExtendedColors(
@@ -128,7 +138,16 @@ val LightExtendedColors = ExtendedColors(
     syntaxFunction = SyntaxColors.Function,
     syntaxTag = SyntaxColors.Tag,
     syntaxAttribute = SyntaxColors.Attribute,
-    syntaxOperator = SyntaxColors.Operator
+    syntaxOperator = SyntaxColors.Operator,
+    diffAddedBackground = DiffColors.AddedBackgroundLight,
+    diffAddedText = DiffColors.AddedTextLight,
+    diffRemovedBackground = DiffColors.RemovedBackgroundLight,
+    diffRemovedText = DiffColors.RemovedTextLight,
+    diffContextText = DiffColors.ContextTextLight,
+    diffHeaderBackground = DiffColors.HeaderBackgroundLight,
+    diffHeaderText = DiffColors.HeaderTextLight,
+    diffBackground = DiffColors.BackgroundLight,
+    diffLineNumber = DiffColors.LineNumberLight
 )
 
 val DarkExtendedColors = ExtendedColors(
@@ -147,7 +166,16 @@ val DarkExtendedColors = ExtendedColors(
     syntaxFunction = SyntaxColors.Function,
     syntaxTag = SyntaxColors.Tag,
     syntaxAttribute = SyntaxColors.Attribute,
-    syntaxOperator = SyntaxColors.Operator
+    syntaxOperator = SyntaxColors.Operator,
+    diffAddedBackground = DiffColors.AddedBackgroundDark,
+    diffAddedText = DiffColors.AddedTextDark,
+    diffRemovedBackground = DiffColors.RemovedBackgroundDark,
+    diffRemovedText = DiffColors.RemovedTextDark,
+    diffContextText = DiffColors.ContextTextDark,
+    diffHeaderBackground = DiffColors.HeaderBackgroundDark,
+    diffHeaderText = DiffColors.HeaderTextDark,
+    diffBackground = DiffColors.BackgroundDark,
+    diffLineNumber = DiffColors.LineNumberDark
 )
 
 val LocalExtendedColors = staticCompositionLocalOf { LightExtendedColors }

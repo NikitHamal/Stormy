@@ -60,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -70,7 +69,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
 import com.codex.stormy.domain.model.Project
-import com.codex.stormy.ui.theme.AccentColors
 
 @Composable
 fun HomeScreen(
@@ -250,18 +248,14 @@ private fun EmptyState(
             modifier = Modifier
                 .size(80.dp)
                 .clip(CircleShape)
-                .background(
-                    brush = Brush.linearGradient(
-                        listOf(AccentColors.Blue, AccentColors.Purple)
-                    )
-                ),
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Outlined.Code,
                 contentDescription = null,
                 modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.onPrimary
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
 

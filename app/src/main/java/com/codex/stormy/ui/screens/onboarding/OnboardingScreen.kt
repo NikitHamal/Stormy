@@ -41,7 +41,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -49,34 +48,29 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
-import com.codex.stormy.ui.theme.AccentColors
 import kotlinx.coroutines.launch
 
 data class OnboardingPage(
     val icon: ImageVector,
     val titleRes: Int,
-    val descriptionRes: Int,
-    val gradientColors: List<androidx.compose.ui.graphics.Color>
+    val descriptionRes: Int
 )
 
 private val onboardingPages = listOf(
     OnboardingPage(
         icon = Icons.Rounded.Code,
         titleRes = R.string.onboarding_title_1,
-        descriptionRes = R.string.onboarding_desc_1,
-        gradientColors = listOf(AccentColors.Blue, AccentColors.Purple)
+        descriptionRes = R.string.onboarding_desc_1
     ),
     OnboardingPage(
         icon = Icons.Rounded.SmartToy,
         titleRes = R.string.onboarding_title_2,
-        descriptionRes = R.string.onboarding_desc_2,
-        gradientColors = listOf(AccentColors.Purple, AccentColors.Pink)
+        descriptionRes = R.string.onboarding_desc_2
     ),
     OnboardingPage(
         icon = Icons.Rounded.Preview,
         titleRes = R.string.onboarding_title_3,
-        descriptionRes = R.string.onboarding_desc_3,
-        gradientColors = listOf(AccentColors.Cyan, AccentColors.Green)
+        descriptionRes = R.string.onboarding_desc_3
     )
 )
 
@@ -200,16 +194,14 @@ private fun OnboardingPageContent(
             modifier = Modifier
                 .size(120.dp)
                 .clip(CircleShape)
-                .background(
-                    brush = Brush.linearGradient(page.gradientColors)
-                ),
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = page.icon,
                 contentDescription = null,
                 modifier = Modifier.size(56.dp),
-                tint = MaterialTheme.colorScheme.onPrimary
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
 

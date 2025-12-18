@@ -86,6 +86,7 @@ data class ChatMessage(
         fun createAssistantMessage(
             projectId: String,
             content: String,
+            status: MessageStatus = MessageStatus.RECEIVED,
             codeChanges: List<CodeChange>? = null
         ): ChatMessage = ChatMessage(
             id = UUID.randomUUID().toString(),
@@ -93,7 +94,7 @@ data class ChatMessage(
             role = MessageRole.ASSISTANT,
             content = content,
             timestamp = System.currentTimeMillis(),
-            status = MessageStatus.RECEIVED,
+            status = status,
             codeChanges = codeChanges
         )
     }

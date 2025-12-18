@@ -2,7 +2,10 @@ package com.codex.stormy
 
 import android.app.Application
 import com.codex.stormy.crash.CrashHandler
+import com.codex.stormy.data.ai.tools.MemoryStorage
+import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.local.database.CodeXDatabase
+import com.codex.stormy.data.repository.AiRepository
 import com.codex.stormy.data.repository.PreferencesRepository
 import com.codex.stormy.data.repository.ProjectRepository
 import kotlinx.coroutines.CoroutineScope
@@ -23,6 +26,18 @@ class CodeXApplication : Application() {
 
     val preferencesRepository: PreferencesRepository by lazy {
         PreferencesRepository(this)
+    }
+
+    val aiRepository: AiRepository by lazy {
+        AiRepository(preferencesRepository)
+    }
+
+    val memoryStorage: MemoryStorage by lazy {
+        MemoryStorage(this)
+    }
+
+    val toolExecutor: ToolExecutor by lazy {
+        ToolExecutor(projectRepository, memoryStorage)
     }
 
     override fun onCreate() {
