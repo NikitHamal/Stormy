@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Brand Colors -->
+    <color name="codex_primary">#6366F1</color>
+    <color name="codex_primary_variant">#4F46E5</color>
+    <color name="codex_secondary">#8B5CF6</color>
+
+    <!-- Splash Screen Colors -->
+    <color name="splash_background_light">#FFFFFF</color>
+    <color name="splash_background_dark">#0F0F14</color>
+
+    <!-- Accent Colors -->
+    <color name="accent_blue">#3B82F6</color>
+    <color name="accent_purple">#8B5CF6</color>
+    <color name="accent_pink">#EC4899</color>
+    <color name="accent_green">#10B981</color>
+    <color name="accent_orange">#F97316</color>
+    <color name="accent_red">#EF4444</color>
+
+    <!-- Syntax Highlighting Colors -->
+    <color name="syntax_keyword">#C678DD</color>
+    <color name="syntax_string">#98C379</color>
+    <color name="syntax_number">#D19A66</color>
+    <color name="syntax_comment">#5C6370</color>
+    <color name="syntax_function">#61AFEF</color>
+    <color name="syntax_tag">#E06C75</color>
+    <color name="syntax_attribute">#D19A66</color>
+    <color name="syntax_operator">#56B6C2</color>
+</resources>

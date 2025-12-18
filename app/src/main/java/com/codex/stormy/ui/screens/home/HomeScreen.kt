@@ -1,0 +1,477 @@
+package com.codex.stormy.ui.screens.home
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.codex.stormy.R
+import com.codex.stormy.domain.model.Project
+import com.codex.stormy.ui.theme.AccentColors
+
+@Composable
+fun HomeScreen(
+    onProjectClick: (String) -> Unit,
+    onSettingsClick: () -> Unit,
+    viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var projectToDelete by remember { mutableStateOf<Project?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = context.getString(R.string.home_title),
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = context.getString(R.string.action_settings)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showCreateDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(context.getString(R.string.home_create_project))
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            SearchBar(
+                query = uiState.searchQuery,
+                onQueryChange = viewModel::updateSearchQuery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            when {
+                uiState.projects.isEmpty() && uiState.searchQuery.isEmpty() -> {
+                    EmptyState(
+                        onCreateClick = { showCreateDialog = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                uiState.projects.isEmpty() && uiState.searchQuery.isNotEmpty() -> {
+                    EmptySearchState(
+                        query = uiState.searchQuery,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                else -> {
+                    ProjectsList(
+                        projects = uiState.projects,
+                        onProjectClick = { project ->
+                            viewModel.openProject(project.id)
+                            onProjectClick(project.id)
+                        },
+                        onDeleteClick = { project ->
+                            projectToDelete = project
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        CreateProjectDialog(
+            onDismiss = { showCreateDialog = false },
+            onConfirm = { name, description, template ->
+                viewModel.createProject(name, description, template)
+                showCreateDialog = false
+            }
+        )
+    }
+
+    projectToDelete?.let { project ->
+        DeleteProjectDialog(
+            projectName = project.name,
+            onDismiss = { projectToDelete = null },
+            onConfirm = {
+                viewModel.deleteProject(project.id)
+                projectToDelete = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier,
+        placeholder = {
+            Text(context.getString(R.string.home_search_hint))
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        trailingIcon = {
+            AnimatedVisibility(
+                visible = query.isNotEmpty(),
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut()
+            ) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(
+                        imageVector = Icons.Rounded.Clear,
+                        contentDescription = null
+                    )
+                }
+            }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(16.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+        ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
+    )
+}
+
+@Composable
+private fun EmptyState(
+    onCreateClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(
+                    brush = Brush.linearGradient(
+                        listOf(AccentColors.Blue, AccentColors.Purple)
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Code,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = context.getString(R.string.home_empty_title),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = context.getString(R.string.home_empty_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun EmptySearchState(
+    query: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Search,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "No projects found for \"$query\"",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ProjectsList(
+    projects: List<Project>,
+    onProjectClick: (Project) -> Unit,
+    onDeleteClick: (Project) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(
+            items = projects,
+            key = { it.id }
+        ) { project ->
+            ProjectCard(
+                project = project,
+                onClick = { onProjectClick(project) },
+                onDeleteClick = { onDeleteClick(project) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateItem(
+                        fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        fadeOutSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                    )
+            )
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(80.dp))
+        }
+    }
+}
+
+@Composable
+private fun ProjectCard(
+    project: Project,
+    onClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FolderOpen,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = project.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (project.description.isNotEmpty()) {
+                    Text(
+                        text = project.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = project.formattedLastOpened,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            showMenu = false
+                            onDeleteClick()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeleteProjectDialog(
+    projectName: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(context.getString(R.string.home_delete_project_title))
+        },
+        text = {
+            Text(context.getString(R.string.home_delete_project_message, projectName))
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text(context.getString(R.string.action_delete))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(context.getString(R.string.action_cancel))
+            }
+        }
+    )
+}
