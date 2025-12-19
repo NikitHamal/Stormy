@@ -78,13 +78,13 @@ class MemoriesViewModel(
 
             try {
                 // Get all projects
-                val projects = projectRepository.allProjects.first()
+                val projects = projectRepository.getAllProjects().first()
 
                 // Load memories for each project
-                val projectMemories = projects.map { project ->
+                val projectMemories = projects.map { project: Project ->
                     loadProjectMemories(project)
                 }.filter { it.memories.isNotEmpty() || it.projectId == _uiState.value.selectedProject }
-                 .sortedByDescending { projectMemory ->
+                 .sortedByDescending { projectMemory: ProjectMemoryState ->
                      projectMemory.memories.maxOfOrNull { it.timestamp } ?: 0L
                  }
 
