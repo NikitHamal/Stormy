@@ -4,23 +4,27 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.codex.stormy.data.local.dao.AiModelDao
 import com.codex.stormy.data.local.dao.ChatMessageDao
 import com.codex.stormy.data.local.dao.ProjectDao
+import com.codex.stormy.data.local.entity.AiModelEntity
 import com.codex.stormy.data.local.entity.ChatMessageEntity
 import com.codex.stormy.data.local.entity.ProjectEntity
 
 @Database(
     entities = [
         ProjectEntity::class,
-        ChatMessageEntity::class
+        ChatMessageEntity::class,
+        AiModelEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class CodeXDatabase : RoomDatabase() {
 
     abstract fun projectDao(): ProjectDao
     abstract fun chatMessageDao(): ChatMessageDao
+    abstract fun aiModelDao(): AiModelDao
 
     companion object {
         private const val DATABASE_NAME = "codex_database"

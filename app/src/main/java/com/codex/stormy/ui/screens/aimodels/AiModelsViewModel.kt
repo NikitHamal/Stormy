@@ -7,53 +7,33 @@ import com.codex.stormy.CodeXApplication
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.DeepInfraModels
+import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 /**
- * UI state for the AI Models screen
+ * UI state for the AI Models management screen
  */
 data class AiModelsUiState(
     val allModels: List<AiModel> = emptyList(),
     val filteredModels: List<AiModel> = emptyList(),
     val currentModel: AiModel? = null,
     val selectedProvider: AiProvider? = null,
+    val searchQuery: String = "",
     val showStreamingOnly: Boolean = false,
     val showToolCallsOnly: Boolean = false,
     val showThinkingOnly: Boolean = false,
     val isLoading: Boolean = false,
-    val error: String? = null
-)
-
-/**
- * Response models for DeepInfra API
- */
-@Serializable
-private data class DeepInfraModelsResponse(
-    val data: List<DeepInfraModelData>? = null
-)
-
-@Serializable
-private data class DeepInfraModelData(
-    val id: String,
-    val owned_by: String? = null,
-    val object_type: String? = null,
-    val created: Long? = null,
-    val description: String? = null,
-    val context_length: Int? = null,
-    val max_tokens: Int? = null,
-    val supports_streaming: Boolean? = null,
-    val supports_tool_calls: Boolean? = null
+    val isRefreshing: Boolean = false,
+    val error: String? = null,
+    val totalCount: Int = 0,
+    val enabledCount: Int = 0
 )
 
 /**
@@ -61,21 +41,82 @@ private data class DeepInfraModelData(
  * Handles dynamic model fetching from DeepInfra API and model selection
  */
 class AiModelsViewModel(
+    private val modelRepository: AiModelRepository,
     private val preferencesRepository: PreferencesRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(AiModelsUiState())
-    val uiState: StateFlow<AiModelsUiState> = _uiState.asStateFlow()
+    private val _isLoading = MutableStateFlow(false)
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _error = MutableStateFlow<String?>(null)
+    private val _searchQuery = MutableStateFlow("")
+    private val _selectedProvider = MutableStateFlow<AiProvider?>(null)
+    private val _showStreamingOnly = MutableStateFlow(false)
+    private val _showToolCallsOnly = MutableStateFlow(false)
+    private val _showThinkingOnly = MutableStateFlow(false)
+    private val _currentModel = MutableStateFlow<AiModel?>(null)
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+    val uiState: StateFlow<AiModelsUiState> = combine(
+        modelRepository.observeEnabledModels(),
+        _isLoading,
+        _isRefreshing,
+        _error,
+        _searchQuery,
+        _selectedProvider,
+        _showStreamingOnly,
+        _showToolCallsOnly,
+        _showThinkingOnly,
+        _currentModel
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        val models = values[0] as List<AiModel>
+        val isLoading = values[1] as Boolean
+        val isRefreshing = values[2] as Boolean
+        val error = values[3] as String?
+        val searchQuery = values[4] as String
+        val selectedProvider = values[5] as AiProvider?
+        val showStreamingOnly = values[6] as Boolean
+        val showToolCallsOnly = values[7] as Boolean
+        val showThinkingOnly = values[8] as Boolean
+        val currentModel = values[9] as AiModel?
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+        // Apply filters
+        val filteredModels = models.filter { model ->
+            // Provider filter
+            val providerMatch = selectedProvider == null || model.provider == selectedProvider
+
+            // Search filter
+            val searchMatch = searchQuery.isBlank() ||
+                    model.name.contains(searchQuery, ignoreCase = true) ||
+                    model.id.contains(searchQuery, ignoreCase = true)
+
+            // Feature filters
+            val streamingMatch = !showStreamingOnly || model.supportsStreaming
+            val toolCallsMatch = !showToolCallsOnly || model.supportsToolCalls
+            val thinkingMatch = !showThinkingOnly || model.isThinkingModel
+
+            providerMatch && searchMatch && streamingMatch && toolCallsMatch && thinkingMatch
+        }
+
+        AiModelsUiState(
+            allModels = models,
+            filteredModels = filteredModels,
+            currentModel = currentModel,
+            selectedProvider = selectedProvider,
+            searchQuery = searchQuery,
+            showStreamingOnly = showStreamingOnly,
+            showToolCallsOnly = showToolCallsOnly,
+            showThinkingOnly = showThinkingOnly,
+            isLoading = isLoading,
+            isRefreshing = isRefreshing,
+            error = error,
+            totalCount = models.size,
+            enabledCount = models.size // All shown models are enabled
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = AiModelsUiState(isLoading = true)
+    )
 
     init {
         loadInitialData()
@@ -83,24 +124,23 @@ class AiModelsViewModel(
 
     private fun loadInitialData() {
         viewModelScope.launch {
-            // Load current model preference
-            val currentModelId = preferencesRepository.aiModel.first()
+            _isLoading.value = true
+            try {
+                // Initialize models if database is empty
+                modelRepository.initializeModelsIfEmpty()
 
-            // Start with predefined models
-            val initialModels = DeepInfraModels.allModels
-            val currentModel = initialModels.find { it.id == currentModelId }
-                ?: DeepInfraModels.defaultModel
+                // Load current model preference
+                val currentModelId = preferencesRepository.aiModel.first()
+                val model = modelRepository.getModelById(currentModelId)
+                    ?: modelRepository.getEnabledModels().firstOrNull()
+                    ?: DeepInfraModels.defaultModel
 
-            _uiState.update { state ->
-                state.copy(
-                    allModels = initialModels,
-                    filteredModels = initialModels,
-                    currentModel = currentModel
-                )
+                _currentModel.value = model
+            } catch (e: Exception) {
+                _error.value = "Failed to load models: ${e.message}"
+            } finally {
+                _isLoading.value = false
             }
-
-            // Fetch dynamic models from API
-            refreshModels()
         }
     }
 
@@ -109,156 +149,15 @@ class AiModelsViewModel(
      */
     fun refreshModels() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _isRefreshing.value = true
+            _error.value = null
 
-            try {
-                val fetchedModels = fetchModelsFromApi()
-                val mergedModels = mergeModels(DeepInfraModels.allModels, fetchedModels)
-
-                // Update current model reference if needed
-                val currentModelId = preferencesRepository.aiModel.first()
-                val currentModel = mergedModels.find { it.id == currentModelId }
-                    ?: mergedModels.firstOrNull()
-                    ?: DeepInfraModels.defaultModel
-
-                _uiState.update { state ->
-                    state.copy(
-                        allModels = mergedModels,
-                        isLoading = false
-                    )
-                }
-
-                // Re-apply filters
-                applyFilters()
-
-            } catch (e: Exception) {
-                _uiState.update { state ->
-                    state.copy(
-                        isLoading = false,
-                        error = "Failed to fetch models: ${e.message}"
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * Fetch models from DeepInfra API
-     */
-    private suspend fun fetchModelsFromApi(): List<AiModel> {
-        return try {
-            val request = Request.Builder()
-                .url("https://api.deepinfra.com/v1/openai/models")
-                .addHeader("Accept", "application/json")
-                .get()
-                .build()
-
-            val response = client.newCall(request).execute()
-
-            if (!response.isSuccessful) {
-                return emptyList()
+            val result = modelRepository.refreshModelsFromProvider()
+            result.onFailure { error ->
+                _error.value = "Failed to refresh: ${error.message}"
             }
 
-            val responseBody = response.body?.string() ?: return emptyList()
-            val modelsResponse = json.decodeFromString<DeepInfraModelsResponse>(responseBody)
-
-            modelsResponse.data?.mapNotNull { data ->
-                // Filter for chat models only
-                if (!data.id.contains("chat", ignoreCase = true) &&
-                    !data.id.contains("instruct", ignoreCase = true) &&
-                    !data.id.contains("llama", ignoreCase = true) &&
-                    !data.id.contains("qwen", ignoreCase = true) &&
-                    !data.id.contains("mistral", ignoreCase = true) &&
-                    !data.id.contains("deepseek", ignoreCase = true)
-                ) {
-                    return@mapNotNull null
-                }
-
-                AiModel(
-                    id = data.id,
-                    name = formatModelName(data.id),
-                    provider = AiProvider.DEEPINFRA,
-                    contextLength = data.context_length ?: 4096,
-                    supportsStreaming = data.supports_streaming ?: true,
-                    supportsToolCalls = data.supports_tool_calls ?: false,
-                    isThinkingModel = data.id.contains("R1", ignoreCase = true) ||
-                            data.id.contains("reasoning", ignoreCase = true)
-                )
-            } ?: emptyList()
-
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    /**
-     * Merge predefined models with fetched models, preferring predefined metadata
-     */
-    private fun mergeModels(
-        predefined: List<AiModel>,
-        fetched: List<AiModel>
-    ): List<AiModel> {
-        val predefinedIds = predefined.map { it.id }.toSet()
-        val newModels = fetched.filter { it.id !in predefinedIds }
-        return (predefined + newModels).sortedBy { it.name }
-    }
-
-    /**
-     * Select a provider filter
-     */
-    fun selectProvider(provider: AiProvider?) {
-        _uiState.update { it.copy(selectedProvider = provider) }
-        applyFilters()
-    }
-
-    /**
-     * Toggle streaming filter
-     */
-    fun toggleStreamingFilter() {
-        _uiState.update { it.copy(showStreamingOnly = !it.showStreamingOnly) }
-        applyFilters()
-    }
-
-    /**
-     * Toggle tool calls filter
-     */
-    fun toggleToolCallsFilter() {
-        _uiState.update { it.copy(showToolCallsOnly = !it.showToolCallsOnly) }
-        applyFilters()
-    }
-
-    /**
-     * Toggle thinking/reasoning filter
-     */
-    fun toggleThinkingFilter() {
-        _uiState.update { it.copy(showThinkingOnly = !it.showThinkingOnly) }
-        applyFilters()
-    }
-
-    /**
-     * Apply all active filters to the models list
-     */
-    private fun applyFilters() {
-        _uiState.update { state ->
-            var filtered = state.allModels
-
-            // Provider filter
-            state.selectedProvider?.let { provider ->
-                filtered = filtered.filter { it.provider == provider }
-            }
-
-            // Feature filters
-            if (state.showStreamingOnly) {
-                filtered = filtered.filter { it.supportsStreaming }
-            }
-            if (state.showToolCallsOnly) {
-                filtered = filtered.filter { it.supportsToolCalls }
-            }
-            if (state.showThinkingOnly) {
-                filtered = filtered.filter { it.isThinkingModel }
-            }
-
-            state.copy(filteredModels = filtered)
+            _isRefreshing.value = false
         }
     }
 
@@ -268,38 +167,62 @@ class AiModelsViewModel(
     fun selectModel(model: AiModel) {
         viewModelScope.launch {
             preferencesRepository.setAiModel(model.id)
-            _uiState.update { it.copy(currentModel = model) }
+            modelRepository.recordModelUsage(model.id)
+            _currentModel.value = model
         }
+    }
+
+    /**
+     * Update search query
+     */
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    /**
+     * Select a provider filter
+     */
+    fun selectProvider(provider: AiProvider?) {
+        _selectedProvider.value = provider
+    }
+
+    /**
+     * Toggle streaming filter
+     */
+    fun toggleStreamingFilter() {
+        _showStreamingOnly.value = !_showStreamingOnly.value
+    }
+
+    /**
+     * Toggle tool calls filter
+     */
+    fun toggleToolCallsFilter() {
+        _showToolCallsOnly.value = !_showToolCallsOnly.value
+    }
+
+    /**
+     * Toggle thinking/reasoning filter
+     */
+    fun toggleThinkingFilter() {
+        _showThinkingOnly.value = !_showThinkingOnly.value
+    }
+
+    /**
+     * Clear all filters
+     */
+    fun clearFilters() {
+        _searchQuery.value = ""
+        _selectedProvider.value = null
+        _showStreamingOnly.value = false
+        _showToolCallsOnly.value = false
+        _showThinkingOnly.value = false
     }
 
     /**
      * Clear the error message
      */
     fun clearError() {
-        _uiState.update { it.copy(error = null) }
-    }
-
-    /**
-     * Format model ID into a readable name
-     */
-    private fun formatModelName(modelId: String): String {
-        // Extract the model name from the ID
-        val parts = modelId.split("/")
-        val name = parts.lastOrNull() ?: modelId
-
-        // Clean up common suffixes and format
-        return name
-            .replace("-Instruct", " Instruct")
-            .replace("-instruct", " Instruct")
-            .replace("-Chat", " Chat")
-            .replace("-chat", " Chat")
-            .replace("_", " ")
-            .replace("-", " ")
-            .split(" ")
-            .joinToString(" ") { word ->
-                if (word.length <= 2) word.uppercase()
-                else word.replaceFirstChar { it.uppercase() }
-            }
+        _error.value = null
     }
 
     companion object {
@@ -308,6 +231,7 @@ class AiModelsViewModel(
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val application = CodeXApplication.getInstance()
                 return AiModelsViewModel(
+                    modelRepository = application.aiModelRepository,
                     preferencesRepository = application.preferencesRepository
                 ) as T
             }

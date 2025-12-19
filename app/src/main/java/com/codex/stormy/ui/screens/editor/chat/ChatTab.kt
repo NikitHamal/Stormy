@@ -43,14 +43,11 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.rounded.SmartToy
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -59,11 +56,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,27 +70,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.R
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.tools.TodoItem
-import com.codex.stormy.data.local.entity.MessageStatus
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.ui.components.DiffView
-import com.codex.stormy.ui.components.MarkdownText
 import com.codex.stormy.ui.components.TaskPlanningPanel
+import com.codex.stormy.ui.components.chat.ModelSelectorSheet
+import com.codex.stormy.ui.components.message.AiMessageContent
 import com.codex.stormy.ui.components.toUiCodeChange
 import com.codex.stormy.ui.theme.CodeXTheme
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatTab(
     messages: List<ChatMessage>,
@@ -100,12 +98,20 @@ fun ChatTab(
     agentMode: Boolean,
     taskList: List<TodoItem> = emptyList(),
     currentModel: AiModel = DeepInfraModels.defaultModel,
+    availableModels: List<AiModel> = DeepInfraModels.allModels,
     onInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
+    onStopGeneration: (() -> Unit)? = null,
     onToggleAgentMode: () -> Unit,
-    onModelChange: (AiModel) -> Unit = {}
+    onModelChange: (AiModel) -> Unit = {},
+    onRefreshModels: () -> Unit = {},
+    onNavigateToModels: () -> Unit = {},
+    isRefreshingModels: Boolean = false
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var showModelSelector by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -142,7 +148,7 @@ fun ChatTab(
                     .weight(1f)
                     .fillMaxWidth(),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(
                     items = messages,
@@ -150,11 +156,12 @@ fun ChatTab(
                 ) { message ->
                     ChatBubble(
                         message = message,
+                        isStreaming = isLoading && message == messages.lastOrNull() && !message.isUser,
                         modifier = Modifier.animateItem()
                     )
                 }
 
-                if (isLoading) {
+                if (isLoading && messages.lastOrNull()?.isUser == true) {
                     item {
                         TypingIndicator()
                     }
@@ -166,13 +173,36 @@ fun ChatTab(
             value = inputText,
             onValueChange = onInputChange,
             onSend = onSendMessage,
+            onStop = onStopGeneration,
             isEnabled = !isLoading,
+            isProcessing = isLoading,
             agentMode = agentMode,
             currentModel = currentModel,
-            onModelChange = onModelChange,
+            onModelClick = { showModelSelector = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
+        )
+    }
+
+    // Model selector bottom sheet
+    if (showModelSelector) {
+        ModelSelectorSheet(
+            models = availableModels,
+            selectedModel = currentModel,
+            onModelSelected = { model ->
+                onModelChange(model)
+                scope.launch { sheetState.hide() }
+                showModelSelector = false
+            },
+            onDismiss = { showModelSelector = false },
+            onManageModels = {
+                showModelSelector = false
+                onNavigateToModels()
+            },
+            onRefresh = onRefreshModels,
+            isRefreshing = isRefreshingModels,
+            sheetState = sheetState
         )
     }
 }
@@ -320,6 +350,7 @@ private fun AgentModeToggle(
 @Composable
 private fun ChatBubble(
     message: ChatMessage,
+    isStreaming: Boolean = false,
     modifier: Modifier = Modifier,
     onApplyChange: ((String) -> Unit)? = null
 ) {
@@ -330,52 +361,50 @@ private fun ChatBubble(
         horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Main message bubble
-        if (message.content.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomStart = if (message.isUser) 16.dp else 4.dp,
-                            bottomEnd = if (message.isUser) 4.dp else 16.dp
+        if (message.isUser) {
+            // User message - compact bubble style
+            if (message.content.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomStart = 16.dp,
+                                bottomEnd = 4.dp
+                            )
                         )
-                    )
-                    .background(
-                        if (message.isUser) {
-                            extendedColors.chatUserBubble
-                        } else {
-                            extendedColors.chatAssistantBubble
-                        }
-                    )
-                    .padding(12.dp)
-            ) {
-                Column {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (message.isUser) {
-                            extendedColors.chatUserText
-                        } else {
-                            extendedColors.chatAssistantText
-                        }
-                    )
+                        .background(extendedColors.chatUserBubble)
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = extendedColors.chatUserText
+                        )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                    Text(
-                        text = message.formattedTime,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (message.isUser) {
-                            extendedColors.chatUserText.copy(alpha = 0.7f)
-                        } else {
-                            extendedColors.chatAssistantText.copy(alpha = 0.5f)
-                        },
-                        modifier = Modifier.align(Alignment.End)
-                    )
+                        Text(
+                            text = message.formattedTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = extendedColors.chatUserText.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.End)
+                        )
+                    }
                 }
+            }
+        } else {
+            // AI message - professional IDE-style with structured content
+            if (message.content.isNotEmpty()) {
+                AiMessageContent(
+                    content = message.content,
+                    timestamp = message.formattedTime,
+                    isStreaming = isStreaming,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
 
@@ -430,24 +459,68 @@ private fun ChatInput(
     value: String,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStop: (() -> Unit)?,
     isEnabled: Boolean,
+    isProcessing: Boolean,
     agentMode: Boolean,
     currentModel: AiModel,
-    onModelChange: (AiModel) -> Unit,
+    onModelClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
     Column(modifier = modifier) {
-        // Model selector row - compact and minimal
-        CompactModelSelector(
-            currentModel = currentModel,
-            onModelChange = onModelChange,
+        // Model selector row - compact chip that opens bottom sheet
+        Surface(
+            onClick = onModelClick,
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
-                .fillMaxWidth()
+                .animateContentSize()
                 .padding(bottom = 8.dp)
-        )
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Model icon based on type
+                Icon(
+                    imageVector = when {
+                        currentModel.isThinkingModel -> Icons.Outlined.Psychology
+                        currentModel.supportsToolCalls -> Icons.Outlined.AutoAwesome
+                        else -> Icons.Outlined.Bolt
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = when {
+                        currentModel.isThinkingModel -> MaterialTheme.colorScheme.tertiary
+                        currentModel.supportsToolCalls -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.secondary
+                    }
+                )
+
+                // Model name
+                Text(
+                    text = currentModel.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Dropdown arrow
+                Icon(
+                    imageVector = Icons.Outlined.ExpandMore,
+                    contentDescription = "Select model",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         Row(
             verticalAlignment = Alignment.Bottom
@@ -491,27 +564,44 @@ private fun ChatInput(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            AnimatedVisibility(
-                visible = value.isNotBlank(),
-                enter = fadeIn() + scaleIn(),
-                exit = fadeOut() + scaleOut()
-            ) {
+            // Show stop button when processing, send button otherwise
+            if (isProcessing && onStop != null) {
                 IconButton(
-                    onClick = {
-                        onSend()
-                        focusManager.clearFocus()
-                    },
-                    enabled = isEnabled && value.isNotBlank(),
+                    onClick = onStop,
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     ),
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = context.getString(R.string.action_send)
+                        imageVector = Icons.Outlined.Stop,
+                        contentDescription = context.getString(R.string.action_stop)
                     )
+                }
+            } else {
+                AnimatedVisibility(
+                    visible = value.isNotBlank(),
+                    enter = fadeIn() + scaleIn(),
+                    exit = fadeOut() + scaleOut()
+                ) {
+                    IconButton(
+                        onClick = {
+                            onSend()
+                            focusManager.clearFocus()
+                        },
+                        enabled = isEnabled && value.isNotBlank(),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = context.getString(R.string.action_send)
+                        )
+                    }
                 }
             }
         }
@@ -546,309 +636,3 @@ private fun ChatInput(
     }
 }
 
-/**
- * Compact model selector that displays current model with dropdown
- * Shows model name with capability badges (streaming, tools, thinking)
- */
-@Composable
-private fun CompactModelSelector(
-    currentModel: AiModel,
-    onModelChange: (AiModel) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var showDropdown by remember { mutableStateOf(false) }
-    val availableModels = remember { DeepInfraModels.allModels }
-
-    Box(modifier = modifier) {
-        // Current model display - clickable to show dropdown
-        Surface(
-            onClick = { showDropdown = true },
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.animateContentSize()
-        ) {
-            Row(
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Model icon based on type
-                Icon(
-                    imageVector = when {
-                        currentModel.isThinkingModel -> Icons.Outlined.Psychology
-                        currentModel.supportsToolCalls -> Icons.Outlined.AutoAwesome
-                        else -> Icons.Outlined.Bolt
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = when {
-                        currentModel.isThinkingModel -> MaterialTheme.colorScheme.tertiary
-                        currentModel.supportsToolCalls -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.secondary
-                    }
-                )
-
-                // Model name
-                Text(
-                    text = currentModel.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-
-                // Capability badges
-                ModelCapabilityBadges(
-                    model = currentModel,
-                    compact = true
-                )
-
-                // Dropdown arrow
-                Icon(
-                    imageVector = Icons.Outlined.ExpandMore,
-                    contentDescription = "Select model",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        // Dropdown menu with model options
-        DropdownMenu(
-            expanded = showDropdown,
-            onDismissRequest = { showDropdown = false },
-            modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)
-        ) {
-            // Group models by category
-            val thinkingModels = availableModels.filter { it.isThinkingModel }
-            val agentModels = availableModels.filter { it.supportsToolCalls && !it.isThinkingModel }
-            val fastModels = availableModels.filter { !it.supportsToolCalls && !it.isThinkingModel }
-
-            // Thinking/Reasoning models section
-            if (thinkingModels.isNotEmpty()) {
-                ModelSectionHeader(
-                    title = "Reasoning Models",
-                    icon = Icons.Outlined.Psychology
-                )
-                thinkingModels.forEach { model ->
-                    ModelDropdownItem(
-                        model = model,
-                        isSelected = model.id == currentModel.id,
-                        onClick = {
-                            onModelChange(model)
-                            showDropdown = false
-                        }
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            }
-
-            // Agent-capable models section
-            if (agentModels.isNotEmpty()) {
-                ModelSectionHeader(
-                    title = "Agent Models",
-                    icon = Icons.Outlined.AutoAwesome
-                )
-                agentModels.forEach { model ->
-                    ModelDropdownItem(
-                        model = model,
-                        isSelected = model.id == currentModel.id,
-                        onClick = {
-                            onModelChange(model)
-                            showDropdown = false
-                        }
-                    )
-                }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            }
-
-            // Fast/lightweight models section
-            if (fastModels.isNotEmpty()) {
-                ModelSectionHeader(
-                    title = "Fast Models",
-                    icon = Icons.Outlined.Speed
-                )
-                fastModels.forEach { model ->
-                    ModelDropdownItem(
-                        model = model,
-                        isSelected = model.id == currentModel.id,
-                        onClick = {
-                            onModelChange(model)
-                            showDropdown = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Section header for model groups in dropdown
- */
-@Composable
-private fun ModelSectionHeader(
-    title: String,
-    icon: ImageVector
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
-/**
- * Individual model item in dropdown menu
- */
-@Composable
-private fun ModelDropdownItem(
-    model: AiModel,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    DropdownMenuItem(
-        text = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = model.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = formatContextLength(model.contextLength),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ModelCapabilityBadges(model = model, compact = false)
-
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Outlined.Check,
-                            contentDescription = "Selected",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-        },
-        onClick = onClick,
-        modifier = Modifier.padding(horizontal = 4.dp)
-    )
-}
-
-/**
- * Small capability badges showing model features
- */
-@Composable
-private fun ModelCapabilityBadges(
-    model: AiModel,
-    compact: Boolean
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (model.supportsStreaming) {
-            CapabilityBadge(
-                icon = Icons.Outlined.Bolt,
-                label = if (compact) null else "Stream",
-                color = MaterialTheme.colorScheme.secondary
-            )
-        }
-
-        if (model.supportsToolCalls) {
-            CapabilityBadge(
-                icon = Icons.Outlined.AutoAwesome,
-                label = if (compact) null else "Tools",
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        if (model.isThinkingModel) {
-            CapabilityBadge(
-                icon = Icons.Outlined.Psychology,
-                label = if (compact) null else "Think",
-                color = MaterialTheme.colorScheme.tertiary
-            )
-        }
-    }
-}
-
-/**
- * Individual capability badge
- */
-@Composable
-private fun CapabilityBadge(
-    icon: ImageVector,
-    label: String?,
-    color: Color
-) {
-    Surface(
-        shape = RoundedCornerShape(4.dp),
-        color = color.copy(alpha = 0.1f)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                modifier = Modifier.size(12.dp),
-                tint = color
-            )
-            if (label != null) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = color
-                )
-            }
-        }
-    }
-}
-
-/**
- * Format context length for display (e.g., "128K context")
- */
-private fun formatContextLength(length: Int): String {
-    return when {
-        length >= 1000000 -> "${length / 1000000}M context"
-        length >= 1000 -> "${length / 1000}K context"
-        else -> "$length tokens"
-    }
-}
