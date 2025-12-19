@@ -69,6 +69,8 @@ data class EditorUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val agentMode: Boolean = true,
+    // AI Model selection
+    val currentModel: AiModel = DeepInfraModels.defaultModel,
     // Context window management
     val contextTokenCount: Int = 0,
     val contextMaxTokens: Int = 8000,
@@ -157,6 +159,8 @@ class EditorViewModel(
         state.copy(isAiProcessing = isProcessing)
     }.combine(_agentMode) { state, agentMode ->
         state.copy(agentMode = agentMode)
+    }.combine(_currentModel) { state, currentModel ->
+        state.copy(currentModel = currentModel)
     }.combine(preferencesRepository.lineNumbers) { state, lineNumbers ->
         state.copy(showLineNumbers = lineNumbers)
     }.combine(preferencesRepository.wordWrap) { state, wordWrap ->

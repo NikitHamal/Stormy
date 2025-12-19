@@ -147,9 +147,11 @@ fun EditorScreen(
                             isLoading = uiState.isAiProcessing,
                             agentMode = uiState.agentMode,
                             taskList = uiState.taskList,
+                            currentModel = uiState.currentModel,
                             onInputChange = viewModel::updateChatInput,
                             onSendMessage = viewModel::sendMessage,
-                            onToggleAgentMode = viewModel::toggleAgentMode
+                            onToggleAgentMode = viewModel::toggleAgentMode,
+                            onModelChange = viewModel::setModel
                         )
                         EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
                             // File tabs row
