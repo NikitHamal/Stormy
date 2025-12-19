@@ -2,12 +2,14 @@ package com.codex.stormy
 
 import android.app.Application
 import com.codex.stormy.crash.CrashHandler
+import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
 import com.codex.stormy.data.ai.tools.MemoryStorage
 import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.ai.undo.UndoRedoManager
 import com.codex.stormy.data.local.database.CodeXDatabase
+import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.AiRepository
 import com.codex.stormy.data.repository.ChatRepository
 import com.codex.stormy.data.repository.PreferencesRepository
@@ -38,6 +40,16 @@ class CodeXApplication : Application() {
 
     val chatRepository: ChatRepository by lazy {
         ChatRepository(database.chatMessageDao(), this)
+    }
+
+    // New: DeepInfra model service for fetching available models
+    val deepInfraModelService: DeepInfraModelService by lazy {
+        DeepInfraModelService()
+    }
+
+    // New: AI Model repository for managing model storage and preferences
+    val aiModelRepository: AiModelRepository by lazy {
+        AiModelRepository(database.aiModelDao(), deepInfraModelService)
     }
 
     val contextWindowManager: ContextWindowManager by lazy {
