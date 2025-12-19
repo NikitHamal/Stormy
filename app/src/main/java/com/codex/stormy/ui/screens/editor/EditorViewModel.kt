@@ -678,7 +678,7 @@ class EditorViewModel(
         } else ""
 
         // Get user preferences context
-        val preferencesContext = userPreferencesLearner.getPreferencesContext()
+        val preferencesContext = userPreferencesLearner.getPreferencesContext(projectId)
 
         val systemMessage = aiRepository.createSystemMessage(
             projectContext = "Project: $projectName$fileTreeContext$currentFileContent$memoryContext$preferencesContext"
