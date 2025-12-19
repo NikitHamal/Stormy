@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -519,20 +520,47 @@ private fun AiModelDialog(
 ) {
     val context = LocalContext.current
 
+    // Group models by provider
+    val modelsByProvider = availableModels.groupBy { it.provider }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(context.getString(R.string.settings_model)) },
+        title = {
+            Column {
+                Text(context.getString(R.string.settings_model))
+                Text(
+                    text = "Select an AI model for code generation",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
         text = {
             LazyColumn(
-                modifier = Modifier.heightIn(max = 400.dp),
+                modifier = Modifier.heightIn(max = 450.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(availableModels) { model ->
-                    ModelCard(
-                        model = model,
-                        isSelected = model.id == currentModelId,
-                        onClick = { onModelSelected(model.id) }
-                    )
+                modelsByProvider.forEach { (provider, models) ->
+                    item {
+                        Text(
+                            text = provider.displayName,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+
+                    items(models) { model ->
+                        EnhancedModelCard(
+                            model = model,
+                            isSelected = model.id == currentModelId,
+                            onClick = { onModelSelected(model.id) }
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
         },
@@ -546,7 +574,7 @@ private fun AiModelDialog(
 }
 
 @Composable
-private fun ModelCard(
+private fun EnhancedModelCard(
     model: AiModel,
     isSelected: Boolean,
     onClick: () -> Unit
@@ -563,82 +591,142 @@ private fun ModelCard(
         MaterialTheme.colorScheme.outlineVariant
     }
 
-    Row(
+    val contentColor = if (isSelected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+    val secondaryColor = if (isSelected) {
+        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(backgroundColor)
             .border(
                 width = if (isSelected) 2.dp else 1.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        RadioButton(
-            selected = isSelected,
-            onClick = onClick
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = model.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "${model.contextLength / 1000}K context",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                RadioButton(
+                    selected = isSelected,
+                    onClick = onClick
                 )
 
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = model.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = contentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = model.id,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = secondaryColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Model features row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Context length badge
+                ModelFeatureBadge(
+                    text = "${model.contextLength / 1000}K",
+                    backgroundColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = secondaryColor
+                )
+
+                // Streaming support badge
+                if (model.supportsStreaming) {
+                    ModelFeatureBadge(
+                        text = "Stream",
+                        backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Tool calls support badge
+                if (model.supportsToolCalls) {
+                    ModelFeatureBadge(
+                        text = "Tools",
+                        backgroundColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                        contentColor = MaterialTheme.colorScheme.secondary
+                    )
+                }
+
+                // Thinking model badge
                 if (model.isThinkingModel) {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .background(
-                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f),
+                                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
                                 RoundedCornerShape(4.dp)
                             )
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Psychology,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.tertiary
-                            )
-                            Text(
-                                text = "Thinking",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.tertiary
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Outlined.Psychology,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                        Text(
+                            text = "Thinking",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModelFeatureBadge(
+    text: String,
+    backgroundColor: Color,
+    contentColor: Color
+) {
+    Box(
+        modifier = Modifier
+            .background(backgroundColor, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = contentColor
+        )
     }
 }

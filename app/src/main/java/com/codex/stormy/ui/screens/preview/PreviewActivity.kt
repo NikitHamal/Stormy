@@ -3,40 +3,56 @@ package com.codex.stormy.ui.screens.preview
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -44,24 +60,34 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.codex.stormy.ui.theme.CodeXTheme
+import org.json.JSONObject
 import java.io.File
 
 class PreviewActivity : ComponentActivity() {
@@ -106,6 +132,84 @@ data class ConsoleLogEntry(
     val sourceId: String
 )
 
+/**
+ * Represents an inspected HTML element with its properties
+ */
+data class InspectedElement(
+    val tagName: String,
+    val id: String,
+    val className: String,
+    val innerHTML: String,
+    val outerHTML: String,
+    val computedStyles: Map<String, String>,
+    val attributes: Map<String, String>,
+    val boundingRect: ElementRect
+)
+
+data class ElementRect(
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float
+)
+
+/**
+ * JavaScript interface for receiving element data from WebView
+ */
+class InspectorJsInterface(
+    private val onElementInspected: (InspectedElement) -> Unit
+) {
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    @JavascriptInterface
+    fun onElementSelected(jsonData: String) {
+        try {
+            val json = JSONObject(jsonData)
+
+            // Parse computed styles
+            val stylesJson = json.optJSONObject("computedStyles") ?: JSONObject()
+            val styles = mutableMapOf<String, String>()
+            stylesJson.keys().forEach { key ->
+                styles[key] = stylesJson.optString(key, "")
+            }
+
+            // Parse attributes
+            val attrsJson = json.optJSONObject("attributes") ?: JSONObject()
+            val attributes = mutableMapOf<String, String>()
+            attrsJson.keys().forEach { key ->
+                attributes[key] = attrsJson.optString(key, "")
+            }
+
+            // Parse bounding rect
+            val rectJson = json.optJSONObject("boundingRect") ?: JSONObject()
+            val rect = ElementRect(
+                x = rectJson.optDouble("x", 0.0).toFloat(),
+                y = rectJson.optDouble("y", 0.0).toFloat(),
+                width = rectJson.optDouble("width", 0.0).toFloat(),
+                height = rectJson.optDouble("height", 0.0).toFloat()
+            )
+
+            val element = InspectedElement(
+                tagName = json.optString("tagName", ""),
+                id = json.optString("id", ""),
+                className = json.optString("className", ""),
+                innerHTML = json.optString("innerHTML", ""),
+                outerHTML = json.optString("outerHTML", ""),
+                computedStyles = styles,
+                attributes = attributes,
+                boundingRect = rect
+            )
+
+            // Post to main thread for Compose state update
+            mainHandler.post {
+                onElementInspected(element)
+            }
+        } catch (e: Exception) {
+            // Ignore parsing errors
+        }
+    }
+}
+
 @Composable
 private fun PreviewScreen(
     projectPath: String,
@@ -120,6 +224,28 @@ private fun PreviewScreen(
     var serverRunning by remember { mutableStateOf(true) }
     var showConsole by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<ConsoleLogEntry>() }
+
+    // Inspector state
+    var inspectorEnabled by remember { mutableStateOf(false) }
+    var inspectedElement by remember { mutableStateOf<InspectedElement?>(null) }
+    var showInspectorPanel by remember { mutableStateOf(false) }
+
+    // Apply desktop mode settings when changed
+    LaunchedEffect(desktopMode) {
+        webView?.applyViewportMode(desktopMode)
+    }
+
+    // Apply inspector mode when changed
+    LaunchedEffect(inspectorEnabled) {
+        webView?.let { wv ->
+            if (inspectorEnabled) {
+                wv.injectInspectorScript()
+            } else {
+                wv.disableInspector()
+                inspectedElement = null
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -140,6 +266,32 @@ private fun PreviewScreen(
                     }
                 },
                 actions = {
+                    // Element inspector toggle
+                    IconButton(onClick = {
+                        inspectorEnabled = !inspectorEnabled
+                        if (inspectorEnabled) {
+                            showInspectorPanel = true
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Outlined.TouchApp,
+                            contentDescription = if (inspectorEnabled) "Disable inspector"
+                                                else "Enable inspector",
+                            tint = if (inspectorEnabled) MaterialTheme.colorScheme.tertiary
+                                  else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    // Desktop/Mobile mode quick toggle
+                    IconButton(onClick = { desktopMode = !desktopMode }) {
+                        Icon(
+                            imageVector = if (desktopMode) Icons.Outlined.DesktopWindows
+                                         else Icons.Outlined.PhoneAndroid,
+                            contentDescription = if (desktopMode) "Switch to mobile mode"
+                                                else "Switch to desktop mode",
+                            tint = if (desktopMode) MaterialTheme.colorScheme.primary
+                                  else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     IconButton(onClick = { webView?.reload() }) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
@@ -168,22 +320,14 @@ private fun PreviewScreen(
                                 text = { Text(if (desktopMode) "Mobile mode" else "Desktop mode") },
                                 onClick = {
                                     desktopMode = !desktopMode
-                                    webView?.settings?.apply {
-                                        userAgentString = if (desktopMode) {
-                                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                                        } else {
-                                            null // Reset to default mobile user agent
-                                        }
-                                        useWideViewPort = desktopMode
-                                        loadWithOverviewMode = desktopMode
-                                    }
-                                    webView?.reload()
                                     showMoreMenu = false
                                 },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.DesktopWindows,
-                                        contentDescription = null
+                                        contentDescription = null,
+                                        tint = if (desktopMode) MaterialTheme.colorScheme.primary
+                                               else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             )
@@ -192,8 +336,28 @@ private fun PreviewScreen(
                                 onClick = {
                                     val indexFile = File(projectPath, "index.html")
                                     if (indexFile.exists()) {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("file://${indexFile.absolutePath}"))
-                                        context.startActivity(intent)
+                                        try {
+                                            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                                FileProvider.getUriForFile(
+                                                    context,
+                                                    "${context.packageName}.fileprovider",
+                                                    indexFile
+                                                )
+                                            } else {
+                                                Uri.fromFile(indexFile)
+                                            }
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, "text/html")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(
+                                                context,
+                                                "No app available to open HTML files",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                     }
                                     showMoreMenu = false
                                 },
@@ -245,6 +409,7 @@ private fun PreviewScreen(
                 WebViewPreview(
                     projectPath = projectPath,
                     modifier = Modifier.fillMaxSize(),
+                    inspectorEnabled = inspectorEnabled,
                     onWebViewCreated = { wv ->
                         webView = wv
                         onWebViewCreated(wv)
@@ -254,13 +419,66 @@ private fun PreviewScreen(
                     },
                     onConsoleMessage = { entry ->
                         consoleLogs.add(entry)
+                    },
+                    onElementInspected = { element ->
+                        inspectedElement = element
+                        showInspectorPanel = true
                     }
                 )
+
+                // Inspector mode indicator overlay
+                if (inspectorEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(8.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.TouchApp,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = "Tap element to inspect",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Inspector panel
+            AnimatedVisibility(
+                visible = showInspectorPanel && inspectedElement != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it }
+            ) {
+                inspectedElement?.let { element ->
+                    InspectorPanel(
+                        element = element,
+                        onClose = {
+                            showInspectorPanel = false
+                            inspectorEnabled = false
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                    )
+                }
             }
 
             // Console panel
             AnimatedVisibility(
-                visible = showConsole,
+                visible = showConsole && !showInspectorPanel,
                 enter = slideInVertically { it },
                 exit = slideOutVertically { it }
             ) {
@@ -363,7 +581,7 @@ private fun ConsoleLogItem(log: ConsoleLogEntry) {
     Text(
         text = "$prefix ${log.message}",
         style = MaterialTheme.typography.bodySmall.copy(
-            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
             lineHeight = 16.sp
         ),
@@ -374,15 +592,474 @@ private fun ConsoleLogItem(log: ConsoleLogEntry) {
     )
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+/**
+ * Element inspector panel showing details of the selected element
+ */
+@Composable
+private fun InspectorPanel(
+    element: InspectedElement,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val clipboardManager = LocalClipboardManager.current
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabs = listOf("Element", "Styles", "Attributes")
+
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Element Inspector",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = buildElementSelector(element),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(element.outerHTML))
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ContentCopy,
+                    contentDescription = "Copy HTML",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Close",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Tabs
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            contentColor = MaterialTheme.colorScheme.primary
+        ) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                )
+            }
+        }
+
+        // Content based on selected tab
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
+            when (selectedTab) {
+                0 -> ElementTab(element)
+                1 -> StylesTab(element.computedStyles)
+                2 -> AttributesTab(element.attributes)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ElementTab(element: InspectedElement) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        InspectorProperty("Tag", element.tagName.lowercase())
+        if (element.id.isNotEmpty()) {
+            InspectorProperty("ID", "#${element.id}")
+        }
+        if (element.className.isNotEmpty()) {
+            InspectorProperty("Classes", element.className.split(" ").joinToString(", ") { ".$it" })
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Size & Position",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            InspectorProperty("Width", "${element.boundingRect.width.toInt()}px", Modifier.weight(1f))
+            InspectorProperty("Height", "${element.boundingRect.height.toInt()}px", Modifier.weight(1f))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            InspectorProperty("X", "${element.boundingRect.x.toInt()}px", Modifier.weight(1f))
+            InspectorProperty("Y", "${element.boundingRect.y.toInt()}px", Modifier.weight(1f))
+        }
+
+        // Show inner HTML preview (truncated)
+        if (element.innerHTML.isNotBlank() && element.innerHTML.length < 200) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Content",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = element.innerHTML.take(150),
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun StylesTab(styles: Map<String, String>) {
+    val importantStyles = listOf(
+        "display", "position", "width", "height", "margin", "padding",
+        "color", "background-color", "font-size", "font-family", "font-weight",
+        "border", "border-radius", "flex", "grid", "gap"
+    )
+
+    val filteredStyles = styles.filterKeys { key ->
+        importantStyles.any { key.contains(it, ignoreCase = true) }
+    }.filterValues { it.isNotBlank() && it != "none" && it != "0px" && it != "normal" }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (filteredStyles.isEmpty()) {
+            Text(
+                text = "No computed styles available",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            filteredStyles.forEach { (name, value) ->
+                StyleProperty(name, value)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttributesTab(attributes: Map<String, String>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (attributes.isEmpty()) {
+            Text(
+                text = "No attributes",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            attributes.forEach { (name, value) ->
+                InspectorProperty(name, value)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectorProperty(
+    name: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun StyleProperty(name: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = FontFamily.Monospace
+            ),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontFamily = FontFamily.Monospace
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1.5f)
+        )
+    }
+}
+
+private fun buildElementSelector(element: InspectedElement): String {
+    val sb = StringBuilder(element.tagName.lowercase())
+    if (element.id.isNotEmpty()) {
+        sb.append("#${element.id}")
+    }
+    if (element.className.isNotEmpty()) {
+        element.className.split(" ").take(2).forEach { className ->
+            if (className.isNotBlank()) {
+                sb.append(".$className")
+            }
+        }
+    }
+    return sb.toString()
+}
+
+/**
+ * Extension function to apply viewport mode (mobile or desktop) to WebView
+ */
+private fun WebView.applyViewportMode(desktopMode: Boolean) {
+    settings.apply {
+        if (desktopMode) {
+            // Desktop mode settings
+            userAgentString = DESKTOP_USER_AGENT
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            // Set initial scale to fit desktop content
+            setInitialScale(50) // 50% to fit more content
+        } else {
+            // Mobile mode settings (default)
+            userAgentString = null // Reset to default mobile UA
+            useWideViewPort = false
+            loadWithOverviewMode = false
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            setInitialScale(0) // 0 = default scale
+        }
+    }
+    reload()
+}
+
+/**
+ * Inject inspector script into the WebView
+ */
+private fun WebView.injectInspectorScript() {
+    val script = """
+        (function() {
+            // Remove any existing inspector
+            if (window.__stormyInspector) {
+                window.__stormyInspector.disable();
+            }
+
+            // Create highlight overlay
+            var overlay = document.createElement('div');
+            overlay.id = '__stormy_inspector_overlay';
+            overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:999999;border:2px solid #6200EE;background:rgba(98,0,238,0.1);display:none;';
+            document.body.appendChild(overlay);
+
+            // Inspector object
+            window.__stormyInspector = {
+                enabled: true,
+                lastElement: null,
+
+                handleClick: function(e) {
+                    if (!window.__stormyInspector.enabled) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    var el = e.target;
+                    if (el.id === '__stormy_inspector_overlay') return;
+
+                    // Get computed styles
+                    var computedStyles = {};
+                    var style = window.getComputedStyle(el);
+                    var importantProps = ['display', 'position', 'width', 'height', 'margin', 'padding',
+                        'color', 'background-color', 'font-size', 'font-family', 'font-weight',
+                        'border', 'border-radius', 'flex', 'flex-direction', 'justify-content',
+                        'align-items', 'gap', 'grid-template-columns'];
+                    importantProps.forEach(function(prop) {
+                        var val = style.getPropertyValue(prop);
+                        if (val) computedStyles[prop] = val;
+                    });
+
+                    // Get attributes
+                    var attributes = {};
+                    for (var i = 0; i < el.attributes.length; i++) {
+                        var attr = el.attributes[i];
+                        attributes[attr.name] = attr.value;
+                    }
+
+                    // Get bounding rect
+                    var rect = el.getBoundingClientRect();
+
+                    // Build element data
+                    var data = {
+                        tagName: el.tagName,
+                        id: el.id || '',
+                        className: el.className || '',
+                        innerHTML: el.innerHTML.substring(0, 500),
+                        outerHTML: el.outerHTML.substring(0, 1000),
+                        computedStyles: computedStyles,
+                        attributes: attributes,
+                        boundingRect: {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height
+                        }
+                    };
+
+                    // Send to Android
+                    if (window.StormyInspector) {
+                        window.StormyInspector.onElementSelected(JSON.stringify(data));
+                    }
+                },
+
+                handleMove: function(e) {
+                    if (!window.__stormyInspector.enabled) return;
+                    var el = e.target;
+                    if (el.id === '__stormy_inspector_overlay') return;
+
+                    var rect = el.getBoundingClientRect();
+                    var overlay = document.getElementById('__stormy_inspector_overlay');
+                    if (overlay) {
+                        overlay.style.display = 'block';
+                        overlay.style.left = rect.left + 'px';
+                        overlay.style.top = rect.top + 'px';
+                        overlay.style.width = rect.width + 'px';
+                        overlay.style.height = rect.height + 'px';
+                    }
+                },
+
+                disable: function() {
+                    this.enabled = false;
+                    var overlay = document.getElementById('__stormy_inspector_overlay');
+                    if (overlay) overlay.remove();
+                    document.removeEventListener('click', this.handleClick, true);
+                    document.removeEventListener('mousemove', this.handleMove, true);
+                    document.removeEventListener('touchmove', this.handleMove, true);
+                }
+            };
+
+            // Add event listeners
+            document.addEventListener('click', window.__stormyInspector.handleClick, true);
+            document.addEventListener('mousemove', window.__stormyInspector.handleMove, true);
+            document.addEventListener('touchmove', function(e) {
+                if (e.touches.length > 0) {
+                    var touch = e.touches[0];
+                    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+                    if (el) {
+                        window.__stormyInspector.handleMove({target: el});
+                    }
+                }
+            }, true);
+        })();
+    """.trimIndent()
+
+    evaluateJavascript(script, null)
+}
+
+/**
+ * Disable the inspector in WebView
+ */
+private fun WebView.disableInspector() {
+    evaluateJavascript("if(window.__stormyInspector) window.__stormyInspector.disable();", null)
+}
+
+private const val DESKTOP_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 private fun WebViewPreview(
     projectPath: String,
     modifier: Modifier = Modifier,
+    inspectorEnabled: Boolean = false,
     onWebViewCreated: (WebView) -> Unit,
     onTitleChanged: (String) -> Unit,
-    onConsoleMessage: (ConsoleLogEntry) -> Unit
+    onConsoleMessage: (ConsoleLogEntry) -> Unit,
+    onElementInspected: (InspectedElement) -> Unit = {}
 ) {
+    // Create the JS interface once
+    val inspectorInterface = remember {
+        InspectorJsInterface(onElementInspected)
+    }
+
     AndroidView(
         factory = { context ->
             WebView(context).apply {
@@ -392,6 +1069,14 @@ private fun WebViewPreview(
                         request: WebResourceRequest?
                     ): Boolean {
                         return false
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        // Re-inject inspector script after page load if enabled
+                        if (inspectorEnabled) {
+                            view?.injectInspectorScript()
+                        }
                     }
                 }
 
@@ -416,16 +1101,26 @@ private fun WebViewPreview(
                     }
                 }
 
+                // Add JavaScript interface for element inspector
+                addJavascriptInterface(inspectorInterface, "StormyInspector")
+
+                // Default mobile mode settings
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
+                    loadWithOverviewMode = false // Mobile mode default
+                    useWideViewPort = false // Mobile mode default
                     builtInZoomControls = true
                     displayZoomControls = false
+                    setSupportZoom(true)
                     cacheMode = WebSettings.LOAD_NO_CACHE
+                    // Enable modern web features
+                    mediaPlaybackRequiresUserGesture = false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        safeBrowsingEnabled = true
+                    }
                 }
 
                 val indexFile = File(projectPath, "index.html")
@@ -442,12 +1137,6 @@ private fun WebViewPreview(
                 onWebViewCreated(this)
             }
         },
-        modifier = modifier,
-        update = { webView ->
-            val indexFile = File(projectPath, "index.html")
-            if (indexFile.exists()) {
-                webView.loadUrl("file://${indexFile.absolutePath}")
-            }
-        }
+        modifier = modifier
     )
 }

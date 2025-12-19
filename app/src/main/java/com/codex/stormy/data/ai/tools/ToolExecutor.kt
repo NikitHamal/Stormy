@@ -38,6 +38,8 @@ interface ToolInteractionCallback {
     suspend fun askUser(question: String, options: List<String>?): String?
     suspend fun onTaskFinished(summary: String)
     suspend fun onFileChanged(path: String, changeType: FileChangeType, oldContent: String?, newContent: String?)
+    suspend fun onTodoCreated(todo: TodoItem)
+    suspend fun onTodoUpdated(todo: TodoItem)
 }
 
 enum class FileChangeType {
@@ -488,7 +490,7 @@ class ToolExecutor(
 
     // ==================== Todo Operations ====================
 
-    private fun executeCreateTodo(projectId: String, args: JsonObject): ToolResult {
+    private suspend fun executeCreateTodo(projectId: String, args: JsonObject): ToolResult {
         val title = args.getStringArg("title")
             ?: return ToolResult(false, "", "Missing required argument: title")
         val description = args.getStringArg("description") ?: ""
@@ -501,10 +503,13 @@ class ToolExecutor(
         val todos = sessionTodos.getOrPut(projectId) { mutableListOf() }
         todos.add(todo)
 
+        // Notify callback about new todo
+        interactionCallback?.onTodoCreated(todo)
+
         return ToolResult(true, "Todo created: [${todo.id.take(8)}] $title")
     }
 
-    private fun executeUpdateTodo(projectId: String, args: JsonObject): ToolResult {
+    private suspend fun executeUpdateTodo(projectId: String, args: JsonObject): ToolResult {
         val todoId = args.getStringArg("todo_id")
             ?: return ToolResult(false, "", "Missing required argument: todo_id")
         val statusStr = args.getStringArg("status")
@@ -522,6 +527,10 @@ class ToolExecutor(
             ?: return ToolResult(false, "", "Todo not found: $todoId")
 
         todo.status = status
+
+        // Notify callback about todo update
+        interactionCallback?.onTodoUpdated(todo)
+
         return ToolResult(true, "Todo updated: [${todo.id.take(8)}] ${todo.title} -> $status")
     }
 

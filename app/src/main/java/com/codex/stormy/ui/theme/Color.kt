@@ -107,6 +107,11 @@ object SyntaxColors {
     val CurrentLineDark = Color(0xFF2A2A32)
     val SelectionLight = Color(0xFFE0E4F4)
     val SelectionDark = Color(0xFF3A3A52)
+
+    // Search highlight colors
+    val SearchHighlight = Color(0xFFFFE082)          // Yellow highlight for matches
+    val CurrentSearchHighlight = Color(0xFFFF9800)   // Orange highlight for current match
+    val BracketMatch = Color(0xFF4FC3F7)             // Cyan for bracket matching
 }
 
 // Accent Colors
