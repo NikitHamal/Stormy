@@ -33,8 +33,8 @@ class ContextWindowManager(
      */
     fun getMaxContextTokens(model: AiModel): Int {
         return when {
-            model.contextWindow > 32000 -> LARGE_MODEL_MAX_TOKENS
-            model.contextWindow > 8000 -> 16000
+            model.contextLength > 32000 -> LARGE_MODEL_MAX_TOKENS
+            model.contextLength > 8000 -> 16000
             else -> DEFAULT_MAX_CONTEXT_TOKENS
         }
     }

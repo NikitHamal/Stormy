@@ -126,9 +126,6 @@ class EditorViewModel(
     private var _shouldContinueAgentLoop = false
     private var _agentIterationCount = 0
     private var _taskCompleted = false
-    private companion object {
-        const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
-    }
 
     val uiState: StateFlow<EditorUiState> = combine(
         _project,
@@ -1038,6 +1035,8 @@ class EditorViewModel(
     }
 
     companion object {
+        private const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
+
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
