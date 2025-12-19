@@ -294,6 +294,88 @@ object StormyTools {
         )
     )
 
+    // Insert at specific line number
+    val INSERT_AT_LINE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "insert_at_line",
+            description = "Insert content at a specific line number in a file. Lines are 1-indexed. Use 0 to insert at the beginning.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file"),
+                    "line_number" to Pair("integer", "The line number to insert at (1-indexed, 0 for beginning)"),
+                    "content" to Pair("string", "The content to insert")
+                ),
+                required = listOf("path", "line_number", "content")
+            )
+        )
+    )
+
+    // Get file information
+    val GET_FILE_INFO = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "get_file_info",
+            description = "Get information about a file including size, extension, line count, and last modified time.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file")
+                ),
+                required = listOf("path")
+            )
+        )
+    )
+
+    // Regex-based find and replace
+    val REGEX_REPLACE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "regex_replace",
+            description = "Find and replace content using regular expressions. Powerful for complex pattern matching.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file"),
+                    "pattern" to Pair("string", "The regular expression pattern to search for"),
+                    "replacement" to Pair("string", "The replacement string (can use $1, $2 for capture groups)"),
+                    "flags" to Pair("string", "Optional regex flags: 'i' for case-insensitive, 'g' for global (default), 'm' for multiline")
+                ),
+                required = listOf("path", "pattern", "replacement")
+            )
+        )
+    )
+
+    // Append to file
+    val APPEND_TO_FILE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "append_to_file",
+            description = "Append content to the end of a file. Creates the file if it doesn't exist.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file"),
+                    "content" to Pair("string", "The content to append")
+                ),
+                required = listOf("path", "content")
+            )
+        )
+    )
+
+    // Prepend to file
+    val PREPEND_TO_FILE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "prepend_to_file",
+            description = "Prepend content to the beginning of a file. Creates the file if it doesn't exist.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file"),
+                    "content" to Pair("string", "The content to prepend")
+                ),
+                required = listOf("path", "content")
+            )
+        )
+    )
+
     // Task management tools
     val CREATE_TODO = Tool(
         type = "function",

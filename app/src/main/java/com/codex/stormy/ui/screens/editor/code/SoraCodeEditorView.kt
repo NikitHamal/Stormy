@@ -2,6 +2,7 @@ package com.codex.stormy.ui.screens.editor.code
 
 import android.content.Context
 import android.graphics.Typeface
+import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -24,7 +25,6 @@ import io.github.rosemoe.sora.lang.Language
 import io.github.rosemoe.sora.langs.textmate.TextMateColorScheme
 import io.github.rosemoe.sora.langs.textmate.TextMateLanguage
 import io.github.rosemoe.sora.langs.textmate.registry.FileProviderRegistry
-import io.github.rosemoe.sora.langs.textmate.registry.GrammarRegistry
 import io.github.rosemoe.sora.langs.textmate.registry.ThemeRegistry
 import io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel
 import io.github.rosemoe.sora.langs.textmate.registry.provider.AssetsFileResolver
@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * High-performance code editor view built on Rosemoe/Sora editor
  * Provides professional-grade syntax highlighting using TextMate grammars
+ * Optimized for smooth scrolling on mobile devices
  */
 @Composable
 fun SoraCodeEditorView(
@@ -53,8 +54,6 @@ fun SoraCodeEditorView(
     showLineNumbers: Boolean,
     wordWrap: Boolean,
     fontSize: Float,
-    searchQuery: String = "",
-    currentMatchIndex: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -90,19 +89,6 @@ fun SoraCodeEditorView(
             lastExternalContent = content
         }
         isUpdatingFromEditor = false
-    }
-
-    // Update search highlighting
-    LaunchedEffect(searchQuery, currentMatchIndex, editorInstance) {
-        editorInstance?.let { editor ->
-            withContext(Dispatchers.Main) {
-                if (searchQuery.isNotEmpty()) {
-                    highlightSearchResults(editor, content, searchQuery, currentMatchIndex)
-                } else {
-                    editor.searcher.stopSearch()
-                }
-            }
-        }
     }
 
     // Update editor settings when they change
@@ -252,10 +238,39 @@ private object TextMateManager {
 }
 
 /**
- * Create and configure the CodeEditor instance
+ * Create and configure the CodeEditor instance with optimized scrolling
  */
 private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor {
-    return CodeEditor(context).apply {
+    return object : CodeEditor(context) {
+        // Override touch handling for smoother scrolling
+        override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
+            // Always intercept vertical scroll events to prevent parent interference
+            when (ev?.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+            }
+            return super.onInterceptTouchEvent(ev)
+        }
+
+        override fun onTouchEvent(event: MotionEvent?): Boolean {
+            when (event?.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            return super.onTouchEvent(event)
+        }
+    }.apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -273,9 +288,9 @@ private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor
 
         // Line number configuration
         isLineNumberEnabled = true
-        setLineNumberMarginLeft(16f)
+        setLineNumberMarginLeft(8f)
 
-        // Hardware acceleration
+        // Hardware acceleration for smooth scrolling
         isHardwareAcceleratedDrawAllowed = true
 
         // Tab settings
@@ -294,8 +309,15 @@ private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor
         setCursorWidth(2f)
         setInterceptParentHorizontalScrollIfNeeded(true)
 
-        // Scrollbar configuration
+        // Scrollbar configuration for smooth scrolling
         isScrollbarFadingEnabled = true
+
+        // Disable over-scroll to prevent bouncy feel
+        overScrollMode = OVER_SCROLL_NEVER
+
+        // Set scrolling parameters for smoothness
+        setScrollMaxX(0)
+        setScrollMaxY(0)
 
         // Accessibility
         contentDescription = "Code Editor"
@@ -460,11 +482,6 @@ private fun createDarkColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.COMPLETION_WND_BACKGROUND, Color(0xFF272730).toArgb())
         setColor(EditorColorScheme.COMPLETION_WND_CORNER, Color(0xFF272730).toArgb())
 
-        // Search highlight
-        setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_FOREGROUND, Color(0xFFFF9800).toArgb())
-        setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_BACKGROUND, Color(0x40FF9800).toArgb())
-        setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_UNDERLINE, Color(0xFFFF9800).toArgb())
-
         // Non-printable characters
         setColor(EditorColorScheme.NON_PRINTABLE_CHAR, Color(0xFF4A4A52).toArgb())
 
@@ -550,11 +567,6 @@ private fun createLightColorScheme(): EditorColorScheme {
         // Completion window
         setColor(EditorColorScheme.COMPLETION_WND_BACKGROUND, Color(0xFFFFFFFF).toArgb())
         setColor(EditorColorScheme.COMPLETION_WND_CORNER, Color(0xFFE0E0E0).toArgb())
-
-        // Search highlight
-        setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_FOREGROUND, Color(0xFFFF6D00).toArgb())
-        setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_BACKGROUND, Color(0x40FF9800).toArgb())
-        setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_UNDERLINE, Color(0xFFFF6D00).toArgb())
 
         // Non-printable characters
         setColor(EditorColorScheme.NON_PRINTABLE_CHAR, Color(0xFFD0D0D0).toArgb())
@@ -692,76 +704,6 @@ private fun createLightEditorTheme(): ThemeModel {
         ),
         LIGHT_THEME_NAME
     )
-}
-
-/**
- * Highlight search results in the editor
- */
-private fun highlightSearchResults(
-    editor: CodeEditor,
-    content: String,
-    query: String,
-    currentMatchIndex: Int
-) {
-    if (query.isEmpty()) {
-        editor.searcher.stopSearch()
-        return
-    }
-
-    // Use the built-in searcher with case-insensitive search
-    editor.searcher.search(query, io.github.rosemoe.sora.widget.EditorSearcher.SearchOptions(
-        io.github.rosemoe.sora.widget.EditorSearcher.SearchOptions.TYPE_NORMAL,
-        true // case insensitive
-    ))
-
-    // Navigate to current match if available
-    val matches = findAllMatchPositions(content, query)
-    if (matches.isNotEmpty() && currentMatchIndex in matches.indices) {
-        val matchStart = matches[currentMatchIndex]
-
-        // Calculate line and column from position
-        var line = 0
-        var col = 0
-        var pos = 0
-
-        for (char in content) {
-            if (pos == matchStart) break
-            if (char == '\n') {
-                line++
-                col = 0
-            } else {
-                col++
-            }
-            pos++
-        }
-
-        // Move cursor to match position and ensure visibility
-        try {
-            editor.setSelection(line, col)
-            editor.ensurePositionVisible(line, col)
-        } catch (e: Exception) {
-            // Position may be invalid
-        }
-    }
-}
-
-/**
- * Find all match positions in content
- */
-private fun findAllMatchPositions(content: String, query: String): List<Int> {
-    if (query.isEmpty()) return emptyList()
-
-    val positions = mutableListOf<Int>()
-    var startIndex = 0
-
-    while (startIndex < content.length) {
-        val index = content.indexOf(query, startIndex, ignoreCase = true)
-        if (index == -1) break
-        positions.add(index)
-        startIndex = index + 1
-    }
-
-    return positions
 }
 
 // Theme names

@@ -22,8 +22,17 @@ class PreferencesRepository(private val context: Context) {
         val LINE_NUMBERS = booleanPreferencesKey("line_numbers")
         val WORD_WRAP = booleanPreferencesKey("word_wrap")
         val AUTO_SAVE = booleanPreferencesKey("auto_save")
-        val API_KEY = stringPreferencesKey("api_key")
+
+        // API Keys for different providers
+        val API_KEY = stringPreferencesKey("api_key") // DeepInfra (legacy)
+        val DEEPINFRA_API_KEY = stringPreferencesKey("deepinfra_api_key")
+        val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+
+        // AI Provider and Model settings
+        val AI_PROVIDER = stringPreferencesKey("ai_provider")
         val AI_MODEL = stringPreferencesKey("ai_model")
+
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
     }
 
@@ -55,12 +64,33 @@ class PreferencesRepository(private val context: Context) {
         preferences[PreferenceKeys.AUTO_SAVE] ?: true
     }
 
+    // Legacy API key (DeepInfra)
     val apiKey: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferenceKeys.API_KEY] ?: ""
     }
 
+    // Provider-specific API keys
+    val deepInfraApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.DEEPINFRA_API_KEY]
+            ?: preferences[PreferenceKeys.API_KEY] // Fallback to legacy key
+            ?: ""
+    }
+
+    val openRouterApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
+    }
+
+    val geminiApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
+    }
+
+    // AI Provider and Model
+    val aiProvider: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.AI_PROVIDER] ?: "DEEPINFRA"
+    }
+
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.AI_MODEL] ?: "gpt-4"
+        preferences[PreferenceKeys.AI_MODEL] ?: "Qwen/Qwen2.5-Coder-32B-Instruct"
     }
 
     val onboardingCompleted: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -109,9 +139,59 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
+    suspend fun setDeepInfraApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.DEEPINFRA_API_KEY] = key
+        }
+    }
+
+    suspend fun setOpenRouterApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.OPENROUTER_API_KEY] = key
+        }
+    }
+
+    suspend fun setGeminiApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.GEMINI_API_KEY] = key
+        }
+    }
+
+    suspend fun setAiProvider(provider: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.AI_PROVIDER] = provider
+        }
+    }
+
     suspend fun setAiModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.AI_MODEL] = model
+        }
+    }
+
+    /**
+     * Get the API key for a specific provider
+     */
+    suspend fun getApiKeyForProvider(provider: String): String {
+        val preferences = context.dataStore.data.map { it }.first()
+        return when (provider.uppercase()) {
+            "DEEPINFRA" -> preferences[PreferenceKeys.DEEPINFRA_API_KEY]
+                ?: preferences[PreferenceKeys.API_KEY] ?: ""
+            "OPENROUTER" -> preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
+            "GEMINI" -> preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
+            else -> preferences[PreferenceKeys.API_KEY] ?: ""
+        }
+    }
+
+    /**
+     * Set the API key for a specific provider
+     */
+    suspend fun setApiKeyForProvider(provider: String, key: String) {
+        when (provider.uppercase()) {
+            "DEEPINFRA" -> setDeepInfraApiKey(key)
+            "OPENROUTER" -> setOpenRouterApiKey(key)
+            "GEMINI" -> setGeminiApiKey(key)
+            else -> setApiKey(key)
         }
     }
 

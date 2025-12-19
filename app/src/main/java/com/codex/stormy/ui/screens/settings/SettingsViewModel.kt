@@ -22,6 +22,9 @@ data class SettingsUiState(
     val wordWrap: Boolean = true,
     val autoSave: Boolean = true,
     val apiKey: String = "",
+    val deepInfraApiKey: String = "",
+    val openRouterApiKey: String = "",
+    val geminiApiKey: String = "",
     val aiModel: String = DeepInfraModels.defaultModel.id,
     val availableModels: List<AiModel> = DeepInfraModels.allModels
 )
@@ -37,7 +40,9 @@ class SettingsViewModel(
         preferencesRepository.lineNumbers,
         preferencesRepository.wordWrap,
         preferencesRepository.autoSave,
-        preferencesRepository.apiKey,
+        preferencesRepository.deepInfraApiKey,
+        preferencesRepository.openRouterApiKey,
+        preferencesRepository.geminiApiKey,
         preferencesRepository.aiModel
     ) { values ->
         SettingsUiState(
@@ -47,8 +52,10 @@ class SettingsViewModel(
             lineNumbers = values[3] as Boolean,
             wordWrap = values[4] as Boolean,
             autoSave = values[5] as Boolean,
-            apiKey = values[6] as String,
-            aiModel = values[7] as String
+            deepInfraApiKey = values[6] as String,
+            openRouterApiKey = values[7] as String,
+            geminiApiKey = values[8] as String,
+            aiModel = values[9] as String
         )
     }.stateIn(
         scope = viewModelScope,
@@ -92,9 +99,21 @@ class SettingsViewModel(
         }
     }
 
-    fun setApiKey(key: String) {
+    fun setDeepInfraApiKey(key: String) {
         viewModelScope.launch {
-            preferencesRepository.setApiKey(key)
+            preferencesRepository.setDeepInfraApiKey(key)
+        }
+    }
+
+    fun setOpenRouterApiKey(key: String) {
+        viewModelScope.launch {
+            preferencesRepository.setOpenRouterApiKey(key)
+        }
+    }
+
+    fun setGeminiApiKey(key: String) {
+        viewModelScope.launch {
+            preferencesRepository.setGeminiApiKey(key)
         }
     }
 
