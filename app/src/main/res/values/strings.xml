@@ -56,6 +56,7 @@
 
     <!-- Chat -->
     <string name="chat_hint">Ask Stormy anything…</string>
+    <string name="chat_hint_agent">Ask me to edit, create, or search files…</string>
     <string name="chat_welcome_title">Hi, I\'m Stormy</string>
     <string name="chat_welcome_message">Your AI coding assistant. Tell me what you want to build, and I\'ll help you create it.</string>
     <string name="chat_thinking">Thinking…</string>

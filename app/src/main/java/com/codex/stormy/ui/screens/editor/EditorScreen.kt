@@ -5,16 +5,32 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,10 +44,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
@@ -123,19 +145,35 @@ fun EditorScreen(
                             messages = uiState.messages,
                             inputText = uiState.chatInput,
                             isLoading = uiState.isAiProcessing,
+                            agentMode = uiState.agentMode,
                             onInputChange = viewModel::updateChatInput,
-                            onSendMessage = viewModel::sendMessage
+                            onSendMessage = viewModel::sendMessage,
+                            onToggleAgentMode = viewModel::toggleAgentMode
                         )
-                        EditorTab.CODE -> CodeTab(
-                            currentFile = uiState.currentFile,
-                            fileContent = uiState.fileContent,
-                            isModified = uiState.isFileModified,
-                            lineNumbers = uiState.showLineNumbers,
-                            wordWrap = uiState.wordWrap,
-                            fontSize = uiState.fontSize,
-                            onContentChange = viewModel::updateFileContent,
-                            onSave = viewModel::saveCurrentFile
-                        )
+                        EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
+                            // File tabs row
+                            if (uiState.openFiles.isNotEmpty()) {
+                                FileTabsRow(
+                                    openFiles = uiState.openFiles,
+                                    currentIndex = uiState.currentFileIndex,
+                                    onTabClick = viewModel::switchToFileTab,
+                                    onTabClose = viewModel::closeFileTab,
+                                    onCloseOthers = viewModel::closeOtherTabs,
+                                    onCloseAll = viewModel::closeAllTabs
+                                )
+                            }
+
+                            CodeTab(
+                                currentFile = uiState.currentFile,
+                                fileContent = uiState.fileContent,
+                                isModified = uiState.isFileModified,
+                                lineNumbers = uiState.showLineNumbers,
+                                wordWrap = uiState.wordWrap,
+                                fontSize = uiState.fontSize,
+                                onContentChange = viewModel::updateFileContent,
+                                onSave = viewModel::saveCurrentFile
+                            )
+                        }
                     }
                 }
             }
@@ -215,6 +253,205 @@ private fun EditorTabs(
             selected = selectedTab == EditorTab.CODE,
             onClick = { onTabSelected(EditorTab.CODE) },
             text = { Text(context.getString(R.string.editor_tab_code)) }
+        )
+    }
+}
+
+@Composable
+private fun FileTabsRow(
+    openFiles: List<OpenFileTab>,
+    currentIndex: Int,
+    onTabClick: (Int) -> Unit,
+    onTabClose: (Int) -> Unit,
+    onCloseOthers: (Int) -> Unit,
+    onCloseAll: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .horizontalScroll(scrollState),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            openFiles.forEachIndexed { index, file ->
+                FileTab(
+                    file = file,
+                    isSelected = index == currentIndex,
+                    onClick = { onTabClick(index) },
+                    onClose = { onTabClose(index) },
+                    onCloseOthers = { onCloseOthers(index) },
+                    onCloseAll = onCloseAll
+                )
+            }
+        }
+
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    }
+}
+
+@Composable
+private fun FileTab(
+    file: OpenFileTab,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onClose: () -> Unit,
+    onCloseOthers: () -> Unit,
+    onCloseAll: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+
+    val backgroundColor = if (isSelected) {
+        MaterialTheme.colorScheme.surface
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    }
+
+    val contentColor = if (isSelected) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Box(
+        modifier = Modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+            .background(backgroundColor)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // File icon based on extension
+            FileTypeIcon(
+                extension = file.extension,
+                modifier = Modifier.size(16.dp)
+            )
+
+            // File name with modified indicator
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (file.isModified) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Close button
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close",
+                        tint = contentColor.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Close") },
+                        onClick = {
+                            showMenu = false
+                            onClose()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Close Others") },
+                        onClick = {
+                            showMenu = false
+                            onCloseOthers()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Close All") },
+                        onClick = {
+                            showMenu = false
+                            onCloseAll()
+                        }
+                    )
+                }
+            }
+        }
+
+        // Bottom border for selected tab
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        }
+    }
+
+    // Separator between tabs
+    if (!isSelected) {
+        Box(
+            modifier = Modifier
+                .width(1.dp)
+                .height(24.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        )
+    }
+}
+
+@Composable
+private fun FileTypeIcon(
+    extension: String,
+    modifier: Modifier = Modifier
+) {
+    val iconColor = when (extension.lowercase()) {
+        "html", "htm" -> MaterialTheme.colorScheme.error
+        "css" -> MaterialTheme.colorScheme.primary
+        "js", "jsx", "mjs" -> MaterialTheme.colorScheme.tertiary
+        "ts", "tsx" -> MaterialTheme.colorScheme.primary
+        "json" -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(2.dp))
+            .background(iconColor.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = extension.take(2).uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = iconColor,
+            maxLines = 1
         )
     }
 }

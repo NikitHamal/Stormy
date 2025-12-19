@@ -132,3 +132,28 @@ object ChatColors {
     val AssistantTextLight = Color(0xFF1B1B1F)
     val AssistantTextDark = Color(0xFFE5E1E6)
 }
+
+// Diff View Colors (GitHub-style)
+object DiffColors {
+    // Light theme
+    val AddedBackgroundLight = Color(0xFFDCFFDC)
+    val AddedTextLight = Color(0xFF22863A)
+    val RemovedBackgroundLight = Color(0xFFFFDCDC)
+    val RemovedTextLight = Color(0xFFCB2431)
+    val ContextTextLight = Color(0xFF24292E)
+    val HeaderBackgroundLight = Color(0xFFF1F8FF)
+    val HeaderTextLight = Color(0xFF0366D6)
+    val BackgroundLight = Color(0xFFF6F8FA)
+    val LineNumberLight = Color(0xFFBBBBBB)
+
+    // Dark theme
+    val AddedBackgroundDark = Color(0xFF1B4332)
+    val AddedTextDark = Color(0xFF7EE787)
+    val RemovedBackgroundDark = Color(0xFF4C1D1D)
+    val RemovedTextDark = Color(0xFFF97583)
+    val ContextTextDark = Color(0xFFE6EDF3)
+    val HeaderBackgroundDark = Color(0xFF161B22)
+    val HeaderTextDark = Color(0xFF58A6FF)
+    val BackgroundDark = Color(0xFF0D1117)
+    val LineNumberDark = Color(0xFF484F58)
+}

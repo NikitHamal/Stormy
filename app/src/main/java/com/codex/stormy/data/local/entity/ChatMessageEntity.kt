@@ -38,5 +38,6 @@ enum class MessageStatus {
     PENDING,
     SENT,
     RECEIVED,
-    ERROR
+    ERROR,
+    STREAMING
 }
