@@ -278,6 +278,185 @@ class ProjectRepository(
         }
     }
 
+    suspend fun copyFile(
+        projectId: String,
+        sourcePath: String,
+        destinationPath: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            val sourceFile = File(project.rootPath, sourcePath)
+            val destFile = File(project.rootPath, destinationPath)
+
+            if (!sourceFile.exists()) {
+                return@withContext Result.failure(FileNotFoundException(sourcePath))
+            }
+
+            if (destFile.exists()) {
+                return@withContext Result.failure(FileExistsException(destinationPath))
+            }
+
+            destFile.parentFile?.mkdirs()
+
+            if (sourceFile.isDirectory) {
+                sourceFile.copyRecursively(destFile, overwrite = false)
+            } else {
+                sourceFile.copyTo(destFile, overwrite = false)
+            }
+
+            projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun moveFile(
+        projectId: String,
+        sourcePath: String,
+        destinationPath: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            val sourceFile = File(project.rootPath, sourcePath)
+            val destFile = File(project.rootPath, destinationPath)
+
+            if (!sourceFile.exists()) {
+                return@withContext Result.failure(FileNotFoundException(sourcePath))
+            }
+
+            if (destFile.exists()) {
+                return@withContext Result.failure(FileExistsException(destinationPath))
+            }
+
+            destFile.parentFile?.mkdirs()
+
+            if (sourceFile.isDirectory) {
+                sourceFile.copyRecursively(destFile, overwrite = false)
+                sourceFile.deleteRecursively()
+            } else {
+                sourceFile.copyTo(destFile, overwrite = false)
+                sourceFile.delete()
+            }
+
+            projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun searchAndReplace(
+        projectId: String,
+        search: String,
+        replace: String,
+        filePattern: String? = null,
+        dryRun: Boolean = false
+    ): Result<SearchReplaceResult> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            val rootDir = File(project.rootPath)
+            val result = SearchReplaceResult()
+
+            searchAndReplaceInDir(rootDir, project.rootPath, search, replace, filePattern, dryRun, result)
+
+            if (!dryRun && result.filesModified > 0) {
+                projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            }
+
+            Result.success(result)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun searchAndReplaceInDir(
+        directory: File,
+        basePath: String,
+        search: String,
+        replace: String,
+        filePattern: String?,
+        dryRun: Boolean,
+        result: SearchReplaceResult
+    ) {
+        val files = directory.listFiles() ?: return
+
+        for (file in files) {
+            if (file.name.startsWith(".")) continue
+
+            if (file.isDirectory) {
+                searchAndReplaceInDir(file, basePath, search, replace, filePattern, dryRun, result)
+            } else {
+                if (filePattern != null && !matchesPattern(file.name, filePattern)) {
+                    continue
+                }
+
+                try {
+                    val content = file.readText()
+                    if (content.contains(search)) {
+                        val relativePath = file.absolutePath.removePrefix(basePath).trimStart(File.separatorChar)
+                        val occurrences = content.split(search).size - 1
+
+                        result.filesModified++
+                        result.totalReplacements += occurrences
+                        result.files.add(SearchReplaceFileResult(relativePath, occurrences))
+
+                        if (!dryRun) {
+                            val newContent = content.replace(search, replace)
+                            file.writeText(newContent)
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Skip files that can't be read as text
+                }
+            }
+        }
+    }
+
+    private fun matchesPattern(filename: String, pattern: String): Boolean {
+        val regex = pattern
+            .replace(".", "\\.")
+            .replace("*", ".*")
+            .toRegex(RegexOption.IGNORE_CASE)
+        return regex.matches(filename)
+    }
+
+    suspend fun patchFile(
+        projectId: String,
+        path: String,
+        oldContent: String,
+        newContent: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            val file = File(project.rootPath, path)
+            if (!file.exists()) {
+                return@withContext Result.failure(FileNotFoundException(path))
+            }
+
+            val currentContent = file.readText()
+            if (!currentContent.contains(oldContent)) {
+                return@withContext Result.failure(PatchNotFoundException(path, oldContent))
+            }
+
+            val patchedContent = currentContent.replace(oldContent, newContent)
+            file.writeText(patchedContent)
+
+            projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun createTemplateFiles(projectDir: File, template: ProjectTemplate) {
         when (template) {
             ProjectTemplate.BLANK -> createBlankTemplate(projectDir)
@@ -422,6 +601,17 @@ class ProjectRepository(
     }
 }
 
+data class SearchReplaceResult(
+    var filesModified: Int = 0,
+    var totalReplacements: Int = 0,
+    val files: MutableList<SearchReplaceFileResult> = mutableListOf()
+)
+
+data class SearchReplaceFileResult(
+    val path: String,
+    val replacements: Int
+)
+
 class ProjectExistsException(name: String) : Exception("Project '$name' already exists")
 class ProjectNotFoundException(id: String) : Exception("Project not found: $id")
 class ProjectCreationException(message: String) : Exception(message)
@@ -430,3 +620,4 @@ class FileExistsException(path: String) : Exception("File already exists: $path"
 class FileDeletionException(path: String) : Exception("Failed to delete: $path")
 class FileRenameException(oldPath: String, newPath: String) : Exception("Failed to rename $oldPath to $newPath")
 class FolderCreationException(path: String) : Exception("Failed to create folder: $path")
+class PatchNotFoundException(path: String, content: String) : Exception("Content not found in $path: ${content.take(50)}...")
