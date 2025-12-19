@@ -22,6 +22,8 @@ data class AiModel(
 @Serializable
 enum class AiProvider(val displayName: String, val baseUrl: String) {
     DEEPINFRA("DeepInfra", "https://api.deepinfra.com/v1/openai"),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1"),
+    GEMINI("Google Gemini", "https://generativelanguage.googleapis.com/v1beta"),
     OPENAI("OpenAI", "https://api.openai.com/v1"),
     ANTHROPIC("Anthropic", "https://api.anthropic.com/v1");
 

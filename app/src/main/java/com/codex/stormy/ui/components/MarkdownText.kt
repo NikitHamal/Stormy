@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.res.ResourcesCompat
+import com.codex.stormy.R
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -124,6 +126,11 @@ private fun MarkdownTextBlock(
         markwon.toMarkdown(text)
     }
 
+    // Load Poppins font for consistent typography
+    val poppinsTypeface = remember(context) {
+        ResourcesCompat.getFont(context, R.font.poppins_regular_static)
+    }
+
     AndroidView(
         factory = { ctx ->
             TextView(ctx).apply {
@@ -131,6 +138,7 @@ private fun MarkdownTextBlock(
                 setLinkTextColor(linkColor.toArgb())
                 textSize = 14f
                 setLineSpacing(0f, 1.3f)
+                typeface = poppinsTypeface
             }
         },
         update = { textView ->
@@ -314,6 +322,11 @@ fun SimpleMarkdownText(
         markwon.toMarkdown(markdown)
     }
 
+    // Load Poppins font for consistent typography
+    val poppinsTypeface = remember(context) {
+        ResourcesCompat.getFont(context, R.font.poppins_regular_static)
+    }
+
     AndroidView(
         factory = { ctx ->
             TextView(ctx).apply {
@@ -321,6 +334,7 @@ fun SimpleMarkdownText(
                 setLinkTextColor(linkColor.toArgb())
                 textSize = 14f
                 setLineSpacing(0f, 1.2f)
+                typeface = poppinsTypeface
             }
         },
         update = { textView ->

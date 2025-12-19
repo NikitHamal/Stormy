@@ -105,6 +105,22 @@ class ProjectRepository(
         projectDao.updateLastOpenedAt(projectId, System.currentTimeMillis())
     }
 
+    /**
+     * Get the preferred AI model for a project
+     * Returns null if no preference is set (uses global default)
+     */
+    suspend fun getPreferredAiModel(projectId: String): String? = withContext(Dispatchers.IO) {
+        projectDao.getPreferredAiModel(projectId)
+    }
+
+    /**
+     * Set the preferred AI model for a project
+     * Pass null to use the global default model
+     */
+    suspend fun setPreferredAiModel(projectId: String, modelId: String?) = withContext(Dispatchers.IO) {
+        projectDao.updatePreferredAiModel(projectId, modelId)
+    }
+
     suspend fun getFileTree(projectId: String): List<FileTreeNode> = withContext(Dispatchers.IO) {
         val project = projectDao.getProjectById(projectId) ?: return@withContext emptyList()
         val rootDir = File(project.rootPath)

@@ -24,6 +24,7 @@ class PreferencesRepository(private val context: Context) {
         val AUTO_SAVE = booleanPreferencesKey("auto_save")
         val API_KEY = stringPreferencesKey("api_key")
         val AI_MODEL = stringPreferencesKey("ai_model")
+        val DEFAULT_AI_MODEL = stringPreferencesKey("default_ai_model")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
     }
 
@@ -60,7 +61,11 @@ class PreferencesRepository(private val context: Context) {
     }
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.AI_MODEL] ?: "gpt-4"
+        preferences[PreferenceKeys.AI_MODEL] ?: "Qwen/Qwen2.5-Coder-32B-Instruct"
+    }
+
+    val defaultAiModel: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.DEFAULT_AI_MODEL] ?: "Qwen/Qwen2.5-Coder-32B-Instruct"
     }
 
     val onboardingCompleted: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -112,6 +117,12 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setAiModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.AI_MODEL] = model
+        }
+    }
+
+    suspend fun setDefaultAiModel(model: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.DEFAULT_AI_MODEL] = model
         }
     }
 

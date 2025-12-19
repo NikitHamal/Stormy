@@ -1,6 +1,9 @@
 package com.codex.stormy.ui.screens.editor
 
+import android.app.Activity
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,6 +85,29 @@ fun EditorScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    // Handle preview activity results for AI-assisted editing
+    val previewLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data = result.data
+            val prompt = data?.getStringExtra(PreviewActivity.RESULT_AGENT_PROMPT)
+            val selectedElements = data?.getStringArrayExtra(PreviewActivity.RESULT_SELECTED_ELEMENTS)
+            val selectors = data?.getStringArrayExtra(PreviewActivity.RESULT_ELEMENT_SELECTORS)
+
+            if (!prompt.isNullOrBlank() && !selectedElements.isNullOrEmpty()) {
+                // Build context-rich message for AI
+                val elementContext = buildElementContextMessage(selectedElements, selectors)
+                val fullMessage = "$prompt\n\n$elementContext"
+
+                // Switch to chat tab and send the message
+                viewModel.selectTab(EditorTab.CHAT)
+                viewModel.updateChatInput(fullMessage)
+                viewModel.sendMessage()
+            }
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -115,7 +141,7 @@ fun EditorScreen(
                                 putExtra(PreviewActivity.EXTRA_PROJECT_ID, project.id)
                                 putExtra(PreviewActivity.EXTRA_PROJECT_PATH, project.rootPath)
                             }
-                            context.startActivity(intent)
+                            previewLauncher.launch(intent)
                         }
                     },
                     onSettingsClick = onSettingsClick
@@ -457,4 +483,36 @@ private fun FileTypeIcon(
             maxLines = 1
         )
     }
+}
+
+/**
+ * Build a context message with selected HTML elements for AI-assisted editing
+ * Includes the element HTML and CSS selectors for precise targeting
+ */
+private fun buildElementContextMessage(
+    selectedElements: Array<String>,
+    selectors: Array<String>?
+): String {
+    val sb = StringBuilder()
+    sb.appendLine("**Selected Elements from Preview:**")
+    sb.appendLine()
+
+    selectedElements.forEachIndexed { index, html ->
+        val selector = selectors?.getOrNull(index) ?: "Element ${index + 1}"
+        sb.appendLine("**Element ${index + 1}** (`$selector`):")
+        sb.appendLine("```html")
+        // Truncate very long HTML to avoid context overflow
+        val truncatedHtml = if (html.length > 1000) {
+            html.take(1000) + "... (truncated)"
+        } else {
+            html
+        }
+        sb.appendLine(truncatedHtml)
+        sb.appendLine("```")
+        sb.appendLine()
+    }
+
+    sb.appendLine("Please use the `patch_file` tool to make targeted changes to the HTML file (index.html). Find the exact element(s) shown above and apply the requested modifications.")
+
+    return sb.toString()
 }

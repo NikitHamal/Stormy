@@ -47,4 +47,10 @@ interface ProjectDao {
 
     @Query("UPDATE projects SET thumbnailPath = :path WHERE id = :projectId")
     suspend fun updateThumbnailPath(projectId: String, path: String?)
+
+    @Query("UPDATE projects SET preferredAiModelId = :modelId WHERE id = :projectId")
+    suspend fun updatePreferredAiModel(projectId: String, modelId: String?)
+
+    @Query("SELECT preferredAiModelId FROM projects WHERE id = :projectId")
+    suspend fun getPreferredAiModel(projectId: String): String?
 }

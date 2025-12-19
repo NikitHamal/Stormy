@@ -16,7 +16,8 @@ data class Project(
     val updatedAt: Long,
     val lastOpenedAt: Long,
     val thumbnailPath: String?,
-    val rootPath: String
+    val rootPath: String,
+    val preferredAiModelId: String? = null  // Per-project AI model preference
 ) {
     val formattedLastOpened: String
         get() {
@@ -53,7 +54,8 @@ data class Project(
         updatedAt = updatedAt,
         lastOpenedAt = lastOpenedAt,
         thumbnailPath = thumbnailPath,
-        rootPath = rootPath
+        rootPath = rootPath,
+        preferredAiModelId = preferredAiModelId
     )
 
     companion object {
@@ -70,7 +72,8 @@ data class Project(
             updatedAt = entity.updatedAt,
             lastOpenedAt = entity.lastOpenedAt,
             thumbnailPath = entity.thumbnailPath,
-            rootPath = entity.rootPath
+            rootPath = entity.rootPath,
+            preferredAiModelId = entity.preferredAiModelId
         )
     }
 }

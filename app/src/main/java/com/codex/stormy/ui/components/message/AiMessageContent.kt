@@ -2,7 +2,12 @@ package com.codex.stormy.ui.components.message
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -61,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.ui.components.MarkdownText
+import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Parsed content block types for AI messages
@@ -94,9 +100,9 @@ fun parseAiMessageContent(content: String): List<MessageContentBlock> {
         RegexOption.DOT_MATCHES_ALL
     )
 
-    // Pattern to match thinking/reasoning sections
+    // Pattern to match thinking/reasoning sections (supports <thinking>, <reasoning>, and unclosed tags for streaming)
     val thinkingPattern = Regex(
-        """<thinking>([\s\S]*?)</thinking>""",
+        """<(thinking|reasoning)>([\s\S]*?)(</(thinking|reasoning)>|$)""",
         RegexOption.IGNORE_CASE
     )
 
@@ -110,7 +116,7 @@ fun parseAiMessageContent(content: String): List<MessageContentBlock> {
         if (textBefore.isNotEmpty()) {
             blocks.add(MessageContentBlock.TextBlock(textBefore))
         }
-        blocks.add(MessageContentBlock.ThinkingBlock(match.groupValues[1].trim()))
+        blocks.add(MessageContentBlock.ThinkingBlock(match.groupValues[2].trim()))
         lastEnd = match.range.last + 1
     }
 
@@ -316,7 +322,7 @@ private fun ThinkingSection(
                         text = content,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        fontFamily = FontFamily.Default,
+                        fontFamily = PoppinsFontFamily,
                         lineHeight = 18.sp,
                         modifier = Modifier.padding(12.dp)
                     )
@@ -327,29 +333,33 @@ private fun ThinkingSection(
 }
 
 /**
- * Animated thinking dots indicator
+ * Animated thinking dots indicator with pulsing effect
  */
 @Composable
 private fun ThinkingDots() {
+    val infiniteTransition = rememberInfiniteTransition(label = "thinking_dots")
+
     Row(
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         repeat(3) { index ->
-            val alpha by animateFloatAsState(
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f,
                 targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 500,
-                    delayMillis = index * 150
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 200)
                 ),
                 label = "dot_alpha_$index"
             )
             Box(
                 modifier = Modifier
-                    .size(4.dp)
+                    .size(5.dp)
                     .clip(CircleShape)
                     .background(
-                        MaterialTheme.colorScheme.tertiary.copy(alpha = alpha * 0.7f)
+                        MaterialTheme.colorScheme.tertiary.copy(alpha = alpha)
                     )
             )
         }
@@ -544,23 +554,44 @@ private fun ResponseSection(
 }
 
 /**
- * Streaming indicator with animated dots
+ * Streaming indicator with pulsing animated dot
  */
 @Composable
 private fun StreamingIndicator() {
+    val infiniteTransition = rememberInfiniteTransition(label = "streaming")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "streaming_alpha"
+    )
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "streaming_scale"
+    )
+
     Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(6.dp)
+                .size((6 * scale).dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
         )
         Text(
             text = "Generating",
             style = MaterialTheme.typography.labelSmall,
+            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }

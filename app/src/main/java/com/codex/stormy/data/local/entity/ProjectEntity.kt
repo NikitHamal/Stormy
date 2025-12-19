@@ -15,7 +15,8 @@ data class ProjectEntity(
     val updatedAt: Long,
     val lastOpenedAt: Long,
     val thumbnailPath: String?,
-    val rootPath: String
+    val rootPath: String,
+    val preferredAiModelId: String? = null  // Per-project AI model preference
 )
 
 @Serializable

@@ -53,8 +53,6 @@ fun SoraCodeEditorView(
     showLineNumbers: Boolean,
     wordWrap: Boolean,
     fontSize: Float,
-    searchQuery: String = "",
-    currentMatchIndex: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -90,19 +88,6 @@ fun SoraCodeEditorView(
             lastExternalContent = content
         }
         isUpdatingFromEditor = false
-    }
-
-    // Update search highlighting
-    LaunchedEffect(searchQuery, currentMatchIndex, editorInstance) {
-        editorInstance?.let { editor ->
-            withContext(Dispatchers.Main) {
-                if (searchQuery.isNotEmpty()) {
-                    highlightSearchResults(editor, content, searchQuery, currentMatchIndex)
-                } else {
-                    editor.searcher.stopSearch()
-                }
-            }
-        }
     }
 
     // Update editor settings when they change

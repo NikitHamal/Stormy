@@ -13,6 +13,7 @@ import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.ToolCallResponse
+import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.ai.context.ContextUsageLevel
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -87,6 +89,7 @@ class EditorViewModel(
     private val preferencesRepository: PreferencesRepository,
     private val aiRepository: AiRepository,
     private val chatRepository: ChatRepository,
+    private val aiModelRepository: AiModelRepository,
     private val contextWindowManager: ContextWindowManager,
     private val userPreferencesLearner: UserPreferencesLearner,
     private val toolExecutor: ToolExecutor,
@@ -197,8 +200,26 @@ class EditorViewModel(
                 _project.value = project
                 if (project != null) {
                     loadFileTree()
+                    // Load project's preferred model or fall back to global default
+                    loadPreferredModel(project.preferredAiModelId)
                 }
             }
+        }
+    }
+
+    /**
+     * Load the preferred AI model for this project
+     * Falls back to global default if no project preference is set
+     */
+    private suspend fun loadPreferredModel(projectPreferredModelId: String?) {
+        val modelId = projectPreferredModelId
+            ?: preferencesRepository.defaultAiModel.first()
+
+        // Find the model by ID from available models
+        val model = aiModelRepository.getModelById(modelId)
+        if (model != null) {
+            _currentModel.value = model
+            _contextMaxTokens.value = contextWindowManager.getAvailableTokens(model)
         }
     }
 
@@ -352,7 +373,7 @@ class EditorViewModel(
                         _fileContent.value = content
                         _originalFileContent.value = content
                         _currentFile.value = fileNode
-                        _selectedTab.value = EditorTab.CODE
+                        // Don't switch to CODE tab automatically - keep user on current tab
                     }
                 }
                 .onFailure { error ->
@@ -979,6 +1000,31 @@ class EditorViewModel(
 
     fun setModel(model: AiModel) {
         _currentModel.value = model
+        _contextMaxTokens.value = contextWindowManager.getAvailableTokens(model)
+    }
+
+    /**
+     * Set the preferred AI model for this project
+     * Also updates the current model
+     */
+    fun setProjectPreferredModel(model: AiModel) {
+        _currentModel.value = model
+        _contextMaxTokens.value = contextWindowManager.getAvailableTokens(model)
+
+        viewModelScope.launch {
+            projectRepository.setPreferredAiModel(projectId, model.id)
+        }
+    }
+
+    /**
+     * Clear the project's preferred model (use global default)
+     */
+    fun clearProjectPreferredModel() {
+        viewModelScope.launch {
+            projectRepository.setPreferredAiModel(projectId, null)
+            // Reload with global default
+            loadPreferredModel(null)
+        }
     }
 
     fun clearError() {
@@ -1052,6 +1098,7 @@ class EditorViewModel(
                     preferencesRepository = application.preferencesRepository,
                     aiRepository = application.aiRepository,
                     chatRepository = application.chatRepository,
+                    aiModelRepository = application.aiModelRepository,
                     contextWindowManager = application.contextWindowManager,
                     userPreferencesLearner = application.userPreferencesLearner,
                     toolExecutor = application.toolExecutor,

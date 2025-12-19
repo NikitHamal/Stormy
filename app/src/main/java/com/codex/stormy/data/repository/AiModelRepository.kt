@@ -4,9 +4,14 @@ import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.DeepInfraModels
+import com.codex.stormy.data.ai.GeminiModelService
+import com.codex.stormy.data.ai.OpenRouterModelService
 import com.codex.stormy.data.local.dao.AiModelDao
 import com.codex.stormy.data.local.entity.AiModelEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,13 +21,15 @@ import kotlinx.coroutines.withContext
  * Repository for managing AI models
  * Handles:
  * - Local persistence of model preferences
- * - Dynamic model fetching from providers
+ * - Dynamic model fetching from multiple providers (DeepInfra, OpenRouter, Gemini)
  * - Model enable/disable state
  * - Custom model management
  */
 class AiModelRepository(
     private val aiModelDao: AiModelDao,
-    private val deepInfraModelService: DeepInfraModelService
+    private val deepInfraModelService: DeepInfraModelService,
+    private val openRouterModelService: OpenRouterModelService = OpenRouterModelService(),
+    private val geminiModelService: GeminiModelService = GeminiModelService()
 ) {
 
     /**
@@ -58,40 +65,20 @@ class AiModelRepository(
     }
 
     /**
-     * Refresh models from DeepInfra API
-     * Merges new models with existing preferences (enabled/disabled state, aliases)
+     * Refresh models from a specific provider
      */
-    suspend fun refreshModelsFromProvider(): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun refreshModelsFromProvider(provider: AiProvider, apiKey: String? = null): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val result = deepInfraModelService.fetchAvailableModels()
+            val result = when (provider) {
+                AiProvider.DEEPINFRA -> deepInfraModelService.fetchAvailableModels()
+                AiProvider.OPENROUTER -> openRouterModelService.fetchAvailableModels()
+                AiProvider.GEMINI -> geminiModelService.fetchAvailableModels(apiKey)
+                else -> Result.failure(Exception("Provider ${provider.displayName} does not support dynamic model fetching"))
+            }
 
             result.fold(
                 onSuccess = { fetchedModels ->
-                    // Get existing models to preserve user preferences
-                    val existingModels = aiModelDao.getAllModels()
-                    val existingMap = existingModels.associateBy { it.id }
-
-                    // Convert fetched models to entities, preserving existing preferences
-                    val newEntities = fetchedModels.map { model ->
-                        val existing = existingMap[model.id]
-                        model.toEntity().copy(
-                            isEnabled = existing?.isEnabled ?: true,
-                            isFavorite = existing?.isFavorite ?: false,
-                            alias = existing?.alias,
-                            lastUsed = existing?.lastUsed,
-                            usageCount = existing?.usageCount ?: 0,
-                            addedAt = existing?.addedAt ?: System.currentTimeMillis()
-                        )
-                    }
-
-                    // Keep custom models that weren't in the fetch
-                    val customModels = existingModels.filter { it.isCustom }
-
-                    // Delete non-custom models and insert all fresh
-                    aiModelDao.deleteNonCustomModels()
-                    aiModelDao.insertModels(newEntities + customModels)
-
-                    Result.success(newEntities.size)
+                    mergeModelsWithExisting(fetchedModels, provider)
                 },
                 onFailure = { error ->
                     // If fetch fails and we have no models, seed with defaults
@@ -103,7 +90,6 @@ class AiModelRepository(
                 }
             )
         } catch (e: Exception) {
-            // Seed defaults if we have nothing
             val count = aiModelDao.getModelCount()
             if (count == 0) {
                 seedDefaultModels()
@@ -111,6 +97,120 @@ class AiModelRepository(
             Result.failure(e)
         }
     }
+
+    /**
+     * Refresh models from all providers concurrently
+     * Returns the total number of models fetched
+     */
+    suspend fun refreshAllModels(geminiApiKey: String? = null): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            coroutineScope {
+                val deepInfraDeferred = async { deepInfraModelService.fetchAvailableModels() }
+                val openRouterDeferred = async { openRouterModelService.fetchAvailableModels() }
+                val geminiDeferred = if (geminiApiKey != null) {
+                    async { geminiModelService.fetchAvailableModels(geminiApiKey) }
+                } else null
+
+                val results = listOfNotNull(
+                    deepInfraDeferred.await(),
+                    openRouterDeferred.await(),
+                    geminiDeferred?.await()
+                )
+
+                // Collect all successful models
+                val allModels = results.mapNotNull { it.getOrNull() }.flatten()
+
+                if (allModels.isEmpty()) {
+                    // All fetches failed
+                    val firstError = results.firstOrNull { it.isFailure }?.exceptionOrNull()
+                    val count = aiModelDao.getModelCount()
+                    if (count == 0) {
+                        seedDefaultModels()
+                    }
+                    return@coroutineScope Result.failure(firstError ?: Exception("Failed to fetch models"))
+                }
+
+                // Merge with existing preferences
+                mergeAllModelsWithExisting(allModels)
+            }
+        } catch (e: Exception) {
+            val count = aiModelDao.getModelCount()
+            if (count == 0) {
+                seedDefaultModels()
+            }
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Merge fetched models with existing database entries, preserving user preferences
+     */
+    private suspend fun mergeModelsWithExisting(fetchedModels: List<AiModel>, provider: AiProvider): Result<Int> {
+        // Get existing models to preserve user preferences
+        val existingModels = aiModelDao.getAllModels()
+        val existingMap = existingModels.associateBy { it.id }
+
+        // Convert fetched models to entities, preserving existing preferences
+        val newEntities = fetchedModels.map { model ->
+            val existing = existingMap[model.id]
+            model.toEntity().copy(
+                isEnabled = existing?.isEnabled ?: true,
+                isFavorite = existing?.isFavorite ?: false,
+                alias = existing?.alias,
+                lastUsed = existing?.lastUsed,
+                usageCount = existing?.usageCount ?: 0,
+                addedAt = existing?.addedAt ?: System.currentTimeMillis()
+            )
+        }
+
+        // Keep custom models and models from other providers
+        val modelsToKeep = existingModels.filter {
+            it.isCustom || it.provider != provider.name
+        }
+
+        // Delete models from this provider (except custom) and insert fresh
+        aiModelDao.deleteModelsByProvider(provider.name)
+        aiModelDao.insertModels(newEntities + modelsToKeep.filter { it.provider == provider.name && it.isCustom })
+
+        return Result.success(newEntities.size)
+    }
+
+    /**
+     * Merge all fetched models from multiple providers with existing database
+     */
+    private suspend fun mergeAllModelsWithExisting(allModels: List<AiModel>): Result<Int> {
+        // Get existing models to preserve user preferences
+        val existingModels = aiModelDao.getAllModels()
+        val existingMap = existingModels.associateBy { it.id }
+
+        // Convert fetched models to entities, preserving existing preferences
+        val newEntities = allModels.map { model ->
+            val existing = existingMap[model.id]
+            model.toEntity().copy(
+                isEnabled = existing?.isEnabled ?: true,
+                isFavorite = existing?.isFavorite ?: false,
+                alias = existing?.alias,
+                lastUsed = existing?.lastUsed,
+                usageCount = existing?.usageCount ?: 0,
+                addedAt = existing?.addedAt ?: System.currentTimeMillis()
+            )
+        }
+
+        // Keep only custom models
+        val customModels = existingModels.filter { it.isCustom }
+
+        // Delete all non-custom models and insert fresh
+        aiModelDao.deleteNonCustomModels()
+        aiModelDao.insertModels(newEntities + customModels)
+
+        return Result.success(newEntities.size)
+    }
+
+    /**
+     * Legacy method for backward compatibility - refreshes DeepInfra only
+     */
+    @Deprecated("Use refreshModelsFromProvider or refreshAllModels instead")
+    suspend fun refreshModelsFromProvider(): Result<Int> = refreshModelsFromProvider(AiProvider.DEEPINFRA)
 
     /**
      * Seed database with default curated models

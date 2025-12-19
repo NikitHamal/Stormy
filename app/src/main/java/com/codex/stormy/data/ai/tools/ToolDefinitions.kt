@@ -294,6 +294,110 @@ object StormyTools {
         )
     )
 
+    // Enhanced file tools
+    val GET_FILE_INFO = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "get_file_info",
+            description = "Get metadata information about a file including size, line count, and file type.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The relative path to the file")
+                ),
+                required = listOf("path")
+            )
+        )
+    )
+
+    val INSERT_AT_LINE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "insert_at_line",
+            description = "Insert content at a specific line number in a file. Existing content is shifted down.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file"),
+                    "line_number" to Pair("integer", "The line number to insert at (1-indexed). Content will be inserted before this line."),
+                    "content" to Pair("string", "The content to insert")
+                ),
+                required = listOf("path", "line_number", "content")
+            )
+        )
+    )
+
+    val APPEND_TO_FILE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "append_to_file",
+            description = "Append content to the end of a file. Useful for adding new code without modifying existing content.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The path to the file"),
+                    "content" to Pair("string", "The content to append")
+                ),
+                required = listOf("path", "content")
+            )
+        )
+    )
+
+    val FIND_FILES = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "find_files",
+            description = "Find files matching a pattern in the project. Supports wildcards (*) for flexible matching.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "pattern" to Pair("string", "The pattern to match (e.g., '*.html', 'styles/*.css', '**/index.*')"),
+                    "path" to Pair("string", "Optional starting directory path (default: project root)")
+                ),
+                required = listOf("pattern")
+            )
+        )
+    )
+
+    val GET_PROJECT_SUMMARY = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "get_project_summary",
+            description = "Get a quick summary of the project including file counts by type, total size, and structure overview.",
+            parameters = createParametersJson(
+                properties = emptyMap(),
+                required = emptyList()
+            )
+        )
+    )
+
+    val READ_LINES = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "read_lines",
+            description = "Read specific lines from a file. Useful for examining parts of large files.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "The relative path to the file"),
+                    "start_line" to Pair("integer", "The starting line number (1-indexed)"),
+                    "end_line" to Pair("integer", "The ending line number (inclusive)")
+                ),
+                required = listOf("path", "start_line", "end_line")
+            )
+        )
+    )
+
+    val DIFF_FILES = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "diff_files",
+            description = "Compare two files and show their differences.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path1" to Pair("string", "Path to the first file"),
+                    "path2" to Pair("string", "Path to the second file")
+                ),
+                required = listOf("path1", "path2")
+            )
+        )
+    )
+
     // Task management tools
     val CREATE_TODO = Tool(
         type = "function",
@@ -371,6 +475,7 @@ object StormyTools {
      * Get all tools for agent mode
      */
     fun getAllTools(): List<Tool> = listOf(
+        // File operations
         READ_FILE,
         WRITE_FILE,
         LIST_FILES,
@@ -379,17 +484,29 @@ object StormyTools {
         RENAME_FILE,
         COPY_FILE,
         MOVE_FILE,
+        // Enhanced file operations
+        GET_FILE_INFO,
+        INSERT_AT_LINE,
+        APPEND_TO_FILE,
+        FIND_FILES,
+        GET_PROJECT_SUMMARY,
+        READ_LINES,
+        DIFF_FILES,
+        // Memory operations
         SAVE_MEMORY,
         RECALL_MEMORY,
         LIST_MEMORIES,
         DELETE_MEMORY,
         UPDATE_MEMORY,
+        // Search operations
         SEARCH_FILES,
         SEARCH_REPLACE,
         PATCH_FILE,
+        // Task management
         CREATE_TODO,
         UPDATE_TODO,
         LIST_TODOS,
+        // Agent control
         ASK_USER,
         FINISH_TASK
     )

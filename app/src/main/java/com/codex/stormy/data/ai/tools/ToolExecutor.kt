@@ -99,6 +99,15 @@ class ToolExecutor(
                 "search_replace" -> executeSearchReplace(projectId, arguments)
                 "patch_file" -> executePatchFile(projectId, arguments)
 
+                // Enhanced file operations
+                "get_file_info" -> executeGetFileInfo(projectId, arguments)
+                "insert_at_line" -> executeInsertAtLine(projectId, arguments)
+                "append_to_file" -> executeAppendToFile(projectId, arguments)
+                "find_files" -> executeFindFiles(projectId, arguments)
+                "get_project_summary" -> executeGetProjectSummary(projectId)
+                "read_lines" -> executeReadLines(projectId, arguments)
+                "diff_files" -> executeDiffFiles(projectId, arguments)
+
                 // Todo operations
                 "create_todo" -> executeCreateTodo(projectId, arguments)
                 "update_todo" -> executeUpdateTodo(projectId, arguments)
@@ -486,6 +495,395 @@ class ToolExecutor(
                 },
                 onFailure = { ToolResult(false, "", "Failed to patch file: ${it.message}") }
             )
+    }
+
+    // ==================== Enhanced File Operations ====================
+
+    private suspend fun executeGetFileInfo(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getStringArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+
+        return projectRepository.readFile(projectId, path)
+            .fold(
+                onSuccess = { content ->
+                    val lines = content.lines()
+                    val extension = path.substringAfterLast('.', "")
+                    val fileType = getFileTypeDescription(extension)
+                    val sizeBytes = content.length
+                    val sizeStr = formatFileSize(sizeBytes)
+
+                    val output = buildString {
+                        appendLine("📄 File: $path")
+                        appendLine("Type: $fileType")
+                        appendLine("Size: $sizeStr ($sizeBytes bytes)")
+                        appendLine("Lines: ${lines.size}")
+                        appendLine("Extension: .$extension")
+                    }
+                    ToolResult(true, output)
+                },
+                onFailure = { ToolResult(false, "", "Failed to get file info: ${it.message}") }
+            )
+    }
+
+    private fun getFileTypeDescription(extension: String): String {
+        return when (extension.lowercase()) {
+            "html", "htm" -> "HTML Document"
+            "css" -> "CSS Stylesheet"
+            "js" -> "JavaScript"
+            "json" -> "JSON Data"
+            "md" -> "Markdown"
+            "txt" -> "Plain Text"
+            "svg" -> "SVG Image"
+            "xml" -> "XML Document"
+            "ts" -> "TypeScript"
+            "jsx" -> "JSX (React)"
+            "tsx" -> "TSX (React TypeScript)"
+            "vue" -> "Vue Component"
+            else -> "Unknown ($extension)"
+        }
+    }
+
+    private fun formatFileSize(bytes: Int): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            else -> "${bytes / (1024 * 1024)} MB"
+        }
+    }
+
+    private suspend fun executeInsertAtLine(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getStringArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val lineNumberStr = args.getStringArg("line_number")
+            ?: return ToolResult(false, "", "Missing required argument: line_number")
+        val content = args.getStringArg("content")
+            ?: return ToolResult(false, "", "Missing required argument: content")
+
+        val lineNumber = lineNumberStr.toIntOrNull()
+            ?: return ToolResult(false, "", "Invalid line_number: must be an integer")
+
+        return projectRepository.readFile(projectId, path)
+            .fold(
+                onSuccess = { fileContent ->
+                    val lines = fileContent.lines().toMutableList()
+
+                    // Validate line number
+                    if (lineNumber < 1) {
+                        return@fold ToolResult(false, "", "Line number must be >= 1")
+                    }
+
+                    // Insert at the specified position (convert to 0-indexed)
+                    val insertIndex = (lineNumber - 1).coerceAtMost(lines.size)
+                    val contentLines = content.lines()
+                    lines.addAll(insertIndex, contentLines)
+
+                    val newContent = lines.joinToString("\n")
+                    val oldContent = fileContent
+
+                    projectRepository.writeFile(projectId, path, newContent)
+                        .fold(
+                            onSuccess = {
+                                interactionCallback?.onFileChanged(path, FileChangeType.MODIFIED, oldContent, newContent)
+                                ToolResult(true, "Inserted ${contentLines.size} line(s) at line $lineNumber in $path")
+                            },
+                            onFailure = { ToolResult(false, "", "Failed to write file: ${it.message}") }
+                        )
+                },
+                onFailure = { ToolResult(false, "", "Failed to read file: ${it.message}") }
+            )
+    }
+
+    private suspend fun executeAppendToFile(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getStringArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val content = args.getStringArg("content")
+            ?: return ToolResult(false, "", "Missing required argument: content")
+
+        return projectRepository.readFile(projectId, path)
+            .fold(
+                onSuccess = { existingContent ->
+                    val newContent = if (existingContent.endsWith("\n")) {
+                        existingContent + content
+                    } else {
+                        existingContent + "\n" + content
+                    }
+
+                    projectRepository.writeFile(projectId, path, newContent)
+                        .fold(
+                            onSuccess = {
+                                interactionCallback?.onFileChanged(path, FileChangeType.MODIFIED, existingContent, newContent)
+                                ToolResult(true, "Content appended to $path")
+                            },
+                            onFailure = { ToolResult(false, "", "Failed to write file: ${it.message}") }
+                        )
+                },
+                onFailure = { ToolResult(false, "", "Failed to read file: ${it.message}") }
+            )
+    }
+
+    private suspend fun executeFindFiles(projectId: String, args: JsonObject): ToolResult {
+        val pattern = args.getStringArg("pattern")
+            ?: return ToolResult(false, "", "Missing required argument: pattern")
+        val basePath = args.getStringArg("path") ?: ""
+
+        return try {
+            val fileTree = projectRepository.getFileTree(projectId)
+            val matchingFiles = mutableListOf<String>()
+            findMatchingFiles(fileTree, pattern, basePath, matchingFiles)
+
+            if (matchingFiles.isEmpty()) {
+                ToolResult(true, "No files found matching pattern: $pattern")
+            } else {
+                val output = buildString {
+                    appendLine("Found ${matchingFiles.size} file(s) matching '$pattern':")
+                    matchingFiles.forEach { path ->
+                        appendLine("  📄 $path")
+                    }
+                }
+                ToolResult(true, output)
+            }
+        } catch (e: Exception) {
+            ToolResult(false, "", "Failed to find files: ${e.message}")
+        }
+    }
+
+    private fun findMatchingFiles(
+        nodes: List<com.codex.stormy.domain.model.FileTreeNode>,
+        pattern: String,
+        basePath: String,
+        results: MutableList<String>
+    ) {
+        for (node in nodes) {
+            when (node) {
+                is com.codex.stormy.domain.model.FileTreeNode.FileNode -> {
+                    if (matchesGlobPattern(node.path, pattern, basePath)) {
+                        results.add(node.path)
+                    }
+                }
+                is com.codex.stormy.domain.model.FileTreeNode.FolderNode -> {
+                    findMatchingFiles(node.children, pattern, basePath, results)
+                }
+            }
+        }
+    }
+
+    private fun matchesGlobPattern(filePath: String, pattern: String, basePath: String): Boolean {
+        // Handle ** for recursive matching
+        val normalizedPattern = pattern
+            .replace("**", ".*")
+            .replace("*", "[^/]*")
+            .replace(".", "\\.")
+
+        val fullPattern = if (basePath.isNotEmpty()) {
+            "$basePath/$normalizedPattern"
+        } else {
+            normalizedPattern
+        }
+
+        return try {
+            val regex = Regex(fullPattern, RegexOption.IGNORE_CASE)
+            regex.matches(filePath) || regex.containsMatchIn(filePath)
+        } catch (e: Exception) {
+            // Fallback to simple matching
+            filePath.contains(pattern.replace("*", ""), ignoreCase = true)
+        }
+    }
+
+    private suspend fun executeGetProjectSummary(projectId: String): ToolResult {
+        return try {
+            val fileTree = projectRepository.getFileTree(projectId)
+            val stats = ProjectStats()
+            analyzeProjectTree(fileTree, stats)
+
+            val output = buildString {
+                appendLine("📊 Project Summary")
+                appendLine("━━━━━━━━━━━━━━━━━━")
+                appendLine("Total files: ${stats.totalFiles}")
+                appendLine("Total folders: ${stats.totalFolders}")
+                appendLine()
+                appendLine("Files by type:")
+                stats.filesByExtension.entries
+                    .sortedByDescending { it.value }
+                    .forEach { (ext, count) ->
+                        val icon = getFileIcon(ext)
+                        appendLine("  $icon .$ext: $count file(s)")
+                    }
+                appendLine()
+                appendLine("Structure depth: ${stats.maxDepth} levels")
+            }
+            ToolResult(true, output)
+        } catch (e: Exception) {
+            ToolResult(false, "", "Failed to get project summary: ${e.message}")
+        }
+    }
+
+    private data class ProjectStats(
+        var totalFiles: Int = 0,
+        var totalFolders: Int = 0,
+        var filesByExtension: MutableMap<String, Int> = mutableMapOf(),
+        var maxDepth: Int = 0
+    )
+
+    private fun analyzeProjectTree(
+        nodes: List<com.codex.stormy.domain.model.FileTreeNode>,
+        stats: ProjectStats,
+        currentDepth: Int = 1
+    ) {
+        stats.maxDepth = maxOf(stats.maxDepth, currentDepth)
+
+        for (node in nodes) {
+            when (node) {
+                is com.codex.stormy.domain.model.FileTreeNode.FileNode -> {
+                    stats.totalFiles++
+                    val ext = node.extension.ifEmpty { "no-ext" }
+                    stats.filesByExtension[ext] = (stats.filesByExtension[ext] ?: 0) + 1
+                }
+                is com.codex.stormy.domain.model.FileTreeNode.FolderNode -> {
+                    stats.totalFolders++
+                    analyzeProjectTree(node.children, stats, currentDepth + 1)
+                }
+            }
+        }
+    }
+
+    private fun getFileIcon(extension: String): String {
+        return when (extension.lowercase()) {
+            "html", "htm" -> "🌐"
+            "css" -> "🎨"
+            "js" -> "📜"
+            "json" -> "📋"
+            "md" -> "📝"
+            "txt" -> "📄"
+            "svg", "png", "jpg", "jpeg", "gif" -> "🖼️"
+            else -> "📄"
+        }
+    }
+
+    private suspend fun executeReadLines(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getStringArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val startLineStr = args.getStringArg("start_line")
+            ?: return ToolResult(false, "", "Missing required argument: start_line")
+        val endLineStr = args.getStringArg("end_line")
+            ?: return ToolResult(false, "", "Missing required argument: end_line")
+
+        val startLine = startLineStr.toIntOrNull()
+            ?: return ToolResult(false, "", "Invalid start_line: must be an integer")
+        val endLine = endLineStr.toIntOrNull()
+            ?: return ToolResult(false, "", "Invalid end_line: must be an integer")
+
+        if (startLine < 1) {
+            return ToolResult(false, "", "start_line must be >= 1")
+        }
+        if (endLine < startLine) {
+            return ToolResult(false, "", "end_line must be >= start_line")
+        }
+
+        return projectRepository.readFile(projectId, path)
+            .fold(
+                onSuccess = { content ->
+                    val lines = content.lines()
+                    val totalLines = lines.size
+
+                    if (startLine > totalLines) {
+                        return@fold ToolResult(false, "", "start_line ($startLine) exceeds total lines ($totalLines)")
+                    }
+
+                    val actualEndLine = minOf(endLine, totalLines)
+                    val selectedLines = lines.subList(startLine - 1, actualEndLine)
+
+                    val output = buildString {
+                        appendLine("Lines $startLine-$actualEndLine of $totalLines in $path:")
+                        appendLine("```")
+                        selectedLines.forEachIndexed { index, line ->
+                            val lineNum = startLine + index
+                            appendLine("$lineNum: $line")
+                        }
+                        appendLine("```")
+                    }
+                    ToolResult(true, output)
+                },
+                onFailure = { ToolResult(false, "", "Failed to read file: ${it.message}") }
+            )
+    }
+
+    private suspend fun executeDiffFiles(projectId: String, args: JsonObject): ToolResult {
+        val path1 = args.getStringArg("path1")
+            ?: return ToolResult(false, "", "Missing required argument: path1")
+        val path2 = args.getStringArg("path2")
+            ?: return ToolResult(false, "", "Missing required argument: path2")
+
+        val content1Result = projectRepository.readFile(projectId, path1)
+        val content2Result = projectRepository.readFile(projectId, path2)
+
+        if (content1Result.isFailure) {
+            return ToolResult(false, "", "Failed to read $path1: ${content1Result.exceptionOrNull()?.message}")
+        }
+        if (content2Result.isFailure) {
+            return ToolResult(false, "", "Failed to read $path2: ${content2Result.exceptionOrNull()?.message}")
+        }
+
+        val content1 = content1Result.getOrNull()!!
+        val content2 = content2Result.getOrNull()!!
+
+        if (content1 == content2) {
+            return ToolResult(true, "Files are identical")
+        }
+
+        val lines1 = content1.lines()
+        val lines2 = content2.lines()
+
+        val output = buildString {
+            appendLine("📊 Diff: $path1 vs $path2")
+            appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            appendLine("$path1: ${lines1.size} lines")
+            appendLine("$path2: ${lines2.size} lines")
+            appendLine()
+
+            // Simple line-by-line diff
+            val maxLines = maxOf(lines1.size, lines2.size)
+            var diffCount = 0
+
+            for (i in 0 until maxLines) {
+                val line1 = lines1.getOrNull(i)
+                val line2 = lines2.getOrNull(i)
+
+                when {
+                    line1 == line2 -> {
+                        // Lines match, skip
+                    }
+                    line1 == null -> {
+                        appendLine("+ Line ${i + 1}: $line2")
+                        diffCount++
+                    }
+                    line2 == null -> {
+                        appendLine("- Line ${i + 1}: $line1")
+                        diffCount++
+                    }
+                    else -> {
+                        appendLine("~ Line ${i + 1}:")
+                        appendLine("  - $line1")
+                        appendLine("  + $line2")
+                        diffCount++
+                    }
+                }
+
+                // Limit diff output
+                if (diffCount > 50) {
+                    appendLine("... (${maxLines - i - 1} more lines with potential differences)")
+                    break
+                }
+            }
+
+            if (diffCount == 0) {
+                appendLine("Files have same content but different line endings or whitespace")
+            } else {
+                appendLine()
+                appendLine("Total differences: $diffCount line(s)")
+            }
+        }
+
+        return ToolResult(true, output)
     }
 
     // ==================== Todo Operations ====================

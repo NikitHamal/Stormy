@@ -129,9 +129,9 @@ class AiModelsViewModel(
                 // Initialize models if database is empty
                 modelRepository.initializeModelsIfEmpty()
 
-                // Load current model preference
-                val currentModelId = preferencesRepository.aiModel.first()
-                val model = modelRepository.getModelById(currentModelId)
+                // Load default model preference (used for new projects)
+                val defaultModelId = preferencesRepository.defaultAiModel.first()
+                val model = modelRepository.getModelById(defaultModelId)
                     ?: modelRepository.getEnabledModels().firstOrNull()
                     ?: DeepInfraModels.defaultModel
 
@@ -145,16 +145,20 @@ class AiModelsViewModel(
     }
 
     /**
-     * Refresh models from the DeepInfra API
+     * Refresh models from all providers (DeepInfra, OpenRouter, Gemini)
      */
     fun refreshModels() {
         viewModelScope.launch {
             _isRefreshing.value = true
             _error.value = null
 
-            val result = modelRepository.refreshModelsFromProvider()
+            // Refresh all providers concurrently
+            // Note: Gemini requires API key, passing null for now
+            val result = modelRepository.refreshAllModels(geminiApiKey = null)
             result.onFailure { error ->
                 _error.value = "Failed to refresh: ${error.message}"
+            }.onSuccess { count ->
+                // Silently succeeded
             }
 
             _isRefreshing.value = false
@@ -162,11 +166,31 @@ class AiModelsViewModel(
     }
 
     /**
-     * Select a model as the active model
+     * Refresh models from a specific provider
+     */
+    fun refreshProvider(provider: AiProvider) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _error.value = null
+
+            val result = modelRepository.refreshModelsFromProvider(provider)
+            result.onFailure { error ->
+                _error.value = "Failed to refresh ${provider.displayName}: ${error.message}"
+            }
+
+            _isRefreshing.value = false
+        }
+    }
+
+    /**
+     * Select a model as the global default model
+     * This model will be used for new projects and projects without a specific preference
      */
     fun selectModel(model: AiModel) {
         viewModelScope.launch {
+            // Update both the session model and the default model
             preferencesRepository.setAiModel(model.id)
+            preferencesRepository.setDefaultAiModel(model.id)
             modelRepository.recordModelUsage(model.id)
             _currentModel.value = model
         }

@@ -343,78 +343,101 @@ private fun PreviewScreen(
                     }
                 },
                 actions = {
-                    // Element inspector toggle
-                    IconButton(onClick = {
-                        if (agentSelectionMode) {
-                            // Can't enable inspector while in agent selection mode
-                            return@IconButton
+                    // Compact toolbar - smaller icons with reduced spacing
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Element inspector toggle
+                        IconButton(
+                            onClick = {
+                                if (agentSelectionMode) {
+                                    // Can't enable inspector while in agent selection mode
+                                    return@IconButton
+                                }
+                                inspectorEnabled = !inspectorEnabled
+                                if (inspectorEnabled) {
+                                    showInspectorPanel = true
+                                }
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.TouchApp,
+                                contentDescription = if (inspectorEnabled) "Disable inspector"
+                                else "Enable inspector",
+                                tint = when {
+                                    agentSelectionMode -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    inspectorEnabled -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
-                        inspectorEnabled = !inspectorEnabled
-                        if (inspectorEnabled) {
-                            showInspectorPanel = true
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Outlined.TouchApp,
-                            contentDescription = if (inspectorEnabled) "Disable inspector"
-                            else "Enable inspector",
-                            tint = when {
-                                agentSelectionMode -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                inspectorEnabled -> MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.onSurface
-                            }
-                        )
-                    }
 
-                    // Agent selection mode toggle
-                    BadgedBox(
-                        badge = {
-                            if (selectedElements.isNotEmpty()) {
-                                Badge(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ) {
-                                    Text(selectedElements.size.toString())
+                        // Agent selection mode toggle
+                        BadgedBox(
+                            badge = {
+                                if (selectedElements.isNotEmpty()) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ) {
+                                        Text(selectedElements.size.toString())
+                                    }
                                 }
                             }
+                        ) {
+                            IconButton(
+                                onClick = { agentSelectionMode = !agentSelectionMode },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.AutoAwesome,
+                                    contentDescription = if (agentSelectionMode) "Disable agent selection"
+                                    else "Enable agent selection mode",
+                                    tint = if (agentSelectionMode) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
-                    ) {
-                        IconButton(onClick = {
-                            agentSelectionMode = !agentSelectionMode
-                        }) {
+
+                        IconButton(
+                            onClick = { webView?.reload() },
+                            modifier = Modifier.size(40.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Outlined.AutoAwesome,
-                                contentDescription = if (agentSelectionMode) "Disable agent selection"
-                                else "Enable agent selection mode",
-                                tint = if (agentSelectionMode) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
+                                imageVector = Icons.Outlined.Refresh,
+                                contentDescription = "Refresh",
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                    }
 
-                    IconButton(onClick = { webView?.reload() }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Refresh"
-                        )
-                    }
-
-                    IconButton(onClick = { showConsole = !showConsole }) {
-                        Icon(
-                            imageVector = Icons.Outlined.BugReport,
-                            contentDescription = "Console",
-                            tint = if (showConsole) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Box {
-                        IconButton(onClick = { showMoreMenu = true }) {
+                        IconButton(
+                            onClick = { showConsole = !showConsole },
+                            modifier = Modifier.size(40.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Outlined.MoreVert,
-                                contentDescription = "More options"
+                                imageVector = Icons.Outlined.BugReport,
+                                contentDescription = "Console",
+                                tint = if (showConsole) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
+
+                        Box {
+                            IconButton(
+                                onClick = { showMoreMenu = true },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.MoreVert,
+                                    contentDescription = "More options",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         DropdownMenu(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false }
@@ -527,8 +550,11 @@ private fun PreviewScreen(
                     onElementInspected = { element ->
                         if (agentSelectionMode) {
                             // In agent selection mode, toggle element selection
-                            val existingIndex = selectedElements.indexOfFirst {
-                                it.outerHTML == element.outerHTML
+                            // Use unique identifier based on tag, id, class, and position
+                            val elementKey = "${element.tagName}:${element.id}:${element.className}:${element.boundingRect.top}:${element.boundingRect.left}"
+                            val existingIndex = selectedElements.indexOfFirst { existing ->
+                                val existingKey = "${existing.tagName}:${existing.id}:${existing.className}:${existing.boundingRect.top}:${existing.boundingRect.left}"
+                                existingKey == elementKey
                             }
                             if (existingIndex >= 0) {
                                 selectedElements.removeAt(existingIndex)
@@ -588,9 +614,13 @@ private fun PreviewScreen(
                             showInspectorPanel = false
                             inspectorEnabled = false
                         },
+                        onEditWithAi = { el, prompt ->
+                            // Trigger AI edit for single element from inspector
+                            onAgentEditRequest(listOf(el), prompt)
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(280.dp)
+                            .height(320.dp)
                     )
                 }
             }
@@ -996,11 +1026,12 @@ private fun ConsoleLogItem(log: ConsoleLogEntry) {
 private fun InspectorPanel(
     element: InspectedElement,
     onClose: () -> Unit,
+    onEditWithAi: (InspectedElement, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Element", "Styles", "Attributes")
+    val tabs = listOf("Element", "Styles", "Attributes", "Quick Edit")
 
     Column(
         modifier = modifier
@@ -1088,6 +1119,7 @@ private fun InspectorPanel(
                 0 -> ElementTab(element)
                 1 -> StylesTab(element.computedStyles)
                 2 -> AttributesTab(element.attributes)
+                3 -> QuickEditTab(element, onEditWithAi)
             }
         }
     }
@@ -1210,6 +1242,210 @@ private fun AttributesTab(attributes: Map<String, String>) {
                 InspectorProperty(name, value)
             }
         }
+    }
+}
+
+/**
+ * Quick edit tab with common editing actions and AI assistance
+ */
+@Composable
+private fun QuickEditTab(
+    element: InspectedElement,
+    onEditWithAi: (InspectedElement, String) -> Unit
+) {
+    var customPrompt by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Quick Actions Section
+        Text(
+            text = "Quick Actions",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        // Common editing actions as chips
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item {
+                QuickActionChip(
+                    label = "Change Color",
+                    onClick = { onEditWithAi(element, "Change the color of this element to be more visually appealing") }
+                )
+            }
+            item {
+                QuickActionChip(
+                    label = "Make Larger",
+                    onClick = { onEditWithAi(element, "Make this element larger and more prominent") }
+                )
+            }
+            item {
+                QuickActionChip(
+                    label = "Make Smaller",
+                    onClick = { onEditWithAi(element, "Make this element smaller and less prominent") }
+                )
+            }
+            item {
+                QuickActionChip(
+                    label = "Add Padding",
+                    onClick = { onEditWithAi(element, "Add more padding to this element") }
+                )
+            }
+            item {
+                QuickActionChip(
+                    label = "Center",
+                    onClick = { onEditWithAi(element, "Center this element horizontally") }
+                )
+            }
+            item {
+                QuickActionChip(
+                    label = "Add Shadow",
+                    onClick = { onEditWithAi(element, "Add a subtle shadow to this element") }
+                )
+            }
+            item {
+                QuickActionChip(
+                    label = "Round Corners",
+                    onClick = { onEditWithAi(element, "Add rounded corners to this element") }
+                )
+            }
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 4.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        // Custom AI prompt section
+        Text(
+            text = "Custom Edit",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Text(
+            text = "Describe what you want to change about this element",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Custom prompt input
+        BasicTextField(
+            value = customPrompt,
+            onValueChange = { customPrompt = it },
+            textStyle = TextStyle(
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontFamily = FontFamily.Default
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(12.dp),
+            decorationBox = { innerTextField ->
+                Box {
+                    if (customPrompt.isEmpty()) {
+                        Text(
+                            text = "e.g., Make this button blue with white text",
+                            style = TextStyle(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                fontSize = 14.sp
+                            )
+                        )
+                    }
+                    innerTextField()
+                }
+            }
+        )
+
+        // Send to AI button
+        Surface(
+            onClick = {
+                if (customPrompt.isNotBlank()) {
+                    onEditWithAi(element, customPrompt)
+                } else {
+                    Toast.makeText(context, "Please enter a description", Toast.LENGTH_SHORT).show()
+                }
+            },
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Edit with AI",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+
+        // Element preview
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Selected Element",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Text(
+            text = buildElementSelector(element),
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace
+            ),
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(8.dp)
+        )
+    }
+}
+
+/**
+ * Quick action chip for common editing operations
+ */
+@Composable
+private fun QuickActionChip(
+    label: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 

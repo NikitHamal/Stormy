@@ -243,7 +243,16 @@ class AiRepository(
             - `rename_file(old_path, new_path)` - Rename or move a file
             - `copy_file(source_path, destination_path)` - Copy a file
             - `move_file(source_path, destination_path)` - Move a file
-            - `patch_file(path, old_content, new_content)` - Replace specific content in a file
+            - `patch_file(path, old_content, new_content)` - Replace specific content in a file (PREFERRED for HTML element changes)
+
+            ### Enhanced File Operations
+            - `get_file_info(path)` - Get file metadata (size, lines, type)
+            - `insert_at_line(path, line_number, content)` - Insert content at a specific line
+            - `append_to_file(path, content)` - Append content to end of file
+            - `find_files(pattern, path?)` - Find files matching a pattern (supports *.html, **/*.css)
+            - `get_project_summary()` - Get overview of project structure and file counts
+            - `read_lines(path, start_line, end_line)` - Read specific lines from a file
+            - `diff_files(path1, path2)` - Compare two files and show differences
 
             ### Search Operations
             - `search_files(query, file_pattern?)` - Search for text across files
@@ -267,10 +276,24 @@ class AiRepository(
 
             ## Tool Usage Best Practices
             1. **Always read before writing**: Read existing files before modifying them
-            2. **Use patch for small changes**: Use `patch_file` instead of rewriting entire files
-            3. **Save important learnings**: Use memory tools to remember patterns and decisions
-            4. **Create todos for complex tasks**: Break down large tasks into manageable steps
-            5. **Finish explicitly**: Always call `finish_task` when work is complete
+            2. **Use patch for targeted changes**: Use `patch_file` instead of rewriting entire files
+               - For HTML element changes, use the exact element HTML as old_content
+               - For CSS changes, match the exact selector and rules block
+               - This preserves the rest of the file and reduces errors
+            3. **Use insert_at_line for additions**: When adding new code to specific locations
+            4. **Use append_to_file for additions at end**: Quick way to add new content
+            5. **Use get_project_summary first**: Start complex tasks by understanding the project
+            6. **Use find_files for discovery**: Find files by pattern before making changes
+            7. **Save important learnings**: Use memory tools to remember patterns and decisions
+            8. **Create todos for complex tasks**: Break down large tasks into manageable steps
+            9. **Finish explicitly**: Always call `finish_task` when work is complete
+
+            ## Visual Editing from Preview
+            When the user selects elements from the preview and provides instructions:
+            - The selected element HTML is provided exactly as it appears in the file
+            - Use `patch_file` with the exact element HTML as `old_content`
+            - Provide the modified element as `new_content`
+            - This ensures precise, targeted changes without affecting other parts of the file
         """.trimIndent()
 
         private val WORKFLOW_INSTRUCTIONS = """
