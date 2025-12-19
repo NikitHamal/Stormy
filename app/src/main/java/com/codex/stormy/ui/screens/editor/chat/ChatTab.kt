@@ -40,6 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -243,7 +244,7 @@ private fun AgentModeToggle(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Chat,
+                    imageVector = Icons.Outlined.ChatBubbleOutline,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = if (!agentMode) MaterialTheme.colorScheme.onPrimaryContainer
