@@ -113,6 +113,18 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
+    // Sora Editor (Rosemoe Code Editor) - High performance code editor
+    implementation(libs.sora.editor)
+    implementation(libs.sora.editor.language.textmate)
+
+    // Markwon - Markdown rendering for AI messages
+    implementation(libs.markwon.core)
+    implementation(libs.markwon.html)
+    implementation(libs.markwon.linkify)
+    implementation(libs.markwon.strikethrough)
+    implementation(libs.markwon.tables)
+    implementation(libs.markwon.tasklist)
+
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }

@@ -1,6 +1,7 @@
 package com.codex.stormy.ui.screens.preview
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -18,41 +19,57 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DesktopWindows
-import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -60,6 +77,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -76,10 +94,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -106,9 +129,20 @@ class PreviewActivity : ComponentActivity() {
         setContent {
             CodeXTheme {
                 PreviewScreen(
+                    projectId = projectId,
                     projectPath = projectPath,
                     onBackClick = { finish() },
-                    onWebViewCreated = { webView = it }
+                    onWebViewCreated = { webView = it },
+                    onAgentEditRequest = { elements, prompt ->
+                        // Return the agent edit request to the calling activity
+                        val intent = Intent().apply {
+                            putExtra(RESULT_AGENT_PROMPT, prompt)
+                            putExtra(RESULT_SELECTED_ELEMENTS, elements.map { it.outerHTML }.toTypedArray())
+                            putExtra(RESULT_ELEMENT_SELECTORS, elements.map { buildElementSelector(it) }.toTypedArray())
+                        }
+                        setResult(Activity.RESULT_OK, intent)
+                        finish()
+                    }
                 )
             }
         }
@@ -122,6 +156,11 @@ class PreviewActivity : ComponentActivity() {
     companion object {
         const val EXTRA_PROJECT_ID = "extra_project_id"
         const val EXTRA_PROJECT_PATH = "extra_project_path"
+
+        // Result extras for agent edit mode
+        const val RESULT_AGENT_PROMPT = "result_agent_prompt"
+        const val RESULT_SELECTED_ELEMENTS = "result_selected_elements"
+        const val RESULT_ELEMENT_SELECTORS = "result_element_selectors"
     }
 }
 
@@ -157,50 +196,15 @@ data class ElementRect(
  * JavaScript interface for receiving element data from WebView
  */
 class InspectorJsInterface(
-    private val onElementInspected: (InspectedElement) -> Unit
+    private val onElementInspected: (InspectedElement) -> Unit,
+    private val onMultiSelectElement: (InspectedElement) -> Unit = {}
 ) {
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     @JavascriptInterface
     fun onElementSelected(jsonData: String) {
         try {
-            val json = JSONObject(jsonData)
-
-            // Parse computed styles
-            val stylesJson = json.optJSONObject("computedStyles") ?: JSONObject()
-            val styles = mutableMapOf<String, String>()
-            stylesJson.keys().forEach { key ->
-                styles[key] = stylesJson.optString(key, "")
-            }
-
-            // Parse attributes
-            val attrsJson = json.optJSONObject("attributes") ?: JSONObject()
-            val attributes = mutableMapOf<String, String>()
-            attrsJson.keys().forEach { key ->
-                attributes[key] = attrsJson.optString(key, "")
-            }
-
-            // Parse bounding rect
-            val rectJson = json.optJSONObject("boundingRect") ?: JSONObject()
-            val rect = ElementRect(
-                x = rectJson.optDouble("x", 0.0).toFloat(),
-                y = rectJson.optDouble("y", 0.0).toFloat(),
-                width = rectJson.optDouble("width", 0.0).toFloat(),
-                height = rectJson.optDouble("height", 0.0).toFloat()
-            )
-
-            val element = InspectedElement(
-                tagName = json.optString("tagName", ""),
-                id = json.optString("id", ""),
-                className = json.optString("className", ""),
-                innerHTML = json.optString("innerHTML", ""),
-                outerHTML = json.optString("outerHTML", ""),
-                computedStyles = styles,
-                attributes = attributes,
-                boundingRect = rect
-            )
-
-            // Post to main thread for Compose state update
+            val element = parseElementJson(jsonData)
             mainHandler.post {
                 onElementInspected(element)
             }
@@ -208,13 +212,65 @@ class InspectorJsInterface(
             // Ignore parsing errors
         }
     }
+
+    @JavascriptInterface
+    fun onMultiElementSelected(jsonData: String) {
+        try {
+            val element = parseElementJson(jsonData)
+            mainHandler.post {
+                onMultiSelectElement(element)
+            }
+        } catch (e: Exception) {
+            // Ignore parsing errors
+        }
+    }
+
+    private fun parseElementJson(jsonData: String): InspectedElement {
+        val json = JSONObject(jsonData)
+
+        // Parse computed styles
+        val stylesJson = json.optJSONObject("computedStyles") ?: JSONObject()
+        val styles = mutableMapOf<String, String>()
+        stylesJson.keys().forEach { key ->
+            styles[key] = stylesJson.optString(key, "")
+        }
+
+        // Parse attributes
+        val attrsJson = json.optJSONObject("attributes") ?: JSONObject()
+        val attributes = mutableMapOf<String, String>()
+        attrsJson.keys().forEach { key ->
+            attributes[key] = attrsJson.optString(key, "")
+        }
+
+        // Parse bounding rect
+        val rectJson = json.optJSONObject("boundingRect") ?: JSONObject()
+        val rect = ElementRect(
+            x = rectJson.optDouble("x", 0.0).toFloat(),
+            y = rectJson.optDouble("y", 0.0).toFloat(),
+            width = rectJson.optDouble("width", 0.0).toFloat(),
+            height = rectJson.optDouble("height", 0.0).toFloat()
+        )
+
+        return InspectedElement(
+            tagName = json.optString("tagName", ""),
+            id = json.optString("id", ""),
+            className = json.optString("className", ""),
+            innerHTML = json.optString("innerHTML", ""),
+            outerHTML = json.optString("outerHTML", ""),
+            computedStyles = styles,
+            attributes = attributes,
+            boundingRect = rect
+        )
+    }
 }
 
 @Composable
 private fun PreviewScreen(
+    projectId: String,
     projectPath: String,
     onBackClick: () -> Unit,
-    onWebViewCreated: (WebView) -> Unit
+    onWebViewCreated: (WebView) -> Unit,
+    onAgentEditRequest: (List<InspectedElement>, String) -> Unit
 ) {
     val context = LocalContext.current
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -225,10 +281,14 @@ private fun PreviewScreen(
     var showConsole by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<ConsoleLogEntry>() }
 
-    // Inspector state
+    // Inspector state (single element)
     var inspectorEnabled by remember { mutableStateOf(false) }
     var inspectedElement by remember { mutableStateOf<InspectedElement?>(null) }
     var showInspectorPanel by remember { mutableStateOf(false) }
+
+    // Agent selection mode state (multi-element)
+    var agentSelectionMode by remember { mutableStateOf(false) }
+    val selectedElements = remember { mutableStateListOf<InspectedElement>() }
 
     // Apply desktop mode settings when changed
     LaunchedEffect(desktopMode) {
@@ -239,10 +299,27 @@ private fun PreviewScreen(
     LaunchedEffect(inspectorEnabled) {
         webView?.let { wv ->
             if (inspectorEnabled) {
-                wv.injectInspectorScript()
-            } else {
+                wv.injectInspectorScript(multiSelect = false)
+            } else if (!agentSelectionMode) {
                 wv.disableInspector()
                 inspectedElement = null
+            }
+        }
+    }
+
+    // Apply agent selection mode when changed
+    LaunchedEffect(agentSelectionMode) {
+        webView?.let { wv ->
+            if (agentSelectionMode) {
+                // Disable single inspector mode
+                inspectorEnabled = false
+                showInspectorPanel = false
+                inspectedElement = null
+                selectedElements.clear()
+                wv.injectInspectorScript(multiSelect = true)
+            } else {
+                wv.disableInspector()
+                selectedElements.clear()
             }
         }
     }
@@ -268,6 +345,10 @@ private fun PreviewScreen(
                 actions = {
                     // Element inspector toggle
                     IconButton(onClick = {
+                        if (agentSelectionMode) {
+                            // Can't enable inspector while in agent selection mode
+                            return@IconButton
+                        }
                         inspectorEnabled = !inspectorEnabled
                         if (inspectorEnabled) {
                             showInspectorPanel = true
@@ -276,35 +357,57 @@ private fun PreviewScreen(
                         Icon(
                             imageVector = Icons.Outlined.TouchApp,
                             contentDescription = if (inspectorEnabled) "Disable inspector"
-                                                else "Enable inspector",
-                            tint = if (inspectorEnabled) MaterialTheme.colorScheme.tertiary
-                                  else MaterialTheme.colorScheme.onSurface
+                            else "Enable inspector",
+                            tint = when {
+                                agentSelectionMode -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                inspectorEnabled -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
                         )
                     }
-                    // Desktop/Mobile mode quick toggle
-                    IconButton(onClick = { desktopMode = !desktopMode }) {
-                        Icon(
-                            imageVector = if (desktopMode) Icons.Outlined.DesktopWindows
-                                         else Icons.Outlined.PhoneAndroid,
-                            contentDescription = if (desktopMode) "Switch to mobile mode"
-                                                else "Switch to desktop mode",
-                            tint = if (desktopMode) MaterialTheme.colorScheme.primary
-                                  else MaterialTheme.colorScheme.onSurface
-                        )
+
+                    // Agent selection mode toggle
+                    BadgedBox(
+                        badge = {
+                            if (selectedElements.isNotEmpty()) {
+                                Badge(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ) {
+                                    Text(selectedElements.size.toString())
+                                }
+                            }
+                        }
+                    ) {
+                        IconButton(onClick = {
+                            agentSelectionMode = !agentSelectionMode
+                        }) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = if (agentSelectionMode) "Disable agent selection"
+                                else "Enable agent selection mode",
+                                tint = if (agentSelectionMode) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
+
                     IconButton(onClick = { webView?.reload() }) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
                             contentDescription = "Refresh"
                         )
                     }
+
                     IconButton(onClick = { showConsole = !showConsole }) {
                         Icon(
                             imageVector = Icons.Outlined.BugReport,
                             contentDescription = "Console",
-                            tint = if (showConsole) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            tint = if (showConsole) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface
                         )
                     }
+
                     Box {
                         IconButton(onClick = { showMoreMenu = true }) {
                             Icon(
@@ -327,7 +430,7 @@ private fun PreviewScreen(
                                         imageVector = Icons.Outlined.DesktopWindows,
                                         contentDescription = null,
                                         tint = if (desktopMode) MaterialTheme.colorScheme.primary
-                                               else MaterialTheme.colorScheme.onSurface
+                                        else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             )
@@ -382,7 +485,8 @@ private fun PreviewScreen(
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = if (serverRunning) Icons.Outlined.Stop else Icons.Outlined.PlayArrow,
+                                        imageVector = if (serverRunning) Icons.Outlined.Stop
+                                        else Icons.Outlined.PlayArrow,
                                         contentDescription = null
                                     )
                                 }
@@ -409,7 +513,7 @@ private fun PreviewScreen(
                 WebViewPreview(
                     projectPath = projectPath,
                     modifier = Modifier.fillMaxSize(),
-                    inspectorEnabled = inspectorEnabled,
+                    inspectorEnabled = inspectorEnabled || agentSelectionMode,
                     onWebViewCreated = { wv ->
                         webView = wv
                         onWebViewCreated(wv)
@@ -421,44 +525,59 @@ private fun PreviewScreen(
                         consoleLogs.add(entry)
                     },
                     onElementInspected = { element ->
-                        inspectedElement = element
-                        showInspectorPanel = true
+                        if (agentSelectionMode) {
+                            // In agent selection mode, toggle element selection
+                            val existingIndex = selectedElements.indexOfFirst {
+                                it.outerHTML == element.outerHTML
+                            }
+                            if (existingIndex >= 0) {
+                                selectedElements.removeAt(existingIndex)
+                            } else {
+                                selectedElements.add(element)
+                            }
+                        } else {
+                            // Single element inspection
+                            inspectedElement = element
+                            showInspectorPanel = true
+                        }
                     }
                 )
 
                 // Inspector mode indicator overlay
-                if (inspectorEnabled) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.TouchApp,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                            Text(
-                                text = "Tap element to inspect",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                            )
-                        }
-                    }
+                if (inspectorEnabled && !agentSelectionMode) {
+                    InspectorModeIndicator(
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
                 }
+
+                // Agent selection mode indicator
+                if (agentSelectionMode) {
+                    AgentSelectionIndicator(
+                        selectedCount = selectedElements.size,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
+                }
+            }
+
+            // Agent selection floating prompt bar
+            AnimatedVisibility(
+                visible = agentSelectionMode && selectedElements.isNotEmpty(),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut()
+            ) {
+                AgentPromptBar(
+                    selectedElements = selectedElements.toList(),
+                    onClearSelection = { selectedElements.clear() },
+                    onSubmit = { prompt ->
+                        onAgentEditRequest(selectedElements.toList(), prompt)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // Inspector panel
             AnimatedVisibility(
-                visible = showInspectorPanel && inspectedElement != null,
+                visible = showInspectorPanel && inspectedElement != null && !agentSelectionMode,
                 enter = slideInVertically { it },
                 exit = slideOutVertically { it }
             ) {
@@ -478,7 +597,7 @@ private fun PreviewScreen(
 
             // Console panel
             AnimatedVisibility(
-                visible = showConsole && !showInspectorPanel,
+                visible = showConsole && !showInspectorPanel && !agentSelectionMode,
                 enter = slideInVertically { it },
                 exit = slideOutVertically { it }
             ) {
@@ -491,6 +610,284 @@ private fun PreviewScreen(
                 )
             }
         }
+    }
+}
+
+/**
+ * Indicator shown when inspector mode is active
+ */
+@Composable
+private fun InspectorModeIndicator(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.TouchApp,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+            Text(
+                text = "Tap element to inspect",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        }
+    }
+}
+
+/**
+ * Indicator shown when agent selection mode is active
+ */
+@Composable
+private fun AgentSelectionIndicator(
+    selectedCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .padding(8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = if (selectedCount == 0) "Tap elements to select for AI editing"
+                else "$selectedCount element${if (selectedCount > 1) "s" else ""} selected",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
+/**
+ * Floating prompt bar for agent selection mode
+ * Allows users to input instructions for AI-driven element editing
+ */
+@Composable
+private fun AgentPromptBar(
+    selectedElements: List<InspectedElement>,
+    onClearSelection: () -> Unit,
+    onSubmit: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var promptText by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+                .imePadding()
+        ) {
+            // Selected elements preview
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                items(selectedElements) { element ->
+                    SelectedElementChip(
+                        element = element,
+                        onRemove = {
+                            // This would need to be handled by the parent
+                        }
+                    )
+                }
+            }
+
+            // Prompt input row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Clear selection button
+                IconButton(
+                    onClick = onClearSelection,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Clear,
+                        contentDescription = "Clear selection",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Prompt text field
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    BasicTextField(
+                        value = promptText,
+                        onValueChange = { promptText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        textStyle = TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        singleLine = false,
+                        maxLines = 3,
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (promptText.isEmpty()) {
+                                    Text(
+                                        text = "Describe what to change...",
+                                        style = TextStyle(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 14.sp
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                }
+
+                // Send button
+                IconButton(
+                    onClick = {
+                        if (promptText.isNotBlank()) {
+                            keyboardController?.hide()
+                            onSubmit(promptText)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (promptText.isNotBlank()) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.Send,
+                        contentDescription = "Send to AI",
+                        tint = if (promptText.isNotBlank()) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Quick action suggestions
+            LazyRow(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val suggestions = listOf(
+                    "Change the color",
+                    "Make it larger",
+                    "Add animation",
+                    "Center this element",
+                    "Add hover effect"
+                )
+                items(suggestions) { suggestion ->
+                    QuickSuggestionChip(
+                        text = suggestion,
+                        onClick = { promptText = suggestion }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Chip displaying a selected element
+ */
+@Composable
+private fun SelectedElementChip(
+    element: InspectedElement,
+    onRemove: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(8.dp)
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = buildElementSelector(element),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                ),
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(
+                imageVector = Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/**
+ * Quick suggestion chip for common editing actions
+ */
+@Composable
+private fun QuickSuggestionChip(
+    text: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 
@@ -917,8 +1314,9 @@ private fun WebView.applyViewportMode(desktopMode: Boolean) {
 
 /**
  * Inject inspector script into the WebView
+ * @param multiSelect Whether to enable multi-selection mode for agent editing
  */
-private fun WebView.injectInspectorScript() {
+private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
     val script = """
         (function() {
             // Remove any existing inspector
@@ -929,22 +1327,19 @@ private fun WebView.injectInspectorScript() {
             // Create highlight overlay
             var overlay = document.createElement('div');
             overlay.id = '__stormy_inspector_overlay';
-            overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:999999;border:2px solid #6200EE;background:rgba(98,0,238,0.1);display:none;';
+            overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:999999;border:2px solid ${if (multiSelect) "#6366F1" else "#6200EE"};background:rgba(${if (multiSelect) "99,102,241" else "98,0,238"},0.1);display:none;transition:all 0.1s ease;';
             document.body.appendChild(overlay);
+
+            // Track selected elements for multi-select mode
+            var selectedElements = new Set();
 
             // Inspector object
             window.__stormyInspector = {
                 enabled: true,
+                multiSelect: $multiSelect,
                 lastElement: null,
 
-                handleClick: function(e) {
-                    if (!window.__stormyInspector.enabled) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-
-                    var el = e.target;
-                    if (el.id === '__stormy_inspector_overlay') return;
-
+                getElementData: function(el) {
                     // Get computed styles
                     var computedStyles = {};
                     var style = window.getComputedStyle(el);
@@ -967,8 +1362,7 @@ private fun WebView.injectInspectorScript() {
                     // Get bounding rect
                     var rect = el.getBoundingClientRect();
 
-                    // Build element data
-                    var data = {
+                    return {
                         tagName: el.tagName,
                         id: el.id || '',
                         className: el.className || '',
@@ -983,17 +1377,57 @@ private fun WebView.injectInspectorScript() {
                             height: rect.height
                         }
                     };
+                },
+
+                handleClick: function(e) {
+                    if (!window.__stormyInspector.enabled) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    var el = e.target;
+                    if (el.id === '__stormy_inspector_overlay' ||
+                        el.classList.contains('__stormy_selected_marker')) return;
+
+                    var data = this.getElementData(el);
 
                     // Send to Android
                     if (window.StormyInspector) {
                         window.StormyInspector.onElementSelected(JSON.stringify(data));
+                    }
+
+                    // In multi-select mode, toggle selection marker
+                    if (this.multiSelect) {
+                        this.toggleSelectionMarker(el);
+                    }
+                },
+
+                toggleSelectionMarker: function(el) {
+                    var existingMarker = el.querySelector('.__stormy_selected_marker');
+                    if (existingMarker) {
+                        existingMarker.remove();
+                        selectedElements.delete(el);
+                    } else {
+                        var marker = document.createElement('div');
+                        marker.className = '__stormy_selected_marker';
+                        marker.style.cssText = 'position:absolute;top:0;right:0;width:20px;height:20px;background:#6366F1;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:999998;pointer-events:none;';
+                        marker.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+
+                        // Make parent relative if needed
+                        var computedPos = window.getComputedStyle(el).position;
+                        if (computedPos === 'static') {
+                            el.style.position = 'relative';
+                        }
+
+                        el.appendChild(marker);
+                        selectedElements.add(el);
                     }
                 },
 
                 handleMove: function(e) {
                     if (!window.__stormyInspector.enabled) return;
                     var el = e.target;
-                    if (el.id === '__stormy_inspector_overlay') return;
+                    if (el.id === '__stormy_inspector_overlay' ||
+                        el.classList.contains('__stormy_selected_marker')) return;
 
                     var rect = el.getBoundingClientRect();
                     var overlay = document.getElementById('__stormy_inspector_overlay');
@@ -1010,16 +1444,23 @@ private fun WebView.injectInspectorScript() {
                     this.enabled = false;
                     var overlay = document.getElementById('__stormy_inspector_overlay');
                     if (overlay) overlay.remove();
-                    document.removeEventListener('click', this.handleClick, true);
-                    document.removeEventListener('mousemove', this.handleMove, true);
-                    document.removeEventListener('touchmove', this.handleMove, true);
+
+                    // Remove all selection markers
+                    document.querySelectorAll('.__stormy_selected_marker').forEach(function(m) {
+                        m.remove();
+                    });
+                    selectedElements.clear();
+
+                    document.removeEventListener('click', this.boundHandleClick, true);
+                    document.removeEventListener('mousemove', this.boundHandleMove, true);
+                    document.removeEventListener('touchmove', this.boundHandleTouchMove, true);
                 }
             };
 
-            // Add event listeners
-            document.addEventListener('click', window.__stormyInspector.handleClick, true);
-            document.addEventListener('mousemove', window.__stormyInspector.handleMove, true);
-            document.addEventListener('touchmove', function(e) {
+            // Bind handlers
+            window.__stormyInspector.boundHandleClick = window.__stormyInspector.handleClick.bind(window.__stormyInspector);
+            window.__stormyInspector.boundHandleMove = window.__stormyInspector.handleMove.bind(window.__stormyInspector);
+            window.__stormyInspector.boundHandleTouchMove = function(e) {
                 if (e.touches.length > 0) {
                     var touch = e.touches[0];
                     var el = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -1027,7 +1468,12 @@ private fun WebView.injectInspectorScript() {
                         window.__stormyInspector.handleMove({target: el});
                     }
                 }
-            }, true);
+            };
+
+            // Add event listeners
+            document.addEventListener('click', window.__stormyInspector.boundHandleClick, true);
+            document.addEventListener('mousemove', window.__stormyInspector.boundHandleMove, true);
+            document.addEventListener('touchmove', window.__stormyInspector.boundHandleTouchMove, true);
         })();
     """.trimIndent()
 
@@ -1057,7 +1503,10 @@ private fun WebViewPreview(
 ) {
     // Create the JS interface once
     val inspectorInterface = remember {
-        InspectorJsInterface(onElementInspected)
+        InspectorJsInterface(
+            onElementInspected = onElementInspected,
+            onMultiSelectElement = onElementInspected // Same handler for both modes
+        )
     }
 
     AndroidView(

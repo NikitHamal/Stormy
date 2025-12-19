@@ -14,6 +14,8 @@ roomRuntime = "2.6.1"
 ksp = "2.0.21-1.0.27"
 splashscreen = "1.0.1"
 okhttp = "4.12.0"
+soraEditor = "0.23.4"
+markwon = "4.6.2"
 
 [libraries]
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
@@ -40,6 +42,18 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "roomRuntime" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "roomRuntime" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "roomRuntime" }
+
+# Sora Editor (Rosemoe Code Editor)
+sora-editor = { group = "io.github.Rosemoe.sora-editor", name = "editor", version.ref = "soraEditor" }
+sora-editor-language-textmate = { group = "io.github.Rosemoe.sora-editor", name = "language-textmate", version.ref = "soraEditor" }
+
+# Markwon for Markdown rendering
+markwon-core = { group = "io.noties.markwon", name = "core", version.ref = "markwon" }
+markwon-html = { group = "io.noties.markwon", name = "html", version.ref = "markwon" }
+markwon-linkify = { group = "io.noties.markwon", name = "linkify", version.ref = "markwon" }
+markwon-strikethrough = { group = "io.noties.markwon", name = "ext-strikethrough", version.ref = "markwon" }
+markwon-tables = { group = "io.noties.markwon", name = "ext-tables", version.ref = "markwon" }
+markwon-tasklist = { group = "io.noties.markwon", name = "ext-tasklist", version.ref = "markwon" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

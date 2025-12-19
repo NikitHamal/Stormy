@@ -1,44 +1,34 @@
 package com.codex.stormy.ui.screens.settings
 
 import android.os.Build
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.ModelTraining
 import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material.icons.outlined.WrapText
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -54,23 +44,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.BuildConfig
 import com.codex.stormy.R
-import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.repository.ThemeMode
 
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
+    onNavigateToAiModels: () -> Unit = {},
+    onNavigateToMemories: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -78,8 +65,6 @@ fun SettingsScreen(
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontSizeDialog by remember { mutableStateOf(false) }
-    var showApiKeyDialog by remember { mutableStateOf(false) }
-    var showModelDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -186,22 +171,22 @@ fun SettingsScreen(
             }
 
             item {
+                val currentModelName = uiState.availableModels.find { it.id == uiState.aiModel }?.name
+                    ?: uiState.aiModel
                 SettingsItem(
-                    icon = Icons.Outlined.Key,
-                    title = context.getString(R.string.settings_api_key),
-                    subtitle = if (uiState.apiKey.isNotEmpty()) "••••••••" else "Not set",
-                    onClick = { showApiKeyDialog = true }
+                    icon = Icons.Outlined.ModelTraining,
+                    title = "AI Models",
+                    subtitle = currentModelName,
+                    onClick = onNavigateToAiModels
                 )
             }
 
             item {
-                val currentModelName = uiState.availableModels.find { it.id == uiState.aiModel }?.name
-                    ?: uiState.aiModel
                 SettingsItem(
-                    icon = Icons.Outlined.SmartToy,
-                    title = context.getString(R.string.settings_model),
-                    subtitle = currentModelName,
-                    onClick = { showModelDialog = true }
+                    icon = Icons.Outlined.Memory,
+                    title = "Memories",
+                    subtitle = "View and manage AI memories",
+                    onClick = onNavigateToMemories
                 )
             }
 
@@ -247,28 +232,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showApiKeyDialog) {
-        ApiKeyDialog(
-            currentKey = uiState.apiKey,
-            onKeySaved = { key ->
-                viewModel.setApiKey(key)
-                showApiKeyDialog = false
-            },
-            onDismiss = { showApiKeyDialog = false }
-        )
-    }
-
-    if (showModelDialog) {
-        AiModelDialog(
-            currentModelId = uiState.aiModel,
-            availableModels = uiState.availableModels,
-            onModelSelected = { modelId ->
-                viewModel.setAiModel(modelId)
-                showModelDialog = false
-            },
-            onDismiss = { showModelDialog = false }
-        )
-    }
 }
 
 @Composable
@@ -475,258 +438,4 @@ private fun FontSizeDialog(
     )
 }
 
-@Composable
-private fun ApiKeyDialog(
-    currentKey: String,
-    onKeySaved: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    var apiKey by remember { mutableStateOf(currentKey) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(context.getString(R.string.settings_api_key)) },
-        text = {
-            OutlinedTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = { Text(context.getString(R.string.settings_api_key_hint)) },
-                visualTransformation = PasswordVisualTransformation(),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onKeySaved(apiKey) }) {
-                Text(context.getString(R.string.action_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(context.getString(R.string.action_cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun AiModelDialog(
-    currentModelId: String,
-    availableModels: List<AiModel>,
-    onModelSelected: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-
-    // Group models by provider
-    val modelsByProvider = availableModels.groupBy { it.provider }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(context.getString(R.string.settings_model))
-                Text(
-                    text = "Select an AI model for code generation",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 450.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                modelsByProvider.forEach { (provider, models) ->
-                    item {
-                        Text(
-                            text = provider.displayName,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
-
-                    items(models) { model ->
-                        EnhancedModelCard(
-                            model = model,
-                            isSelected = model.id == currentModelId,
-                            onClick = { onModelSelected(model.id) }
-                        )
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(context.getString(R.string.action_cancel))
-            }
-        }
-    )
-}
-
-@Composable
-private fun EnhancedModelCard(
-    model: AiModel,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val backgroundColor = if (isSelected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
-
-    val borderColor = if (isSelected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.outlineVariant
-    }
-
-    val contentColor = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-
-    val secondaryColor = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = isSelected,
-                    onClick = onClick
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = model.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = contentColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Text(
-                        text = model.id,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = secondaryColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Model features row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Context length badge
-                ModelFeatureBadge(
-                    text = "${model.contextLength / 1000}K",
-                    backgroundColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = secondaryColor
-                )
-
-                // Streaming support badge
-                if (model.supportsStreaming) {
-                    ModelFeatureBadge(
-                        text = "Stream",
-                        backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                        contentColor = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                // Tool calls support badge
-                if (model.supportsToolCalls) {
-                    ModelFeatureBadge(
-                        text = "Tools",
-                        backgroundColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                        contentColor = MaterialTheme.colorScheme.secondary
-                    )
-                }
-
-                // Thinking model badge
-                if (model.isThinkingModel) {
-                    Row(
-                        modifier = Modifier
-                            .background(
-                                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
-                                RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Psychology,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.tertiary
-                        )
-                        Text(
-                            text = "Thinking",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelFeatureBadge(
-    text: String,
-    backgroundColor: Color,
-    contentColor: Color
-) {
-    Box(
-        modifier = Modifier
-            .background(backgroundColor, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = contentColor
-        )
-    }
-}

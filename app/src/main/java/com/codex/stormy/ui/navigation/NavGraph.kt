@@ -10,8 +10,10 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.codex.stormy.ui.screens.aimodels.AiModelsScreen
 import com.codex.stormy.ui.screens.editor.EditorScreen
 import com.codex.stormy.ui.screens.home.HomeScreen
+import com.codex.stormy.ui.screens.memories.MemoriesScreen
 import com.codex.stormy.ui.screens.onboarding.OnboardingScreen
 import com.codex.stormy.ui.screens.settings.SettingsScreen
 
@@ -22,6 +24,8 @@ sealed class Screen(val route: String) {
         fun createRoute(projectId: String) = "editor/$projectId"
     }
     data object Settings : Screen("settings")
+    data object AiModels : Screen("ai_models")
+    data object Memories : Screen("memories")
 }
 
 @Composable
@@ -102,6 +106,28 @@ fun CodeXNavGraph(
 
         composable(Screen.Settings.route) {
             SettingsScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onNavigateToAiModels = {
+                    navController.navigate(Screen.AiModels.route)
+                },
+                onNavigateToMemories = {
+                    navController.navigate(Screen.Memories.route)
+                }
+            )
+        }
+
+        composable(Screen.AiModels.route) {
+            AiModelsScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Screen.Memories.route) {
+            MemoriesScreen(
                 onBackClick = {
                     navController.popBackStack()
                 }
