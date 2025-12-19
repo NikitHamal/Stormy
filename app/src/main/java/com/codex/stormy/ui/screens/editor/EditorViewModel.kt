@@ -8,15 +8,25 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.codex.stormy.CodeXApplication
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.AssistantMessageWithToolCalls
 import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.ToolCallResponse
+import com.codex.stormy.data.ai.context.ContextUsageLevel
+import com.codex.stormy.data.ai.context.ContextWindowManager
+import com.codex.stormy.data.ai.learning.UserPreferencesLearner
+import com.codex.stormy.data.ai.tools.FileChangeType
 import com.codex.stormy.data.ai.tools.MemoryStorage
 import com.codex.stormy.data.ai.tools.StormyTools
+import com.codex.stormy.data.ai.tools.TodoItem
 import com.codex.stormy.data.ai.tools.ToolExecutor
+import com.codex.stormy.data.ai.tools.ToolInteractionCallback
+import com.codex.stormy.data.ai.undo.UndoRedoManager
+import com.codex.stormy.data.ai.undo.UndoRedoState
 import com.codex.stormy.data.local.entity.MessageStatus
 import com.codex.stormy.data.repository.AiRepository
+import com.codex.stormy.data.repository.ChatRepository
 import com.codex.stormy.data.repository.PreferencesRepository
 import com.codex.stormy.data.repository.ProjectRepository
 import com.codex.stormy.domain.model.ChatMessage
@@ -58,7 +68,15 @@ data class EditorUiState(
     val fontSize: Float = 14f,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val agentMode: Boolean = true
+    val agentMode: Boolean = true,
+    // Context window management
+    val contextTokenCount: Int = 0,
+    val contextMaxTokens: Int = 8000,
+    val contextUsageLevel: ContextUsageLevel = ContextUsageLevel.LOW,
+    // Undo/Redo state
+    val undoRedoState: UndoRedoState = UndoRedoState(),
+    // Task planning
+    val taskList: List<TodoItem> = emptyList()
 )
 
 class EditorViewModel(
@@ -66,8 +84,12 @@ class EditorViewModel(
     private val projectRepository: ProjectRepository,
     private val preferencesRepository: PreferencesRepository,
     private val aiRepository: AiRepository,
+    private val chatRepository: ChatRepository,
+    private val contextWindowManager: ContextWindowManager,
+    private val userPreferencesLearner: UserPreferencesLearner,
     private val toolExecutor: ToolExecutor,
-    private val memoryStorage: MemoryStorage
+    private val memoryStorage: MemoryStorage,
+    private val undoRedoManager: UndoRedoManager
 ) : ViewModel() {
 
     private val projectId: String = savedStateHandle["projectId"] ?: ""
@@ -90,6 +112,23 @@ class EditorViewModel(
     private val _currentModel = MutableStateFlow(DeepInfraModels.QWEN_2_5_CODER_32B)
     private val _messageHistory = mutableListOf<ChatRequestMessage>()
     private val _streamingContent = MutableStateFlow("")
+
+    // Context window tracking
+    private val _contextTokenCount = MutableStateFlow(0)
+    private val _contextMaxTokens = MutableStateFlow(contextWindowManager.getAvailableTokens(_currentModel.value))
+    private val _contextUsageLevel = MutableStateFlow(ContextUsageLevel.LOW)
+
+    // Task planning state
+    private val _taskList = MutableStateFlow<List<TodoItem>>(emptyList())
+
+    // Agent loop state tracking
+    private var _pendingToolCalls = mutableListOf<ToolCallResponse>()
+    private var _shouldContinueAgentLoop = false
+    private var _agentIterationCount = 0
+    private var _taskCompleted = false
+    private companion object {
+        const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
+    }
 
     val uiState: StateFlow<EditorUiState> = combine(
         _project,
@@ -127,6 +166,16 @@ class EditorViewModel(
         state.copy(wordWrap = wordWrap)
     }.combine(preferencesRepository.fontSize) { state, fontSize ->
         state.copy(fontSize = fontSize)
+    }.combine(_contextTokenCount) { state, tokenCount ->
+        state.copy(contextTokenCount = tokenCount)
+    }.combine(_contextMaxTokens) { state, maxTokens ->
+        state.copy(contextMaxTokens = maxTokens)
+    }.combine(_contextUsageLevel) { state, usageLevel ->
+        state.copy(contextUsageLevel = usageLevel)
+    }.combine(undoRedoManager.state) { state, undoRedoState ->
+        state.copy(undoRedoState = undoRedoState)
+    }.combine(_taskList) { state, taskList ->
+        state.copy(taskList = taskList)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -135,6 +184,8 @@ class EditorViewModel(
 
     init {
         loadProject()
+        loadChatHistory()
+        setupToolInteractionCallback()
     }
 
     private fun loadProject() {
@@ -145,6 +196,90 @@ class EditorViewModel(
                 _project.value = project
                 if (project != null) {
                     loadFileTree()
+                }
+            }
+        }
+    }
+
+    /**
+     * Set up tool interaction callback for undo/redo tracking and task planning
+     */
+    private fun setupToolInteractionCallback() {
+        toolExecutor.interactionCallback = object : ToolInteractionCallback {
+            override suspend fun askUser(question: String, options: List<String>?): String? {
+                // For now, we'll display the question in the chat
+                // A full implementation would show a dialog and wait for user input
+                return null
+            }
+
+            override suspend fun onTaskFinished(summary: String) {
+                // Clear task list when task is finished
+                _taskList.value = emptyList()
+            }
+
+            override suspend fun onFileChanged(
+                path: String,
+                changeType: FileChangeType,
+                oldContent: String?,
+                newContent: String?
+            ) {
+                // Record the change for undo/redo
+                undoRedoManager.recordChange(
+                    path = path,
+                    changeType = changeType,
+                    oldContent = oldContent,
+                    newContent = newContent
+                )
+            }
+
+            override suspend fun onTodoCreated(todo: TodoItem) {
+                // Add the new todo to the task list
+                _taskList.value = _taskList.value + todo
+            }
+
+            override suspend fun onTodoUpdated(todo: TodoItem) {
+                // Update the todo in the task list
+                _taskList.value = _taskList.value.map {
+                    if (it.id == todo.id) todo else it
+                }
+            }
+        }
+    }
+
+    /**
+     * Load persisted chat history from database
+     */
+    private fun loadChatHistory() {
+        viewModelScope.launch {
+            chatRepository.getMessagesForProject(projectId).collect { messages ->
+                // Only update if we're not currently processing (to avoid overwriting streaming)
+                if (!_isAiProcessing.value) {
+                    _messages.value = messages
+
+                    // Rebuild message history for AI context
+                    rebuildMessageHistoryFromMessages(messages)
+                }
+            }
+        }
+    }
+
+    /**
+     * Rebuild the AI message history from persisted messages
+     */
+    private fun rebuildMessageHistoryFromMessages(messages: List<ChatMessage>) {
+        _messageHistory.clear()
+        for (message in messages) {
+            when {
+                message.isUser -> {
+                    _messageHistory.add(aiRepository.createUserMessage(message.content))
+                }
+                message.isAssistant && message.status != MessageStatus.STREAMING -> {
+                    _messageHistory.add(
+                        ChatRequestMessage(
+                            role = "assistant",
+                            content = message.content
+                        )
+                    )
                 }
             }
         }
@@ -495,10 +630,18 @@ class EditorViewModel(
         _chatInput.value = ""
         _isAiProcessing.value = true
 
+        // Reset agent loop state for new conversation turn
+        _agentIterationCount = 0
+        _taskCompleted = false
+        _pendingToolCalls.clear()
+
         // Add to message history for AI context
         _messageHistory.add(aiRepository.createUserMessage(content))
 
         viewModelScope.launch {
+            // Save user message to database
+            chatRepository.saveMessage(userMessage)
+
             sendAiRequest()
         }
     }
@@ -506,6 +649,19 @@ class EditorViewModel(
     private suspend fun sendAiRequest() {
         val model = _currentModel.value
         val isAgentMode = _agentMode.value
+
+        // Check iteration limit
+        if (_agentIterationCount >= MAX_AGENT_ITERATIONS) {
+            appendToLastAssistantMessage(
+                "\n\n⚠️ Agent reached maximum iteration limit ($MAX_AGENT_ITERATIONS). Stopping to prevent infinite loop."
+            )
+            updateLastAssistantMessage(_streamingContent.value, MessageStatus.SENT)
+            _isAiProcessing.value = false
+            loadFileTree()
+            return
+        }
+
+        _agentIterationCount++
 
         // Build system message with project context and memories
         val projectName = _project.value?.name ?: "Unknown Project"
@@ -519,24 +675,48 @@ class EditorViewModel(
             memoryStorage.getContextString(projectId)
         } else ""
 
+        // Get file tree for context
+        val fileTreeContext = if (isAgentMode) {
+            buildFileTreeContext()
+        } else ""
+
+        // Get user preferences context
+        val preferencesContext = userPreferencesLearner.getPreferencesContext()
+
         val systemMessage = aiRepository.createSystemMessage(
-            projectContext = "Project: $projectName$currentFileContent$memoryContext"
+            projectContext = "Project: $projectName$fileTreeContext$currentFileContent$memoryContext$preferencesContext"
         )
 
-        val messagesWithSystem = listOf(systemMessage) + _messageHistory
+        // Optimize message history if needed for context window
+        val optimizedHistory = if (contextWindowManager.needsOptimization(_messageHistory, model)) {
+            contextWindowManager.optimizeMessages(_messageHistory, model, systemMessage)
+        } else {
+            _messageHistory.toList()
+        }
 
-        _streamingContent.value = ""
+        val messagesWithSystem = listOf(systemMessage) + optimizedHistory
 
-        // Create placeholder assistant message for streaming
-        val assistantMessage = ChatMessage.createAssistantMessage(
-            projectId = projectId,
-            content = "",
-            status = MessageStatus.STREAMING
-        )
-        _messages.value = _messages.value + assistantMessage
+        // Update context window stats
+        updateContextStats(messagesWithSystem)
+
+        // Only create new assistant message if this is the first iteration
+        if (_agentIterationCount == 1) {
+            _streamingContent.value = ""
+            val assistantMessage = ChatMessage.createAssistantMessage(
+                projectId = projectId,
+                content = "",
+                status = MessageStatus.STREAMING
+            )
+            _messages.value = _messages.value + assistantMessage
+        }
 
         // Get tools based on mode
         val tools = if (isAgentMode) StormyTools.getAllTools() else null
+
+        // Track tool calls for this iteration
+        var currentToolCalls = listOf<ToolCallResponse>()
+        var hasToolCalls = false
+        var finishedWithToolCalls = false
 
         try {
             aiRepository.streamChat(
@@ -554,76 +734,201 @@ class EditorViewModel(
                         updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
                     }
                     is StreamEvent.ReasoningDelta -> {
-                        // Handle reasoning for thinking models if needed
+                        // Handle reasoning for thinking models - show in UI
+                        _streamingContent.value += event.reasoning
+                        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
                     }
                     is StreamEvent.ToolCalls -> {
-                        // Handle tool calls for agent mode
-                        handleToolCalls(event.toolCalls)
+                        // Store tool calls for processing after stream completes
+                        currentToolCalls = event.toolCalls
+                        hasToolCalls = true
                     }
                     is StreamEvent.FinishReason -> {
-                        // Handle finish reason (stop, tool_calls, length, etc.)
-                        // This is informational and typically precedes Completed
+                        // Track if finished due to tool calls
+                        finishedWithToolCalls = event.reason == "tool_calls"
                     }
                     is StreamEvent.Error -> {
                         updateLastAssistantMessage(
-                            "Error: ${event.message}",
+                            _streamingContent.value + "\n\n❌ Error: ${event.message}",
                             MessageStatus.ERROR
                         )
                         _isAiProcessing.value = false
                     }
                     is StreamEvent.Completed -> {
-                        val finalContent = _streamingContent.value
-                        updateLastAssistantMessage(finalContent, MessageStatus.SENT)
+                        // Handle completion based on whether we have tool calls
+                        if (hasToolCalls && currentToolCalls.isNotEmpty()) {
+                            // Process tool calls and continue the loop
+                            val shouldContinue = handleToolCalls(currentToolCalls)
 
-                        // Add assistant response to history
-                        _messageHistory.add(
-                            ChatRequestMessage(
-                                role = "assistant",
-                                content = finalContent
-                            )
-                        )
+                            if (shouldContinue && _agentMode.value && !_taskCompleted) {
+                                // Continue the agentic loop
+                                sendAiRequest()
+                            } else {
+                                // Task completed or agent stopped
+                                updateLastAssistantMessage(_streamingContent.value, MessageStatus.SENT)
+                                _isAiProcessing.value = false
+                                loadFileTree()
+                            }
+                        } else {
+                            // No tool calls - conversation turn complete
+                            val finalContent = _streamingContent.value
+                            updateLastAssistantMessage(finalContent, MessageStatus.SENT)
 
-                        _isAiProcessing.value = false
+                            // Add assistant response to history (without tool calls)
+                            if (finalContent.isNotEmpty()) {
+                                _messageHistory.add(
+                                    ChatRequestMessage(
+                                        role = "assistant",
+                                        content = finalContent
+                                    )
+                                )
+                            }
 
-                        // Refresh file tree after tool execution
-                        loadFileTree()
+                            _isAiProcessing.value = false
+                            loadFileTree()
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             updateLastAssistantMessage(
-                "Failed to connect to AI: ${e.message}",
+                _streamingContent.value + "\n\n❌ Failed to connect to AI: ${e.message}",
                 MessageStatus.ERROR
             )
             _isAiProcessing.value = false
         }
     }
 
-    private suspend fun handleToolCalls(toolCalls: List<ToolCallResponse>) {
+    /**
+     * Build a compact file tree context string for the AI
+     */
+    private fun buildFileTreeContext(): String {
+        val tree = _fileTree.value
+        if (tree.isEmpty()) return ""
+
+        val sb = StringBuilder("\n\nProject file structure:\n")
+        buildFileTreeString(tree, sb, 0)
+        return sb.toString()
+    }
+
+    private fun buildFileTreeString(nodes: List<FileTreeNode>, sb: StringBuilder, depth: Int) {
+        val indent = "  ".repeat(depth)
+        for (node in nodes) {
+            when (node) {
+                is FileTreeNode.FileNode -> {
+                    sb.append("$indent- ${node.name}\n")
+                }
+                is FileTreeNode.FolderNode -> {
+                    sb.append("$indent📁 ${node.name}/\n")
+                    buildFileTreeString(node.children, sb, depth + 1)
+                }
+            }
+        }
+    }
+
+    /**
+     * Update context window statistics for UI display
+     */
+    private fun updateContextStats(messages: List<ChatRequestMessage>) {
+        val model = _currentModel.value
+        val currentTokens = contextWindowManager.estimateTotalTokens(messages)
+        val maxTokens = contextWindowManager.getAvailableTokens(model)
+        val usage = currentTokens.toFloat() / maxTokens
+
+        _contextTokenCount.value = currentTokens
+        _contextMaxTokens.value = maxTokens
+        _contextUsageLevel.value = when {
+            usage < 0.5f -> ContextUsageLevel.LOW
+            usage < 0.75f -> ContextUsageLevel.MEDIUM
+            usage < 0.9f -> ContextUsageLevel.HIGH
+            else -> ContextUsageLevel.CRITICAL
+        }
+    }
+
+    /**
+     * Handle tool calls and return whether the agent should continue
+     */
+    private suspend fun handleToolCalls(toolCalls: List<ToolCallResponse>): Boolean {
         val toolResults = StringBuilder()
+        var shouldContinue = true
+
+        // First, add the assistant message with tool calls to history
+        val currentContent = _streamingContent.value
+        _messageHistory.add(
+            AssistantMessageWithToolCalls(
+                content = if (currentContent.isNotEmpty()) currentContent else null,
+                toolCalls = toolCalls
+            ).toChatRequestMessage()
+        )
+
+        // Begin a change group for undo/redo
+        val toolNames = toolCalls.map { it.function.name }.distinct().joinToString(", ")
+        undoRedoManager.beginChangeGroup("AI: $toolNames")
 
         for (toolCall in toolCalls) {
+            val toolName = toolCall.function.name
             val result = toolExecutor.execute(projectId, toolCall)
 
-            // Add tool result to message
-            toolResults.append("\n\n**Tool: ${toolCall.function.name}**\n")
+            // Add visual feedback in the UI
+            toolResults.append("\n\n🔧 **${formatToolName(toolName)}**\n")
             if (result.success) {
-                toolResults.append("✅ ${result.output}")
+                val output = result.output.take(500) // Truncate long outputs in UI
+                if (result.output.length > 500) {
+                    toolResults.append("✅ ${output}...")
+                } else {
+                    toolResults.append("✅ $output")
+                }
             } else {
                 toolResults.append("❌ ${result.error}")
             }
 
-            // Add tool result to message history for context
+            // Add tool result to message history for AI context
             _messageHistory.add(
                 aiRepository.createToolResultMessage(
                     toolCallId = toolCall.id,
                     result = if (result.success) result.output else "Error: ${result.error}"
                 )
             )
+
+            // Check if this is a finish_task tool call
+            if (toolName == "finish_task") {
+                _taskCompleted = true
+                shouldContinue = false
+            }
+
+            // Check if this is an ask_user tool call (requires user input)
+            if (toolName == "ask_user") {
+                shouldContinue = false
+            }
         }
 
-        // Append tool results to current streaming content
+        // End the change group for undo/redo
+        undoRedoManager.endChangeGroup()
+
+        // Append tool results to streaming content
         _streamingContent.value += toolResults.toString()
+        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
+
+        // Refresh file tree to reflect any changes
+        loadFileTree()
+
+        return shouldContinue
+    }
+
+    /**
+     * Format tool name for display (convert snake_case to Title Case)
+     */
+    private fun formatToolName(name: String): String {
+        return name.split("_").joinToString(" ") { word ->
+            word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        }
+    }
+
+    /**
+     * Append text to the last assistant message
+     */
+    private fun appendToLastAssistantMessage(text: String) {
+        _streamingContent.value += text
         updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
     }
 
@@ -632,11 +937,19 @@ class EditorViewModel(
         if (currentMessages.isNotEmpty()) {
             val lastMessage = currentMessages.last()
             if (!lastMessage.isUser) {
-                currentMessages[currentMessages.lastIndex] = lastMessage.copy(
+                val updatedMessage = lastMessage.copy(
                     content = content,
                     status = status
                 )
+                currentMessages[currentMessages.lastIndex] = updatedMessage
                 _messages.value = currentMessages
+
+                // Persist to database when message is complete (not streaming)
+                if (status != MessageStatus.STREAMING) {
+                    viewModelScope.launch {
+                        chatRepository.saveMessage(updatedMessage)
+                    }
+                }
             }
         }
     }
@@ -645,6 +958,22 @@ class EditorViewModel(
         _messages.value = emptyList()
         _messageHistory.clear()
         _streamingContent.value = ""
+
+        // Clear persisted messages
+        viewModelScope.launch {
+            chatRepository.clearChatHistory(projectId)
+        }
+    }
+
+    /**
+     * Export chat history to markdown file
+     */
+    fun exportChatHistory(onResult: (Result<java.io.File>) -> Unit) {
+        val projectName = _project.value?.name ?: "Unknown"
+        viewModelScope.launch {
+            val result = chatRepository.exportToMarkdown(projectId, projectName)
+            onResult(result)
+        }
     }
 
     fun setModel(model: AiModel) {
@@ -653,6 +982,59 @@ class EditorViewModel(
 
     fun clearError() {
         _error.value = null
+    }
+
+    /**
+     * Undo the last AI change
+     */
+    fun undo() {
+        viewModelScope.launch {
+            undoRedoManager.undo(projectId)
+                .onSuccess { message ->
+                    // Refresh file tree and current file
+                    loadFileTree()
+                    _currentFile.value?.let { file ->
+                        projectRepository.readFile(projectId, file.path)
+                            .onSuccess { content ->
+                                _fileContent.value = content
+                                _originalFileContent.value = content
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    /**
+     * Redo the last undone AI change
+     */
+    fun redo() {
+        viewModelScope.launch {
+            undoRedoManager.redo(projectId)
+                .onSuccess { message ->
+                    // Refresh file tree and current file
+                    loadFileTree()
+                    _currentFile.value?.let { file ->
+                        projectRepository.readFile(projectId, file.path)
+                            .onSuccess { content ->
+                                _fileContent.value = content
+                                _originalFileContent.value = content
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    /**
+     * Clear undo/redo history
+     */
+    fun clearUndoHistory() {
+        undoRedoManager.clearHistory()
     }
 
     companion object {
@@ -666,8 +1048,12 @@ class EditorViewModel(
                     projectRepository = application.projectRepository,
                     preferencesRepository = application.preferencesRepository,
                     aiRepository = application.aiRepository,
+                    chatRepository = application.chatRepository,
+                    contextWindowManager = application.contextWindowManager,
+                    userPreferencesLearner = application.userPreferencesLearner,
                     toolExecutor = application.toolExecutor,
-                    memoryStorage = application.memoryStorage
+                    memoryStorage = application.memoryStorage,
+                    undoRedoManager = application.undoRedoManager
                 ) as T
             }
         }

@@ -7,10 +7,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,7 +40,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,13 +57,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.codex.stormy.R
+import com.codex.stormy.data.ai.tools.TodoItem
 import com.codex.stormy.data.local.entity.MessageStatus
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.ui.components.DiffView
+import com.codex.stormy.ui.components.TaskPlanningPanel
 import com.codex.stormy.ui.components.toUiCodeChange
 import com.codex.stormy.ui.theme.CodeXTheme
 
@@ -72,6 +77,7 @@ fun ChatTab(
     inputText: String,
     isLoading: Boolean,
     agentMode: Boolean,
+    taskList: List<TodoItem> = emptyList(),
     onInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
     onToggleAgentMode: () -> Unit
@@ -89,6 +95,15 @@ fun ChatTab(
             .fillMaxSize()
             .imePadding()
     ) {
+        // Task planning panel - show when there are active tasks
+        AnimatedVisibility(
+            visible = taskList.isNotEmpty(),
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            TaskPlanningPanel(tasks = taskList)
+        }
+
         if (messages.isEmpty()) {
             WelcomeMessage(
                 agentMode = agentMode,
@@ -130,7 +145,6 @@ fun ChatTab(
             onSend = onSendMessage,
             isEnabled = !isLoading,
             agentMode = agentMode,
-            onToggleAgentMode = onToggleAgentMode,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
@@ -393,7 +407,6 @@ private fun ChatInput(
     onSend: () -> Unit,
     isEnabled: Boolean,
     agentMode: Boolean,
-    onToggleAgentMode: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -403,44 +416,25 @@ private fun ChatInput(
         Row(
             verticalAlignment = Alignment.Bottom
         ) {
-            // Agent mode toggle button
-            IconButton(
-                onClick = onToggleAgentMode,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = if (agentMode) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    },
-                    contentColor = if (agentMode) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                ),
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    imageVector = if (agentMode) Icons.Outlined.AutoAwesome else Icons.Outlined.Chat,
-                    contentDescription = if (agentMode) "Agent mode" else "Chat mode"
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.weight(1f),
                 placeholder = {
                     Text(
-                        if (agentMode) {
+                        text = if (agentMode) {
                             context.getString(R.string.chat_hint_agent)
                         } else {
                             context.getString(R.string.chat_hint)
-                        }
+                        },
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 14.sp
+                        )
                     )
                 },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp
+                ),
                 shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -486,11 +480,11 @@ private fun ChatInput(
             }
         }
 
-        // Agent mode indicator
+        // Agent mode indicator - subtle hint at bottom
         AnimatedVisibility(
             visible = agentMode,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut()
+            enter = fadeIn(),
+            exit = fadeOut()
         ) {
             Row(
                 modifier = Modifier
@@ -502,14 +496,14 @@ private fun ChatInput(
                 Icon(
                     imageVector = Icons.Outlined.AutoAwesome,
                     contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Agent mode - I can read, write, and search files",
+                    text = "Agent mode active",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
         }

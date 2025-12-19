@@ -146,6 +146,7 @@ fun EditorScreen(
                             inputText = uiState.chatInput,
                             isLoading = uiState.isAiProcessing,
                             agentMode = uiState.agentMode,
+                            taskList = uiState.taskList,
                             onInputChange = viewModel::updateChatInput,
                             onSendMessage = viewModel::sendMessage,
                             onToggleAgentMode = viewModel::toggleAgentMode

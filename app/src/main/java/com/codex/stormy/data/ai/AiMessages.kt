@@ -151,3 +151,29 @@ data class ApiError(
     val type: String? = null,
     val code: String? = null
 )
+
+/**
+ * Helper data class for creating assistant messages that include tool calls
+ * Used when continuing the agentic loop
+ */
+data class AssistantMessageWithToolCalls(
+    val content: String?,
+    val toolCalls: List<ToolCallResponse>
+) {
+    /**
+     * Convert to ChatRequestMessage format for API requests
+     */
+    fun toChatRequestMessage(): ChatRequestMessage {
+        return ChatRequestMessage(
+            role = "assistant",
+            content = content,
+            toolCalls = toolCalls.map { toolCall ->
+                ToolCallRequest(
+                    id = toolCall.id,
+                    type = toolCall.type,
+                    function = toolCall.function
+                )
+            }
+        )
+    }
+}
