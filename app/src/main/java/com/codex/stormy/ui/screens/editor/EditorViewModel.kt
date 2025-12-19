@@ -560,6 +560,10 @@ class EditorViewModel(
                         // Handle tool calls for agent mode
                         handleToolCalls(event.toolCalls)
                     }
+                    is StreamEvent.FinishReason -> {
+                        // Handle finish reason (stop, tool_calls, length, etc.)
+                        // This is informational and typically precedes Completed
+                    }
                     is StreamEvent.Error -> {
                         updateLastAssistantMessage(
                             "Error: ${event.message}",
