@@ -457,8 +457,8 @@ private fun createDarkColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.ATTRIBUTE_VALUE, SyntaxColors.String.toArgb())
 
         // Completion window
-        setColor(EditorColorScheme.AUTO_COMP_PANEL_BG, Color(0xFF272730).toArgb())
-        setColor(EditorColorScheme.AUTO_COMP_PANEL_CORNER, Color(0xFF272730).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_BACKGROUND, Color(0xFF272730).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_CORNER, Color(0xFF272730).toArgb())
 
         // Search highlight
         setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_FOREGROUND, Color(0xFFFF9800).toArgb())
@@ -548,8 +548,8 @@ private fun createLightColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.ATTRIBUTE_VALUE, Color(0xFF0000FF).toArgb())
 
         // Completion window
-        setColor(EditorColorScheme.AUTO_COMP_PANEL_BG, Color(0xFFFFFFFF).toArgb())
-        setColor(EditorColorScheme.AUTO_COMP_PANEL_CORNER, Color(0xFFE0E0E0).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_BACKGROUND, Color(0xFFFFFFFF).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_CORNER, Color(0xFFE0E0E0).toArgb())
 
         // Search highlight
         setColor(EditorColorScheme.HIGHLIGHTED_DELIMITERS_FOREGROUND, Color(0xFFFF6D00).toArgb())
