@@ -861,7 +861,7 @@ class ToolExecutor(
                         val output = buildString {
                             appendLine("Diff for $path:")
                             diff.hunks.forEach { hunk ->
-                                appendLine("@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@")
+                                appendLine("@@ -${hunk.oldStartLine},${hunk.oldLineCount} +${hunk.newStartLine},${hunk.newLineCount} @@")
                                 hunk.lines.forEach { line ->
                                     appendLine(line)
                                 }
@@ -884,7 +884,7 @@ class ToolExecutor(
                 val output = buildString {
                     appendLine("${if (staged) "Staged" else "Unstaged"} changes:")
                     targetFiles.forEach { file ->
-                        appendLine("  ${file.status.name[0]} ${file.path} (+${file.additions} -${file.deletions})")
+                        appendLine("  ${file.status.name[0]} ${file.path}")
                     }
                 }
                 ToolResult(true, output)

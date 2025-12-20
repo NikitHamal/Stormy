@@ -39,9 +39,9 @@ import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FontDownload
+import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -197,7 +197,7 @@ fun AssetManagerDrawer(
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            imageVector = if (isGridView) Icons.Outlined.ViewList else Icons.Outlined.GridView,
+                            imageVector = if (isGridView) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.GridView,
                             contentDescription = if (isGridView) "List View" else "Grid View",
                             modifier = Modifier.size(20.dp)
                         )

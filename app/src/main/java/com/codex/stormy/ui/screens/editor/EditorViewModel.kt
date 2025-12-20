@@ -919,7 +919,7 @@ class EditorViewModel(
      * Update context window statistics for UI display
      */
     private fun updateContextStats(messages: List<ChatRequestMessage>) {
-        val model = _currentModel.value
+        val model = _currentModel.value ?: return
         val currentTokens = contextWindowManager.estimateTotalTokens(messages)
         val maxTokens = contextWindowManager.getAvailableTokens(model)
         val usage = currentTokens.toFloat() / maxTokens

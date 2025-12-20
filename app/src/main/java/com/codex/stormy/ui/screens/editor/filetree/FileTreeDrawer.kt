@@ -30,8 +30,8 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.automirrored.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.NoteAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -106,7 +106,7 @@ fun FileTreeDrawer(
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.NoteAdd,
+                            imageVector = Icons.AutoMirrored.Outlined.NoteAdd,
                             contentDescription = "New File",
                             modifier = Modifier.size(20.dp)
                         )
@@ -450,7 +450,7 @@ private fun FileTreeContextMenu(
                 text = { Text(context.getString(R.string.file_new_file)) },
                 onClick = onCreateFile,
                 leadingIcon = {
-                    Icon(Icons.Outlined.NoteAdd, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Outlined.NoteAdd, contentDescription = null)
                 }
             )
         }
