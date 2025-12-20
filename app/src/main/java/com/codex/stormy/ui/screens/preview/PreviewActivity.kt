@@ -319,7 +319,7 @@ private fun PreviewScreen(
     val previewEditService = remember {
         val app = CodeXApplication.getInstance()
         PreviewEditService(
-            aiService = app.aiChatService,
+            aiRepository = app.aiRepository,
             toolExecutor = app.toolExecutor,
             projectId = projectId,
             scope = scope
@@ -722,7 +722,7 @@ private fun PreviewScreen(
                     LaunchedEffect(Unit) {
                         val app = CodeXApplication.getInstance()
                         val modelId = app.preferencesRepository.aiModel.first()
-                        currentModel.value = app.modelRepository.getModelById(modelId)
+                        currentModel.value = app.aiModelRepository.getModelById(modelId)
                     }
 
                     VisualElementInspector(

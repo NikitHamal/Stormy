@@ -37,7 +37,7 @@ data class OpenRouterModelInfo(
     val contextLength: Int? = null,
     val architecture: OpenRouterArchitecture? = null,
     @SerialName("top_provider")
-    val topProvider: OpenRouterProvider? = null
+    val topProvider: OpenRouterTopProvider? = null
 )
 
 @Serializable
@@ -55,7 +55,7 @@ data class OpenRouterArchitecture(
 )
 
 @Serializable
-data class OpenRouterProvider(
+data class OpenRouterTopProvider(
     @SerialName("context_length")
     val contextLength: Int? = null,
     @SerialName("is_moderated")

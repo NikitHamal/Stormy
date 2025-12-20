@@ -1,13 +1,14 @@
 package com.codex.stormy.ui.components.inspector
 
 import android.webkit.WebView
-import com.codex.stormy.data.ai.AiChatService
 import com.codex.stormy.data.ai.AiModel
-import com.codex.stormy.data.ai.ChatMessage
+import com.codex.stormy.data.ai.ChatRequestMessage
+import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.tools.StormyTools
 import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.ai.tools.ToolResult
+import com.codex.stormy.data.repository.AiRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,7 +34,7 @@ sealed class PreviewEditStatus {
  * Allows editing elements without going to chat interface
  */
 class PreviewEditService(
-    private val aiService: AiChatService,
+    private val aiRepository: AiRepository,
     private val toolExecutor: ToolExecutor,
     private val projectId: String,
     private val scope: CoroutineScope
@@ -177,24 +178,43 @@ class PreviewEditService(
                     |IMPORTANT: Make minimal, targeted changes. Do not rewrite entire files.
                 """.trimMargin()
 
-                // Build messages
+                // Build messages using ChatRequestMessage
                 val messages = listOf(
-                    ChatMessage(role = "system", content = systemMessage),
-                    ChatMessage(role = "user", content = prompt)
+                    ChatRequestMessage(role = "system", content = systemMessage),
+                    ChatRequestMessage(role = "user", content = prompt)
                 )
 
-                // Get response with tools
-                val response = aiService.sendMessageWithTools(
+                // Stream response with tools
+                val responseContent = StringBuilder()
+                val toolCalls = mutableListOf<ToolCallResponse>()
+
+                aiRepository.streamChat(
+                    model = model,
                     messages = messages,
-                    tools = StormyTools.getAllTools(),
-                    model = model
-                )
+                    tools = StormyTools.getAllTools()
+                ).collect { event ->
+                    when (event) {
+                        is StreamEvent.ContentDelta -> {
+                            responseContent.append(event.content)
+                        }
+                        is StreamEvent.ToolCalls -> {
+                            toolCalls.addAll(event.toolCalls)
+                        }
+                        is StreamEvent.Completed -> {
+                            // Processing complete
+                        }
+                        is StreamEvent.Error -> {
+                            throw Exception(event.message)
+                        }
+                        else -> {}
+                    }
+                }
 
                 // Process tool calls if any
-                if (response.toolCalls.isNotEmpty()) {
+                if (toolCalls.isNotEmpty()) {
                     var lastResult: ToolResult? = null
 
-                    for (toolCall in response.toolCalls) {
+                    for (toolCall in toolCalls) {
                         val toolResult = toolExecutor.execute(projectId, toolCall)
                         lastResult = toolResult
 
@@ -209,7 +229,7 @@ class PreviewEditService(
                 // No tool calls, return the message content
                 ToolResult(
                     success = true,
-                    output = response.content ?: "Edit completed"
+                    output = responseContent.toString().ifEmpty { "Edit completed" }
                 )
             } catch (e: Exception) {
                 ToolResult(

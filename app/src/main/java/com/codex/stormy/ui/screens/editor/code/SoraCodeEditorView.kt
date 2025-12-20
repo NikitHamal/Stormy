@@ -3,6 +3,7 @@ package com.codex.stormy.ui.screens.editor.code
 import android.content.Context
 import android.graphics.Typeface
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
@@ -242,21 +243,8 @@ private object TextMateManager {
  */
 private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor {
     return object : CodeEditor(context) {
-        // Override touch handling for smoother scrolling
-        override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean {
-            // Always intercept vertical scroll events to prevent parent interference
-            when (ev?.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                }
-            }
-            return super.onInterceptTouchEvent(ev)
-        }
-
         override fun onTouchEvent(event: MotionEvent?): Boolean {
+            // Handle touch events for smoother scrolling
             when (event?.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     parent?.requestDisallowInterceptTouchEvent(true)
@@ -313,11 +301,7 @@ private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor
         isScrollbarFadingEnabled = true
 
         // Disable over-scroll to prevent bouncy feel
-        overScrollMode = OVER_SCROLL_NEVER
-
-        // Set scrolling parameters for smoothness
-        setScrollMaxX(0)
-        setScrollMaxY(0)
+        overScrollMode = View.OVER_SCROLL_NEVER
 
         // Accessibility
         contentDescription = "Code Editor"
