@@ -6,8 +6,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,7 +35,11 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -50,7 +55,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +71,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.ui.theme.PoppinsFontFamily
+import kotlinx.coroutines.launch
 
 /**
  * Minimal, clean AI Models screen
@@ -117,7 +126,11 @@ fun AiModelsScreen(
                     ModelsList(
                         models = uiState.filteredModels,
                         currentModelId = uiState.currentModel?.id,
+                        defaultModelId = uiState.defaultModelId,
                         onModelSelect = viewModel::selectModel,
+                        onSetAsDefault = viewModel::setAsDefaultModel,
+                        onClearDefault = viewModel::clearDefaultModel,
+                        snackbarHostState = snackbarHostState,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -245,10 +258,15 @@ private fun ProviderChip(
 private fun ModelsList(
     models: List<AiModel>,
     currentModelId: String?,
+    defaultModelId: String,
     onModelSelect: (AiModel) -> Unit,
+    onSetAsDefault: (AiModel) -> Unit,
+    onClearDefault: () -> Unit,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
     val modelsByProvider = models.groupBy { it.provider }
+    val scope = rememberCoroutineScope()
 
     LazyColumn(
         modifier = modifier,
@@ -272,7 +290,20 @@ private fun ModelsList(
                 MinimalModelItem(
                     model = model,
                     isSelected = model.id == currentModelId,
-                    onClick = { onModelSelect(model) }
+                    isDefault = model.id == defaultModelId,
+                    onClick = { onModelSelect(model) },
+                    onSetAsDefault = {
+                        onSetAsDefault(model)
+                        scope.launch {
+                            snackbarHostState.showSnackbar("${model.name} set as default")
+                        }
+                    },
+                    onClearDefault = {
+                        onClearDefault()
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Default model cleared")
+                        }
+                    }
                 )
             }
 
@@ -323,96 +354,183 @@ private fun ProviderSectionHeader(
 
 /**
  * Minimal model list item - clean and compact
+ * Long press to access context menu (set as default, etc.)
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MinimalModelItem(
     model: AiModel,
     isSelected: Boolean,
-    onClick: () -> Unit
+    isDefault: Boolean,
+    onClick: () -> Unit,
+    onSetAsDefault: () -> Unit,
+    onClearDefault: () -> Unit
 ) {
+    var showContextMenu by remember { mutableStateOf(false) }
+
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
+        targetValue = when {
+            isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            isDefault -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
         },
         label = "bg"
     )
 
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = backgroundColor
-    ) {
-        Row(
+    Box {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = backgroundColor,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Type indicator
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when {
-                            model.isThinkingModel -> MaterialTheme.colorScheme.tertiaryContainer
-                            model.supportsToolCalls -> MaterialTheme.colorScheme.primaryContainer
-                            else -> MaterialTheme.colorScheme.secondaryContainer
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = getModelIcon(model),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = when {
-                        model.isThinkingModel -> MaterialTheme.colorScheme.onTertiaryContainer
-                        model.supportsToolCalls -> MaterialTheme.colorScheme.onPrimaryContainer
-                        else -> MaterialTheme.colorScheme.onSecondaryContainer
-                    }
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { showContextMenu = true }
                 )
-            }
-
-            // Model name
-            Text(
-                text = model.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = PoppinsFontFamily,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-
-            // Selection indicator
-            AnimatedVisibility(
-                visible = isSelected,
-                enter = scaleIn() + fadeIn(),
-                exit = scaleOut() + fadeOut()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Type indicator
                 Box(
                     modifier = Modifier
-                        .size(22.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
+                        .background(
+                            when {
+                                model.isThinkingModel -> MaterialTheme.colorScheme.tertiaryContainer
+                                model.supportsToolCalls -> MaterialTheme.colorScheme.primaryContainer
+                                else -> MaterialTheme.colorScheme.secondaryContainer
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Check,
-                        contentDescription = "Selected",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary
+                        imageVector = getModelIcon(model),
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = when {
+                            model.isThinkingModel -> MaterialTheme.colorScheme.onTertiaryContainer
+                            model.supportsToolCalls -> MaterialTheme.colorScheme.onPrimaryContainer
+                            else -> MaterialTheme.colorScheme.onSecondaryContainer
+                        }
                     )
                 }
+
+                // Model name with default indicator
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = model.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = PoppinsFontFamily,
+                            fontWeight = if (isSelected || isDefault) FontWeight.SemiBold else FontWeight.Normal,
+                            color = when {
+                                isSelected -> MaterialTheme.colorScheme.primary
+                                isDefault -> MaterialTheme.colorScheme.secondary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        // Default badge
+                        AnimatedVisibility(
+                            visible = isDefault,
+                            enter = scaleIn() + fadeIn(),
+                            exit = scaleOut() + fadeOut()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Star,
+                                contentDescription = "Default model",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    // Show "Default" label if this is the default model
+                    AnimatedVisibility(visible = isDefault) {
+                        Text(
+                            text = "Default",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = PoppinsFontFamily,
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+
+                // Selection indicator
+                AnimatedVisibility(
+                    visible = isSelected,
+                    enter = scaleIn() + fadeIn(),
+                    exit = scaleOut() + fadeOut()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Check,
+                            contentDescription = "Selected",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+            }
+        }
+
+        // Context menu
+        DropdownMenu(
+            expanded = showContextMenu,
+            onDismissRequest = { showContextMenu = false }
+        ) {
+            if (isDefault) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "Remove as default",
+                            fontFamily = PoppinsFontFamily
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.StarOutline,
+                            contentDescription = null
+                        )
+                    },
+                    onClick = {
+                        showContextMenu = false
+                        onClearDefault()
+                    }
+                )
+            } else {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "Set as default",
+                            fontFamily = PoppinsFontFamily
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Star,
+                            contentDescription = null
+                        )
+                    },
+                    onClick = {
+                        showContextMenu = false
+                        onSetAsDefault()
+                    }
+                )
             }
         }
     }

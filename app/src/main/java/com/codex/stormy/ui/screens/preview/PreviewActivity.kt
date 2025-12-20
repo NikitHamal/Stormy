@@ -101,6 +101,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -693,7 +694,7 @@ private fun PreviewScreen(
                 WebViewPreview(
                     projectPath = projectPath,
                     modifier = Modifier.fillMaxSize(),
-                    inspectorEnabled = inspectorEnabled || agentSelectionMode || visualEditorMode,
+                    selectionMode = selectionMode,
                     onWebViewCreated = { wv ->
                         webView = wv
                         onWebViewCreated(wv)
@@ -704,41 +705,50 @@ private fun PreviewScreen(
                     onConsoleMessage = { entry ->
                         consoleLogs.add(entry)
                     },
-                    onElementInspected = { element ->
-                        if (agentSelectionMode) {
-                            // In agent selection mode, toggle element selection
-                            // Use a unique identifier combining multiple attributes for better matching
-                            val elementId = "${element.tagName}|${element.id}|${element.className}|${element.boundingRect.x}|${element.boundingRect.y}"
-                            val existingIndex = selectedElements.indexOfFirst {
-                                val existingId = "${it.tagName}|${it.id}|${it.className}|${it.boundingRect.x}|${it.boundingRect.y}"
-                                existingId == elementId
+                    onElementInspected = { element, currentMode ->
+                        // Route element selection based on the mode at the time of selection
+                        // This ensures proper routing even when mode changes rapidly
+                        when (currentMode) {
+                            SelectionMode.AGENT -> {
+                                // In agent selection mode, toggle element selection
+                                // Use a unique identifier combining multiple attributes for better matching
+                                val elementId = "${element.tagName}|${element.id}|${element.className}|${element.boundingRect.x}|${element.boundingRect.y}"
+                                val existingIndex = selectedElements.indexOfFirst {
+                                    val existingId = "${it.tagName}|${it.id}|${it.className}|${it.boundingRect.x}|${it.boundingRect.y}"
+                                    existingId == elementId
+                                }
+                                if (existingIndex >= 0) {
+                                    selectedElements.removeAt(existingIndex)
+                                } else {
+                                    selectedElements.add(element)
+                                }
                             }
-                            if (existingIndex >= 0) {
-                                selectedElements.removeAt(existingIndex)
-                            } else {
-                                selectedElements.add(element)
-                            }
-                        } else if (visualEditorMode) {
-                            // Visual editor mode - convert to InspectorElementData
-                            visualEditorElement = InspectorElementData(
-                                tagName = element.tagName,
-                                id = element.id,
-                                className = element.className,
-                                innerHTML = element.innerHTML,
-                                outerHTML = element.outerHTML,
-                                computedStyles = element.computedStyles,
-                                attributes = element.attributes,
-                                boundingRect = InspectorRect(
-                                    x = element.boundingRect.x,
-                                    y = element.boundingRect.y,
-                                    width = element.boundingRect.width,
-                                    height = element.boundingRect.height
+                            SelectionMode.EDITOR -> {
+                                // Visual editor mode - convert to InspectorElementData
+                                visualEditorElement = InspectorElementData(
+                                    tagName = element.tagName,
+                                    id = element.id,
+                                    className = element.className,
+                                    innerHTML = element.innerHTML,
+                                    outerHTML = element.outerHTML,
+                                    computedStyles = element.computedStyles,
+                                    attributes = element.attributes,
+                                    boundingRect = InspectorRect(
+                                        x = element.boundingRect.x,
+                                        y = element.boundingRect.y,
+                                        width = element.boundingRect.width,
+                                        height = element.boundingRect.height
+                                    )
                                 )
-                            )
-                        } else {
-                            // Single element inspection
-                            inspectedElement = element
-                            showInspectorPanel = true
+                            }
+                            SelectionMode.INSPECTOR -> {
+                                // Single element inspection
+                                inspectedElement = element
+                                showInspectorPanel = true
+                            }
+                            SelectionMode.DISABLED -> {
+                                // Should not happen, but handle gracefully
+                            }
                         }
                     }
                 )
@@ -1931,17 +1941,26 @@ private const val DESKTOP_USER_AGENT =
 private fun WebViewPreview(
     projectPath: String,
     modifier: Modifier = Modifier,
-    inspectorEnabled: Boolean = false,
+    selectionMode: SelectionMode = SelectionMode.DISABLED,
     onWebViewCreated: (WebView) -> Unit,
     onTitleChanged: (String) -> Unit,
     onConsoleMessage: (ConsoleLogEntry) -> Unit,
-    onElementInspected: (InspectedElement) -> Unit = {}
+    onElementInspected: (InspectedElement, SelectionMode) -> Unit = { _, _ -> }
 ) {
-    // Create the JS interface once
+    // Use rememberUpdatedState to always have access to the latest callback
+    val currentOnElementInspected by rememberUpdatedState(onElementInspected)
+    val currentSelectionMode by rememberUpdatedState(selectionMode)
+
+    // Create the JS interface with a callback that reads current state
     val inspectorInterface = remember {
         InspectorJsInterface(
-            onElementInspected = onElementInspected,
-            onMultiSelectElement = onElementInspected // Same handler for both modes
+            onElementInspected = { element ->
+                // Call with current selection mode so parent can route correctly
+                currentOnElementInspected(element, currentSelectionMode)
+            },
+            onMultiSelectElement = { element ->
+                currentOnElementInspected(element, currentSelectionMode)
+            }
         )
     }
 
@@ -1958,10 +1977,8 @@ private fun WebViewPreview(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        // Re-inject inspector script after page load if enabled
-                        if (inspectorEnabled) {
-                            view?.injectInspectorScript()
-                        }
+                        // Re-inject inspector script after page load if mode is enabled
+                        // The script will be injected by LaunchedEffect when mode changes
                     }
                 }
 

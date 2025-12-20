@@ -48,6 +48,9 @@ interface AiModelDao {
     @Query("DELETE FROM ai_models WHERE isCustom = 0")
     suspend fun deleteNonCustomModels()
 
+    @Query("DELETE FROM ai_models WHERE provider = :provider AND isCustom = 0")
+    suspend fun deleteModelsByProvider(provider: String)
+
     @Query("UPDATE ai_models SET isEnabled = :isEnabled, updatedAt = :timestamp WHERE id = :id")
     suspend fun setModelEnabled(id: String, isEnabled: Boolean, timestamp: Long = System.currentTimeMillis())
 

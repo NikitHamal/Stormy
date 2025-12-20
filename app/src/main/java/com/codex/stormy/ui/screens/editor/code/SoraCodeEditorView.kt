@@ -20,8 +20,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.rosemoe.sora.event.ContentChangeEvent
-import io.github.rosemoe.sora.lang.EmptyLanguage
-import io.github.rosemoe.sora.lang.Language
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.component.EditorAutoCompletion
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
@@ -94,7 +92,7 @@ fun SoraCodeEditorView(
     LaunchedEffect(fileExtension, editorInstance, isDarkTheme) {
         editorInstance?.let { editor ->
             withContext(Dispatchers.Main) {
-                editor.setEditorLanguage(EmptyLanguage())
+                editor.setEditorLanguage(SimpleLanguageFactory.getLanguage(fileExtension))
                 editor.colorScheme = createColorScheme(isDarkTheme, fileExtension)
             }
         }
@@ -207,8 +205,8 @@ private fun createCodeEditor(context: Context, isDarkTheme: Boolean, extension: 
         // Accessibility
         contentDescription = "Code Editor"
 
-        // Use EmptyLanguage as base - color scheme handles highlighting
-        setEditorLanguage(EmptyLanguage())
+        // Use SimpleLanguageFactory for syntax highlighting
+        setEditorLanguage(SimpleLanguageFactory.getLanguage(extension))
 
         // Apply color scheme based on file type and theme
         colorScheme = createColorScheme(isDarkTheme, extension)

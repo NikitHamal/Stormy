@@ -3,6 +3,8 @@ package com.codex.stormy
 import android.app.Application
 import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
+import com.codex.stormy.data.ai.GeminiModelService
+import com.codex.stormy.data.ai.OpenRouterModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
 import com.codex.stormy.data.ai.tools.MemoryStorage
@@ -20,6 +22,7 @@ import com.codex.stormy.data.repository.ProjectRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class CodeXApplication : Application() {
 
@@ -45,14 +48,27 @@ class CodeXApplication : Application() {
         ChatRepository(database.chatMessageDao(), this)
     }
 
-    // New: DeepInfra model service for fetching available models
+    // Model services for fetching available models from providers
     val deepInfraModelService: DeepInfraModelService by lazy {
         DeepInfraModelService()
     }
 
-    // New: AI Model repository for managing model storage and preferences
+    val openRouterModelService: OpenRouterModelService by lazy {
+        OpenRouterModelService()
+    }
+
+    val geminiModelService: GeminiModelService by lazy {
+        GeminiModelService()
+    }
+
+    // AI Model repository for managing model storage and preferences
     val aiModelRepository: AiModelRepository by lazy {
-        AiModelRepository(database.aiModelDao(), deepInfraModelService)
+        AiModelRepository(
+            aiModelDao = database.aiModelDao(),
+            deepInfraModelService = deepInfraModelService,
+            openRouterModelService = openRouterModelService,
+            geminiModelService = geminiModelService
+        )
     }
 
     val contextWindowManager: ContextWindowManager by lazy {
@@ -92,6 +108,11 @@ class CodeXApplication : Application() {
         super.onCreate()
         instance = this
         CrashHandler.initialize(this)
+
+        // Initialize AI models on startup to ensure models are available
+        applicationScope.launch {
+            aiModelRepository.initializeModelsIfEmpty()
+        }
     }
 
     companion object {
