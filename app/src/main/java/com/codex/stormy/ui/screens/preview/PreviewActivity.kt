@@ -61,6 +61,7 @@ import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DesktopWindows
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -70,6 +71,7 @@ import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -77,6 +79,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -85,11 +90,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,7 +116,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.codex.stormy.CodeXApplication
+import com.codex.stormy.ui.components.inspector.InspectorElementData
+import com.codex.stormy.ui.components.inspector.InspectorRect
+import com.codex.stormy.ui.components.inspector.PreviewEditService
+import com.codex.stormy.ui.components.inspector.PreviewEditStatus
+import com.codex.stormy.ui.components.inspector.StyleChangeRequest
+import com.codex.stormy.ui.components.inspector.TextChangeRequest
+import com.codex.stormy.ui.components.inspector.VisualElementInspector
 import com.codex.stormy.ui.theme.CodeXTheme
+import com.codex.stormy.ui.theme.PoppinsFontFamily
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 
@@ -273,6 +291,9 @@ private fun PreviewScreen(
     onAgentEditRequest: (List<InspectedElement>, String) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageTitle by remember { mutableStateOf("Preview") }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -286,9 +307,40 @@ private fun PreviewScreen(
     var inspectedElement by remember { mutableStateOf<InspectedElement?>(null) }
     var showInspectorPanel by remember { mutableStateOf(false) }
 
+    // Visual editor mode (new enhanced inspector)
+    var visualEditorMode by remember { mutableStateOf(false) }
+    var visualEditorElement by remember { mutableStateOf<InspectorElementData?>(null) }
+
     // Agent selection mode state (multi-element)
     var agentSelectionMode by remember { mutableStateOf(false) }
     val selectedElements = remember { mutableStateListOf<InspectedElement>() }
+
+    // Preview edit service for direct editing
+    val previewEditService = remember {
+        val app = CodeXApplication.getInstance()
+        PreviewEditService(
+            aiService = app.aiChatService,
+            toolExecutor = app.toolExecutor,
+            projectId = projectId,
+            scope = scope
+        )
+    }
+    val editStatus by previewEditService.status.collectAsState()
+
+    // Show snackbar on edit status changes
+    LaunchedEffect(editStatus) {
+        when (editStatus) {
+            is PreviewEditStatus.Success -> {
+                snackbarHostState.showSnackbar((editStatus as PreviewEditStatus.Success).message)
+                previewEditService.resetStatus()
+            }
+            is PreviewEditStatus.Error -> {
+                snackbarHostState.showSnackbar((editStatus as PreviewEditStatus.Error).message)
+                previewEditService.resetStatus()
+            }
+            else -> {}
+        }
+    }
 
     // Apply desktop mode settings when changed
     LaunchedEffect(desktopMode) {
@@ -296,13 +348,14 @@ private fun PreviewScreen(
     }
 
     // Apply inspector mode when changed
-    LaunchedEffect(inspectorEnabled) {
+    LaunchedEffect(inspectorEnabled, visualEditorMode) {
         webView?.let { wv ->
-            if (inspectorEnabled) {
+            if (inspectorEnabled || visualEditorMode) {
                 wv.injectInspectorScript(multiSelect = false)
             } else if (!agentSelectionMode) {
                 wv.disableInspector()
                 inspectedElement = null
+                visualEditorElement = null
             }
         }
     }
@@ -328,11 +381,30 @@ private fun PreviewScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = pageTitle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = pageTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+
+                        // Edit status indicator
+                        when (editStatus) {
+                            is PreviewEditStatus.Analyzing,
+                            is PreviewEditStatus.Editing -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            else -> {}
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
@@ -343,10 +415,31 @@ private fun PreviewScreen(
                     }
                 },
                 actions = {
+                    // Visual editor mode toggle
+                    IconButton(onClick = {
+                        if (agentSelectionMode || inspectorEnabled) {
+                            return@IconButton
+                        }
+                        visualEditorMode = !visualEditorMode
+                    }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = if (visualEditorMode) "Disable visual editor"
+                            else "Enable visual editor",
+                            tint = when {
+                                agentSelectionMode || inspectorEnabled ->
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                visualEditorMode -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     // Element inspector toggle
                     IconButton(onClick = {
-                        if (agentSelectionMode) {
-                            // Can't enable inspector while in agent selection mode
+                        if (agentSelectionMode || visualEditorMode) {
+                            // Can't enable inspector while in other modes
                             return@IconButton
                         }
                         inspectorEnabled = !inspectorEnabled
@@ -359,10 +452,12 @@ private fun PreviewScreen(
                             contentDescription = if (inspectorEnabled) "Disable inspector"
                             else "Enable inspector",
                             tint = when {
-                                agentSelectionMode -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                agentSelectionMode || visualEditorMode ->
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                                 inspectorEnabled -> MaterialTheme.colorScheme.tertiary
                                 else -> MaterialTheme.colorScheme.onSurface
-                            }
+                            },
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -387,7 +482,8 @@ private fun PreviewScreen(
                                 contentDescription = if (agentSelectionMode) "Disable agent selection"
                                 else "Enable agent selection mode",
                                 tint = if (agentSelectionMode) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -395,7 +491,8 @@ private fun PreviewScreen(
                     IconButton(onClick = { webView?.reload() }) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Refresh"
+                            contentDescription = "Refresh",
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -404,7 +501,8 @@ private fun PreviewScreen(
                             imageVector = Icons.Outlined.BugReport,
                             contentDescription = "Console",
                             tint = if (showConsole) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -498,6 +596,15 @@ private fun PreviewScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
+        },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -513,7 +620,7 @@ private fun PreviewScreen(
                 WebViewPreview(
                     projectPath = projectPath,
                     modifier = Modifier.fillMaxSize(),
-                    inspectorEnabled = inspectorEnabled || agentSelectionMode,
+                    inspectorEnabled = inspectorEnabled || agentSelectionMode || visualEditorMode,
                     onWebViewCreated = { wv ->
                         webView = wv
                         onWebViewCreated(wv)
@@ -527,14 +634,34 @@ private fun PreviewScreen(
                     onElementInspected = { element ->
                         if (agentSelectionMode) {
                             // In agent selection mode, toggle element selection
+                            // Use a unique identifier combining multiple attributes for better matching
+                            val elementId = "${element.tagName}|${element.id}|${element.className}|${element.boundingRect.x}|${element.boundingRect.y}"
                             val existingIndex = selectedElements.indexOfFirst {
-                                it.outerHTML == element.outerHTML
+                                val existingId = "${it.tagName}|${it.id}|${it.className}|${it.boundingRect.x}|${it.boundingRect.y}"
+                                existingId == elementId
                             }
                             if (existingIndex >= 0) {
                                 selectedElements.removeAt(existingIndex)
                             } else {
                                 selectedElements.add(element)
                             }
+                        } else if (visualEditorMode) {
+                            // Visual editor mode - convert to InspectorElementData
+                            visualEditorElement = InspectorElementData(
+                                tagName = element.tagName,
+                                id = element.id,
+                                className = element.className,
+                                innerHTML = element.innerHTML,
+                                outerHTML = element.outerHTML,
+                                computedStyles = element.computedStyles,
+                                attributes = element.attributes,
+                                boundingRect = InspectorRect(
+                                    x = element.boundingRect.x,
+                                    y = element.boundingRect.y,
+                                    width = element.boundingRect.width,
+                                    height = element.boundingRect.height
+                                )
+                            )
                         } else {
                             // Single element inspection
                             inspectedElement = element
@@ -543,8 +670,15 @@ private fun PreviewScreen(
                     }
                 )
 
+                // Visual editor mode indicator
+                if (visualEditorMode && visualEditorElement == null) {
+                    VisualEditorModeIndicator(
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
+                }
+
                 // Inspector mode indicator overlay
-                if (inspectorEnabled && !agentSelectionMode) {
+                if (inspectorEnabled && !agentSelectionMode && !visualEditorMode) {
                     InspectorModeIndicator(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
@@ -575,9 +709,75 @@ private fun PreviewScreen(
                 )
             }
 
-            // Inspector panel
+            // Visual Element Inspector (new enhanced editor)
             AnimatedVisibility(
-                visible = showInspectorPanel && inspectedElement != null && !agentSelectionMode,
+                visible = visualEditorMode && visualEditorElement != null,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut()
+            ) {
+                visualEditorElement?.let { element ->
+                    val currentModel = remember { mutableStateOf<com.codex.stormy.data.ai.AiModel?>(null) }
+
+                    // Load current model
+                    LaunchedEffect(Unit) {
+                        val app = CodeXApplication.getInstance()
+                        val modelId = app.preferencesRepository.aiModel.first()
+                        currentModel.value = app.modelRepository.getModelById(modelId)
+                    }
+
+                    VisualElementInspector(
+                        element = element,
+                        onClose = {
+                            visualEditorElement = null
+                            visualEditorMode = false
+                        },
+                        onStyleChange = { request ->
+                            currentModel.value?.let { model ->
+                                previewEditService.applyStyleChange(
+                                    request = request,
+                                    model = model,
+                                    webView = webView,
+                                    onComplete = {
+                                        // Refresh webview after edit
+                                        webView?.reload()
+                                    }
+                                )
+                            }
+                        },
+                        onTextChange = { request ->
+                            currentModel.value?.let { model ->
+                                previewEditService.applyTextChange(
+                                    request = request,
+                                    model = model,
+                                    webView = webView,
+                                    onComplete = {
+                                        webView?.reload()
+                                    }
+                                )
+                            }
+                        },
+                        onAiEditRequest = { prompt ->
+                            currentModel.value?.let { model ->
+                                previewEditService.applyAiEdit(
+                                    prompt = prompt,
+                                    elementSelector = buildElementSelector(element.toInspectedElement()),
+                                    elementHtml = element.outerHTML,
+                                    model = model,
+                                    webView = webView,
+                                    onComplete = {
+                                        webView?.reload()
+                                    }
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            // Inspector panel (legacy)
+            AnimatedVisibility(
+                visible = showInspectorPanel && inspectedElement != null && !agentSelectionMode && !visualEditorMode,
                 enter = slideInVertically { it },
                 exit = slideOutVertically { it }
             ) {
@@ -609,6 +809,59 @@ private fun PreviewScreen(
                         .height(200.dp)
                 )
             }
+        }
+    }
+}
+
+/**
+ * Extension function to convert InspectorElementData back to InspectedElement
+ */
+private fun InspectorElementData.toInspectedElement(): InspectedElement {
+    return InspectedElement(
+        tagName = tagName,
+        id = id,
+        className = className,
+        innerHTML = innerHTML,
+        outerHTML = outerHTML,
+        computedStyles = computedStyles,
+        attributes = attributes,
+        boundingRect = ElementRect(
+            x = boundingRect.x,
+            y = boundingRect.y,
+            width = boundingRect.width,
+            height = boundingRect.height
+        )
+    )
+}
+
+/**
+ * Indicator shown when visual editor mode is active
+ */
+@Composable
+private fun VisualEditorModeIndicator(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Edit,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = "Tap element to edit directly",
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = PoppinsFontFamily,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }
@@ -755,7 +1008,8 @@ private fun AgentPromptBar(
                             .focusRequester(focusRequester),
                         textStyle = TextStyle(
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            fontFamily = PoppinsFontFamily
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         singleLine = false,
@@ -767,7 +1021,8 @@ private fun AgentPromptBar(
                                         text = "Describe what to change...",
                                         style = TextStyle(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 14.sp
+                                            fontSize = 14.sp,
+                                            fontFamily = PoppinsFontFamily
                                         )
                                     )
                                 }

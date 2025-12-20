@@ -40,13 +40,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Model category for grouping
@@ -69,8 +68,8 @@ private fun AiModel.getCategory(): ModelCategory {
 }
 
 /**
- * Modern model selector bottom sheet
- * Displays available AI models with grouping and selection
+ * Minimal model selector bottom sheet
+ * Clean, compact design without excessive badges or filters
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,36 +119,35 @@ fun ModelSelectorSheet(
                 Text(
                     text = "Select Model",
                     style = MaterialTheme.typography.titleMedium,
+                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Refresh button
                     IconButton(
                         onClick = onRefresh,
                         enabled = !isRefreshing
                     ) {
                         if (isRefreshing) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Refresh models",
+                                contentDescription = "Refresh",
                                 modifier = Modifier.size(20.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
-                    // Settings button
                     IconButton(onClick = onManageModels) {
                         Icon(
                             imageVector = Icons.Outlined.Settings,
-                            contentDescription = "Manage models",
+                            contentDescription = "Settings",
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -164,35 +162,29 @@ fun ModelSelectorSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Model list grouped by category
+            // Model list
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 ModelCategory.entries.forEach { category ->
                     val categoryModels = groupedModels[category] ?: emptyList()
                     if (categoryModels.isNotEmpty()) {
-                        // Category header
                         item(key = "header_${category.name}") {
-                            CategoryHeader(
-                                category = category,
-                                modelCount = categoryModels.size
-                            )
+                            CategoryHeader(category = category)
                         }
 
-                        // Category models
                         items(
                             items = categoryModels,
                             key = { it.id }
                         ) { model ->
-                            ModelSelectionCard(
+                            CompactModelCard(
                                 model = model,
                                 isSelected = model.id == selectedModel.id,
                                 onClick = { onModelSelected(model) }
                             )
                         }
 
-                        // Spacer between categories
                         item(key = "spacer_${category.name}") {
                             Spacer(modifier = Modifier.height(12.dp))
                         }
@@ -204,12 +196,11 @@ fun ModelSelectorSheet(
 }
 
 /**
- * Category header with icon and model count
+ * Compact category header
  */
 @Composable
 private fun CategoryHeader(
     category: ModelCategory,
-    modelCount: Int,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -222,30 +213,25 @@ private fun CategoryHeader(
         Icon(
             imageVector = category.icon,
             contentDescription = null,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.primary
         )
 
         Text(
             text = category.displayName,
             style = MaterialTheme.typography.labelMedium,
+            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary
-        )
-
-        Text(
-            text = "($modelCount)",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }
 
 /**
- * Individual model selection card
+ * Compact model card - minimal design
  */
 @Composable
-private fun ModelSelectionCard(
+private fun CompactModelCard(
     model: AiModel,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -253,9 +239,9 @@ private fun ModelSelectionCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         color = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         } else {
             MaterialTheme.colorScheme.surfaceContainerLow
         },
@@ -266,14 +252,14 @@ private fun ModelSelectionCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Model icon
+            // Type indicator dot
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(
                         when {
@@ -291,7 +277,7 @@ private fun ModelSelectionCard(
                         else -> Icons.Outlined.Bolt
                     },
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(14.dp),
                     tint = when {
                         model.isThinkingModel -> MaterialTheme.colorScheme.onTertiaryContainer
                         model.supportsToolCalls -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -300,98 +286,39 @@ private fun ModelSelectionCard(
                 )
             }
 
-            // Model info
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = model.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            // Model name only
+            Text(
+                text = model.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = PoppinsFontFamily,
+                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            // Selection check
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Context length
-                    Text(
-                        text = formatContextLength(model.contextLength),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    Icon(
+                        imageVector = Icons.Outlined.Check,
+                        contentDescription = "Selected",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
                     )
-
-                    // Capability badges
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (model.supportsStreaming) {
-                            CapabilityDot(color = MaterialTheme.colorScheme.secondary, label = "Stream")
-                        }
-                        if (model.supportsToolCalls) {
-                            CapabilityDot(color = MaterialTheme.colorScheme.primary, label = "Tools")
-                        }
-                        if (model.isThinkingModel) {
-                            CapabilityDot(color = MaterialTheme.colorScheme.tertiary, label = "Think")
-                        }
-                    }
                 }
             }
-
-            // Selection indicator
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Outlined.Check,
-                    contentDescription = "Selected",
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
         }
-    }
-}
-
-/**
- * Small capability indicator dot
- */
-@Composable
-private fun CapabilityDot(
-    color: Color,
-    label: String,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.8f))
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 9.sp,
-            color = color.copy(alpha = 0.8f)
-        )
-    }
-}
-
-/**
- * Format context length for display
- */
-private fun formatContextLength(length: Int): String {
-    return when {
-        length >= 1000000 -> "${length / 1000000}M ctx"
-        length >= 1000 -> "${length / 1000}K ctx"
-        else -> "$length tokens"
     }
 }

@@ -1,9 +1,6 @@
 package com.codex.stormy.ui.components
 
 import android.graphics.Typeface
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
-import android.text.style.StyleSpan
 import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -37,6 +34,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.res.ResourcesCompat
+import com.codex.stormy.R
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -47,6 +46,7 @@ import io.noties.markwon.linkify.LinkifyPlugin
 /**
  * A Compose component that renders markdown text using Markwon
  * Supports code blocks, lists, tables, links, and other markdown features
+ * Uses Poppins font for text content
  */
 @Composable
 fun MarkdownText(
@@ -100,7 +100,7 @@ fun MarkdownText(
 }
 
 /**
- * Markdown text block rendered with Markwon
+ * Markdown text block rendered with Markwon using Poppins font
  */
 @Composable
 private fun MarkdownTextBlock(
@@ -109,6 +109,11 @@ private fun MarkdownTextBlock(
     linkColor: Color
 ) {
     val context = LocalContext.current
+
+    // Load Poppins typeface
+    val poppinsTypeface = remember(context) {
+        ResourcesCompat.getFont(context, R.font.poppins_regular_static)
+    }
 
     val markwon = remember(context, textColor, linkColor) {
         Markwon.builder(context)
@@ -131,9 +136,14 @@ private fun MarkdownTextBlock(
                 setLinkTextColor(linkColor.toArgb())
                 textSize = 14f
                 setLineSpacing(0f, 1.3f)
+                // Apply Poppins font
+                typeface = poppinsTypeface ?: Typeface.DEFAULT
             }
         },
         update = { textView ->
+            textView.setTextColor(textColor.toArgb())
+            textView.setLinkTextColor(linkColor.toArgb())
+            textView.typeface = poppinsTypeface ?: Typeface.DEFAULT
             markwon.setParsedMarkdown(textView, spanned)
         },
         modifier = Modifier.fillMaxWidth()
@@ -293,6 +303,7 @@ private fun parseMarkdownContent(markdown: String): List<MarkdownBlock> {
 /**
  * Simplified markdown text for short messages
  * Does not handle code blocks, just basic formatting
+ * Uses Poppins font
  */
 @Composable
 fun SimpleMarkdownText(
@@ -302,6 +313,11 @@ fun SimpleMarkdownText(
     linkColor: Color = MaterialTheme.colorScheme.primary
 ) {
     val context = LocalContext.current
+
+    // Load Poppins typeface
+    val poppinsTypeface = remember(context) {
+        ResourcesCompat.getFont(context, R.font.poppins_regular_static)
+    }
 
     val markwon = remember(context) {
         Markwon.builder(context)
@@ -321,9 +337,14 @@ fun SimpleMarkdownText(
                 setLinkTextColor(linkColor.toArgb())
                 textSize = 14f
                 setLineSpacing(0f, 1.2f)
+                // Apply Poppins font
+                typeface = poppinsTypeface ?: Typeface.DEFAULT
             }
         },
         update = { textView ->
+            textView.setTextColor(textColor.toArgb())
+            textView.setLinkTextColor(linkColor.toArgb())
+            textView.typeface = poppinsTypeface ?: Typeface.DEFAULT
             markwon.setParsedMarkdown(textView, spanned)
         },
         modifier = modifier
