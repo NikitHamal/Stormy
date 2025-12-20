@@ -418,19 +418,40 @@ class GeminiProvider(
             // Parse parameters from JsonElement
             val paramsJson = func.parameters.toString()
             val paramsMap = try {
-                json.decodeFromString<Map<String, Map<String, String>>>(paramsJson)
+                json.decodeFromString<Map<String, kotlinx.serialization.json.JsonElement>>(paramsJson)
             } catch (e: Exception) {
                 emptyMap()
             }
 
-            val properties = paramsMap["properties"]?.mapValues { (_, value) ->
-                GeminiProperty(
-                    type = value["type"] ?: "string",
-                    description = value["description"] ?: ""
-                )
-            } ?: emptyMap()
+            val properties = try {
+                val propsElement = paramsMap["properties"]
+                if (propsElement != null) {
+                    val propsObj = propsElement as? kotlinx.serialization.json.JsonObject ?: kotlinx.serialization.json.JsonObject(emptyMap())
+                    propsObj.mapValues { (_, propValue) ->
+                        val propObj = propValue as? kotlinx.serialization.json.JsonObject
+                        GeminiProperty(
+                            type = propObj?.get("type")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: "string",
+                            description = propObj?.get("description")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: ""
+                        )
+                    }
+                } else {
+                    emptyMap()
+                }
+            } catch (e: Exception) {
+                emptyMap()
+            }
 
-            val required = paramsMap["required"] as? List<String> ?: emptyList()
+            val required = try {
+                val reqElement = paramsMap["required"]
+                if (reqElement != null) {
+                    val reqArray = reqElement as? kotlinx.serialization.json.JsonArray
+                    reqArray?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } ?: emptyList()
+                } else {
+                    emptyList()
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
 
             GeminiFunctionDeclaration(
                 name = func.name,

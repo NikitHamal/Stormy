@@ -230,6 +230,8 @@ private fun ProviderChip(
             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
         ),
         border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = isSelected,
             borderColor = MaterialTheme.colorScheme.outlineVariant,
             selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
         )
