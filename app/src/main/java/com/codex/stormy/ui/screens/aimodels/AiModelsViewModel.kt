@@ -9,6 +9,7 @@ import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.PreferencesRepository
+import com.codex.stormy.data.repository.RefreshResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ data class AiModelsUiState(
     val allModels: List<AiModel> = emptyList(),
     val filteredModels: List<AiModel> = emptyList(),
     val currentModel: AiModel? = null,
+    val defaultModelId: String = "",
     val selectedProvider: AiProvider? = null,
     val searchQuery: String = "",
     val showStreamingOnly: Boolean = false,
@@ -38,7 +40,7 @@ data class AiModelsUiState(
 
 /**
  * ViewModel for the AI Models management screen
- * Handles dynamic model fetching from DeepInfra API and model selection
+ * Handles dynamic model fetching from all supported providers (DeepInfra, OpenRouter, Gemini)
  */
 class AiModelsViewModel(
     private val modelRepository: AiModelRepository,
@@ -54,6 +56,7 @@ class AiModelsViewModel(
     private val _showToolCallsOnly = MutableStateFlow(false)
     private val _showThinkingOnly = MutableStateFlow(false)
     private val _currentModel = MutableStateFlow<AiModel?>(null)
+    private val _defaultModelId = MutableStateFlow("")
 
     val uiState: StateFlow<AiModelsUiState> = combine(
         modelRepository.observeEnabledModels(),
@@ -65,7 +68,7 @@ class AiModelsViewModel(
         _showStreamingOnly,
         _showToolCallsOnly,
         _showThinkingOnly,
-        _currentModel
+        combine(_currentModel, _defaultModelId) { current, default -> current to default }
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val models = values[0] as List<AiModel>
@@ -77,7 +80,7 @@ class AiModelsViewModel(
         val showStreamingOnly = values[6] as Boolean
         val showToolCallsOnly = values[7] as Boolean
         val showThinkingOnly = values[8] as Boolean
-        val currentModel = values[9] as AiModel?
+        val (currentModel, defaultModelId) = values[9] as Pair<AiModel?, String>
 
         // Apply filters
         val filteredModels = models.filter { model ->
@@ -101,6 +104,7 @@ class AiModelsViewModel(
             allModels = models,
             filteredModels = filteredModels,
             currentModel = currentModel,
+            defaultModelId = defaultModelId,
             selectedProvider = selectedProvider,
             searchQuery = searchQuery,
             showStreamingOnly = showStreamingOnly,
@@ -129,6 +133,9 @@ class AiModelsViewModel(
                 // Initialize models if database is empty
                 modelRepository.initializeModelsIfEmpty()
 
+                // Load default model ID
+                _defaultModelId.value = preferencesRepository.defaultModelId.first()
+
                 // Load current model preference
                 val currentModelId = preferencesRepository.aiModel.first()
                 val model = modelRepository.getModelById(currentModelId)
@@ -145,16 +152,85 @@ class AiModelsViewModel(
     }
 
     /**
-     * Refresh models from the DeepInfra API
+     * Refresh models from all providers (DeepInfra, OpenRouter, Gemini)
+     * Fetches API keys from preferences and refreshes in parallel
      */
     fun refreshModels() {
         viewModelScope.launch {
             _isRefreshing.value = true
             _error.value = null
 
-            val result = modelRepository.refreshModelsFromProvider()
-            result.onFailure { error ->
+            // Get API keys from preferences
+            val openRouterKey = preferencesRepository.openRouterApiKey.first()
+            val geminiKey = preferencesRepository.geminiApiKey.first()
+
+            val result = modelRepository.refreshModelsFromAllProviders(
+                openRouterApiKey = openRouterKey.takeIf { it.isNotBlank() },
+                geminiApiKey = geminiKey.takeIf { it.isNotBlank() }
+            )
+
+            result.onSuccess { refreshResult ->
+                if (refreshResult.errors.isNotEmpty()) {
+                    _error.value = "Some providers failed: ${refreshResult.errors.joinToString("; ")}"
+                }
+            }.onFailure { error ->
                 _error.value = "Failed to refresh: ${error.message}"
+            }
+
+            _isRefreshing.value = false
+        }
+    }
+
+    /**
+     * Refresh models from DeepInfra only
+     */
+    fun refreshDeepInfraModels() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _error.value = null
+
+            modelRepository.refreshModelsFromDeepInfra().onFailure { error ->
+                _error.value = "DeepInfra: ${error.message}"
+            }
+
+            _isRefreshing.value = false
+        }
+    }
+
+    /**
+     * Refresh models from OpenRouter only
+     */
+    fun refreshOpenRouterModels() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _error.value = null
+
+            val apiKey = preferencesRepository.openRouterApiKey.first()
+            modelRepository.refreshModelsFromOpenRouter(apiKey.takeIf { it.isNotBlank() }).onFailure { error ->
+                _error.value = "OpenRouter: ${error.message}"
+            }
+
+            _isRefreshing.value = false
+        }
+    }
+
+    /**
+     * Refresh models from Gemini only
+     */
+    fun refreshGeminiModels() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            _error.value = null
+
+            val apiKey = preferencesRepository.geminiApiKey.first()
+            if (apiKey.isBlank()) {
+                _error.value = "Gemini: API key required"
+                _isRefreshing.value = false
+                return@launch
+            }
+
+            modelRepository.refreshModelsFromGemini(apiKey).onFailure { error ->
+                _error.value = "Gemini: ${error.message}"
             }
 
             _isRefreshing.value = false
@@ -169,6 +245,27 @@ class AiModelsViewModel(
             preferencesRepository.setAiModel(model.id)
             modelRepository.recordModelUsage(model.id)
             _currentModel.value = model
+        }
+    }
+
+    /**
+     * Set a model as the global default model
+     * This model will be used for new projects or when no project-specific model is set
+     */
+    fun setAsDefaultModel(model: AiModel) {
+        viewModelScope.launch {
+            preferencesRepository.setDefaultModelId(model.id)
+            _defaultModelId.value = model.id
+        }
+    }
+
+    /**
+     * Clear the global default model
+     */
+    fun clearDefaultModel() {
+        viewModelScope.launch {
+            preferencesRepository.clearDefaultModel()
+            _defaultModelId.value = ""
         }
     }
 

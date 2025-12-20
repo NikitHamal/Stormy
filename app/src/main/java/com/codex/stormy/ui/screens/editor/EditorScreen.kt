@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Source
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -258,6 +258,8 @@ private fun EditorTopBar(
     onPreviewClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    val iconSize = 20.dp // Reduced from 24dp (default) by 4dp
+
     TopAppBar(
         title = {
             Text(
@@ -270,39 +272,60 @@ private fun EditorTopBar(
             IconButton(onClick = onBackClick) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "Back"
+                    contentDescription = "Back",
+                    modifier = Modifier.size(iconSize)
                 )
             }
         },
         actions = {
-            IconButton(onClick = onMenuClick) {
+            IconButton(
+                onClick = onMenuClick,
+                modifier = Modifier.size(40.dp) // Reduced from 48dp by 8dp for tighter spacing
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Menu,
-                    contentDescription = "Files"
+                    contentDescription = "Files",
+                    modifier = Modifier.size(iconSize)
                 )
             }
-            IconButton(onClick = onAssetsClick) {
+            IconButton(
+                onClick = onAssetsClick,
+                modifier = Modifier.size(40.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Image,
-                    contentDescription = "Assets"
+                    contentDescription = "Assets",
+                    modifier = Modifier.size(iconSize)
                 )
             }
-            IconButton(onClick = onGitClick) {
+            IconButton(
+                onClick = onGitClick,
+                modifier = Modifier.size(40.dp)
+            ) {
                 Icon(
-                    imageVector = Icons.Outlined.Source,
-                    contentDescription = "Source Control"
+                    painter = painterResource(id = R.drawable.ic_github),
+                    contentDescription = "Source Control",
+                    modifier = Modifier.size(iconSize)
                 )
             }
-            IconButton(onClick = onPreviewClick) {
+            IconButton(
+                onClick = onPreviewClick,
+                modifier = Modifier.size(40.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.PlayArrow,
-                    contentDescription = "Preview"
+                    contentDescription = "Preview",
+                    modifier = Modifier.size(iconSize)
                 )
             }
-            IconButton(onClick = onSettingsClick) {
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier.size(40.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings"
+                    contentDescription = "Settings",
+                    modifier = Modifier.size(iconSize)
                 )
             }
         },

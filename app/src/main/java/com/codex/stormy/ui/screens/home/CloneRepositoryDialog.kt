@@ -50,14 +50,49 @@ fun CloneRepositoryDialog(
     var shallow by remember { mutableStateOf(true) }
     var urlError by remember { mutableStateOf<String?>(null) }
 
-    // Auto-detect project name from URL
+    // Auto-detect project name from URL or username/repo format
     fun extractProjectName(gitUrl: String): String {
-        return gitUrl
+        val normalized = normalizeGitUrl(gitUrl)
+        return normalized
             .removeSuffix("/")
             .removeSuffix(".git")
             .substringAfterLast("/")
             .substringAfterLast(":")
             .ifBlank { "" }
+    }
+
+    // Convert username/repo format to full GitHub URL
+    fun normalizeGitUrl(input: String): String {
+        val trimmed = input.trim()
+        // Check if it's already a full URL
+        if (trimmed.contains("://") || trimmed.contains("@")) {
+            return trimmed
+        }
+        // Check if it's username/repo format (e.g., "user/repo" or "org/repo")
+        val parts = trimmed.split("/")
+        if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+            // Validate that both parts look like valid GitHub identifiers
+            val validIdentifier = Regex("^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$")
+            if (validIdentifier.matches(parts[0]) && validIdentifier.matches(parts[1].removeSuffix(".git"))) {
+                return "https://github.com/${parts[0]}/${parts[1]}"
+            }
+        }
+        return trimmed
+    }
+
+    // Check if input is a valid git URL or username/repo format
+    fun isValidGitInput(input: String): Boolean {
+        val trimmed = input.trim()
+        // Full URL formats
+        if (trimmed.contains("://") || trimmed.contains("@")) {
+            return true
+        }
+        // username/repo format
+        val parts = trimmed.split("/")
+        if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+            return true
+        }
+        return false
     }
 
     AlertDialog(
@@ -92,7 +127,7 @@ fun CloneRepositoryDialog(
                         }
                     },
                     label = { Text("Repository URL") },
-                    placeholder = { Text("https://github.com/user/repo.git") },
+                    placeholder = { Text("user/repo or https://github.com/...") },
                     isError = urlError != null || error != null,
                     supportingText = {
                         when {
@@ -215,10 +250,10 @@ fun CloneRepositoryDialog(
                 onClick = {
                     when {
                         url.isBlank() -> urlError = "Repository URL is required"
-                        !url.contains("://") && !url.contains("@") ->
-                            urlError = "Invalid repository URL"
+                        !isValidGitInput(url) ->
+                            urlError = "Invalid repository URL or format"
                         projectName.isBlank() -> urlError = "Project name is required"
-                        else -> onClone(url.trim(), projectName.trim(), shallow)
+                        else -> onClone(normalizeGitUrl(url.trim()), projectName.trim(), shallow)
                     }
                 },
                 enabled = !isCloning,

@@ -45,6 +45,18 @@
 -dontwarn org.ietf.jgss.**
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 
+# JGit - Keep all JGit classes to prevent obfuscation issues with reflection
+-keep class org.eclipse.jgit.** { *; }
+-keepclassmembers class org.eclipse.jgit.** { *; }
+-dontwarn org.eclipse.jgit.**
+
+# JGit internal classes that use reflection
+-keep class org.eclipse.jgit.lib.internal.** { *; }
+-keep class org.eclipse.jgit.transport.** { *; }
+-keep class org.eclipse.jgit.storage.** { *; }
+-keep class org.eclipse.jgit.util.** { *; }
+-keep class org.eclipse.jgit.api.** { *; }
+
 # Keep ViewModel classes and their constructors (prevents NoSuchMethodException crashes)
 -keep class * extends androidx.lifecycle.ViewModel {
     <init>(...);

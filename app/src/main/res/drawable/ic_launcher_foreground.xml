@@ -5,34 +5,8 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Background gradient circle -->
-    <group>
-        <clip-path android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
-        <path
-            android:fillColor="#6366F1"
-            android:pathData="M14,14h80v80h-80z" />
-        <path
-            android:fillColor="#8B5CF6"
-            android:pathData="M14,54L94,14L94,94Z" />
-    </group>
-
-    <!-- Letter C with modern geometric style -->
+    <!-- Simple letter C - clean, minimal design -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,28c-14.36,0 -26,11.64 -26,26s11.64,26 26,26c8.84,0 16.64,-4.42 21.34,-11.16l-8.68,-5.84c-2.92,4.18 -7.66,6.92 -12.66,6.92c-8.84,0 -16,-7.16 -16,-16s7.16,-16 16,-16c5,0 9.74,2.74 12.66,6.92l8.68,-5.84C70.64,32.42 62.84,28 54,28z" />
-
-    <!-- Code bracket accent -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.6"
-        android:pathData="M72,40l6,-6l6,6l-6,6zM72,68l6,6l6,-6l-6,-6z" />
-
-    <!-- Inner glow effect -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillAlpha="0.15"
-        android:pathData="M54,54m-36,0a36,36 0,1 1,72 0a36,36 0,1 1,-72 0"
-        android:strokeWidth="4"
-        android:strokeColor="#FFFFFF"
-        android:strokeAlpha="0.1" />
+        android:pathData="M54,26c-15.46,0 -28,12.54 -28,28s12.54,28 28,28c9.52,0 17.92,-4.76 22.96,-12.04l-9.52,-6.44c-3.36,4.76 -8.4,7.56 -13.44,7.56c-9.52,0 -17.08,-7.56 -17.08,-17.08s7.56,-17.08 17.08,-17.08c5.04,0 10.08,2.8 13.44,7.56l9.52,-6.44C71.92,30.76 63.52,26 54,26z" />
 </vector>
