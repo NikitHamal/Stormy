@@ -73,15 +73,6 @@ class SimpleLanguage(private val config: LanguageConfig) : Language {
 
     override fun getInterruptionLevel(): Int = Language.INTERRUPTION_LEVEL_STRONG
 
-    override fun requireAutoComplete(
-        content: ContentReference,
-        position: CharPosition,
-        publisher: CompletionPublisher,
-        extraArguments: Bundle?
-    ) {
-        // Basic auto-completion could be added here
-    }
-
     override fun getIndentAdvance(content: ContentReference, line: Int, column: Int): Int {
         val text = content.getLine(line)
         val trimmed = text.toString().trimEnd()
