@@ -53,7 +53,7 @@ import com.codex.stormy.ui.theme.PoppinsFontFamily
 @Composable
 fun ModelSelectorSheet(
     models: List<AiModel>,
-    selectedModel: AiModel,
+    selectedModel: AiModel?,
     onModelSelected: (AiModel) -> Unit,
     onDismiss: () -> Unit,
     onManageModels: () -> Unit = {},
@@ -62,9 +62,9 @@ fun ModelSelectorSheet(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier
 ) {
-    // Sort models: selected first, then by provider, then by name
+    // Sort models: selected first (if any), then by provider, then by name
     val sortedModels = models.sortedWith(
-        compareBy<AiModel> { it.id != selectedModel.id }
+        compareBy<AiModel> { selectedModel == null || it.id != selectedModel.id }
             .thenBy { it.provider.ordinal }
             .thenBy { it.name }
     )
@@ -197,7 +197,7 @@ fun ModelSelectorSheet(
                     ) { model ->
                         CompactModelCard(
                             model = model,
-                            isSelected = model.id == selectedModel.id,
+                            isSelected = selectedModel != null && model.id == selectedModel.id,
                             onClick = { onModelSelected(model) }
                         )
                     }
@@ -299,6 +299,8 @@ private fun getProviderInitial(provider: AiProvider): String {
         AiProvider.DEEPINFRA -> "D"
         AiProvider.OPENROUTER -> "O"
         AiProvider.GEMINI -> "G"
+        AiProvider.OPENAI -> "O"
+        AiProvider.ANTHROPIC -> "A"
     }
 }
 
@@ -311,5 +313,7 @@ private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics
         AiProvider.DEEPINFRA -> MaterialTheme.colorScheme.primary
         AiProvider.OPENROUTER -> MaterialTheme.colorScheme.tertiary
         AiProvider.GEMINI -> MaterialTheme.colorScheme.secondary
+        AiProvider.OPENAI -> MaterialTheme.colorScheme.primaryContainer
+        AiProvider.ANTHROPIC -> MaterialTheme.colorScheme.tertiaryContainer
     }
 }

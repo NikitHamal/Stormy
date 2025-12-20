@@ -78,7 +78,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.R
 import com.codex.stormy.data.ai.AiModel
-import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.tools.TodoItem
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.ui.components.DiffView
@@ -97,8 +96,8 @@ fun ChatTab(
     isLoading: Boolean,
     agentMode: Boolean,
     taskList: List<TodoItem> = emptyList(),
-    currentModel: AiModel = DeepInfraModels.defaultModel,
-    availableModels: List<AiModel> = DeepInfraModels.allModels,
+    currentModel: AiModel? = null,
+    availableModels: List<AiModel> = emptyList(),
     onInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
     onStopGeneration: (() -> Unit)? = null,
@@ -463,7 +462,7 @@ private fun ChatInput(
     isEnabled: Boolean,
     isProcessing: Boolean,
     agentMode: Boolean,
-    currentModel: AiModel,
+    currentModel: AiModel?,
     onModelClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -475,7 +474,11 @@ private fun ChatInput(
         Surface(
             onClick = onModelClick,
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = if (currentModel != null) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+            },
             modifier = Modifier
                 .animateContentSize()
                 .padding(bottom = 8.dp)
@@ -486,38 +489,61 @@ private fun ChatInput(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Model icon based on type
-                Icon(
-                    imageVector = when {
-                        currentModel.isThinkingModel -> Icons.Outlined.Psychology
-                        currentModel.supportsToolCalls -> Icons.Outlined.AutoAwesome
-                        else -> Icons.Outlined.Bolt
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = when {
-                        currentModel.isThinkingModel -> MaterialTheme.colorScheme.tertiary
-                        currentModel.supportsToolCalls -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.secondary
-                    }
-                )
+                if (currentModel != null) {
+                    // Model icon based on type
+                    Icon(
+                        imageVector = when {
+                            currentModel.isThinkingModel -> Icons.Outlined.Psychology
+                            currentModel.supportsToolCalls -> Icons.Outlined.AutoAwesome
+                            else -> Icons.Outlined.Bolt
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = when {
+                            currentModel.isThinkingModel -> MaterialTheme.colorScheme.tertiary
+                            currentModel.supportsToolCalls -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.secondary
+                        }
+                    )
 
-                // Model name
-                Text(
-                    text = currentModel.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    // Model name
+                    Text(
+                        text = currentModel.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    // No model selected - show "Select Model" with warning color
+                    Icon(
+                        imageVector = Icons.Outlined.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+
+                    Text(
+                        text = "Select Model",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 // Dropdown arrow
                 Icon(
                     imageVector = Icons.Outlined.ExpandMore,
                     contentDescription = "Select model",
                     modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (currentModel != null) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    }
                 )
             }
         }

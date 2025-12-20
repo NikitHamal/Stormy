@@ -33,6 +33,8 @@ class PreferencesRepository(private val context: Context) {
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
         val AI_MODEL = stringPreferencesKey("ai_model")
+        val DEFAULT_MODEL_ID = stringPreferencesKey("default_model_id")
+        val HAS_SET_DEFAULT_MODEL = booleanPreferencesKey("has_set_default_model")
 
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
     }
@@ -91,7 +93,15 @@ class PreferencesRepository(private val context: Context) {
     }
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.AI_MODEL] ?: "Qwen/Qwen2.5-Coder-32B-Instruct"
+        preferences[PreferenceKeys.AI_MODEL] ?: ""
+    }
+
+    val defaultModelId: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.DEFAULT_MODEL_ID] ?: ""
+    }
+
+    val hasSetDefaultModel: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.HAS_SET_DEFAULT_MODEL] ?: false
     }
 
     val onboardingCompleted: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -167,6 +177,20 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setAiModel(model: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.AI_MODEL] = model
+        }
+    }
+
+    suspend fun setDefaultModelId(modelId: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.DEFAULT_MODEL_ID] = modelId
+            preferences[PreferenceKeys.HAS_SET_DEFAULT_MODEL] = true
+        }
+    }
+
+    suspend fun clearDefaultModel() {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.DEFAULT_MODEL_ID] = ""
+            preferences[PreferenceKeys.HAS_SET_DEFAULT_MODEL] = false
         }
     }
 

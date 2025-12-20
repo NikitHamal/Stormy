@@ -1,10 +1,13 @@
 package com.codex.stormy.data.ai.tools
 
 import com.codex.stormy.data.ai.ToolCallResponse
+import com.codex.stormy.data.git.GitManager
+import com.codex.stormy.data.git.GitOperationResult
 import com.codex.stormy.data.repository.ProjectRepository
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import java.io.File
 import java.util.UUID
 
 /**
@@ -56,9 +59,20 @@ enum class FileChangeType {
  */
 class ToolExecutor(
     private val projectRepository: ProjectRepository,
-    private val memoryStorage: MemoryStorage
+    private val memoryStorage: MemoryStorage,
+    private val gitManager: GitManager? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Current project path for Git operations
+    private var currentProjectPath: File? = null
+
+    /**
+     * Set the current project path for Git operations
+     */
+    fun setProjectPath(path: File) {
+        currentProjectPath = path
+    }
 
     // Session-based todo storage
     private val sessionTodos = mutableMapOf<String, MutableList<TodoItem>>()
@@ -107,6 +121,19 @@ class ToolExecutor(
                 // Agent control
                 "ask_user" -> executeAskUser(arguments)
                 "finish_task" -> executeFinishTask(arguments)
+
+                // Git operations
+                "git_status" -> executeGitStatus()
+                "git_stage" -> executeGitStage(arguments)
+                "git_unstage" -> executeGitUnstage(arguments)
+                "git_commit" -> executeGitCommit(arguments)
+                "git_push" -> executeGitPush(arguments)
+                "git_pull" -> executeGitPull(arguments)
+                "git_branch" -> executeGitBranch(arguments)
+                "git_checkout" -> executeGitCheckout(arguments)
+                "git_log" -> executeGitLog(arguments)
+                "git_diff" -> executeGitDiff(arguments)
+                "git_discard" -> executeGitDiscard(arguments)
 
                 else -> ToolResult(
                     success = false,
@@ -584,6 +611,299 @@ class ToolExecutor(
 
         interactionCallback?.onTaskFinished(summary)
         return ToolResult(true, "Task completed: $summary")
+    }
+
+    // ==================== Git Operations ====================
+
+    private fun checkGitAvailable(): ToolResult? {
+        if (gitManager == null) {
+            return ToolResult(false, "", "Git is not available")
+        }
+        if (currentProjectPath == null) {
+            return ToolResult(false, "", "No project path set for Git operations")
+        }
+        return null
+    }
+
+    private suspend fun executeGitStatus(): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        return when (val result = gitManager!!.openRepository(currentProjectPath!!)) {
+            is GitOperationResult.Success -> {
+                val status = gitManager.status.value
+                if (status == null || !status.isGitRepo) {
+                    return ToolResult(true, "Not a Git repository")
+                }
+
+                val output = buildString {
+                    appendLine("Branch: ${status.currentBranch.ifEmpty { "detached HEAD" }}")
+                    if (status.hasRemote) {
+                        appendLine("Remote: ${status.remoteUrl ?: "origin"}")
+                        if (status.aheadCount > 0) appendLine("  ↑ ${"commit".pluralize(status.aheadCount)} ahead")
+                        if (status.behindCount > 0) appendLine("  ↓ ${"commit".pluralize(status.behindCount)} behind")
+                    }
+
+                    val changedFiles = gitManager.changedFiles.value
+                    val stagedFiles = changedFiles.filter { it.isStaged }
+                    val unstagedFiles = changedFiles.filter { !it.isStaged }
+
+                    if (stagedFiles.isNotEmpty()) {
+                        appendLine("\nStaged changes (${stagedFiles.size}):")
+                        stagedFiles.forEach { file ->
+                            appendLine("  ${file.status.name[0]} ${file.path}")
+                        }
+                    }
+
+                    if (unstagedFiles.isNotEmpty()) {
+                        appendLine("\nUnstaged changes (${unstagedFiles.size}):")
+                        unstagedFiles.forEach { file ->
+                            appendLine("  ${file.status.name[0]} ${file.path}")
+                        }
+                    }
+
+                    if (stagedFiles.isEmpty() && unstagedFiles.isEmpty()) {
+                        appendLine("\nWorking tree clean")
+                    }
+                }
+                ToolResult(true, output)
+            }
+            is GitOperationResult.Error -> {
+                ToolResult(false, "", "Git error: ${result.message}")
+            }
+            is GitOperationResult.InProgress -> {
+                ToolResult(true, "Git operation in progress...")
+            }
+        }
+    }
+
+    private suspend fun executeGitStage(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val pathsArg = args.getStringArg("paths")
+            ?: return ToolResult(false, "", "Missing required argument: paths")
+
+        val result = if (pathsArg.lowercase() == "all") {
+            gitManager!!.stageAll()
+        } else {
+            val paths = pathsArg.split(",").map { it.trim() }
+            gitManager!!.stageFiles(paths)
+        }
+
+        return when (result) {
+            is GitOperationResult.Success -> ToolResult(true, "Files staged successfully")
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to stage: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Staging in progress...")
+        }
+    }
+
+    private suspend fun executeGitUnstage(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val pathsArg = args.getStringArg("paths")
+            ?: return ToolResult(false, "", "Missing required argument: paths")
+
+        val paths = pathsArg.split(",").map { it.trim() }
+        return when (val result = gitManager!!.unstageFiles(paths)) {
+            is GitOperationResult.Success -> ToolResult(true, "Files unstaged successfully")
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to unstage: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Unstaging in progress...")
+        }
+    }
+
+    private suspend fun executeGitCommit(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val message = args.getStringArg("message")
+            ?: return ToolResult(false, "", "Missing required argument: message")
+
+        return when (val result = gitManager!!.commit(message)) {
+            is GitOperationResult.Success -> {
+                val commit = result.data
+                ToolResult(true, "Commit created: ${commit.shortId} - ${commit.message}")
+            }
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to commit: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Committing...")
+        }
+    }
+
+    private suspend fun executeGitPush(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val remote = args.getStringArg("remote") ?: "origin"
+        val setUpstream = args.getBooleanArg("set_upstream", false)
+
+        return when (val result = gitManager!!.push(remote, null, setUpstream)) {
+            is GitOperationResult.Success -> ToolResult(true, "Pushed successfully to $remote")
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to push: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Pushing...")
+        }
+    }
+
+    private suspend fun executeGitPull(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val remote = args.getStringArg("remote") ?: "origin"
+        val rebase = args.getBooleanArg("rebase", false)
+
+        return when (val result = gitManager!!.pull(remote, null, rebase)) {
+            is GitOperationResult.Success -> ToolResult(true, "Pulled successfully from $remote")
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to pull: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Pulling...")
+        }
+    }
+
+    private suspend fun executeGitBranch(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val action = args.getStringArg("action")
+            ?: return ToolResult(false, "", "Missing required argument: action")
+
+        return when (action.lowercase()) {
+            "list" -> {
+                val branches = gitManager!!.branches.value
+                if (branches.isEmpty()) {
+                    ToolResult(true, "No branches found")
+                } else {
+                    val output = buildString {
+                        appendLine("Branches:")
+                        branches.filter { it.isLocal }.forEach { branch ->
+                            val prefix = if (branch.isCurrent) "* " else "  "
+                            append(prefix)
+                            append(branch.name)
+                            if (branch.aheadCount > 0 || branch.behindCount > 0) {
+                                append(" [")
+                                if (branch.aheadCount > 0) append("↑${branch.aheadCount}")
+                                if (branch.behindCount > 0) append("↓${branch.behindCount}")
+                                append("]")
+                            }
+                            appendLine()
+                        }
+                    }
+                    ToolResult(true, output)
+                }
+            }
+            "create" -> {
+                val name = args.getStringArg("name")
+                    ?: return ToolResult(false, "", "Branch name is required for create action")
+                val checkout = args.getBooleanArg("checkout", false)
+
+                when (val result = gitManager!!.createBranch(name, checkout)) {
+                    is GitOperationResult.Success -> {
+                        val msg = if (checkout) "Created and switched to branch '$name'" else "Created branch '$name'"
+                        ToolResult(true, msg)
+                    }
+                    is GitOperationResult.Error -> ToolResult(false, "", "Failed to create branch: ${result.message}")
+                    is GitOperationResult.InProgress -> ToolResult(true, "Creating branch...")
+                }
+            }
+            "delete" -> {
+                val name = args.getStringArg("name")
+                    ?: return ToolResult(false, "", "Branch name is required for delete action")
+
+                when (val result = gitManager!!.deleteBranch(name)) {
+                    is GitOperationResult.Success -> ToolResult(true, "Deleted branch '$name'")
+                    is GitOperationResult.Error -> ToolResult(false, "", "Failed to delete branch: ${result.message}")
+                    is GitOperationResult.InProgress -> ToolResult(true, "Deleting branch...")
+                }
+            }
+            else -> ToolResult(false, "", "Unknown action: $action. Use 'list', 'create', or 'delete'")
+        }
+    }
+
+    private suspend fun executeGitCheckout(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val branch = args.getStringArg("branch")
+            ?: return ToolResult(false, "", "Missing required argument: branch")
+
+        return when (val result = gitManager!!.checkout(branch)) {
+            is GitOperationResult.Success -> ToolResult(true, "Switched to branch '$branch'")
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to checkout: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Checking out...")
+        }
+    }
+
+    private suspend fun executeGitLog(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val count = args.getStringArg("count")?.toIntOrNull() ?: 10
+        val commits = gitManager!!.commits.value.take(count)
+
+        if (commits.isEmpty()) {
+            return ToolResult(true, "No commits found")
+        }
+
+        val output = buildString {
+            appendLine("Recent commits:")
+            commits.forEach { commit ->
+                appendLine("${commit.shortId} - ${commit.message}")
+                appendLine("  Author: ${commit.authorName} <${commit.authorEmail}>")
+                appendLine("  Date: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(commit.timestamp))}")
+                appendLine()
+            }
+        }
+        return ToolResult(true, output)
+    }
+
+    private suspend fun executeGitDiff(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val path = args.getStringArg("path")
+        val staged = args.getBooleanArg("staged", false)
+
+        return if (path != null) {
+            when (val result = gitManager!!.getFileDiff(path, staged)) {
+                is GitOperationResult.Success -> {
+                    val diff = result.data
+                    if (diff.hunks.isEmpty()) {
+                        ToolResult(true, "No changes in $path")
+                    } else {
+                        val output = buildString {
+                            appendLine("Diff for $path:")
+                            diff.hunks.forEach { hunk ->
+                                appendLine("@@ -${hunk.oldStartLine},${hunk.oldLineCount} +${hunk.newStartLine},${hunk.newLineCount} @@")
+                                hunk.lines.forEach { line ->
+                                    appendLine(line)
+                                }
+                            }
+                        }
+                        ToolResult(true, output)
+                    }
+                }
+                is GitOperationResult.Error -> ToolResult(false, "", "Failed to get diff: ${result.message}")
+                is GitOperationResult.InProgress -> ToolResult(true, "Getting diff...")
+            }
+        } else {
+            // Return summary of all changes
+            val changedFiles = gitManager!!.changedFiles.value
+            val targetFiles = if (staged) changedFiles.filter { it.isStaged } else changedFiles.filter { !it.isStaged }
+
+            if (targetFiles.isEmpty()) {
+                ToolResult(true, "No ${if (staged) "staged" else "unstaged"} changes")
+            } else {
+                val output = buildString {
+                    appendLine("${if (staged) "Staged" else "Unstaged"} changes:")
+                    targetFiles.forEach { file ->
+                        appendLine("  ${file.status.name[0]} ${file.path}")
+                    }
+                }
+                ToolResult(true, output)
+            }
+        }
+    }
+
+    private suspend fun executeGitDiscard(args: JsonObject): ToolResult {
+        checkGitAvailable()?.let { return it }
+
+        val pathsArg = args.getStringArg("paths")
+            ?: return ToolResult(false, "", "Missing required argument: paths")
+
+        val paths = pathsArg.split(",").map { it.trim() }
+        return when (val result = gitManager!!.discardChanges(paths)) {
+            is GitOperationResult.Success -> ToolResult(true, "Changes discarded for: ${paths.joinToString(", ")}")
+            is GitOperationResult.Error -> ToolResult(false, "", "Failed to discard changes: ${result.message}")
+            is GitOperationResult.InProgress -> ToolResult(true, "Discarding changes...")
+        }
     }
 
     // ==================== Utility Functions ====================

@@ -10,7 +10,6 @@ import com.codex.stormy.CodeXApplication
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AssistantMessageWithToolCalls
 import com.codex.stormy.data.ai.ChatRequestMessage
-import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.context.ContextUsageLevel
@@ -25,6 +24,7 @@ import com.codex.stormy.data.ai.tools.ToolInteractionCallback
 import com.codex.stormy.data.ai.undo.UndoRedoManager
 import com.codex.stormy.data.ai.undo.UndoRedoState
 import com.codex.stormy.data.local.entity.MessageStatus
+import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.AiRepository
 import com.codex.stormy.data.repository.ChatRepository
 import com.codex.stormy.data.repository.PreferencesRepository
@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -69,8 +70,9 @@ data class EditorUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val agentMode: Boolean = true,
-    // AI Model selection
-    val currentModel: AiModel = DeepInfraModels.defaultModel,
+    // AI Model selection - null means no model selected (show "Select Model")
+    val currentModel: AiModel? = null,
+    val availableModels: List<AiModel> = emptyList(),
     // Context window management
     val contextTokenCount: Int = 0,
     val contextMaxTokens: Int = 8000,
@@ -87,6 +89,7 @@ class EditorViewModel(
     private val preferencesRepository: PreferencesRepository,
     private val aiRepository: AiRepository,
     private val chatRepository: ChatRepository,
+    private val aiModelRepository: AiModelRepository,
     private val contextWindowManager: ContextWindowManager,
     private val userPreferencesLearner: UserPreferencesLearner,
     private val toolExecutor: ToolExecutor,
@@ -111,13 +114,14 @@ class EditorViewModel(
     private val _isLoading = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _agentMode = MutableStateFlow(true)
-    private val _currentModel = MutableStateFlow(DeepInfraModels.QWEN_2_5_CODER_32B)
+    private val _currentModel = MutableStateFlow<AiModel?>(null)
+    private val _availableModels = MutableStateFlow<List<AiModel>>(emptyList())
     private val _messageHistory = mutableListOf<ChatRequestMessage>()
     private val _streamingContent = MutableStateFlow("")
 
     // Context window tracking
     private val _contextTokenCount = MutableStateFlow(0)
-    private val _contextMaxTokens = MutableStateFlow(contextWindowManager.getAvailableTokens(_currentModel.value))
+    private val _contextMaxTokens = MutableStateFlow(8000) // Default, will be updated when model is selected
     private val _contextUsageLevel = MutableStateFlow(ContextUsageLevel.LOW)
 
     // Task planning state
@@ -161,6 +165,8 @@ class EditorViewModel(
         state.copy(agentMode = agentMode)
     }.combine(_currentModel) { state, currentModel ->
         state.copy(currentModel = currentModel)
+    }.combine(_availableModels) { state, availableModels ->
+        state.copy(availableModels = availableModels)
     }.combine(preferencesRepository.lineNumbers) { state, lineNumbers ->
         state.copy(showLineNumbers = lineNumbers)
     }.combine(preferencesRepository.wordWrap) { state, wordWrap ->
@@ -186,7 +192,71 @@ class EditorViewModel(
     init {
         loadProject()
         loadChatHistory()
+        loadAvailableModels()
         setupToolInteractionCallback()
+    }
+
+    /**
+     * Load available models from repository and resolve the initial model
+     * Model resolution priority:
+     * 1. Project's last used model (if exists)
+     * 2. User's default model (if set)
+     * 3. null (show "Select Model")
+     */
+    private fun loadAvailableModels() {
+        viewModelScope.launch {
+            // Observe enabled models from repository
+            aiModelRepository.observeEnabledModels().collect { models ->
+                _availableModels.value = models
+            }
+        }
+
+        viewModelScope.launch {
+            // Wait for project to load first
+            _project.collect { project ->
+                if (project != null && _currentModel.value == null) {
+                    resolveInitialModel(project)
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolve the initial model based on project and user preferences
+     */
+    private suspend fun resolveInitialModel(project: Project) {
+        // Priority 1: Project's last used model
+        if (!project.lastUsedModelId.isNullOrEmpty()) {
+            val projectModel = aiModelRepository.getModelById(project.lastUsedModelId)
+            if (projectModel != null) {
+                _currentModel.value = projectModel
+                updateContextMaxTokens(projectModel)
+                return
+            }
+        }
+
+        // Priority 2: User's global default model
+        val defaultModelId = preferencesRepository.defaultModelId.first()
+        if (defaultModelId.isNotEmpty()) {
+            val defaultModel = aiModelRepository.getModelById(defaultModelId)
+            if (defaultModel != null) {
+                _currentModel.value = defaultModel
+                updateContextMaxTokens(defaultModel)
+                return
+            }
+        }
+
+        // Priority 3: null (no model selected - user must select one)
+        _currentModel.value = null
+    }
+
+    /**
+     * Update context max tokens when model changes
+     */
+    private fun updateContextMaxTokens(model: AiModel?) {
+        if (model != null) {
+            _contextMaxTokens.value = contextWindowManager.getAvailableTokens(model)
+        }
     }
 
     private fun loadProject() {
@@ -659,6 +729,16 @@ class EditorViewModel(
         val model = _currentModel.value
         val isAgentMode = _agentMode.value
 
+        // Check if model is selected
+        if (model == null) {
+            updateLastAssistantMessage(
+                "❌ Please select a model first before sending a message.",
+                MessageStatus.ERROR
+            )
+            _isAiProcessing.value = false
+            return
+        }
+
         // Check iteration limit
         if (_agentIterationCount >= MAX_AGENT_ITERATIONS) {
             appendToLastAssistantMessage(
@@ -839,7 +919,7 @@ class EditorViewModel(
      * Update context window statistics for UI display
      */
     private fun updateContextStats(messages: List<ChatRequestMessage>) {
-        val model = _currentModel.value
+        val model = _currentModel.value ?: return
         val currentTokens = contextWindowManager.estimateTotalTokens(messages)
         val maxTokens = contextWindowManager.getAvailableTokens(model)
         val usage = currentTokens.toFloat() / maxTokens
@@ -987,6 +1067,13 @@ class EditorViewModel(
 
     fun setModel(model: AiModel) {
         _currentModel.value = model
+        updateContextMaxTokens(model)
+
+        // Persist the last used model for this project
+        viewModelScope.launch {
+            projectRepository.updateLastUsedModelId(projectId, model.id)
+            aiModelRepository.recordModelUsage(model.id)
+        }
     }
 
     fun clearError() {
@@ -1060,6 +1147,7 @@ class EditorViewModel(
                     preferencesRepository = application.preferencesRepository,
                     aiRepository = application.aiRepository,
                     chatRepository = application.chatRepository,
+                    aiModelRepository = application.aiModelRepository,
                     contextWindowManager = application.contextWindowManager,
                     userPreferencesLearner = application.userPreferencesLearner,
                     toolExecutor = application.toolExecutor,

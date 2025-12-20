@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Source
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -63,6 +64,7 @@ import com.codex.stormy.ui.screens.editor.assets.AssetManagerDrawer
 import com.codex.stormy.ui.screens.editor.chat.ChatTab
 import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
+import com.codex.stormy.ui.screens.git.GitDrawer
 import com.codex.stormy.ui.screens.preview.PreviewActivity
 import kotlinx.coroutines.launch
 
@@ -84,86 +86,104 @@ fun EditorScreen(
     val context = LocalContext.current
     val fileDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // Asset Manager drawer (end-side drawer using nested ModalNavigationDrawer)
+    // File Tree drawer (start-side drawer - outer for proper gesture handling)
     ModalNavigationDrawer(
-        drawerState = assetDrawerState,
+        drawerState = fileDrawerState,
         drawerContent = {
-            uiState.project?.let { project ->
-                AssetManagerDrawer(
-                    projectPath = project.rootPath,
-                    onClose = { scope.launch { assetDrawerState.close() } },
-                    onAssetClick = { asset ->
-                        // Open asset file in code editor if it's a text-based file
-                        val textExtensions = listOf("svg", "json", "xml", "txt", "md")
-                        if (asset.extension.lowercase() in textExtensions) {
-                            viewModel.openFile(asset.path)
-                            scope.launch { assetDrawerState.close() }
-                        }
-                    },
-                    onAssetDelete = { asset ->
-                        // Refresh file tree after deletion
-                        viewModel.refreshFileTree()
-                    },
-                    onAssetAdded = {
-                        // Refresh file tree after adding asset
-                        viewModel.refreshFileTree()
-                    },
-                    onCopyPath = { path ->
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.assets_path_copied),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                )
-            }
+            FileTreeDrawer(
+                fileTree = uiState.fileTree,
+                expandedFolders = uiState.expandedFolders,
+                selectedFilePath = uiState.currentFile?.path,
+                onFileClick = { file ->
+                    viewModel.openFile(file.path)
+                    scope.launch { fileDrawerState.close() }
+                },
+                onFolderToggle = viewModel::toggleFolder,
+                onCreateFile = viewModel::createFile,
+                onCreateFolder = viewModel::createFolder,
+                onDeleteFile = viewModel::deleteFile,
+                onRenameFile = viewModel::renameFile,
+                onClose = { scope.launch { fileDrawerState.close() } }
+            )
         },
-        gesturesEnabled = false // Disable gestures for end drawer to avoid conflicts
+        gesturesEnabled = true
     ) {
-        // File Tree drawer (start-side drawer)
+        // Git drawer (end-side drawer - no gestures to avoid conflicts)
         ModalNavigationDrawer(
-            drawerState = fileDrawerState,
+            drawerState = gitDrawerState,
             drawerContent = {
-                FileTreeDrawer(
-                    fileTree = uiState.fileTree,
-                    expandedFolders = uiState.expandedFolders,
-                    selectedFilePath = uiState.currentFile?.path,
-                    onFileClick = { file ->
-                        viewModel.openFile(file.path)
-                        scope.launch { fileDrawerState.close() }
-                    },
-                    onFolderToggle = viewModel::toggleFolder,
-                    onCreateFile = viewModel::createFile,
-                    onCreateFolder = viewModel::createFolder,
-                    onDeleteFile = viewModel::deleteFile,
-                    onRenameFile = viewModel::renameFile,
-                    onClose = { scope.launch { fileDrawerState.close() } }
-                )
-            },
-            gesturesEnabled = true
-        ) {
-            Scaffold(
-                topBar = {
-                    EditorTopBar(
-                        projectName = uiState.project?.name ?: "",
-                        onBackClick = onBackClick,
-                        onMenuClick = { scope.launch { fileDrawerState.open() } },
-                        onAssetsClick = { scope.launch { assetDrawerState.open() } },
-                        onPreviewClick = {
-                            uiState.project?.let { project ->
-                                val intent = Intent(context, PreviewActivity::class.java).apply {
-                                    putExtra(PreviewActivity.EXTRA_PROJECT_ID, project.id)
-                                    putExtra(PreviewActivity.EXTRA_PROJECT_PATH, project.rootPath)
-                                }
-                                context.startActivity(intent)
-                            }
-                        },
-                        onSettingsClick = onSettingsClick
-                    )
+                if (gitDrawerState.isOpen) {
+                    uiState.project?.let { project ->
+                        GitDrawer(
+                            projectPath = project.rootPath,
+                            onClose = { scope.launch { gitDrawerState.close() } }
+                        )
+                    }
                 }
-            ) { innerPadding ->
+            },
+            gesturesEnabled = false,
+            scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)
+        ) {
+            // Asset Manager drawer (inner drawer - no gestures to avoid conflicts)
+            ModalNavigationDrawer(
+                drawerState = assetDrawerState,
+                drawerContent = {
+                    uiState.project?.let { project ->
+                        AssetManagerDrawer(
+                            projectPath = project.rootPath,
+                            onClose = { scope.launch { assetDrawerState.close() } },
+                            onAssetClick = { asset ->
+                                // Open asset file in code editor if it's a text-based file
+                                val textExtensions = listOf("svg", "json", "xml", "txt", "md")
+                                if (asset.extension.lowercase() in textExtensions) {
+                                    viewModel.openFile(asset.path)
+                                    scope.launch { assetDrawerState.close() }
+                                }
+                            },
+                            onAssetDelete = { asset ->
+                                // Refresh file tree after deletion
+                                viewModel.refreshFileTree()
+                            },
+                            onAssetAdded = {
+                                // Refresh file tree after adding asset
+                                viewModel.refreshFileTree()
+                            },
+                            onCopyPath = { path ->
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.assets_path_copied),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+                },
+                gesturesEnabled = false
+            ) {
+                Scaffold(
+                    topBar = {
+                        EditorTopBar(
+                            projectName = uiState.project?.name ?: "",
+                            onBackClick = onBackClick,
+                            onMenuClick = { scope.launch { fileDrawerState.open() } },
+                            onAssetsClick = { scope.launch { assetDrawerState.open() } },
+                            onGitClick = { scope.launch { gitDrawerState.open() } },
+                            onPreviewClick = {
+                                uiState.project?.let { project ->
+                                    val intent = Intent(context, PreviewActivity::class.java).apply {
+                                        putExtra(PreviewActivity.EXTRA_PROJECT_ID, project.id)
+                                        putExtra(PreviewActivity.EXTRA_PROJECT_PATH, project.rootPath)
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            },
+                            onSettingsClick = onSettingsClick
+                        )
+                    }
+                ) { innerPadding ->
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -224,6 +244,7 @@ fun EditorScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -233,6 +254,7 @@ private fun EditorTopBar(
     onBackClick: () -> Unit,
     onMenuClick: () -> Unit,
     onAssetsClick: () -> Unit,
+    onGitClick: () -> Unit,
     onPreviewClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -263,6 +285,12 @@ private fun EditorTopBar(
                 Icon(
                     imageVector = Icons.Outlined.Image,
                     contentDescription = "Assets"
+                )
+            }
+            IconButton(onClick = onGitClick) {
+                Icon(
+                    imageVector = Icons.Outlined.Source,
+                    contentDescription = "Source Control"
                 )
             }
             IconButton(onClick = onPreviewClick) {

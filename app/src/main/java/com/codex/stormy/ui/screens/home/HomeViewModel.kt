@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.codex.stormy.CodeXApplication
+import com.codex.stormy.data.git.GitManager
+import com.codex.stormy.data.git.GitOperationResult
 import com.codex.stormy.data.local.entity.ProjectTemplate
 import com.codex.stormy.data.repository.ProjectRepository
 import com.codex.stormy.domain.model.Project
@@ -11,25 +13,47 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class HomeUiState(
     val projects: List<Project> = emptyList(),
     val searchQuery: String = "",
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // Clone state
+    val isCloning: Boolean = false,
+    val cloneProgress: Float? = null,
+    val cloneProgressMessage: String? = null,
+    val cloneError: String? = null,
+    val clonedProjectId: String? = null
 )
 
 class HomeViewModel(
-    private val projectRepository: ProjectRepository
+    private val projectRepository: ProjectRepository,
+    private val gitManager: GitManager? = null
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
     private val _isLoading = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
+
+    // Clone state
+    private val _cloneState = MutableStateFlow(CloneState())
+    val cloneState: StateFlow<CloneState> = _cloneState.asStateFlow()
+
+    data class CloneState(
+        val isCloning: Boolean = false,
+        val progress: Float? = null,
+        val progressMessage: String? = null,
+        val error: String? = null,
+        val clonedProjectId: String? = null
+    )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val projects = _searchQuery.flatMapLatest { query ->
@@ -44,13 +68,19 @@ class HomeViewModel(
         projects,
         _searchQuery,
         _isLoading,
-        _error
-    ) { projects, query, loading, error ->
+        _error,
+        _cloneState
+    ) { projects, query, loading, error, clone ->
         HomeUiState(
             projects = projects,
             searchQuery = query,
             isLoading = loading,
-            error = error
+            error = error,
+            isCloning = clone.isCloning,
+            cloneProgress = clone.progress,
+            cloneProgressMessage = clone.progressMessage,
+            cloneError = clone.error,
+            clonedProjectId = clone.clonedProjectId
         )
     }.stateIn(
         scope = viewModelScope,
@@ -100,13 +130,100 @@ class HomeViewModel(
         _error.value = null
     }
 
+    /**
+     * Clone a Git repository and create a project from it
+     */
+    fun cloneRepository(url: String, projectName: String, shallow: Boolean) {
+        if (gitManager == null) {
+            _cloneState.update { it.copy(error = "Git is not available") }
+            return
+        }
+
+        viewModelScope.launch {
+            _cloneState.update {
+                CloneState(
+                    isCloning = true,
+                    progressMessage = "Connecting to repository..."
+                )
+            }
+
+            // Monitor clone progress
+            launch {
+                gitManager.operationProgress.collect { progress ->
+                    if (progress != null) {
+                        _cloneState.update {
+                            it.copy(
+                                progress = progress.percentage,
+                                progressMessage = progress.message.ifBlank { progress.operation }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Create project directory
+            val projectResult = projectRepository.createProjectForClone(projectName)
+
+            projectResult.onSuccess { project ->
+                val targetDir = File(project.rootPath)
+
+                // Clone repository
+                val result = gitManager.cloneRepository(
+                    url = url,
+                    directory = targetDir,
+                    shallow = shallow
+                )
+
+                when (result) {
+                    is GitOperationResult.Success -> {
+                        _cloneState.update {
+                            CloneState(
+                                isCloning = false,
+                                clonedProjectId = project.id
+                            )
+                        }
+                    }
+                    is GitOperationResult.Error -> {
+                        // Delete the project if clone failed
+                        projectRepository.deleteProject(project.id)
+                        _cloneState.update {
+                            CloneState(
+                                isCloning = false,
+                                error = result.message
+                            )
+                        }
+                    }
+                    is GitOperationResult.InProgress -> {
+                        // This shouldn't happen for final result
+                    }
+                }
+            }.onFailure { throwable ->
+                _cloneState.update {
+                    CloneState(
+                        isCloning = false,
+                        error = throwable.message ?: "Failed to create project"
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearCloneState() {
+        _cloneState.value = CloneState()
+    }
+
+    fun acknowledgeClonedProject() {
+        _cloneState.update { it.copy(clonedProjectId = null) }
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val application = CodeXApplication.getInstance()
                 return HomeViewModel(
-                    projectRepository = application.projectRepository
+                    projectRepository = application.projectRepository,
+                    gitManager = application.gitManager
                 ) as T
             }
         }

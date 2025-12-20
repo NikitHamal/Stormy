@@ -12,6 +12,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.codex.stormy.ui.screens.aimodels.AiModelsScreen
 import com.codex.stormy.ui.screens.editor.EditorScreen
+import com.codex.stormy.ui.screens.git.GitSettingsScreen
 import com.codex.stormy.ui.screens.home.HomeScreen
 import com.codex.stormy.ui.screens.memories.MemoriesScreen
 import com.codex.stormy.ui.screens.onboarding.OnboardingScreen
@@ -26,6 +27,7 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
     data object AiModels : Screen("ai_models")
     data object Memories : Screen("memories")
+    data object GitSettings : Screen("git_settings")
 }
 
 @Composable
@@ -114,6 +116,9 @@ fun CodeXNavGraph(
                 },
                 onNavigateToMemories = {
                     navController.navigate(Screen.Memories.route)
+                },
+                onNavigateToGitSettings = {
+                    navController.navigate(Screen.GitSettings.route)
                 }
             )
         }
@@ -128,6 +133,14 @@ fun CodeXNavGraph(
 
         composable(Screen.Memories.route) {
             MemoriesScreen(
+                onBackClick = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Screen.GitSettings.route) {
+            GitSettingsScreen(
                 onBackClick = {
                     navController.popBackStack()
                 }

@@ -8,6 +8,9 @@ import com.codex.stormy.data.ai.learning.UserPreferencesLearner
 import com.codex.stormy.data.ai.tools.MemoryStorage
 import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.ai.undo.UndoRedoManager
+import com.codex.stormy.data.git.GitCredentialsManager
+import com.codex.stormy.data.git.GitHubActionsService
+import com.codex.stormy.data.git.GitManager
 import com.codex.stormy.data.local.database.CodeXDatabase
 import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.AiRepository
@@ -69,7 +72,20 @@ class CodeXApplication : Application() {
     }
 
     val toolExecutor: ToolExecutor by lazy {
-        ToolExecutor(projectRepository, memoryStorage)
+        ToolExecutor(projectRepository, memoryStorage, gitManager)
+    }
+
+    // Git integration
+    val gitCredentialsManager: GitCredentialsManager by lazy {
+        GitCredentialsManager(this)
+    }
+
+    val gitManager: GitManager by lazy {
+        GitManager(gitCredentialsManager)
+    }
+
+    val gitHubActionsService: GitHubActionsService by lazy {
+        GitHubActionsService(gitCredentialsManager)
     }
 
     override fun onCreate() {
