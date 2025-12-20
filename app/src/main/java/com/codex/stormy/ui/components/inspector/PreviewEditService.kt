@@ -9,9 +9,11 @@ import com.codex.stormy.data.ai.tools.StormyTools
 import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.ai.tools.ToolResult
 import com.codex.stormy.data.repository.AiRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,9 +45,15 @@ class PreviewEditService(
     val status: StateFlow<PreviewEditStatus> = _status.asStateFlow()
 
     private var currentJob: Job? = null
+    private var debouncedJob: Job? = null
+
+    // Debounce delay for batching rapid style changes (e.g., slider dragging)
+    private val DEBOUNCE_DELAY_MS = 500L
 
     /**
      * Apply a style change to an element via AI
+     * Uses debouncing for rapid changes (like slider drags) to avoid overwhelming the AI
+     * Live preview is applied immediately for instant visual feedback
      */
     fun applyStyleChange(
         request: StyleChangeRequest,
@@ -53,39 +61,47 @@ class PreviewEditService(
         webView: WebView?,
         onComplete: () -> Unit
     ) {
-        currentJob?.cancel()
-        currentJob = scope.launch {
-            _status.value = PreviewEditStatus.Analyzing
+        // Always apply live preview immediately for instant feedback
+        scope.launch {
+            webView?.let { wv ->
+                applyLiveStyleUpdate(wv, request.selector, request.property, request.newValue)
+            }
+        }
 
-            try {
-                // Build the prompt for the AI
-                val prompt = buildStyleChangePrompt(request)
+        // Debounce the actual AI file write to avoid cancellation issues with rapid changes
+        debouncedJob?.cancel()
+        debouncedJob = scope.launch {
+            delay(DEBOUNCE_DELAY_MS)
 
-                // Send to AI with tools
-                val result = executeAiEdit(prompt, model)
+            // Now start the actual AI edit
+            currentJob?.cancel()
+            currentJob = scope.launch {
+                _status.value = PreviewEditStatus.Analyzing
 
-                if (result.success) {
-                    _status.value = PreviewEditStatus.Editing
+                try {
+                    val prompt = buildStyleChangePrompt(request)
+                    val result = executeAiEdit(prompt, model)
 
-                    // Apply live CSS update to WebView for instant feedback
-                    webView?.let { wv ->
-                        applyLiveStyleUpdate(wv, request.selector, request.property, request.newValue)
+                    if (result.success) {
+                        _status.value = PreviewEditStatus.Success("Style applied")
+                    } else {
+                        _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                     }
-
-                    _status.value = PreviewEditStatus.Success(result.output)
-                } else {
-                    _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
+                } catch (e: CancellationException) {
+                    // Silently ignore cancellation - this is expected during rapid changes
+                    _status.value = PreviewEditStatus.Idle
+                } catch (e: Exception) {
+                    _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
+                } finally {
+                    onComplete()
                 }
-            } catch (e: Exception) {
-                _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
-            } finally {
-                onComplete()
             }
         }
     }
 
     /**
      * Apply a text content change via AI
+     * Similar to style changes, applies live preview immediately
      */
     fun applyTextChange(
         request: TextChangeRequest,
@@ -93,6 +109,15 @@ class PreviewEditService(
         webView: WebView?,
         onComplete: () -> Unit
     ) {
+        // Apply live text update immediately for instant feedback
+        scope.launch {
+            webView?.let { wv ->
+                applyLiveTextUpdate(wv, request.selector, request.newText)
+            }
+        }
+
+        // Cancel any pending debounced job and start the AI edit
+        debouncedJob?.cancel()
         currentJob?.cancel()
         currentJob = scope.launch {
             _status.value = PreviewEditStatus.Analyzing
@@ -102,17 +127,13 @@ class PreviewEditService(
                 val result = executeAiEdit(prompt, model)
 
                 if (result.success) {
-                    _status.value = PreviewEditStatus.Editing
-
-                    // Apply live text update
-                    webView?.let { wv ->
-                        applyLiveTextUpdate(wv, request.selector, request.newText)
-                    }
-
-                    _status.value = PreviewEditStatus.Success(result.output)
+                    _status.value = PreviewEditStatus.Success("Text updated")
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
+            } catch (e: CancellationException) {
+                // Silently ignore cancellation
+                _status.value = PreviewEditStatus.Idle
             } catch (e: Exception) {
                 _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
             } finally {
@@ -132,6 +153,7 @@ class PreviewEditService(
         webView: WebView?,
         onComplete: () -> Unit
     ) {
+        debouncedJob?.cancel()
         currentJob?.cancel()
         currentJob = scope.launch {
             _status.value = PreviewEditStatus.Analyzing
@@ -144,12 +166,16 @@ class PreviewEditService(
                     _status.value = PreviewEditStatus.Editing
 
                     // Reload the WebView to show changes
-                    webView?.reload()
+                    withContext(Dispatchers.Main) {
+                        webView?.reload()
+                    }
 
-                    _status.value = PreviewEditStatus.Success(result.output)
+                    _status.value = PreviewEditStatus.Success("Changes applied")
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
+            } catch (e: CancellationException) {
+                _status.value = PreviewEditStatus.Idle
             } catch (e: Exception) {
                 _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
             } finally {
@@ -373,9 +399,179 @@ Instructions:
     }
 
     /**
+     * Apply multi-element AI edit from agent selection mode
+     * Processes multiple selected elements with a single prompt
+     */
+    fun applyAgentEdit(
+        prompt: String,
+        elements: List<AgentSelectedElement>,
+        model: AiModel,
+        webView: WebView?,
+        onComplete: () -> Unit
+    ) {
+        debouncedJob?.cancel()
+        currentJob?.cancel()
+        currentJob = scope.launch {
+            _status.value = PreviewEditStatus.Analyzing
+
+            try {
+                val fullPrompt = buildAgentEditPrompt(prompt, elements)
+                val result = executeAiEdit(fullPrompt, model)
+
+                if (result.success) {
+                    _status.value = PreviewEditStatus.Editing
+
+                    // Reload the WebView to show changes
+                    withContext(Dispatchers.Main) {
+                        webView?.reload()
+                    }
+
+                    _status.value = PreviewEditStatus.Success(
+                        if (elements.size == 1) "Element updated"
+                        else "${elements.size} elements updated"
+                    )
+                } else {
+                    _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
+                }
+            } catch (e: CancellationException) {
+                _status.value = PreviewEditStatus.Idle
+            } catch (e: Exception) {
+                _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
+            } finally {
+                onComplete()
+            }
+        }
+    }
+
+    /**
+     * Build prompt for multi-element agent edit
+     */
+    private fun buildAgentEditPrompt(
+        userPrompt: String,
+        elements: List<AgentSelectedElement>
+    ): String {
+        val elementDescriptions = elements.mapIndexed { index, element ->
+            """
+            |Element ${index + 1}: ${element.selector}
+            |```html
+            |${element.outerHTML.take(300)}
+            |```
+            """.trimMargin()
+        }.joinToString("\n\n")
+
+        return """User request: $userPrompt
+
+Selected elements (${elements.size} total):
+$elementDescriptions
+
+Instructions:
+1. Read the relevant files (HTML, CSS, JS as needed)
+2. Apply the user's requested changes to ALL the selected elements
+3. Use patch_file for precise, targeted modifications
+4. If the change affects styling, update the CSS file appropriately
+5. If the change affects HTML structure, update the HTML file
+6. Ensure consistency across all modified elements
+7. Only change what's necessary to accomplish the request"""
+    }
+
+    /**
+     * Apply image source change via AI
+     * Updates the src attribute of an <img> element
+     */
+    fun applyImageChange(
+        request: ImageChangeRequest,
+        model: AiModel,
+        webView: WebView?,
+        onComplete: () -> Unit
+    ) {
+        // Apply live preview immediately
+        scope.launch {
+            webView?.let { wv ->
+                applyLiveImageUpdate(wv, request.selector, request.newSrc)
+            }
+        }
+
+        // Execute AI edit to persist the change
+        debouncedJob?.cancel()
+        currentJob?.cancel()
+        currentJob = scope.launch {
+            _status.value = PreviewEditStatus.Analyzing
+
+            try {
+                val prompt = buildImageChangePrompt(request)
+                val result = executeAiEdit(prompt, model)
+
+                if (result.success) {
+                    _status.value = PreviewEditStatus.Success("Image updated")
+                } else {
+                    _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
+                }
+            } catch (e: CancellationException) {
+                _status.value = PreviewEditStatus.Idle
+            } catch (e: Exception) {
+                _status.value = PreviewEditStatus.Error(e.message ?: "Failed to update image")
+            } finally {
+                onComplete()
+            }
+        }
+    }
+
+    /**
+     * Apply live image source update to WebView
+     */
+    private suspend fun applyLiveImageUpdate(
+        webView: WebView,
+        selector: String,
+        newSrc: String
+    ) {
+        withContext(Dispatchers.Main) {
+            val escapedSrc = newSrc
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+
+            val script = """
+                (function() {
+                    var elements = document.querySelectorAll('$selector');
+                    elements.forEach(function(el) {
+                        if (el.tagName === 'IMG') {
+                            el.src = '$escapedSrc';
+                        }
+                    });
+                    return elements.length;
+                })();
+            """.trimIndent()
+
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Build prompt for image source change
+     */
+    private fun buildImageChangePrompt(request: ImageChangeRequest): String {
+        return """Please update the image source (src attribute) in the HTML file.
+
+Element selector: "${request.selector}"
+Old src: "${request.oldSrc ?: "none"}"
+New src: "${request.newSrc}"
+
+Element HTML for reference:
+```html
+${request.elementHtml.take(300)}
+```
+
+Instructions:
+1. First read the HTML file (usually index.html)
+2. Find the <img> element matching this selector
+3. Use patch_file to update the src attribute to the new value
+4. Keep all other attributes (alt, class, id, etc.) unchanged"""
+    }
+
+    /**
      * Cancel any ongoing edit operation
      */
     fun cancel() {
+        debouncedJob?.cancel()
         currentJob?.cancel()
         _status.value = PreviewEditStatus.Idle
     }
@@ -387,3 +583,16 @@ Instructions:
         _status.value = PreviewEditStatus.Idle
     }
 }
+
+/**
+ * Data class for agent-selected elements
+ */
+data class AgentSelectedElement(
+    val selector: String,
+    val outerHTML: String
+)
+
+/**
+ * Re-export ImageChangeRequest from ElementInspector for convenience
+ */
+typealias ImageChangeRequest = com.codex.stormy.ui.components.inspector.ImageChangeRequest

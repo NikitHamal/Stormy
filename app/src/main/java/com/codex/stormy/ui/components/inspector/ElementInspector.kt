@@ -46,9 +46,11 @@ import androidx.compose.material.icons.outlined.DragHandle
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.FormatColorFill
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Height
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.SpaceBar
@@ -119,6 +121,16 @@ data class TextChangeRequest(
 )
 
 /**
+ * Image source change request
+ */
+data class ImageChangeRequest(
+    val selector: String,
+    val oldSrc: String?,
+    val newSrc: String,
+    val elementHtml: String
+)
+
+/**
  * Inspected element data
  */
 data class InspectorElementData(
@@ -150,11 +162,24 @@ fun VisualElementInspector(
     onStyleChange: (StyleChangeRequest) -> Unit,
     onTextChange: (TextChangeRequest) -> Unit,
     onAiEditRequest: (String) -> Unit,
+    onImageChange: ((ImageChangeRequest) -> Unit)? = null,
+    onPickImage: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Design", "Layout", "Text", "Code")
+
+    // Determine if this is an image element
+    val isImageElement = element.tagName.equals("IMG", ignoreCase = true)
+
+    // Build tabs list dynamically - add Image tab for <img> elements
+    val tabs = remember(isImageElement) {
+        if (isImageElement) {
+            listOf("Image", "Design", "Layout")
+        } else {
+            listOf("Design", "Layout", "Text")
+        }
+    }
 
     // Panel height state for drag resize
     var panelHeight by remember { mutableStateOf(320.dp) }
@@ -232,21 +257,40 @@ fun VisualElementInspector(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
-                when (selectedTab) {
-                    0 -> DesignTab(
-                        element = element,
-                        onStyleChange = onStyleChange
-                    )
-                    1 -> LayoutTab(
-                        element = element,
-                        onStyleChange = onStyleChange
-                    )
-                    2 -> TextTab(
-                        element = element,
-                        onTextChange = onTextChange,
-                        onStyleChange = onStyleChange
-                    )
-                    3 -> CodeTab(element = element)
+                if (isImageElement) {
+                    // Image element tabs: Image, Design, Layout
+                    when (selectedTab) {
+                        0 -> ImageTab(
+                            element = element,
+                            onImageChange = onImageChange,
+                            onPickImage = onPickImage
+                        )
+                        1 -> DesignTab(
+                            element = element,
+                            onStyleChange = onStyleChange
+                        )
+                        2 -> LayoutTab(
+                            element = element,
+                            onStyleChange = onStyleChange
+                        )
+                    }
+                } else {
+                    // Regular element tabs: Design, Layout, Text
+                    when (selectedTab) {
+                        0 -> DesignTab(
+                            element = element,
+                            onStyleChange = onStyleChange
+                        )
+                        1 -> LayoutTab(
+                            element = element,
+                            onStyleChange = onStyleChange
+                        )
+                        2 -> TextTab(
+                            element = element,
+                            onTextChange = onTextChange,
+                            onStyleChange = onStyleChange
+                        )
+                    }
                 }
             }
         }
@@ -736,6 +780,214 @@ private fun LayoutTab(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Image tab - Image source and properties editor
+ * Shows when an <img> element is selected
+ */
+@Composable
+private fun ImageTab(
+    element: InspectorElementData,
+    onImageChange: ((ImageChangeRequest) -> Unit)?,
+    onPickImage: (() -> Unit)?
+) {
+    val selector = buildSelector(element)
+    val currentSrc = element.attributes["src"] ?: ""
+    val altText = element.attributes["alt"] ?: ""
+
+    var editedSrc by remember(currentSrc) { mutableStateOf(currentSrc) }
+    var editedAlt by remember(altText) { mutableStateOf(altText) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Image source section
+        InspectorSection(
+            title = "Source",
+            icon = Icons.Outlined.Image
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Current source preview (truncated)
+                if (currentSrc.isNotEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Text(
+                            text = currentSrc.take(50) + if (currentSrc.length > 50) "..." else "",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(8.dp),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Source URL input
+                Text(
+                    text = "Image URL",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                BasicTextField(
+                    value = editedSrc,
+                    onValueChange = { editedSrc = it },
+                    textStyle = TextStyle(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (editedSrc != currentSrc && onImageChange != null) {
+                            onImageChange(ImageChangeRequest(
+                                selector = selector,
+                                oldSrc = currentSrc,
+                                newSrc = editedSrc,
+                                elementHtml = element.outerHTML
+                            ))
+                        }
+                    }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                )
+
+                // Apply button for source change
+                if (editedSrc != currentSrc) {
+                    Surface(
+                        onClick = {
+                            onImageChange?.invoke(ImageChangeRequest(
+                                selector = selector,
+                                oldSrc = currentSrc,
+                                newSrc = editedSrc,
+                                elementHtml = element.outerHTML
+                            ))
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Apply URL",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = PoppinsFontFamily,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pick from device section
+        InspectorSection(
+            title = "From Device",
+            icon = Icons.Outlined.FolderOpen
+        ) {
+            Surface(
+                onClick = { onPickImage?.invoke() },
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Image,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Choose from Gallery",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = PoppinsFontFamily,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+
+            Text(
+                text = "Image will be copied to project assets folder",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        // Alt text section
+        InspectorSection(
+            title = "Accessibility",
+            icon = Icons.Outlined.TextFields
+        ) {
+            Text(
+                text = "Alt Text",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            BasicTextField(
+                value = editedAlt,
+                onValueChange = { editedAlt = it },
+                textStyle = TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    fontFamily = PoppinsFontFamily
+                ),
+                singleLine = false,
+                maxLines = 3,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    // Alt text change would be handled via AI edit
+                }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            )
+
+            Text(
+                text = "Describes the image for screen readers",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 2.dp)
+            )
         }
     }
 }
