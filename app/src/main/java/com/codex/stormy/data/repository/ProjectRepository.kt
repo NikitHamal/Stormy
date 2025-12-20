@@ -105,6 +105,47 @@ class ProjectRepository(
         projectDao.updateLastOpenedAt(projectId, System.currentTimeMillis())
     }
 
+    /**
+     * Create an empty project directory for Git clone operations.
+     * Unlike createProject, this doesn't create any template files.
+     */
+    suspend fun createProjectForClone(name: String): Result<Project> = withContext(Dispatchers.IO) {
+        try {
+            if (projectDao.countProjectsByName(name) > 0) {
+                return@withContext Result.failure(ProjectExistsException(name))
+            }
+
+            val projectId = UUID.randomUUID().toString()
+            val timestamp = System.currentTimeMillis()
+            val projectDir = File(projectsBaseDir, projectId)
+
+            if (!projectDir.mkdirs()) {
+                return@withContext Result.failure(ProjectCreationException("Failed to create project directory"))
+            }
+
+            val project = Project(
+                id = projectId,
+                name = name,
+                description = "Cloned from Git repository",
+                template = ProjectTemplate.BLANK,
+                createdAt = timestamp,
+                updatedAt = timestamp,
+                lastOpenedAt = timestamp,
+                thumbnailPath = null,
+                rootPath = projectDir.absolutePath
+            )
+
+            projectDao.insertProject(project.toEntity())
+            Result.success(project)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateLastUsedModelId(projectId: String, modelId: String?) = withContext(Dispatchers.IO) {
+        projectDao.updateLastUsedModelId(projectId, modelId)
+    }
+
     suspend fun getFileTree(projectId: String): List<FileTreeNode> = withContext(Dispatchers.IO) {
         val project = projectDao.getProjectById(projectId) ?: return@withContext emptyList()
         val rootDir = File(project.rootPath)

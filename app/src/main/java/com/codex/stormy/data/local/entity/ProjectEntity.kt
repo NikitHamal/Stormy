@@ -15,7 +15,8 @@ data class ProjectEntity(
     val updatedAt: Long,
     val lastOpenedAt: Long,
     val thumbnailPath: String?,
-    val rootPath: String
+    val rootPath: String,
+    val lastUsedModelId: String? = null
 )
 
 @Serializable

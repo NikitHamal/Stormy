@@ -111,6 +111,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
 
+    // JGit for Git integration
+    implementation(libs.jgit)
+
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)

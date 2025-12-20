@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -41,21 +42,30 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +79,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
 import com.codex.stormy.domain.model.Project
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onProjectClick: (String) -> Unit,
@@ -78,11 +90,34 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showCloneDialog by remember { mutableStateOf(false) }
+    var showFabMenu by remember { mutableStateOf(false) }
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
 
+    // Handle clone completion - navigate to cloned project
+    LaunchedEffect(uiState.clonedProjectId) {
+        uiState.clonedProjectId?.let { projectId ->
+            viewModel.acknowledgeClonedProject()
+            onProjectClick(projectId)
+        }
+    }
+
+    // Show clone error
+    LaunchedEffect(uiState.cloneError) {
+        uiState.cloneError?.let { error ->
+            scope.launch {
+                snackbarHostState.showSnackbar(error)
+            }
+            viewModel.clearCloneState()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -105,17 +140,51 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { showCreateDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Add,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(context.getString(R.string.home_create_project))
+            Box {
+                ExtendedFloatingActionButton(
+                    onClick = { showFabMenu = !showFabMenu },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(
+                        imageVector = if (showFabMenu) Icons.Outlined.Close else Icons.Outlined.Add,
+                        contentDescription = null
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (showFabMenu) "Close" else context.getString(R.string.home_create_project))
+                }
+
+                DropdownMenu(
+                    expanded = showFabMenu,
+                    onDismissRequest = { showFabMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("New Project") },
+                        onClick = {
+                            showFabMenu = false
+                            showCreateDialog = true
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = null
+                            )
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Clone from Git") },
+                        onClick = {
+                            showFabMenu = false
+                            showCloneDialog = true
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Code,
+                                contentDescription = null
+                            )
+                        }
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -180,6 +249,22 @@ fun HomeScreen(
                 viewModel.deleteProject(project.id)
                 projectToDelete = null
             }
+        )
+    }
+
+    if (showCloneDialog) {
+        CloneRepositoryDialog(
+            onDismiss = {
+                showCloneDialog = false
+                viewModel.clearCloneState()
+            },
+            onClone = { url, projectName, shallow ->
+                viewModel.cloneRepository(url, projectName, shallow)
+            },
+            isCloning = uiState.isCloning,
+            progress = uiState.cloneProgress,
+            progressMessage = uiState.cloneProgressMessage,
+            error = uiState.cloneError
         )
     }
 }

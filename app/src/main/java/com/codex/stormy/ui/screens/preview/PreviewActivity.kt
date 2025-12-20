@@ -397,8 +397,20 @@ private fun PreviewScreen(
 
                     // Get current model and apply the change
                     val app = CodeXApplication.getInstance()
-                    val modelId = app.preferencesRepository.aiModel.first()
-                    val model = app.aiModelRepository.getModelById(modelId)
+
+                    // Resolve model using proper priority
+                    var model: com.codex.stormy.data.ai.AiModel? = null
+
+                    // Priority 1: User's default model
+                    val defaultModelId = app.preferencesRepository.defaultModelId.first()
+                    if (defaultModelId.isNotEmpty()) {
+                        model = app.aiModelRepository.getModelById(defaultModelId)
+                    }
+
+                    // Priority 2: First enabled model
+                    if (model == null) {
+                        model = app.aiModelRepository.getEnabledModels().firstOrNull()
+                    }
 
                     if (model != null) {
                         previewEditService.applyImageChange(
@@ -765,11 +777,24 @@ private fun PreviewScreen(
             // Store current model for agent and editor modes
             val currentModel = remember { mutableStateOf<com.codex.stormy.data.ai.AiModel?>(null) }
 
-            // Load current model
+            // Load current model using proper resolution priority
             LaunchedEffect(Unit) {
                 val app = CodeXApplication.getInstance()
-                val modelId = app.preferencesRepository.aiModel.first()
-                currentModel.value = app.aiModelRepository.getModelById(modelId)
+
+                // Priority 1: Project's last used model (would need project access)
+                // For preview, we use user's default or first enabled model
+
+                // Priority 2: User's global default model
+                val defaultModelId = app.preferencesRepository.defaultModelId.first()
+                if (defaultModelId.isNotEmpty()) {
+                    currentModel.value = app.aiModelRepository.getModelById(defaultModelId)
+                }
+
+                // Priority 3: First enabled model as fallback
+                if (currentModel.value == null) {
+                    val enabledModels = app.aiModelRepository.getEnabledModels()
+                    currentModel.value = enabledModels.firstOrNull()
+                }
             }
 
             // Agent selection floating prompt bar
@@ -783,7 +808,8 @@ private fun PreviewScreen(
                     onClearSelection = { selectedElements.clear() },
                     onSubmit = { prompt ->
                         // Process directly with AI instead of redirecting to chat
-                        currentModel.value?.let { model ->
+                        val model = currentModel.value
+                        if (model != null) {
                             val agentElements = selectedElements.map { element ->
                                 AgentSelectedElement(
                                     selector = buildElementSelector(element),
@@ -802,6 +828,10 @@ private fun PreviewScreen(
                                     selectionMode = SelectionMode.DISABLED
                                 }
                             )
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                            }
                         }
                     },
                     isProcessing = editStatus is PreviewEditStatus.Analyzing ||
@@ -825,7 +855,8 @@ private fun PreviewScreen(
                             selectionMode = SelectionMode.DISABLED
                         },
                         onStyleChange = { request ->
-                            currentModel.value?.let { model ->
+                            val model = currentModel.value
+                            if (model != null) {
                                 previewEditService.applyStyleChange(
                                     request = request,
                                     model = model,
@@ -835,10 +866,15 @@ private fun PreviewScreen(
                                         // No need to reload - changes are visible instantly
                                     }
                                 )
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                                }
                             }
                         },
                         onTextChange = { request ->
-                            currentModel.value?.let { model ->
+                            val model = currentModel.value
+                            if (model != null) {
                                 previewEditService.applyTextChange(
                                     request = request,
                                     model = model,
@@ -847,10 +883,15 @@ private fun PreviewScreen(
                                         // Live preview is applied immediately
                                     }
                                 )
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                                }
                             }
                         },
                         onAiEditRequest = { prompt ->
-                            currentModel.value?.let { model ->
+                            val model = currentModel.value
+                            if (model != null) {
                                 previewEditService.applyAiEdit(
                                     prompt = prompt,
                                     elementSelector = buildElementSelector(element.toInspectedElement()),
@@ -861,10 +902,15 @@ private fun PreviewScreen(
                                         // Service handles reload after successful AI edit
                                     }
                                 )
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                                }
                             }
                         },
                         onImageChange = { request ->
-                            currentModel.value?.let { model ->
+                            val model = currentModel.value
+                            if (model != null) {
                                 previewEditService.applyImageChange(
                                     request = request,
                                     model = model,
@@ -873,6 +919,10 @@ private fun PreviewScreen(
                                         // Live preview is applied immediately
                                     }
                                 )
+                            } else {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                                }
                             }
                         },
                         onPickImage = {

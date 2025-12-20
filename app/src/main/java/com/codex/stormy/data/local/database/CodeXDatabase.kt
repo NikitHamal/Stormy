@@ -17,7 +17,7 @@ import com.codex.stormy.data.local.entity.ProjectEntity
         ChatMessageEntity::class,
         AiModelEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class CodeXDatabase : RoomDatabase() {
