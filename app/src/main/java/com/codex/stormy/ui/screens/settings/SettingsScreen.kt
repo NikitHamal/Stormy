@@ -602,6 +602,7 @@ private fun SettingsInfoItem(
 
 /**
  * Collapsible API keys section
+ * Note: DeepInfra is free/public and doesn't require an API key
  */
 @Composable
 private fun ApiKeysSection(
@@ -681,12 +682,7 @@ private fun ApiKeysSection(
                     .padding(bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ApiKeyInput(
-                    label = "DeepInfra",
-                    value = deepInfraKey,
-                    onValueChange = onDeepInfraKeyChange,
-                    placeholder = "Enter DeepInfra API key"
-                )
+                // Note: DeepInfra doesn't require an API key (free/public)
 
                 ApiKeyInput(
                     label = "OpenRouter",

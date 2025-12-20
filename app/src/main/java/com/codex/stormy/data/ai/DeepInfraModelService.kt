@@ -83,32 +83,29 @@ class DeepInfraModelService {
 
     /**
      * Check if a model is suitable for chat completion
-     * Filters out embedding models, image models, etc.
+     * Filters out embedding models, image models, audio models, etc.
+     * Accepts all text generation models for maximum model availability
      */
     private fun isValidChatModel(modelId: String): Boolean {
-        val excludePatterns = listOf(
-            "embed", "embedding",
-            "whisper", "audio",
-            "flux", "sdxl", "stable-diffusion", "image",
-            "turbo", "distil",
-            "rerank"
-        )
-
         val lowerId = modelId.lowercase()
 
-        // Exclude models with certain patterns
+        // Exclude patterns for non-text-generation models
+        val excludePatterns = listOf(
+            "embed", "embedding",          // Embedding models
+            "whisper", "audio", "speech",  // Audio/speech models
+            "flux", "sdxl", "stable-diffusion", "image", "vision-only", // Image generation
+            "rerank", "classifier",        // Ranking/classification
+            "vae", "encoder", "decoder"    // Component models
+        )
+
+        // Exclude models matching these patterns
         if (excludePatterns.any { lowerId.contains(it) }) {
             return false
         }
 
-        // Include known good model families
-        val includePatterns = listOf(
-            "qwen", "llama", "mistral", "mixtral", "deepseek",
-            "gemma", "phi", "codellama", "starcoder", "wizardcoder",
-            "dolphin", "openchat", "neural", "yi-"
-        )
-
-        return includePatterns.any { lowerId.contains(it) }
+        // Accept all remaining models - they are likely text generation capable
+        // This ensures we show all available chat/instruct models from DeepInfra
+        return true
     }
 
     /**

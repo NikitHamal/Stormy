@@ -72,6 +72,19 @@
     <string name="file_name_label">Name</string>
     <string name="file_name_hint">Enter name</string>
 
+    <!-- Asset Manager -->
+    <string name="assets_title">Assets</string>
+    <string name="assets_empty">No assets yet</string>
+    <string name="assets_empty_subtitle">Add images, fonts, and other files</string>
+    <string name="assets_add_file">Add File</string>
+    <string name="assets_add_image">Add Image</string>
+    <string name="assets_add_folder">Create Folder</string>
+    <string name="assets_images">Images</string>
+    <string name="assets_fonts">Fonts</string>
+    <string name="assets_other">Other Files</string>
+    <string name="assets_copy_path">Copy Path</string>
+    <string name="assets_path_copied">Path copied to clipboard</string>
+
     <!-- Preview -->
     <string name="preview_title">Preview</string>
     <string name="preview_refresh">Refresh</string>

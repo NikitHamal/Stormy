@@ -1,6 +1,7 @@
 package com.codex.stormy.ui.screens.editor
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
+import com.codex.stormy.ui.screens.editor.assets.AssetManagerDrawer
 import com.codex.stormy.ui.screens.editor.chat.ChatTab
 import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
@@ -79,103 +82,143 @@ fun EditorScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val fileDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    // Asset Manager drawer (end-side drawer using nested ModalNavigationDrawer)
     ModalNavigationDrawer(
-        drawerState = drawerState,
+        drawerState = assetDrawerState,
         drawerContent = {
-            FileTreeDrawer(
-                fileTree = uiState.fileTree,
-                expandedFolders = uiState.expandedFolders,
-                selectedFilePath = uiState.currentFile?.path,
-                onFileClick = { file ->
-                    viewModel.openFile(file.path)
-                    scope.launch { drawerState.close() }
-                },
-                onFolderToggle = viewModel::toggleFolder,
-                onCreateFile = viewModel::createFile,
-                onCreateFolder = viewModel::createFolder,
-                onDeleteFile = viewModel::deleteFile,
-                onRenameFile = viewModel::renameFile,
-                onClose = { scope.launch { drawerState.close() } }
-            )
-        },
-        gesturesEnabled = true
-    ) {
-        Scaffold(
-            topBar = {
-                EditorTopBar(
-                    projectName = uiState.project?.name ?: "",
-                    onBackClick = onBackClick,
-                    onMenuClick = { scope.launch { drawerState.open() } },
-                    onPreviewClick = {
-                        uiState.project?.let { project ->
-                            val intent = Intent(context, PreviewActivity::class.java).apply {
-                                putExtra(PreviewActivity.EXTRA_PROJECT_ID, project.id)
-                                putExtra(PreviewActivity.EXTRA_PROJECT_PATH, project.rootPath)
-                            }
-                            context.startActivity(intent)
+            uiState.project?.let { project ->
+                AssetManagerDrawer(
+                    projectPath = project.rootPath,
+                    onClose = { scope.launch { assetDrawerState.close() } },
+                    onAssetClick = { asset ->
+                        // Open asset file in code editor if it's a text-based file
+                        val textExtensions = listOf("svg", "json", "xml", "txt", "md")
+                        if (asset.extension.lowercase() in textExtensions) {
+                            viewModel.openFile(asset.path)
+                            scope.launch { assetDrawerState.close() }
                         }
                     },
-                    onSettingsClick = onSettingsClick
+                    onAssetDelete = { asset ->
+                        // Refresh file tree after deletion
+                        viewModel.refreshFileTree()
+                    },
+                    onAssetAdded = {
+                        // Refresh file tree after adding asset
+                        viewModel.refreshFileTree()
+                    },
+                    onCopyPath = { path ->
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.assets_path_copied),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 )
             }
-        ) { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                EditorTabs(
-                    selectedTab = uiState.selectedTab,
-                    onTabSelected = viewModel::selectTab
-                )
-
-                AnimatedContent(
-                    targetState = uiState.selectedTab,
-                    transitionSpec = {
-                        fadeIn() togetherWith fadeOut()
+        },
+        gesturesEnabled = false // Disable gestures for end drawer to avoid conflicts
+    ) {
+        // File Tree drawer (start-side drawer)
+        ModalNavigationDrawer(
+            drawerState = fileDrawerState,
+            drawerContent = {
+                FileTreeDrawer(
+                    fileTree = uiState.fileTree,
+                    expandedFolders = uiState.expandedFolders,
+                    selectedFilePath = uiState.currentFile?.path,
+                    onFileClick = { file ->
+                        viewModel.openFile(file.path)
+                        scope.launch { fileDrawerState.close() }
                     },
-                    modifier = Modifier.fillMaxSize(),
-                    label = "editor_tab_content"
-                ) { tab ->
-                    when (tab) {
-                        EditorTab.CHAT -> ChatTab(
-                            messages = uiState.messages,
-                            inputText = uiState.chatInput,
-                            isLoading = uiState.isAiProcessing,
-                            agentMode = uiState.agentMode,
-                            taskList = uiState.taskList,
-                            currentModel = uiState.currentModel,
-                            onInputChange = viewModel::updateChatInput,
-                            onSendMessage = viewModel::sendMessage,
-                            onToggleAgentMode = viewModel::toggleAgentMode,
-                            onModelChange = viewModel::setModel
-                        )
-                        EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
-                            // File tabs row
-                            if (uiState.openFiles.isNotEmpty()) {
-                                FileTabsRow(
-                                    openFiles = uiState.openFiles,
-                                    currentIndex = uiState.currentFileIndex,
-                                    onTabClick = viewModel::switchToFileTab,
-                                    onTabClose = viewModel::closeFileTab,
-                                    onCloseOthers = viewModel::closeOtherTabs,
-                                    onCloseAll = viewModel::closeAllTabs
+                    onFolderToggle = viewModel::toggleFolder,
+                    onCreateFile = viewModel::createFile,
+                    onCreateFolder = viewModel::createFolder,
+                    onDeleteFile = viewModel::deleteFile,
+                    onRenameFile = viewModel::renameFile,
+                    onClose = { scope.launch { fileDrawerState.close() } }
+                )
+            },
+            gesturesEnabled = true
+        ) {
+            Scaffold(
+                topBar = {
+                    EditorTopBar(
+                        projectName = uiState.project?.name ?: "",
+                        onBackClick = onBackClick,
+                        onMenuClick = { scope.launch { fileDrawerState.open() } },
+                        onAssetsClick = { scope.launch { assetDrawerState.open() } },
+                        onPreviewClick = {
+                            uiState.project?.let { project ->
+                                val intent = Intent(context, PreviewActivity::class.java).apply {
+                                    putExtra(PreviewActivity.EXTRA_PROJECT_ID, project.id)
+                                    putExtra(PreviewActivity.EXTRA_PROJECT_PATH, project.rootPath)
+                                }
+                                context.startActivity(intent)
+                            }
+                        },
+                        onSettingsClick = onSettingsClick
+                    )
+                }
+            ) { innerPadding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    EditorTabs(
+                        selectedTab = uiState.selectedTab,
+                        onTabSelected = viewModel::selectTab
+                    )
+
+                    AnimatedContent(
+                        targetState = uiState.selectedTab,
+                        transitionSpec = {
+                            fadeIn() togetherWith fadeOut()
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        label = "editor_tab_content"
+                    ) { tab ->
+                        when (tab) {
+                            EditorTab.CHAT -> ChatTab(
+                                messages = uiState.messages,
+                                inputText = uiState.chatInput,
+                                isLoading = uiState.isAiProcessing,
+                                agentMode = uiState.agentMode,
+                                taskList = uiState.taskList,
+                                currentModel = uiState.currentModel,
+                                onInputChange = viewModel::updateChatInput,
+                                onSendMessage = viewModel::sendMessage,
+                                onToggleAgentMode = viewModel::toggleAgentMode,
+                                onModelChange = viewModel::setModel
+                            )
+                            EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
+                                // File tabs row
+                                if (uiState.openFiles.isNotEmpty()) {
+                                    FileTabsRow(
+                                        openFiles = uiState.openFiles,
+                                        currentIndex = uiState.currentFileIndex,
+                                        onTabClick = viewModel::switchToFileTab,
+                                        onTabClose = viewModel::closeFileTab,
+                                        onCloseOthers = viewModel::closeOtherTabs,
+                                        onCloseAll = viewModel::closeAllTabs
+                                    )
+                                }
+
+                                CodeTab(
+                                    currentFile = uiState.currentFile,
+                                    fileContent = uiState.fileContent,
+                                    isModified = uiState.isFileModified,
+                                    lineNumbers = uiState.showLineNumbers,
+                                    wordWrap = uiState.wordWrap,
+                                    fontSize = uiState.fontSize,
+                                    onContentChange = viewModel::updateFileContent,
+                                    onSave = viewModel::saveCurrentFile
                                 )
                             }
-
-                            CodeTab(
-                                currentFile = uiState.currentFile,
-                                fileContent = uiState.fileContent,
-                                isModified = uiState.isFileModified,
-                                lineNumbers = uiState.showLineNumbers,
-                                wordWrap = uiState.wordWrap,
-                                fontSize = uiState.fontSize,
-                                onContentChange = viewModel::updateFileContent,
-                                onSave = viewModel::saveCurrentFile
-                            )
                         }
                     }
                 }
@@ -189,6 +232,7 @@ private fun EditorTopBar(
     projectName: String,
     onBackClick: () -> Unit,
     onMenuClick: () -> Unit,
+    onAssetsClick: () -> Unit,
     onPreviewClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -213,6 +257,12 @@ private fun EditorTopBar(
                 Icon(
                     imageVector = Icons.Outlined.Menu,
                     contentDescription = "Files"
+                )
+            }
+            IconButton(onClick = onAssetsClick) {
+                Icon(
+                    imageVector = Icons.Outlined.Image,
+                    contentDescription = "Assets"
                 )
             }
             IconButton(onClick = onPreviewClick) {

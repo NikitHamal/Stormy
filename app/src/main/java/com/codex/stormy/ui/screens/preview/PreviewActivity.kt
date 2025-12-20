@@ -2,6 +2,7 @@ package com.codex.stormy.ui.screens.preview
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -15,8 +16,11 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -117,6 +121,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.codex.stormy.CodeXApplication
+import com.codex.stormy.ui.components.inspector.AgentSelectedElement
+import com.codex.stormy.ui.components.inspector.ImageChangeRequest
 import com.codex.stormy.ui.components.inspector.InspectorElementData
 import com.codex.stormy.ui.components.inspector.InspectorRect
 import com.codex.stormy.ui.components.inspector.PreviewEditService
@@ -150,17 +156,7 @@ class PreviewActivity : ComponentActivity() {
                     projectId = projectId,
                     projectPath = projectPath,
                     onBackClick = { finish() },
-                    onWebViewCreated = { webView = it },
-                    onAgentEditRequest = { elements, prompt ->
-                        // Return the agent edit request to the calling activity
-                        val intent = Intent().apply {
-                            putExtra(RESULT_AGENT_PROMPT, prompt)
-                            putExtra(RESULT_SELECTED_ELEMENTS, elements.map { it.outerHTML }.toTypedArray())
-                            putExtra(RESULT_ELEMENT_SELECTORS, elements.map { buildElementSelector(it) }.toTypedArray())
-                        }
-                        setResult(Activity.RESULT_OK, intent)
-                        finish()
-                    }
+                    onWebViewCreated = { webView = it }
                 )
             }
         }
@@ -209,6 +205,27 @@ data class ElementRect(
     val width: Float,
     val height: Float
 )
+
+/**
+ * Selection mode for the Preview toolbar
+ * Cycles through: DISABLED -> INSPECTOR -> EDITOR -> AGENT -> DISABLED
+ */
+enum class SelectionMode {
+    DISABLED,   // No selection mode active
+    INSPECTOR,  // Element inspector - tap to view element properties
+    EDITOR,     // Visual editor - tap to edit element directly
+    AGENT;      // Agent selection - multi-select for AI editing
+
+    /**
+     * Get the next mode in the cycle
+     */
+    fun next(): SelectionMode = when (this) {
+        DISABLED -> INSPECTOR
+        INSPECTOR -> EDITOR
+        EDITOR -> AGENT
+        AGENT -> DISABLED
+    }
+}
 
 /**
  * JavaScript interface for receiving element data from WebView
@@ -287,8 +304,7 @@ private fun PreviewScreen(
     projectId: String,
     projectPath: String,
     onBackClick: () -> Unit,
-    onWebViewCreated: (WebView) -> Unit,
-    onAgentEditRequest: (List<InspectedElement>, String) -> Unit
+    onWebViewCreated: (WebView) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -302,17 +318,23 @@ private fun PreviewScreen(
     var showConsole by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<ConsoleLogEntry>() }
 
+    // Selection mode enum for cycling through modes
+    // Mode cycle: DISABLED -> INSPECTOR -> EDITOR -> AGENT -> DISABLED
+    var selectionMode by remember { mutableStateOf(SelectionMode.DISABLED) }
+
+    // Derived state flags for backwards compatibility
+    val inspectorEnabled = selectionMode == SelectionMode.INSPECTOR
+    val visualEditorMode = selectionMode == SelectionMode.EDITOR
+    val agentSelectionMode = selectionMode == SelectionMode.AGENT
+
     // Inspector state (single element)
-    var inspectorEnabled by remember { mutableStateOf(false) }
     var inspectedElement by remember { mutableStateOf<InspectedElement?>(null) }
     var showInspectorPanel by remember { mutableStateOf(false) }
 
     // Visual editor mode (new enhanced inspector)
-    var visualEditorMode by remember { mutableStateOf(false) }
     var visualEditorElement by remember { mutableStateOf<InspectorElementData?>(null) }
 
     // Agent selection mode state (multi-element)
-    var agentSelectionMode by remember { mutableStateOf(false) }
     val selectedElements = remember { mutableStateListOf<InspectedElement>() }
 
     // Preview edit service for direct editing
@@ -342,37 +364,107 @@ private fun PreviewScreen(
         }
     }
 
+    // State for pending image picker (stores selector for when image is picked)
+    var pendingImageSelector by remember { mutableStateOf<String?>(null) }
+    var pendingImageElementHtml by remember { mutableStateOf<String?>(null) }
+
+    // Image picker launcher
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null && pendingImageSelector != null) {
+            // Copy image to project assets folder
+            scope.launch {
+                try {
+                    val assetsDir = File(projectPath, "assets")
+                    if (!assetsDir.exists()) {
+                        assetsDir.mkdirs()
+                    }
+
+                    // Get file name from URI or generate one
+                    val fileName = "img_${System.currentTimeMillis()}.${getImageExtension(context, uri)}"
+                    val destFile = File(assetsDir, fileName)
+
+                    // Copy the image
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        destFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    // Create relative path for HTML
+                    val relativePath = "assets/$fileName"
+
+                    // Get current model and apply the change
+                    val app = CodeXApplication.getInstance()
+                    val modelId = app.preferencesRepository.aiModel.first()
+                    val model = app.aiModelRepository.getModelById(modelId)
+
+                    if (model != null) {
+                        previewEditService.applyImageChange(
+                            request = ImageChangeRequest(
+                                selector = pendingImageSelector!!,
+                                oldSrc = null,
+                                newSrc = relativePath,
+                                elementHtml = pendingImageElementHtml ?: ""
+                            ),
+                            model = model,
+                            webView = webView,
+                            onComplete = {
+                                pendingImageSelector = null
+                                pendingImageElementHtml = null
+                            }
+                        )
+                    }
+
+                    snackbarHostState.showSnackbar("Image added to assets")
+                } catch (e: Exception) {
+                    snackbarHostState.showSnackbar("Failed to copy image: ${e.message}")
+                }
+            }
+        }
+        pendingImageSelector = null
+        pendingImageElementHtml = null
+    }
+
     // Apply desktop mode settings when changed
     LaunchedEffect(desktopMode) {
         webView?.applyViewportMode(desktopMode)
     }
 
-    // Apply inspector mode when changed
-    LaunchedEffect(inspectorEnabled, visualEditorMode) {
+    // Apply selection mode changes
+    LaunchedEffect(selectionMode) {
         webView?.let { wv ->
-            if (inspectorEnabled || visualEditorMode) {
-                wv.injectInspectorScript(multiSelect = false)
-            } else if (!agentSelectionMode) {
-                wv.disableInspector()
-                inspectedElement = null
-                visualEditorElement = null
-            }
-        }
-    }
-
-    // Apply agent selection mode when changed
-    LaunchedEffect(agentSelectionMode) {
-        webView?.let { wv ->
-            if (agentSelectionMode) {
-                // Disable single inspector mode
-                inspectorEnabled = false
-                showInspectorPanel = false
-                inspectedElement = null
-                selectedElements.clear()
-                wv.injectInspectorScript(multiSelect = true)
-            } else {
-                wv.disableInspector()
-                selectedElements.clear()
+            when (selectionMode) {
+                SelectionMode.DISABLED -> {
+                    wv.disableInspector()
+                    inspectedElement = null
+                    visualEditorElement = null
+                    selectedElements.clear()
+                    showInspectorPanel = false
+                }
+                SelectionMode.INSPECTOR -> {
+                    // Clear other mode states
+                    visualEditorElement = null
+                    selectedElements.clear()
+                    showInspectorPanel = true
+                    wv.injectInspectorScript(multiSelect = false)
+                }
+                SelectionMode.EDITOR -> {
+                    // Clear other mode states
+                    inspectedElement = null
+                    showInspectorPanel = false
+                    selectedElements.clear()
+                    wv.injectInspectorScript(multiSelect = false)
+                }
+                SelectionMode.AGENT -> {
+                    // Clear other mode states
+                    inspectedElement = null
+                    visualEditorElement = null
+                    showInspectorPanel = false
+                    selectedElements.clear()
+                    wv.injectInspectorScript(multiSelect = true)
+                }
             }
         }
     }
@@ -415,56 +507,12 @@ private fun PreviewScreen(
                     }
                 },
                 actions = {
-                    // Visual editor mode toggle
-                    IconButton(onClick = {
-                        if (agentSelectionMode || inspectorEnabled) {
-                            return@IconButton
-                        }
-                        visualEditorMode = !visualEditorMode
-                    }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Edit,
-                            contentDescription = if (visualEditorMode) "Disable visual editor"
-                            else "Enable visual editor",
-                            tint = when {
-                                agentSelectionMode || inspectorEnabled ->
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                visualEditorMode -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.onSurface
-                            },
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Element inspector toggle
-                    IconButton(onClick = {
-                        if (agentSelectionMode || visualEditorMode) {
-                            // Can't enable inspector while in other modes
-                            return@IconButton
-                        }
-                        inspectorEnabled = !inspectorEnabled
-                        if (inspectorEnabled) {
-                            showInspectorPanel = true
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Outlined.TouchApp,
-                            contentDescription = if (inspectorEnabled) "Disable inspector"
-                            else "Enable inspector",
-                            tint = when {
-                                agentSelectionMode || visualEditorMode ->
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                inspectorEnabled -> MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.onSurface
-                            },
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Agent selection mode toggle
+                    // Unified selection mode toggle - cycles through modes on click
+                    // DISABLED -> INSPECTOR -> EDITOR -> AGENT -> DISABLED
                     BadgedBox(
                         badge = {
-                            if (selectedElements.isNotEmpty()) {
+                            // Show badge with element count in agent mode
+                            if (agentSelectionMode && selectedElements.isNotEmpty()) {
                                 Badge(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                     contentColor = MaterialTheme.colorScheme.onPrimary
@@ -475,15 +523,28 @@ private fun PreviewScreen(
                         }
                     ) {
                         IconButton(onClick = {
-                            agentSelectionMode = !agentSelectionMode
+                            selectionMode = selectionMode.next()
                         }) {
                             Icon(
-                                imageVector = Icons.Outlined.AutoAwesome,
-                                contentDescription = if (agentSelectionMode) "Disable agent selection"
-                                else "Enable agent selection mode",
-                                tint = if (agentSelectionMode) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = when (selectionMode) {
+                                    SelectionMode.DISABLED -> Icons.Outlined.TouchApp
+                                    SelectionMode.INSPECTOR -> Icons.Outlined.TouchApp
+                                    SelectionMode.EDITOR -> Icons.Outlined.Edit
+                                    SelectionMode.AGENT -> Icons.Outlined.AutoAwesome
+                                },
+                                contentDescription = when (selectionMode) {
+                                    SelectionMode.DISABLED -> "Enable inspector mode"
+                                    SelectionMode.INSPECTOR -> "Switch to editor mode"
+                                    SelectionMode.EDITOR -> "Switch to agent mode"
+                                    SelectionMode.AGENT -> "Disable selection mode"
+                                },
+                                tint = when (selectionMode) {
+                                    SelectionMode.DISABLED -> MaterialTheme.colorScheme.onSurface
+                                    SelectionMode.INSPECTOR -> MaterialTheme.colorScheme.tertiary
+                                    SelectionMode.EDITOR -> MaterialTheme.colorScheme.primary
+                                    SelectionMode.AGENT -> MaterialTheme.colorScheme.secondary
+                                },
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
@@ -670,27 +731,45 @@ private fun PreviewScreen(
                     }
                 )
 
-                // Visual editor mode indicator
-                if (visualEditorMode && visualEditorElement == null) {
-                    VisualEditorModeIndicator(
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
+                // Mode indicator based on current selection mode
+                when (selectionMode) {
+                    SelectionMode.INSPECTOR -> {
+                        SelectionModeIndicator(
+                            mode = selectionMode,
+                            selectedCount = 0,
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        )
+                    }
+                    SelectionMode.EDITOR -> {
+                        if (visualEditorElement == null) {
+                            SelectionModeIndicator(
+                                mode = selectionMode,
+                                selectedCount = 0,
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
+                        }
+                    }
+                    SelectionMode.AGENT -> {
+                        SelectionModeIndicator(
+                            mode = selectionMode,
+                            selectedCount = selectedElements.size,
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        )
+                    }
+                    SelectionMode.DISABLED -> {
+                        // No indicator when disabled
+                    }
                 }
+            }
 
-                // Inspector mode indicator overlay
-                if (inspectorEnabled && !agentSelectionMode && !visualEditorMode) {
-                    InspectorModeIndicator(
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
-                }
+            // Store current model for agent and editor modes
+            val currentModel = remember { mutableStateOf<com.codex.stormy.data.ai.AiModel?>(null) }
 
-                // Agent selection mode indicator
-                if (agentSelectionMode) {
-                    AgentSelectionIndicator(
-                        selectedCount = selectedElements.size,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
-                }
+            // Load current model
+            LaunchedEffect(Unit) {
+                val app = CodeXApplication.getInstance()
+                val modelId = app.preferencesRepository.aiModel.first()
+                currentModel.value = app.aiModelRepository.getModelById(modelId)
             }
 
             // Agent selection floating prompt bar
@@ -703,8 +782,30 @@ private fun PreviewScreen(
                     selectedElements = selectedElements.toList(),
                     onClearSelection = { selectedElements.clear() },
                     onSubmit = { prompt ->
-                        onAgentEditRequest(selectedElements.toList(), prompt)
+                        // Process directly with AI instead of redirecting to chat
+                        currentModel.value?.let { model ->
+                            val agentElements = selectedElements.map { element ->
+                                AgentSelectedElement(
+                                    selector = buildElementSelector(element),
+                                    outerHTML = element.outerHTML
+                                )
+                            }
+
+                            previewEditService.applyAgentEdit(
+                                prompt = prompt,
+                                elements = agentElements,
+                                model = model,
+                                webView = webView,
+                                onComplete = {
+                                    // Clear selection and reset mode after processing
+                                    selectedElements.clear()
+                                    selectionMode = SelectionMode.DISABLED
+                                }
+                            )
+                        }
                     },
+                    isProcessing = editStatus is PreviewEditStatus.Analyzing ||
+                            editStatus is PreviewEditStatus.Editing,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -716,20 +817,12 @@ private fun PreviewScreen(
                 exit = slideOutVertically { it } + fadeOut()
             ) {
                 visualEditorElement?.let { element ->
-                    val currentModel = remember { mutableStateOf<com.codex.stormy.data.ai.AiModel?>(null) }
-
-                    // Load current model
-                    LaunchedEffect(Unit) {
-                        val app = CodeXApplication.getInstance()
-                        val modelId = app.preferencesRepository.aiModel.first()
-                        currentModel.value = app.aiModelRepository.getModelById(modelId)
-                    }
 
                     VisualElementInspector(
                         element = element,
                         onClose = {
                             visualEditorElement = null
-                            visualEditorMode = false
+                            selectionMode = SelectionMode.DISABLED
                         },
                         onStyleChange = { request ->
                             currentModel.value?.let { model ->
@@ -738,8 +831,8 @@ private fun PreviewScreen(
                                     model = model,
                                     webView = webView,
                                     onComplete = {
-                                        // Refresh webview after edit
-                                        webView?.reload()
+                                        // Live preview is applied immediately by the service
+                                        // No need to reload - changes are visible instantly
                                     }
                                 )
                             }
@@ -751,7 +844,7 @@ private fun PreviewScreen(
                                     model = model,
                                     webView = webView,
                                     onComplete = {
-                                        webView?.reload()
+                                        // Live preview is applied immediately
                                     }
                                 )
                             }
@@ -765,10 +858,31 @@ private fun PreviewScreen(
                                     model = model,
                                     webView = webView,
                                     onComplete = {
-                                        webView?.reload()
+                                        // Service handles reload after successful AI edit
                                     }
                                 )
                             }
+                        },
+                        onImageChange = { request ->
+                            currentModel.value?.let { model ->
+                                previewEditService.applyImageChange(
+                                    request = request,
+                                    model = model,
+                                    webView = webView,
+                                    onComplete = {
+                                        // Live preview is applied immediately
+                                    }
+                                )
+                            }
+                        },
+                        onPickImage = {
+                            // Store element info for when image is picked
+                            pendingImageSelector = buildElementSelector(element.toInspectedElement())
+                            pendingImageElementHtml = element.outerHTML
+                            // Launch the image picker
+                            imagePickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -786,7 +900,7 @@ private fun PreviewScreen(
                         element = element,
                         onClose = {
                             showInspectorPanel = false
-                            inspectorEnabled = false
+                            selectionMode = SelectionMode.DISABLED
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -835,81 +949,43 @@ private fun InspectorElementData.toInspectedElement(): InspectedElement {
 }
 
 /**
- * Indicator shown when visual editor mode is active
+ * Unified indicator for all selection modes
+ * Shows current mode and provides helpful context
  */
 @Composable
-private fun VisualEditorModeIndicator(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .padding(8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Edit,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Text(
-                text = "Tap element to edit directly",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
-    }
-}
-
-/**
- * Indicator shown when inspector mode is active
- */
-@Composable
-private fun InspectorModeIndicator(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .padding(8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.TouchApp,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onTertiaryContainer
-            )
-            Text(
-                text = "Tap element to inspect",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer
-            )
-        }
-    }
-}
-
-/**
- * Indicator shown when agent selection mode is active
- */
-@Composable
-private fun AgentSelectionIndicator(
+private fun SelectionModeIndicator(
+    mode: SelectionMode,
     selectedCount: Int,
     modifier: Modifier = Modifier
 ) {
+    val (icon, text, containerColor, contentColor) = when (mode) {
+        SelectionMode.INSPECTOR -> Quadruple(
+            Icons.Outlined.TouchApp,
+            "Inspector • Tap element to inspect",
+            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.95f),
+            MaterialTheme.colorScheme.onTertiaryContainer
+        )
+        SelectionMode.EDITOR -> Quadruple(
+            Icons.Outlined.Edit,
+            "Editor • Tap element to edit directly",
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+            MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        SelectionMode.AGENT -> Quadruple(
+            Icons.Outlined.AutoAwesome,
+            if (selectedCount == 0) "Agent • Tap elements to select for AI"
+            else "Agent • $selectedCount element${if (selectedCount > 1) "s" else ""} selected",
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.95f),
+            MaterialTheme.colorScheme.onSecondaryContainer
+        )
+        SelectionMode.DISABLED -> return // No indicator when disabled
+    }
+
     Box(
         modifier = modifier
             .padding(8.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f))
+            .background(containerColor)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Row(
@@ -917,30 +993,42 @@ private fun AgentSelectionIndicator(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.AutoAwesome,
+                imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                tint = contentColor
             )
             Text(
-                text = if (selectedCount == 0) "Tap elements to select for AI editing"
-                else "$selectedCount element${if (selectedCount > 1) "s" else ""} selected",
+                text = text,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                fontFamily = PoppinsFontFamily,
+                color = contentColor
             )
         }
     }
 }
+
+/**
+ * Helper data class for mode indicator properties
+ */
+private data class Quadruple<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)
 
 /**
  * Floating prompt bar for agent selection mode
  * Allows users to input instructions for AI-driven element editing
+ * Now processes AI directly instead of redirecting to chat
  */
 @Composable
 private fun AgentPromptBar(
     selectedElements: List<InspectedElement>,
     onClearSelection: () -> Unit,
     onSubmit: (String) -> Unit,
+    isProcessing: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var promptText by remember { mutableStateOf("") }
@@ -959,6 +1047,30 @@ private fun AgentPromptBar(
                 .padding(12.dp)
                 .imePadding()
         ) {
+            // Processing indicator
+            if (isProcessing) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "AI is applying changes...",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontFamily = PoppinsFontFamily,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             // Selected elements preview
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -983,12 +1095,14 @@ private fun AgentPromptBar(
                 // Clear selection button
                 IconButton(
                     onClick = onClearSelection,
+                    enabled = !isProcessing,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Clear,
                         contentDescription = "Clear selection",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isProcessing) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -1002,12 +1116,14 @@ private fun AgentPromptBar(
                 ) {
                     BasicTextField(
                         value = promptText,
-                        onValueChange = { promptText = it },
+                        onValueChange = { if (!isProcessing) promptText = it },
+                        enabled = !isProcessing,
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
                         textStyle = TextStyle(
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = if (isProcessing) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            else MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontFamily = PoppinsFontFamily
                         ),
@@ -1016,7 +1132,7 @@ private fun AgentPromptBar(
                         maxLines = 3,
                         decorationBox = { innerTextField ->
                             Box {
-                                if (promptText.isEmpty()) {
+                                if (promptText.isEmpty() && !isProcessing) {
                                     Text(
                                         text = "Describe what to change...",
                                         style = TextStyle(
@@ -1035,46 +1151,61 @@ private fun AgentPromptBar(
                 // Send button
                 IconButton(
                     onClick = {
-                        if (promptText.isNotBlank()) {
+                        if (promptText.isNotBlank() && !isProcessing) {
                             keyboardController?.hide()
                             onSubmit(promptText)
+                            promptText = "" // Clear after submission
                         }
                     },
+                    enabled = promptText.isNotBlank() && !isProcessing,
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(
-                            if (promptText.isNotBlank()) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceVariant
+                            when {
+                                isProcessing -> MaterialTheme.colorScheme.surfaceVariant
+                                promptText.isNotBlank() -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            }
                         )
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.Send,
-                        contentDescription = "Send to AI",
-                        tint = if (promptText.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (isProcessing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = "Send to AI",
+                            tint = if (promptText.isNotBlank()) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
-            // Quick action suggestions
-            LazyRow(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val suggestions = listOf(
-                    "Change the color",
-                    "Make it larger",
-                    "Add animation",
-                    "Center this element",
-                    "Add hover effect"
-                )
-                items(suggestions) { suggestion ->
-                    QuickSuggestionChip(
-                        text = suggestion,
-                        onClick = { promptText = suggestion }
+            // Quick action suggestions (hide when processing)
+            AnimatedVisibility(visible = !isProcessing) {
+                LazyRow(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val suggestions = listOf(
+                        "Change the color",
+                        "Make it larger",
+                        "Add animation",
+                        "Center this element",
+                        "Add hover effect"
                     )
+                    items(suggestions) { suggestion ->
+                        QuickSuggestionChip(
+                            text = suggestion,
+                            onClick = { promptText = suggestion }
+                        )
+                    }
                 }
             }
         }
@@ -1843,4 +1974,19 @@ private fun WebViewPreview(
         },
         modifier = modifier
     )
+}
+
+/**
+ * Get image file extension from URI by checking MIME type
+ */
+private fun getImageExtension(context: Context, uri: Uri): String {
+    val mimeType = context.contentResolver.getType(uri)
+    return when {
+        mimeType?.contains("png") == true -> "png"
+        mimeType?.contains("gif") == true -> "gif"
+        mimeType?.contains("webp") == true -> "webp"
+        mimeType?.contains("svg") == true -> "svg"
+        mimeType?.contains("bmp") == true -> "bmp"
+        else -> "jpg" // Default to jpg for jpeg and unknown types
+    }
 }

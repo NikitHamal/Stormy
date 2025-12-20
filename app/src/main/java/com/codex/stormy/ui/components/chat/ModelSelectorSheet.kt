@@ -19,12 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -40,36 +38,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
- * Model category for grouping
- */
-enum class ModelCategory(val displayName: String, val icon: ImageVector) {
-    REASONING("Reasoning", Icons.Outlined.Psychology),
-    AGENT("Agent", Icons.Outlined.AutoAwesome),
-    FAST("Fast", Icons.Outlined.Bolt)
-}
-
-/**
- * Get category for a model
- */
-private fun AiModel.getCategory(): ModelCategory {
-    return when {
-        isThinkingModel -> ModelCategory.REASONING
-        supportsToolCalls -> ModelCategory.AGENT
-        else -> ModelCategory.FAST
-    }
-}
-
-/**
  * Minimal model selector bottom sheet
- * Clean, compact design without excessive badges or filters
+ * Shows all available models in a clean, flat list without category filtering
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +62,12 @@ fun ModelSelectorSheet(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier
 ) {
-    val groupedModels = models.groupBy { it.getCategory() }
+    // Sort models: selected first, then by provider, then by name
+    val sortedModels = models.sortedWith(
+        compareBy<AiModel> { it.id != selectedModel.id }
+            .thenBy { it.provider.ordinal }
+            .thenBy { it.name }
+    )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -116,13 +99,21 @@ fun ModelSelectorSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Select Model",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Column {
+                    Text(
+                        text = "Select Model",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontFamily = PoppinsFontFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${sortedModels.size} models available",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = PoppinsFontFamily,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
@@ -162,32 +153,53 @@ fun ModelSelectorSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Model list
-            LazyColumn(
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                ModelCategory.entries.forEach { category ->
-                    val categoryModels = groupedModels[category] ?: emptyList()
-                    if (categoryModels.isNotEmpty()) {
-                        item(key = "header_${category.name}") {
-                            CategoryHeader(category = category)
-                        }
-
-                        items(
-                            items = categoryModels,
-                            key = { it.id }
-                        ) { model ->
-                            CompactModelCard(
-                                model = model,
-                                isSelected = model.id == selectedModel.id,
-                                onClick = { onModelSelected(model) }
-                            )
-                        }
-
-                        item(key = "spacer_${category.name}") {
-                            Spacer(modifier = Modifier.height(12.dp))
-                        }
+            // Model list - flat, no categories
+            if (sortedModels.isEmpty()) {
+                // Empty state
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.SmartToy,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Text(
+                            text = "No models available",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = PoppinsFontFamily,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "Tap refresh to load models",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = PoppinsFontFamily,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(
+                        items = sortedModels,
+                        key = { it.id }
+                    ) { model ->
+                        CompactModelCard(
+                            model = model,
+                            isSelected = model.id == selectedModel.id,
+                            onClick = { onModelSelected(model) }
+                        )
                     }
                 }
             }
@@ -196,39 +208,7 @@ fun ModelSelectorSheet(
 }
 
 /**
- * Compact category header
- */
-@Composable
-private fun CategoryHeader(
-    category: ModelCategory,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Icon(
-            imageVector = category.icon,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-
-        Text(
-            text = category.displayName,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = PoppinsFontFamily,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary
-        )
-    }
-}
-
-/**
- * Compact model card - minimal design
+ * Compact model card - minimal design with provider indicator
  */
 @Composable
 private fun CompactModelCard(
@@ -256,51 +236,39 @@ private fun CompactModelCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Type indicator dot
+            // Provider indicator
             Box(
                 modifier = Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(
-                        when {
-                            model.isThinkingModel -> MaterialTheme.colorScheme.tertiaryContainer
-                            model.supportsToolCalls -> MaterialTheme.colorScheme.primaryContainer
-                            else -> MaterialTheme.colorScheme.secondaryContainer
-                        }
-                    ),
+                    .background(getProviderColor(model.provider).copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = when {
-                        model.isThinkingModel -> Icons.Outlined.Psychology
-                        model.supportsToolCalls -> Icons.Outlined.AutoAwesome
-                        else -> Icons.Outlined.Bolt
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = when {
-                        model.isThinkingModel -> MaterialTheme.colorScheme.onTertiaryContainer
-                        model.supportsToolCalls -> MaterialTheme.colorScheme.onPrimaryContainer
-                        else -> MaterialTheme.colorScheme.onSecondaryContainer
-                    }
+                Text(
+                    text = getProviderInitial(model.provider),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = PoppinsFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    color = getProviderColor(model.provider)
                 )
             }
 
-            // Model name only
-            Text(
-                text = model.name,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = PoppinsFontFamily,
-                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                color = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            // Model name
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = model.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = PoppinsFontFamily,
+                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             // Selection check
             if (isSelected) {
@@ -320,5 +288,28 @@ private fun CompactModelCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * Get display initial for AI provider
+ */
+private fun getProviderInitial(provider: AiProvider): String {
+    return when (provider) {
+        AiProvider.DEEPINFRA -> "D"
+        AiProvider.OPENROUTER -> "O"
+        AiProvider.GEMINI -> "G"
+    }
+}
+
+/**
+ * Get color for AI provider
+ */
+@Composable
+private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics.Color {
+    return when (provider) {
+        AiProvider.DEEPINFRA -> MaterialTheme.colorScheme.primary
+        AiProvider.OPENROUTER -> MaterialTheme.colorScheme.tertiary
+        AiProvider.GEMINI -> MaterialTheme.colorScheme.secondary
     }
 }

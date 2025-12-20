@@ -19,30 +19,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import com.codex.stormy.ui.theme.SyntaxColors
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.lang.EmptyLanguage
 import io.github.rosemoe.sora.lang.Language
-import io.github.rosemoe.sora.langs.textmate.TextMateColorScheme
-import io.github.rosemoe.sora.langs.textmate.TextMateLanguage
-import io.github.rosemoe.sora.langs.textmate.registry.FileProviderRegistry
-import io.github.rosemoe.sora.langs.textmate.registry.ThemeRegistry
-import io.github.rosemoe.sora.langs.textmate.registry.model.ThemeModel
-import io.github.rosemoe.sora.langs.textmate.registry.provider.AssetsFileResolver
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.component.EditorAutoCompletion
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.eclipse.tm4e.core.registry.IThemeSource
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * High-performance code editor view built on Rosemoe/Sora editor
- * Provides professional-grade syntax highlighting using TextMate grammars
+ * Provides professional-grade syntax highlighting with built-in color schemes
  * Optimized for smooth scrolling on mobile devices
  */
 @Composable
@@ -61,20 +50,9 @@ fun SoraCodeEditorView(
     val isDarkTheme = isSystemInDarkTheme()
     val scope = rememberCoroutineScope()
 
-    var isInitialized by remember { mutableStateOf(TextMateManager.isInitialized()) }
     var editorInstance by remember { mutableStateOf<CodeEditor?>(null) }
     var lastExternalContent by remember { mutableStateOf(content) }
     var isUpdatingFromEditor by remember { mutableStateOf(false) }
-
-    // Initialize TextMate registry once
-    LaunchedEffect(Unit) {
-        if (!TextMateManager.isInitialized()) {
-            withContext(Dispatchers.IO) {
-                TextMateManager.initialize(context)
-            }
-            isInitialized = true
-        }
-    }
 
     // Update content when it changes externally (not from editor)
     LaunchedEffect(content) {
@@ -104,26 +82,20 @@ fun SoraCodeEditorView(
     }
 
     // Update theme when dark mode changes
-    LaunchedEffect(isDarkTheme, editorInstance, isInitialized) {
-        if (isInitialized) {
-            editorInstance?.let { editor ->
-                withContext(Dispatchers.Main) {
-                    applyEditorTheme(editor, isDarkTheme)
-                }
+    LaunchedEffect(isDarkTheme, editorInstance) {
+        editorInstance?.let { editor ->
+            withContext(Dispatchers.Main) {
+                editor.colorScheme = createColorScheme(isDarkTheme, fileExtension)
             }
         }
     }
 
-    // Update language when file extension changes
-    LaunchedEffect(fileExtension, editorInstance, isInitialized) {
-        if (isInitialized) {
-            editorInstance?.let { editor ->
-                val language = withContext(Dispatchers.IO) {
-                    createTextMateLanguage(fileExtension)
-                }
-                withContext(Dispatchers.Main) {
-                    editor.setEditorLanguage(language)
-                }
+    // Update language/colors when file extension changes
+    LaunchedEffect(fileExtension, editorInstance, isDarkTheme) {
+        editorInstance?.let { editor ->
+            withContext(Dispatchers.Main) {
+                editor.setEditorLanguage(EmptyLanguage())
+                editor.colorScheme = createColorScheme(isDarkTheme, fileExtension)
             }
         }
     }
@@ -131,7 +103,7 @@ fun SoraCodeEditorView(
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            createCodeEditor(ctx, isDarkTheme).also { editor ->
+            createCodeEditor(ctx, isDarkTheme, fileExtension).also { editor ->
                 editorInstance = editor
 
                 // Set initial content
@@ -152,24 +124,6 @@ fun SoraCodeEditorView(
                         onContentChange(newText)
                     }
                 }
-
-                // Apply language and theme based on file extension
-                if (TextMateManager.isInitialized()) {
-                    scope.launch(Dispatchers.IO) {
-                        val language = createTextMateLanguage(fileExtension)
-                        withContext(Dispatchers.Main) {
-                            editor.setEditorLanguage(language)
-                            applyEditorTheme(editor, isDarkTheme)
-                        }
-                    }
-                } else {
-                    // Use fallback color scheme until TextMate is initialized
-                    editor.colorScheme = if (isDarkTheme) {
-                        createDarkColorScheme()
-                    } else {
-                        createLightColorScheme()
-                    }
-                }
             }
         },
         update = { _ ->
@@ -186,62 +140,9 @@ fun SoraCodeEditorView(
 }
 
 /**
- * Singleton manager for TextMate initialization
- * Ensures TextMate resources are initialized only once across all editor instances
- */
-private object TextMateManager {
-    private val initialized = AtomicBoolean(false)
-    private val initMutex = Mutex()
-
-    fun isInitialized(): Boolean = initialized.get()
-
-    suspend fun initialize(context: Context) {
-        if (initialized.get()) return
-
-        initMutex.withLock {
-            if (initialized.get()) return
-
-            try {
-                // Set up file provider for loading resources
-                FileProviderRegistry.getInstance().addFileProvider(
-                    AssetsFileResolver(context.assets)
-                )
-
-                // Load themes
-                loadThemes()
-
-                initialized.set(true)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    private fun loadThemes() {
-        try {
-            val themeRegistry = ThemeRegistry.getInstance()
-
-            // Register dark theme
-            val darkTheme = createDarkEditorTheme()
-            themeRegistry.loadTheme(darkTheme)
-
-            // Register light theme
-            val lightTheme = createLightEditorTheme()
-            themeRegistry.loadTheme(lightTheme)
-
-            // Set default theme
-            themeRegistry.setTheme(DARK_THEME_NAME)
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-}
-
-/**
  * Create and configure the CodeEditor instance with optimized scrolling
  */
-private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor {
+private fun createCodeEditor(context: Context, isDarkTheme: Boolean, extension: String): CodeEditor {
     return object : CodeEditor(context) {
         override fun onTouchEvent(event: MotionEvent?): Boolean {
             // Handle touch events for smoother scrolling
@@ -306,106 +207,52 @@ private fun createCodeEditor(context: Context, isDarkTheme: Boolean): CodeEditor
         // Accessibility
         contentDescription = "Code Editor"
 
-        // Apply initial color scheme
-        colorScheme = if (isDarkTheme) {
-            createDarkColorScheme()
-        } else {
-            createLightColorScheme()
-        }
+        // Use EmptyLanguage as base - color scheme handles highlighting
+        setEditorLanguage(EmptyLanguage())
+
+        // Apply color scheme based on file type and theme
+        colorScheme = createColorScheme(isDarkTheme, extension)
     }
 }
 
 /**
- * Create TextMate language for syntax highlighting
+ * Create comprehensive color scheme with syntax-aware colors
+ * Provides visual differentiation for different file types
  */
-private fun createTextMateLanguage(extension: String): Language {
-    return try {
-        val scopeName = getScopeNameForExtension(extension)
-        if (scopeName != null && TextMateManager.isInitialized()) {
-            TextMateLanguage.create(scopeName, true)
-        } else {
-            EmptyLanguage()
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        EmptyLanguage()
+private fun createColorScheme(isDarkTheme: Boolean, extension: String): EditorColorScheme {
+    return if (isDarkTheme) {
+        createDarkColorScheme(extension)
+    } else {
+        createLightColorScheme(extension)
     }
 }
 
 /**
- * Get TextMate scope name for file extension
+ * Get language-specific accent color for visual differentiation
  */
-private fun getScopeNameForExtension(extension: String): String? {
-    return when (extension.lowercase()) {
-        "html", "htm" -> "text.html.basic"
-        "css" -> "source.css"
-        "js", "mjs" -> "source.js"
-        "ts" -> "source.ts"
-        "tsx" -> "source.tsx"
-        "jsx" -> "source.jsx"
-        "json" -> "source.json"
-        "md", "markdown" -> "text.html.markdown"
-        "xml", "svg" -> "text.xml"
-        "yaml", "yml" -> "source.yaml"
-        "py" -> "source.python"
-        "kt", "kts" -> "source.kotlin"
-        "java" -> "source.java"
-        "swift" -> "source.swift"
-        "go" -> "source.go"
-        "rs" -> "source.rust"
-        "c", "h" -> "source.c"
-        "cpp", "cc", "cxx", "hpp" -> "source.cpp"
-        "sh", "bash", "zsh" -> "source.shell"
-        "sql" -> "source.sql"
-        "php" -> "text.html.php"
-        "rb" -> "source.ruby"
-        "scss" -> "source.css.scss"
-        "sass" -> "source.sass"
-        "less" -> "source.css.less"
-        "vue" -> "source.vue"
-        "toml" -> "source.toml"
-        "ini", "conf" -> "source.ini"
-        "txt" -> null
-        else -> null
+private fun getLanguageAccent(extension: String, isDark: Boolean): Int {
+    val color = when (extension.lowercase()) {
+        "html", "htm" -> if (isDark) Color(0xFFE06C75) else Color(0xFF800000)
+        "css", "scss", "sass", "less" -> if (isDark) Color(0xFF61AFEF) else Color(0xFF0451A5)
+        "js", "mjs", "jsx" -> if (isDark) Color(0xFFE5C07B) else Color(0xFFB07D2B)
+        "ts", "tsx" -> if (isDark) Color(0xFF56B6C2) else Color(0xFF267F99)
+        "json" -> if (isDark) Color(0xFF98C379) else Color(0xFF008000)
+        "md", "markdown" -> if (isDark) Color(0xFFD19A66) else Color(0xFF795E26)
+        "py" -> if (isDark) Color(0xFF56B6C2) else Color(0xFF0000FF)
+        "kt", "kts" -> if (isDark) Color(0xFFC678DD) else Color(0xFFAF00DB)
+        "java" -> if (isDark) Color(0xFFE06C75) else Color(0xFFE51400)
+        "xml", "svg" -> if (isDark) Color(0xFFE5C07B) else Color(0xFF800000)
+        else -> if (isDark) Color(0xFFABB2BF) else Color(0xFF1B1B1F)
     }
-}
-
-/**
- * Apply theme to the editor based on dark/light mode
- */
-private fun applyEditorTheme(editor: CodeEditor, isDarkTheme: Boolean) {
-    try {
-        val themeName = if (isDarkTheme) DARK_THEME_NAME else LIGHT_THEME_NAME
-
-        // Try to apply TextMate color scheme
-        if (TextMateManager.isInitialized()) {
-            try {
-                ThemeRegistry.getInstance().setTheme(themeName)
-                val textMateScheme = TextMateColorScheme.create(ThemeRegistry.getInstance())
-                editor.colorScheme = textMateScheme
-                return
-            } catch (e: Exception) {
-                // Fall back to basic color scheme
-                e.printStackTrace()
-            }
-        }
-
-        // Fallback to basic color scheme
-        editor.colorScheme = if (isDarkTheme) {
-            createDarkColorScheme()
-        } else {
-            createLightColorScheme()
-        }
-
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
+    return color.toArgb()
 }
 
 /**
  * Create dark color scheme for the editor
  */
-private fun createDarkColorScheme(): EditorColorScheme {
+private fun createDarkColorScheme(extension: String): EditorColorScheme {
+    val accent = getLanguageAccent(extension, true)
+
     return EditorColorScheme().apply {
         // Editor background and foreground
         setColor(EditorColorScheme.WHOLE_BACKGROUND, Color(0xFF1E1E24).toArgb())
@@ -413,8 +260,10 @@ private fun createDarkColorScheme(): EditorColorScheme {
 
         // Line numbers
         setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, Color(0xFF1E1E24).toArgb())
-        setColor(EditorColorScheme.LINE_NUMBER, Color(0xFF4A4A52).toArgb())
-        setColor(EditorColorScheme.LINE_NUMBER_CURRENT, Color(0xFF8B8B8B).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER, Color(0xFF5A5A62).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER_CURRENT, Color(0xFF9A9AA2).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER_PANEL, Color(0xFF1E1E24).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER_PANEL_TEXT, Color(0xFF6A6A72).toArgb())
 
         // Current line highlight
         setColor(EditorColorScheme.CURRENT_LINE, Color(0xFF2A2A32).toArgb())
@@ -428,7 +277,7 @@ private fun createDarkColorScheme(): EditorColorScheme {
 
         // Block line
         setColor(EditorColorScheme.BLOCK_LINE, Color(0xFF3A3A42).toArgb())
-        setColor(EditorColorScheme.BLOCK_LINE_CURRENT, Color(0xFF5B5BD6).toArgb())
+        setColor(EditorColorScheme.BLOCK_LINE_CURRENT, accent)
 
         // Matched bracket
         setColor(EditorColorScheme.MATCHED_TEXT_BACKGROUND, Color(0xFF4A4A62).toArgb())
@@ -438,33 +287,36 @@ private fun createDarkColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.SCROLL_BAR_THUMB_PRESSED, Color(0xFF6A6A72).toArgb())
         setColor(EditorColorScheme.SCROLL_BAR_TRACK, Color(0xFF1E1E24).toArgb())
 
-        // Syntax highlighting - keywords
-        setColor(EditorColorScheme.KEYWORD, SyntaxColors.Keyword.toArgb())
+        // Syntax highlighting - keywords (purple)
+        setColor(EditorColorScheme.KEYWORD, Color(0xFFC678DD).toArgb())
 
         // Operators
-        setColor(EditorColorScheme.OPERATOR, SyntaxColors.Operator.toArgb())
+        setColor(EditorColorScheme.OPERATOR, Color(0xFF56B6C2).toArgb())
 
-        // Comments
-        setColor(EditorColorScheme.COMMENT, SyntaxColors.Comment.toArgb())
+        // Comments (gray italic)
+        setColor(EditorColorScheme.COMMENT, Color(0xFF5C6370).toArgb())
 
-        // Strings
-        setColor(EditorColorScheme.LITERAL, SyntaxColors.String.toArgb())
+        // Strings (green)
+        setColor(EditorColorScheme.LITERAL, Color(0xFF98C379).toArgb())
 
-        // Functions
-        setColor(EditorColorScheme.FUNCTION_NAME, SyntaxColors.Function.toArgb())
+        // Functions (blue)
+        setColor(EditorColorScheme.FUNCTION_NAME, Color(0xFF61AFEF).toArgb())
 
         // Identifiers
         setColor(EditorColorScheme.IDENTIFIER_NAME, Color(0xFFE5E1E6).toArgb())
-        setColor(EditorColorScheme.IDENTIFIER_VAR, SyntaxColors.Variable.toArgb())
+        setColor(EditorColorScheme.IDENTIFIER_VAR, Color(0xFFE5C07B).toArgb())
 
-        // HTML/XML tags
-        setColor(EditorColorScheme.HTML_TAG, SyntaxColors.Tag.toArgb())
-        setColor(EditorColorScheme.ATTRIBUTE_NAME, SyntaxColors.Attribute.toArgb())
-        setColor(EditorColorScheme.ATTRIBUTE_VALUE, SyntaxColors.String.toArgb())
+        // HTML/XML tags (red)
+        setColor(EditorColorScheme.HTML_TAG, Color(0xFFE06C75).toArgb())
+        setColor(EditorColorScheme.ATTRIBUTE_NAME, Color(0xFFD19A66).toArgb())
+        setColor(EditorColorScheme.ATTRIBUTE_VALUE, Color(0xFF98C379).toArgb())
 
         // Completion window
         setColor(EditorColorScheme.COMPLETION_WND_BACKGROUND, Color(0xFF272730).toArgb())
         setColor(EditorColorScheme.COMPLETION_WND_CORNER, Color(0xFF272730).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_TEXT_PRIMARY, Color(0xFFE5E1E6).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_TEXT_SECONDARY, Color(0xFF9A9AA2).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_ITEM_CURRENT, Color(0xFF3A3A52).toArgb())
 
         // Non-printable characters
         setColor(EditorColorScheme.NON_PRINTABLE_CHAR, Color(0xFF4A4A52).toArgb())
@@ -485,13 +337,23 @@ private fun createDarkColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.PROBLEM_ERROR, Color(0xFFFF6B6B).toArgb())
         setColor(EditorColorScheme.PROBLEM_WARNING, Color(0xFFFFB74D).toArgb())
         setColor(EditorColorScheme.PROBLEM_TYPO, Color(0xFF64B5F6).toArgb())
+
+        // Snippet-related
+        setColor(EditorColorScheme.SNIPPET_BACKGROUND_EDITING, Color(0xFF3A3A52).toArgb())
+        setColor(EditorColorScheme.SNIPPET_BACKGROUND_RELATED, Color(0xFF2A2A32).toArgb())
+        setColor(EditorColorScheme.SNIPPET_BACKGROUND_INACTIVE, Color(0xFF232328).toArgb())
+
+        // Hard wrap marker
+        setColor(EditorColorScheme.HARD_WRAP_MARKER, Color(0xFF3A3A42).toArgb())
     }
 }
 
 /**
  * Create light color scheme for the editor
  */
-private fun createLightColorScheme(): EditorColorScheme {
+private fun createLightColorScheme(extension: String): EditorColorScheme {
+    val accent = getLanguageAccent(extension, false)
+
     return EditorColorScheme().apply {
         // Editor background and foreground
         setColor(EditorColorScheme.WHOLE_BACKGROUND, Color(0xFFFAFAFA).toArgb())
@@ -499,8 +361,10 @@ private fun createLightColorScheme(): EditorColorScheme {
 
         // Line numbers
         setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, Color(0xFFFAFAFA).toArgb())
-        setColor(EditorColorScheme.LINE_NUMBER, Color(0xFFB0B0B0).toArgb())
-        setColor(EditorColorScheme.LINE_NUMBER_CURRENT, Color(0xFF666666).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER, Color(0xFFB0B0B8).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER_CURRENT, Color(0xFF666670).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER_PANEL, Color(0xFFFAFAFA).toArgb())
+        setColor(EditorColorScheme.LINE_NUMBER_PANEL_TEXT, Color(0xFF808088).toArgb())
 
         // Current line highlight
         setColor(EditorColorScheme.CURRENT_LINE, Color(0xFFF0F0F4).toArgb())
@@ -514,7 +378,7 @@ private fun createLightColorScheme(): EditorColorScheme {
 
         // Block line
         setColor(EditorColorScheme.BLOCK_LINE, Color(0xFFE0E0E8).toArgb())
-        setColor(EditorColorScheme.BLOCK_LINE_CURRENT, Color(0xFF5B5BD6).toArgb())
+        setColor(EditorColorScheme.BLOCK_LINE_CURRENT, accent)
 
         // Matched bracket
         setColor(EditorColorScheme.MATCHED_TEXT_BACKGROUND, Color(0xFFD0D4E4).toArgb())
@@ -524,26 +388,26 @@ private fun createLightColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.SCROLL_BAR_THUMB_PRESSED, Color(0xFF909098).toArgb())
         setColor(EditorColorScheme.SCROLL_BAR_TRACK, Color(0xFFFAFAFA).toArgb())
 
-        // Syntax highlighting - keywords
+        // Syntax highlighting - keywords (purple)
         setColor(EditorColorScheme.KEYWORD, Color(0xFFAF00DB).toArgb())
 
         // Operators
         setColor(EditorColorScheme.OPERATOR, Color(0xFF0000FF).toArgb())
 
-        // Comments
+        // Comments (green italic)
         setColor(EditorColorScheme.COMMENT, Color(0xFF008000).toArgb())
 
-        // Strings
+        // Strings (red)
         setColor(EditorColorScheme.LITERAL, Color(0xFFA31515).toArgb())
 
-        // Functions
+        // Functions (brown)
         setColor(EditorColorScheme.FUNCTION_NAME, Color(0xFF795E26).toArgb())
 
         // Identifiers
         setColor(EditorColorScheme.IDENTIFIER_NAME, Color(0xFF1B1B1F).toArgb())
         setColor(EditorColorScheme.IDENTIFIER_VAR, Color(0xFF001080).toArgb())
 
-        // HTML/XML tags
+        // HTML/XML tags (maroon)
         setColor(EditorColorScheme.HTML_TAG, Color(0xFF800000).toArgb())
         setColor(EditorColorScheme.ATTRIBUTE_NAME, Color(0xFFFF0000).toArgb())
         setColor(EditorColorScheme.ATTRIBUTE_VALUE, Color(0xFF0000FF).toArgb())
@@ -551,6 +415,9 @@ private fun createLightColorScheme(): EditorColorScheme {
         // Completion window
         setColor(EditorColorScheme.COMPLETION_WND_BACKGROUND, Color(0xFFFFFFFF).toArgb())
         setColor(EditorColorScheme.COMPLETION_WND_CORNER, Color(0xFFE0E0E0).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_TEXT_PRIMARY, Color(0xFF1B1B1F).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_TEXT_SECONDARY, Color(0xFF808088).toArgb())
+        setColor(EditorColorScheme.COMPLETION_WND_ITEM_CURRENT, Color(0xFFE8E8F0).toArgb())
 
         // Non-printable characters
         setColor(EditorColorScheme.NON_PRINTABLE_CHAR, Color(0xFFD0D0D0).toArgb())
@@ -571,125 +438,13 @@ private fun createLightColorScheme(): EditorColorScheme {
         setColor(EditorColorScheme.PROBLEM_ERROR, Color(0xFFE51400).toArgb())
         setColor(EditorColorScheme.PROBLEM_WARNING, Color(0xFFBF8803).toArgb())
         setColor(EditorColorScheme.PROBLEM_TYPO, Color(0xFF1976D2).toArgb())
+
+        // Snippet-related
+        setColor(EditorColorScheme.SNIPPET_BACKGROUND_EDITING, Color(0xFFE8E8F0).toArgb())
+        setColor(EditorColorScheme.SNIPPET_BACKGROUND_RELATED, Color(0xFFF0F0F4).toArgb())
+        setColor(EditorColorScheme.SNIPPET_BACKGROUND_INACTIVE, Color(0xFFF8F8FC).toArgb())
+
+        // Hard wrap marker
+        setColor(EditorColorScheme.HARD_WRAP_MARKER, Color(0xFFE0E0E8).toArgb())
     }
 }
-
-/**
- * Create dark theme model for TextMate
- */
-private fun createDarkEditorTheme(): ThemeModel {
-    val darkThemeJson = """
-    {
-        "name": "$DARK_THEME_NAME",
-        "type": "dark",
-        "colors": {
-            "editor.background": "#1E1E24",
-            "editor.foreground": "#E5E1E6",
-            "editor.lineHighlightBackground": "#2A2A32",
-            "editorLineNumber.foreground": "#4A4A52",
-            "editorLineNumber.activeForeground": "#8B8B8B",
-            "editor.selectionBackground": "#3A3A52",
-            "editorCursor.foreground": "#BFC1FF"
-        },
-        "tokenColors": [
-            { "scope": "comment", "settings": { "foreground": "#5C6370", "fontStyle": "italic" } },
-            { "scope": "keyword", "settings": { "foreground": "#C678DD" } },
-            { "scope": "keyword.control", "settings": { "foreground": "#C678DD" } },
-            { "scope": "storage", "settings": { "foreground": "#C678DD" } },
-            { "scope": "storage.type", "settings": { "foreground": "#C678DD" } },
-            { "scope": "string", "settings": { "foreground": "#98C379" } },
-            { "scope": "string.quoted", "settings": { "foreground": "#98C379" } },
-            { "scope": "constant.numeric", "settings": { "foreground": "#D19A66" } },
-            { "scope": "constant.language", "settings": { "foreground": "#D19A66" } },
-            { "scope": "constant.character", "settings": { "foreground": "#D19A66" } },
-            { "scope": "variable", "settings": { "foreground": "#E5C07B" } },
-            { "scope": "variable.parameter", "settings": { "foreground": "#E06C75" } },
-            { "scope": "entity.name.function", "settings": { "foreground": "#61AFEF" } },
-            { "scope": "entity.name.type", "settings": { "foreground": "#E5C07B" } },
-            { "scope": "entity.name.class", "settings": { "foreground": "#E5C07B" } },
-            { "scope": "entity.name.tag", "settings": { "foreground": "#E06C75" } },
-            { "scope": "entity.other.attribute-name", "settings": { "foreground": "#D19A66" } },
-            { "scope": "punctuation", "settings": { "foreground": "#ABB2BF" } },
-            { "scope": "punctuation.definition", "settings": { "foreground": "#ABB2BF" } },
-            { "scope": "support.function", "settings": { "foreground": "#61AFEF" } },
-            { "scope": "support.class", "settings": { "foreground": "#E5C07B" } },
-            { "scope": "support.type", "settings": { "foreground": "#56B6C2" } },
-            { "scope": "meta.tag", "settings": { "foreground": "#E06C75" } },
-            { "scope": "meta.selector", "settings": { "foreground": "#C678DD" } },
-            { "scope": "meta.property-name", "settings": { "foreground": "#61AFEF" } },
-            { "scope": "meta.property-value", "settings": { "foreground": "#98C379" } }
-        ]
-    }
-    """.trimIndent()
-
-    return ThemeModel(
-        IThemeSource.fromInputStream(
-            darkThemeJson.byteInputStream(),
-            "codex-dark.json",
-            null
-        ),
-        DARK_THEME_NAME
-    )
-}
-
-/**
- * Create light theme model for TextMate
- */
-private fun createLightEditorTheme(): ThemeModel {
-    val lightThemeJson = """
-    {
-        "name": "$LIGHT_THEME_NAME",
-        "type": "light",
-        "colors": {
-            "editor.background": "#FAFAFA",
-            "editor.foreground": "#1B1B1F",
-            "editor.lineHighlightBackground": "#F0F0F4",
-            "editorLineNumber.foreground": "#B0B0B0",
-            "editorLineNumber.activeForeground": "#666666",
-            "editor.selectionBackground": "#E0E4F4",
-            "editorCursor.foreground": "#5B5BD6"
-        },
-        "tokenColors": [
-            { "scope": "comment", "settings": { "foreground": "#008000", "fontStyle": "italic" } },
-            { "scope": "keyword", "settings": { "foreground": "#AF00DB" } },
-            { "scope": "keyword.control", "settings": { "foreground": "#AF00DB" } },
-            { "scope": "storage", "settings": { "foreground": "#AF00DB" } },
-            { "scope": "storage.type", "settings": { "foreground": "#0000FF" } },
-            { "scope": "string", "settings": { "foreground": "#A31515" } },
-            { "scope": "string.quoted", "settings": { "foreground": "#A31515" } },
-            { "scope": "constant.numeric", "settings": { "foreground": "#098658" } },
-            { "scope": "constant.language", "settings": { "foreground": "#0000FF" } },
-            { "scope": "constant.character", "settings": { "foreground": "#098658" } },
-            { "scope": "variable", "settings": { "foreground": "#001080" } },
-            { "scope": "variable.parameter", "settings": { "foreground": "#001080" } },
-            { "scope": "entity.name.function", "settings": { "foreground": "#795E26" } },
-            { "scope": "entity.name.type", "settings": { "foreground": "#267F99" } },
-            { "scope": "entity.name.class", "settings": { "foreground": "#267F99" } },
-            { "scope": "entity.name.tag", "settings": { "foreground": "#800000" } },
-            { "scope": "entity.other.attribute-name", "settings": { "foreground": "#FF0000" } },
-            { "scope": "punctuation", "settings": { "foreground": "#1B1B1F" } },
-            { "scope": "punctuation.definition", "settings": { "foreground": "#1B1B1F" } },
-            { "scope": "support.function", "settings": { "foreground": "#795E26" } },
-            { "scope": "support.class", "settings": { "foreground": "#267F99" } },
-            { "scope": "support.type", "settings": { "foreground": "#267F99" } },
-            { "scope": "meta.tag", "settings": { "foreground": "#800000" } },
-            { "scope": "meta.selector", "settings": { "foreground": "#800000" } },
-            { "scope": "meta.property-name", "settings": { "foreground": "#FF0000" } },
-            { "scope": "meta.property-value", "settings": { "foreground": "#0451A5" } }
-        ]
-    }
-    """.trimIndent()
-
-    return ThemeModel(
-        IThemeSource.fromInputStream(
-            lightThemeJson.byteInputStream(),
-            "codex-light.json",
-            null
-        ),
-        LIGHT_THEME_NAME
-    )
-}
-
-// Theme names
-private const val DARK_THEME_NAME = "codex-dark"
-private const val LIGHT_THEME_NAME = "codex-light"

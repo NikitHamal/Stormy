@@ -289,12 +289,9 @@ class EditorViewModel(
     private suspend fun loadFileTree() {
         val tree = projectRepository.getFileTree(projectId)
         _fileTree.value = tree
-
-        if (_currentFile.value == null && tree.isNotEmpty()) {
-            findFirstFile(tree)?.let { file ->
-                openFile(file.path)
-            }
-        }
+        _isLoading.value = false
+        // Don't auto-open first file - let user choose from file tree
+        // Chat tab is the default and should remain visible
     }
 
     private fun findFirstFile(nodes: List<FileTreeNode>): FileTreeNode.FileNode? {
@@ -311,6 +308,16 @@ class EditorViewModel(
 
     fun selectTab(tab: EditorTab) {
         _selectedTab.value = tab
+    }
+
+    /**
+     * Public method to refresh the file tree
+     * Called when external changes are made (e.g., asset manager adds/deletes files)
+     */
+    fun refreshFileTree() {
+        viewModelScope.launch {
+            loadFileTree()
+        }
     }
 
     fun toggleFolder(folderPath: String) {
@@ -352,6 +359,7 @@ class EditorViewModel(
                         _fileContent.value = content
                         _originalFileContent.value = content
                         _currentFile.value = fileNode
+                        // Switch to CODE tab when user explicitly opens a file from file tree
                         _selectedTab.value = EditorTab.CODE
                     }
                 }
