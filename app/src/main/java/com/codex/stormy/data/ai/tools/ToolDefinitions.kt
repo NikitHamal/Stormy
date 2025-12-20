@@ -449,6 +449,165 @@ object StormyTools {
         )
     )
 
+    // ==================== Git Tools ====================
+
+    val GIT_STATUS = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_status",
+            description = "Get the current Git repository status including branch name, changed files, staged files, and sync status with remote.",
+            parameters = createParametersJson(
+                properties = emptyMap(),
+                required = emptyList()
+            )
+        )
+    )
+
+    val GIT_STAGE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_stage",
+            description = "Stage files for commit. Use 'all' to stage all changes or provide specific file paths.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "paths" to Pair("string", "Comma-separated list of file paths to stage, or 'all' to stage everything")
+                ),
+                required = listOf("paths")
+            )
+        )
+    )
+
+    val GIT_UNSTAGE = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_unstage",
+            description = "Unstage files that were previously staged for commit.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "paths" to Pair("string", "Comma-separated list of file paths to unstage")
+                ),
+                required = listOf("paths")
+            )
+        )
+    )
+
+    val GIT_COMMIT = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_commit",
+            description = "Create a Git commit with the staged changes.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "message" to Pair("string", "The commit message describing the changes")
+                ),
+                required = listOf("message")
+            )
+        )
+    )
+
+    val GIT_PUSH = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_push",
+            description = "Push local commits to the remote repository.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "remote" to Pair("string", "The remote name (default: origin)"),
+                    "set_upstream" to Pair("boolean", "Set upstream tracking for the current branch")
+                ),
+                required = emptyList()
+            )
+        )
+    )
+
+    val GIT_PULL = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_pull",
+            description = "Pull changes from the remote repository.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "remote" to Pair("string", "The remote name (default: origin)"),
+                    "rebase" to Pair("boolean", "Use rebase instead of merge")
+                ),
+                required = emptyList()
+            )
+        )
+    )
+
+    val GIT_BRANCH = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_branch",
+            description = "List branches or create a new branch.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "action" to Pair("string", "Action to perform: 'list', 'create', or 'delete'"),
+                    "name" to Pair("string", "Branch name (required for create/delete)"),
+                    "checkout" to Pair("boolean", "Checkout the branch after creating it")
+                ),
+                required = listOf("action")
+            )
+        )
+    )
+
+    val GIT_CHECKOUT = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_checkout",
+            description = "Switch to a different branch.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "branch" to Pair("string", "The name of the branch to checkout")
+                ),
+                required = listOf("branch")
+            )
+        )
+    )
+
+    val GIT_LOG = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_log",
+            description = "View recent commit history.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "count" to Pair("integer", "Number of commits to show (default: 10)")
+                ),
+                required = emptyList()
+            )
+        )
+    )
+
+    val GIT_DIFF = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_diff",
+            description = "View changes in a file or all changed files.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "path" to Pair("string", "Optional file path to get diff for. Leave empty for all changes."),
+                    "staged" to Pair("boolean", "Show staged changes instead of unstaged")
+                ),
+                required = emptyList()
+            )
+        )
+    )
+
+    val GIT_DISCARD = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "git_discard",
+            description = "Discard local changes to files. Use with caution as this cannot be undone.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "paths" to Pair("string", "Comma-separated list of file paths to discard changes for")
+                ),
+                required = listOf("paths")
+            )
+        )
+    )
+
     /**
      * Get all tools for agent mode
      */
@@ -473,7 +632,19 @@ object StormyTools {
         UPDATE_TODO,
         LIST_TODOS,
         ASK_USER,
-        FINISH_TASK
+        FINISH_TASK,
+        // Git tools
+        GIT_STATUS,
+        GIT_STAGE,
+        GIT_UNSTAGE,
+        GIT_COMMIT,
+        GIT_PUSH,
+        GIT_PULL,
+        GIT_BRANCH,
+        GIT_CHECKOUT,
+        GIT_LOG,
+        GIT_DIFF,
+        GIT_DISCARD
     )
 
     /**
