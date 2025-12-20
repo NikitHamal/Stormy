@@ -592,7 +592,3 @@ data class AgentSelectedElement(
     val outerHTML: String
 )
 
-/**
- * Re-export ImageChangeRequest from ElementInspector for convenience
- */
-typealias ImageChangeRequest = com.codex.stormy.ui.components.inspector.ImageChangeRequest

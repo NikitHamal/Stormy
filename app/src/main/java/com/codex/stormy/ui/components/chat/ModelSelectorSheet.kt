@@ -299,6 +299,8 @@ private fun getProviderInitial(provider: AiProvider): String {
         AiProvider.DEEPINFRA -> "D"
         AiProvider.OPENROUTER -> "O"
         AiProvider.GEMINI -> "G"
+        AiProvider.OPENAI -> "O"
+        AiProvider.ANTHROPIC -> "A"
     }
 }
 
@@ -311,5 +313,7 @@ private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics
         AiProvider.DEEPINFRA -> MaterialTheme.colorScheme.primary
         AiProvider.OPENROUTER -> MaterialTheme.colorScheme.tertiary
         AiProvider.GEMINI -> MaterialTheme.colorScheme.secondary
+        AiProvider.OPENAI -> MaterialTheme.colorScheme.primary
+        AiProvider.ANTHROPIC -> MaterialTheme.colorScheme.tertiary
     }
 }
