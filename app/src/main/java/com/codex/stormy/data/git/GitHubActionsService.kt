@@ -198,7 +198,7 @@ class GitHubActionsService(
         try {
             val request = Request.Builder()
                 .url("$GITHUB_API_BASE/repos/$owner/$repo/actions/runs/$runId/rerun")
-                .post(okhttp3.RequestBody.create(null, ByteArray(0)))
+                .post(ByteArray(0).toRequestBody(null))
                 .addHeader("Accept", "application/vnd.github+json")
                 .addHeader("X-GitHub-Api-Version", "2022-11-28")
                 .apply {
@@ -233,7 +233,7 @@ class GitHubActionsService(
         try {
             val request = Request.Builder()
                 .url("$GITHUB_API_BASE/repos/$owner/$repo/actions/runs/$runId/cancel")
-                .post(okhttp3.RequestBody.create(null, ByteArray(0)))
+                .post(ByteArray(0).toRequestBody(null))
                 .addHeader("Accept", "application/vnd.github+json")
                 .addHeader("X-GitHub-Api-Version", "2022-11-28")
                 .apply {

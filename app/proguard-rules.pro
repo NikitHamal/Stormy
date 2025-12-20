@@ -37,3 +37,10 @@
 
 # Keep crash handler
 -keep class com.codex.stormy.crash.** { *; }
+
+# JGit - Ignore missing JVM-specific classes that don't exist on Android
+-dontwarn java.lang.ProcessHandle
+-dontwarn java.lang.management.ManagementFactory
+-dontwarn javax.management.**
+-dontwarn org.ietf.jgss.**
+-dontwarn org.slf4j.impl.StaticLoggerBinder

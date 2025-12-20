@@ -42,9 +42,9 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.automirrored.outlined.WrapText
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material.icons.outlined.WrapText
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -172,7 +172,7 @@ fun SettingsScreen(
 
                 // Word Wrap
                 SettingsToggle(
-                    icon = Icons.Outlined.WrapText,
+                    icon = Icons.AutoMirrored.Outlined.WrapText,
                     title = "Word Wrap",
                     description = "Wrap long lines",
                     checked = uiState.wordWrap,
