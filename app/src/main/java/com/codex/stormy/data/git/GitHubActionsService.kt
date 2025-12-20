@@ -5,6 +5,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -278,10 +280,7 @@ class GitHubActionsService(
 
             val request = Request.Builder()
                 .url("$GITHUB_API_BASE/repos/$owner/$repo/actions/workflows/$workflowId/dispatches")
-                .post(okhttp3.RequestBody.create(
-                    okhttp3.MediaType.parse("application/json"),
-                    bodyJson
-                ))
+                .post(bodyJson.toRequestBody("application/json".toMediaType()))
                 .addHeader("Accept", "application/vnd.github+json")
                 .addHeader("X-GitHub-Api-Version", "2022-11-28")
                 .apply {
