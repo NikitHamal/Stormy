@@ -115,14 +115,17 @@ fun EditorScreen(
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                uiState.project?.let { project ->
-                    GitDrawer(
-                        projectPath = project.rootPath,
-                        onClose = { scope.launch { gitDrawerState.close() } }
-                    )
+                if (gitDrawerState.isOpen) {
+                    uiState.project?.let { project ->
+                        GitDrawer(
+                            projectPath = project.rootPath,
+                            onClose = { scope.launch { gitDrawerState.close() } }
+                        )
+                    }
                 }
             },
-            gesturesEnabled = false
+            gesturesEnabled = false,
+            scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)
         ) {
             // Asset Manager drawer (inner drawer - no gestures to avoid conflicts)
             ModalNavigationDrawer(

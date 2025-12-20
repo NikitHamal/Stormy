@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Source
 import androidx.compose.material.icons.automirrored.outlined.WrapText
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -90,6 +91,7 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     onNavigateToAiModels: () -> Unit = {},
     onNavigateToMemories: () -> Unit = {},
+    onNavigateToGitSettings: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -219,6 +221,16 @@ fun SettingsScreen(
                     onDeepInfraKeyChange = viewModel::setDeepInfraApiKey,
                     onOpenRouterKeyChange = viewModel::setOpenRouterApiKey,
                     onGeminiKeyChange = viewModel::setGeminiApiKey
+                )
+            }
+
+            // Git Section
+            SettingsSection(title = "Git") {
+                SettingsNavItem(
+                    icon = Icons.Outlined.Source,
+                    title = "Git Settings",
+                    subtitle = "Identity, credentials & preferences",
+                    onClick = onNavigateToGitSettings
                 )
             }
 

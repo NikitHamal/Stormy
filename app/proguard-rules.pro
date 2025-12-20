@@ -44,3 +44,18 @@
 -dontwarn javax.management.**
 -dontwarn org.ietf.jgss.**
 -dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# Keep ViewModel classes and their constructors (prevents NoSuchMethodException crashes)
+-keep class * extends androidx.lifecycle.ViewModel {
+    <init>(...);
+}
+-keep class com.codex.stormy.ui.screens.**.ViewModel* { *; }
+-keep class com.codex.stormy.ui.screens.**.*ViewModel { *; }
+-keep class com.codex.stormy.ui.screens.**.*ViewModel$* { *; }
+
+# Keep ViewModelProvider.Factory implementations
+-keep class * implements androidx.lifecycle.ViewModelProvider$Factory { *; }
+
+# Keep Git-related classes that may be instantiated via Factory pattern
+-keep class com.codex.stormy.ui.screens.git.** { *; }
+-keep class com.codex.stormy.data.git.** { *; }
