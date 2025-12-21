@@ -167,10 +167,10 @@ class SimpleAnalyzeManagerImpl(private val config: LanguageConfig) : AnalyzeMana
             val lineContent = content.getLine(line)
             val spans = analyzeLine(lineContent.toString(), line)
             for (span in spans) {
-                spansBuilder.addSpan(span)
+                spansBuilder.add(line, span)
             }
-            spansBuilder.addLine()
         }
+        spansBuilder.determine(lineCount)
 
         styles.spans = spansBuilder.build()
         return styles
