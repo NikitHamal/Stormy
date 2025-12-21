@@ -50,17 +50,6 @@ fun CloneRepositoryDialog(
     var shallow by remember { mutableStateOf(true) }
     var urlError by remember { mutableStateOf<String?>(null) }
 
-    // Auto-detect project name from URL or username/repo format
-    fun extractProjectName(gitUrl: String): String {
-        val normalized = normalizeGitUrl(gitUrl)
-        return normalized
-            .removeSuffix("/")
-            .removeSuffix(".git")
-            .substringAfterLast("/")
-            .substringAfterLast(":")
-            .ifBlank { "" }
-    }
-
     // Convert username/repo format to full GitHub URL
     fun normalizeGitUrl(input: String): String {
         val trimmed = input.trim()
@@ -78,6 +67,17 @@ fun CloneRepositoryDialog(
             }
         }
         return trimmed
+    }
+
+    // Auto-detect project name from URL or username/repo format
+    fun extractProjectName(gitUrl: String): String {
+        val normalized = normalizeGitUrl(gitUrl)
+        return normalized
+            .removeSuffix("/")
+            .removeSuffix(".git")
+            .substringAfterLast("/")
+            .substringAfterLast(":")
+            .ifBlank { "" }
     }
 
     // Check if input is a valid git URL or username/repo format

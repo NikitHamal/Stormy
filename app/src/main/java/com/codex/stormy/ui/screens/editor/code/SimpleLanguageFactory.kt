@@ -11,6 +11,7 @@ import io.github.rosemoe.sora.lang.completion.CompletionPublisher
 import io.github.rosemoe.sora.lang.format.Formatter
 import io.github.rosemoe.sora.lang.smartEnter.NewlineHandler
 import io.github.rosemoe.sora.lang.styling.CodeBlock
+import io.github.rosemoe.sora.lang.styling.MappedSpans
 import io.github.rosemoe.sora.lang.styling.Span
 import io.github.rosemoe.sora.lang.styling.Styles
 import io.github.rosemoe.sora.lang.styling.TextStyle
@@ -77,9 +78,9 @@ class SimpleLanguage(private val config: LanguageConfig) : Language {
         content: ContentReference,
         position: CharPosition,
         publisher: CompletionPublisher,
-        extraArguments: io.github.rosemoe.sora.lang.completion.IdentifierAutoComplete.SyncIdentifiers?
+        extraArguments: Bundle
     ) {
-        // Basic auto-completion could be added here
+        // No auto-completion for simple language
     }
 
     override fun getIndentAdvance(content: ContentReference, line: Int, column: Int): Int {
@@ -95,8 +96,8 @@ class SimpleLanguage(private val config: LanguageConfig) : Language {
     override fun useTab(): Boolean = false
 
     override fun getFormatter(): Formatter = object : Formatter {
-        override fun format(text: Content, cursorRange: io.github.rosemoe.sora.text.TextRange) = cursorRange
-        override fun formatRegion(text: Content, rangeToFormat: io.github.rosemoe.sora.text.TextRange, cursorRange: io.github.rosemoe.sora.text.TextRange) = cursorRange
+        override fun format(text: Content, cursorRange: io.github.rosemoe.sora.text.TextRange) {}
+        override fun formatRegion(text: Content, rangeToFormat: io.github.rosemoe.sora.text.TextRange, cursorRange: io.github.rosemoe.sora.text.TextRange) {}
         override fun setReceiver(receiver: Formatter.FormatResultReceiver?) {}
         override fun isRunning(): Boolean = false
         override fun destroy() {}
@@ -159,14 +160,19 @@ class SimpleAnalyzeManagerImpl(private val config: LanguageConfig) : AnalyzeMana
 
     private fun analyze(content: ContentReference): Styles {
         val styles = Styles()
+        val spansBuilder = MappedSpans.Builder()
         val lineCount = content.lineCount
 
         for (line in 0 until lineCount) {
             val lineContent = content.getLine(line)
             val spans = analyzeLine(lineContent.toString(), line)
-            styles.addLineAt(line, spans)
+            for (span in spans) {
+                spansBuilder.add(line, span)
+            }
         }
+        spansBuilder.determine(lineCount)
 
+        styles.spans = spansBuilder.build()
         return styles
     }
 
@@ -189,18 +195,18 @@ class SimpleAnalyzeManagerImpl(private val config: LanguageConfig) : AnalyzeMana
             }
 
             // Check for block comment start
-            config.blockCommentStart?.let { commentStart ->
-                if (line.startsWith(commentStart, i)) {
-                    if (i > 0 && spans.isEmpty()) {
-                        spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                    }
-                    spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.COMMENT)))
-                    // Find end of block comment
-                    val endIdx = config.blockCommentEnd?.let { line.indexOf(it, i + commentStart.length) } ?: -1
-                    if (endIdx != -1) {
-                        i = endIdx + (config.blockCommentEnd?.length ?: 0)
-                        continue
-                    }
+            val blockCommentStart = config.blockCommentStart
+            if (blockCommentStart != null && line.startsWith(blockCommentStart, i)) {
+                if (i > 0 && spans.isEmpty()) {
+                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
+                }
+                spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.COMMENT)))
+                // Find end of block comment
+                val blockCommentEnd = config.blockCommentEnd
+                val endIdx = if (blockCommentEnd != null) line.indexOf(blockCommentEnd, i + blockCommentStart.length) else -1
+                if (endIdx != -1) {
+                    i = endIdx + (blockCommentEnd?.length ?: 0)
+                } else {
                     return spans
                 }
             }
