@@ -154,6 +154,17 @@ data class InspectorRect(
 /**
  * Production-grade visual element inspector/editor
  * Inspired by Chrome DevTools and Figma
+ *
+ * @param element The inspected element data
+ * @param onClose Callback when the inspector is closed
+ * @param onStyleChange Callback for style changes (direct or AI-assisted)
+ * @param onTextChange Callback for text content changes
+ * @param onAiEditRequest Callback for freeform AI edit requests (optional - hide AI features if null)
+ * @param onImageChange Callback for image source changes
+ * @param onPickImage Callback to open image picker
+ * @param enableAiFeatures Whether to show AI editing features (default: true)
+ * @param hasValidModel Whether a valid AI model is available (shows prompt to select model if false)
+ * @param modifier Modifier for the composable
  */
 @Composable
 fun VisualElementInspector(
@@ -161,9 +172,11 @@ fun VisualElementInspector(
     onClose: () -> Unit,
     onStyleChange: (StyleChangeRequest) -> Unit,
     onTextChange: (TextChangeRequest) -> Unit,
-    onAiEditRequest: (String) -> Unit,
+    onAiEditRequest: ((String) -> Unit)? = null,
     onImageChange: ((ImageChangeRequest) -> Unit)? = null,
     onPickImage: (() -> Unit)? = null,
+    enableAiFeatures: Boolean = true,
+    hasValidModel: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -223,9 +236,10 @@ fun VisualElementInspector(
                 onCopyHtml = {
                     clipboardManager.setText(AnnotatedString(element.outerHTML))
                 },
-                onAiEdit = { prompt ->
-                    onAiEditRequest(prompt)
-                }
+                onAiEdit = if (enableAiFeatures && onAiEditRequest != null) {
+                    { prompt -> onAiEditRequest(prompt) }
+                } else null,
+                hasValidModel = hasValidModel
             )
 
             // Tabs
@@ -299,13 +313,16 @@ fun VisualElementInspector(
 
 /**
  * Inspector header with element selector and quick actions
+ * @param onAiEdit Callback for AI edit - if null, AI button is hidden (for manual edit mode)
+ * @param hasValidModel Whether a valid AI model is selected - shows warning if false
  */
 @Composable
 private fun InspectorHeader(
     element: InspectorElementData,
     onClose: () -> Unit,
     onCopyHtml: () -> Unit,
-    onAiEdit: (String) -> Unit
+    onAiEdit: ((String) -> Unit)?,
+    hasValidModel: Boolean = true
 ) {
     var showAiPrompt by remember { mutableStateOf(false) }
     var aiPromptText by remember { mutableStateOf("") }
@@ -372,18 +389,20 @@ private fun InspectorHeader(
 
             // Quick actions
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                // AI Edit button
-                IconButton(
-                    onClick = { showAiPrompt = !showAiPrompt },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AutoAwesome,
-                        contentDescription = "AI Edit",
-                        modifier = Modifier.size(18.dp),
-                        tint = if (showAiPrompt) MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                // AI Edit button - only show if AI features are enabled
+                if (onAiEdit != null) {
+                    IconButton(
+                        onClick = { showAiPrompt = !showAiPrompt },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoAwesome,
+                            contentDescription = "AI Edit",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (showAiPrompt) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 // Copy HTML
@@ -414,24 +433,64 @@ private fun InspectorHeader(
             }
         }
 
-        // AI Prompt input
-        AnimatedVisibility(
-            visible = showAiPrompt,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            AiPromptInput(
-                value = aiPromptText,
-                onValueChange = { aiPromptText = it },
-                onSubmit = {
-                    if (aiPromptText.isNotBlank()) {
-                        onAiEdit(aiPromptText)
-                        aiPromptText = ""
-                        showAiPrompt = false
+        // AI Prompt input - only show if AI features are enabled
+        if (onAiEdit != null) {
+            AnimatedVisibility(
+                visible = showAiPrompt,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                if (!hasValidModel) {
+                    // Show warning to select a model
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "No AI Model Selected",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontFamily = PoppinsFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    text = "Please select a model in AI Models settings to use AI editing",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
                     }
-                },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-            )
+                } else {
+                    AiPromptInput(
+                        value = aiPromptText,
+                        onValueChange = { aiPromptText = it },
+                        onSubmit = {
+                            if (aiPromptText.isNotBlank()) {
+                                onAiEdit(aiPromptText)
+                                aiPromptText = ""
+                                showAiPrompt = false
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -621,6 +680,61 @@ private fun DesignTab(
                     ))
                 }
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Border color
+            ColorPropertyEditor(
+                label = "Border Color",
+                value = styles["border-color"] ?: "transparent",
+                onValueChange = { newValue ->
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "border-color",
+                        oldValue = styles["border-color"],
+                        newValue = newValue,
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Border style options
+            val borderStyleOptions = listOf("none", "solid", "dashed", "dotted")
+            val currentBorderStyle = styles["border-style"] ?: "none"
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "Border Style",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    borderStyleOptions.forEach { option ->
+                        OptionChip(
+                            label = option,
+                            isSelected = currentBorderStyle == option,
+                            onClick = {
+                                onStyleChange(StyleChangeRequest(
+                                    selector = selector,
+                                    property = "border-style",
+                                    oldValue = currentBorderStyle,
+                                    newValue = option,
+                                    elementHtml = element.outerHTML
+                                ))
+                            }
+                        )
+                    }
+                }
+            }
         }
 
         // Effects section
@@ -644,7 +758,187 @@ private fun DesignTab(
                     ))
                 }
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Box shadow controls
+            Text(
+                text = "Box Shadow",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Shadow X offset
+            SliderPropertyEditor(
+                label = "Shadow X",
+                value = parseBoxShadowValue(styles["box-shadow"], 0),
+                range = -20f..20f,
+                unit = "px",
+                onValueChange = { newValue ->
+                    val shadowValues = parseBoxShadowValues(styles["box-shadow"])
+                    val newShadow = buildBoxShadow(
+                        x = newValue.toInt(),
+                        y = shadowValues.y,
+                        blur = shadowValues.blur,
+                        spread = shadowValues.spread,
+                        color = shadowValues.color
+                    )
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "box-shadow",
+                        oldValue = styles["box-shadow"],
+                        newValue = newShadow,
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Shadow Y offset
+            SliderPropertyEditor(
+                label = "Shadow Y",
+                value = parseBoxShadowValue(styles["box-shadow"], 1),
+                range = -20f..20f,
+                unit = "px",
+                onValueChange = { newValue ->
+                    val shadowValues = parseBoxShadowValues(styles["box-shadow"])
+                    val newShadow = buildBoxShadow(
+                        x = shadowValues.x,
+                        y = newValue.toInt(),
+                        blur = shadowValues.blur,
+                        spread = shadowValues.spread,
+                        color = shadowValues.color
+                    )
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "box-shadow",
+                        oldValue = styles["box-shadow"],
+                        newValue = newShadow,
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Shadow blur
+            SliderPropertyEditor(
+                label = "Shadow Blur",
+                value = parseBoxShadowValue(styles["box-shadow"], 2),
+                range = 0f..50f,
+                unit = "px",
+                onValueChange = { newValue ->
+                    val shadowValues = parseBoxShadowValues(styles["box-shadow"])
+                    val newShadow = buildBoxShadow(
+                        x = shadowValues.x,
+                        y = shadowValues.y,
+                        blur = newValue.toInt(),
+                        spread = shadowValues.spread,
+                        color = shadowValues.color
+                    )
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "box-shadow",
+                        oldValue = styles["box-shadow"],
+                        newValue = newShadow,
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Shadow spread
+            SliderPropertyEditor(
+                label = "Shadow Spread",
+                value = parseBoxShadowValue(styles["box-shadow"], 3),
+                range = -10f..20f,
+                unit = "px",
+                onValueChange = { newValue ->
+                    val shadowValues = parseBoxShadowValues(styles["box-shadow"])
+                    val newShadow = buildBoxShadow(
+                        x = shadowValues.x,
+                        y = shadowValues.y,
+                        blur = shadowValues.blur,
+                        spread = newValue.toInt(),
+                        color = shadowValues.color
+                    )
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "box-shadow",
+                        oldValue = styles["box-shadow"],
+                        newValue = newShadow,
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
         }
+    }
+}
+
+/**
+ * Data class for box shadow values
+ */
+private data class BoxShadowValues(
+    val x: Int = 0,
+    val y: Int = 0,
+    val blur: Int = 0,
+    val spread: Int = 0,
+    val color: String = "rgba(0,0,0,0.2)"
+)
+
+/**
+ * Parse box shadow CSS value to extract individual component
+ * @param index 0=x, 1=y, 2=blur, 3=spread
+ */
+private fun parseBoxShadowValue(boxShadow: String?, index: Int): Float {
+    if (boxShadow == null || boxShadow == "none" || boxShadow.isBlank()) return 0f
+    val values = parseBoxShadowValues(boxShadow)
+    return when (index) {
+        0 -> values.x.toFloat()
+        1 -> values.y.toFloat()
+        2 -> values.blur.toFloat()
+        3 -> values.spread.toFloat()
+        else -> 0f
+    }
+}
+
+/**
+ * Parse box shadow CSS value into component values
+ */
+private fun parseBoxShadowValues(boxShadow: String?): BoxShadowValues {
+    if (boxShadow == null || boxShadow == "none" || boxShadow.isBlank()) {
+        return BoxShadowValues()
+    }
+
+    // Extract numeric values (px values)
+    val pixelPattern = Regex("""(-?\d+)px""")
+    val matches = pixelPattern.findAll(boxShadow).toList()
+
+    // Extract color (rgba, rgb, or hex)
+    val colorPattern = Regex("""(rgba?\([^)]+\)|#[0-9a-fA-F]{3,8})""")
+    val colorMatch = colorPattern.find(boxShadow)?.value ?: "rgba(0,0,0,0.2)"
+
+    return BoxShadowValues(
+        x = matches.getOrNull(0)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+        y = matches.getOrNull(1)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+        blur = matches.getOrNull(2)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+        spread = matches.getOrNull(3)?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+        color = colorMatch
+    )
+}
+
+/**
+ * Build a box-shadow CSS value from components
+ */
+private fun buildBoxShadow(x: Int, y: Int, blur: Int, spread: Int, color: String): String {
+    return if (x == 0 && y == 0 && blur == 0 && spread == 0) {
+        "none"
+    } else {
+        "${x}px ${y}px ${blur}px ${spread}px $color"
     }
 }
 
@@ -1060,36 +1354,42 @@ private fun TextTab(
                 }
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Font weight
             val fontWeightOptions = listOf("normal", "500", "600", "bold")
             val currentWeight = styles["font-weight"] ?: "normal"
 
-            Text(
-                text = "Font Weight",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                fontWeightOptions.forEach { option ->
-                    OptionChip(
-                        label = option,
-                        isSelected = currentWeight == option ||
-                                    (option == "bold" && currentWeight == "700"),
-                        onClick = {
-                            onStyleChange(StyleChangeRequest(
-                                selector = selector,
-                                property = "font-weight",
-                                oldValue = currentWeight,
-                                newValue = option,
-                                elementHtml = element.outerHTML
-                            ))
-                        }
-                    )
+                Text(
+                    text = "Font Weight",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    fontWeightOptions.forEach { option ->
+                        OptionChip(
+                            label = option,
+                            isSelected = currentWeight == option ||
+                                        (option == "bold" && currentWeight == "700"),
+                            onClick = {
+                                onStyleChange(StyleChangeRequest(
+                                    selector = selector,
+                                    property = "font-weight",
+                                    oldValue = currentWeight,
+                                    newValue = option,
+                                    elementHtml = element.outerHTML
+                                ))
+                            }
+                        )
+                    }
                 }
             }
 
@@ -1099,33 +1399,85 @@ private fun TextTab(
             val alignOptions = listOf("left", "center", "right", "justify")
             val currentAlign = styles["text-align"] ?: "left"
 
-            Text(
-                text = "Alignment",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                alignOptions.forEach { option ->
-                    OptionChip(
-                        label = option,
-                        isSelected = currentAlign == option,
-                        onClick = {
-                            onStyleChange(StyleChangeRequest(
-                                selector = selector,
-                                property = "text-align",
-                                oldValue = currentAlign,
-                                newValue = option,
-                                elementHtml = element.outerHTML
-                            ))
-                        }
-                    )
+                Text(
+                    text = "Alignment",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    alignOptions.forEach { option ->
+                        OptionChip(
+                            label = option,
+                            isSelected = currentAlign == option,
+                            onClick = {
+                                onStyleChange(StyleChangeRequest(
+                                    selector = selector,
+                                    property = "text-align",
+                                    oldValue = currentAlign,
+                                    newValue = option,
+                                    elementHtml = element.outerHTML
+                                ))
+                            }
+                        )
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Line Height
+            SliderPropertyEditor(
+                label = "Line Height",
+                value = parseLineHeight(styles["line-height"]),
+                range = 1f..3f,
+                unit = "x",
+                onValueChange = { newValue ->
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "line-height",
+                        oldValue = styles["line-height"],
+                        newValue = String.format("%.1f", newValue),
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Letter Spacing
+            SliderPropertyEditor(
+                label = "Letter Spacing",
+                value = parsePixelValue(styles["letter-spacing"]),
+                range = -2f..10f,
+                unit = "px",
+                onValueChange = { newValue ->
+                    onStyleChange(StyleChangeRequest(
+                        selector = selector,
+                        property = "letter-spacing",
+                        oldValue = styles["letter-spacing"],
+                        newValue = "${newValue.toInt()}px",
+                        elementHtml = element.outerHTML
+                    ))
+                }
+            )
         }
     }
+}
+
+/**
+ * Parse line height value (can be unitless, px, or em)
+ */
+private fun parseLineHeight(value: String?): Float {
+    if (value == null || value == "normal") return 1.5f
+    return value.replace("px", "").replace("em", "").toFloatOrNull() ?: 1.5f
 }
 
 /**
