@@ -123,6 +123,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.codex.stormy.CodeXApplication
 import com.codex.stormy.ui.components.inspector.AgentSelectedElement
+import com.codex.stormy.ui.components.inspector.DirectEditService
+import com.codex.stormy.ui.components.inspector.DirectEditStatus
 import com.codex.stormy.ui.components.inspector.ImageChangeRequest
 import com.codex.stormy.ui.components.inspector.InspectorElementData
 import com.codex.stormy.ui.components.inspector.InspectorRect
@@ -338,7 +340,7 @@ private fun PreviewScreen(
     // Agent selection mode state (multi-element)
     val selectedElements = remember { mutableStateListOf<InspectedElement>() }
 
-    // Preview edit service for direct editing
+    // Preview edit service for AI-assisted editing (Agent mode)
     val previewEditService = remember {
         val app = CodeXApplication.getInstance()
         PreviewEditService(
@@ -350,7 +352,16 @@ private fun PreviewScreen(
     }
     val editStatus by previewEditService.status.collectAsState()
 
-    // Show snackbar on edit status changes
+    // Direct edit service for manual editing (Edit mode - no AI required)
+    val directEditService = remember {
+        DirectEditService(
+            projectPath = projectPath,
+            scope = scope
+        )
+    }
+    val directEditStatus by directEditService.status.collectAsState()
+
+    // Show snackbar on AI edit status changes
     LaunchedEffect(editStatus) {
         when (editStatus) {
             is PreviewEditStatus.Success -> {
@@ -360,6 +371,21 @@ private fun PreviewScreen(
             is PreviewEditStatus.Error -> {
                 snackbarHostState.showSnackbar((editStatus as PreviewEditStatus.Error).message)
                 previewEditService.resetStatus()
+            }
+            else -> {}
+        }
+    }
+
+    // Show snackbar on direct edit status changes
+    LaunchedEffect(directEditStatus) {
+        when (directEditStatus) {
+            is DirectEditStatus.Success -> {
+                snackbarHostState.showSnackbar((directEditStatus as DirectEditStatus.Success).message)
+                directEditService.resetStatus()
+            }
+            is DirectEditStatus.Error -> {
+                snackbarHostState.showSnackbar((directEditStatus as DirectEditStatus.Error).message)
+                directEditService.resetStatus()
             }
             else -> {}
         }
@@ -846,11 +872,14 @@ private fun PreviewScreen(
                     },
                     isProcessing = editStatus is PreviewEditStatus.Analyzing ||
                             editStatus is PreviewEditStatus.Editing,
+                    hasValidModel = currentModel.value != null,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            // Visual Element Inspector (new enhanced editor)
+            // Visual Element Inspector (Edit Mode - Manual editing without AI)
+            // This mode uses DirectEditService for immediate file persistence
+            // without requiring an AI model. Changes are applied directly to CSS/HTML files.
             AnimatedVisibility(
                 visible = visualEditorMode && visualEditorElement != null,
                 enter = slideInVertically { it } + fadeIn(),
@@ -865,75 +894,36 @@ private fun PreviewScreen(
                             selectionMode = SelectionMode.DISABLED
                         },
                         onStyleChange = { request ->
-                            val model = currentModel.value
-                            if (model != null) {
-                                previewEditService.applyStyleChange(
-                                    request = request,
-                                    model = model,
-                                    webView = webView,
-                                    onComplete = {
-                                        // Live preview is applied immediately by the service
-                                        // No need to reload - changes are visible instantly
-                                    }
-                                )
-                            } else {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                            // Use DirectEditService for immediate file persistence without AI
+                            directEditService.applyStyleChange(
+                                request = request,
+                                webView = webView,
+                                onComplete = {
+                                    // Live preview + file changes applied
                                 }
-                            }
+                            )
                         },
                         onTextChange = { request ->
-                            val model = currentModel.value
-                            if (model != null) {
-                                previewEditService.applyTextChange(
-                                    request = request,
-                                    model = model,
-                                    webView = webView,
-                                    onComplete = {
-                                        // Live preview is applied immediately
-                                    }
-                                )
-                            } else {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                            // Use DirectEditService for text changes without AI
+                            directEditService.applyTextChange(
+                                request = request,
+                                webView = webView,
+                                onComplete = {
+                                    // Live preview + file changes applied
                                 }
-                            }
+                            )
                         },
-                        onAiEditRequest = { prompt ->
-                            val model = currentModel.value
-                            if (model != null) {
-                                previewEditService.applyAiEdit(
-                                    prompt = prompt,
-                                    elementSelector = buildElementSelector(element.toInspectedElement()),
-                                    elementHtml = element.outerHTML,
-                                    model = model,
-                                    webView = webView,
-                                    onComplete = {
-                                        // Service handles reload after successful AI edit
-                                    }
-                                )
-                            } else {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
-                                }
-                            }
-                        },
+                        // AI edit is disabled in Edit mode - pass null to hide the AI button
+                        onAiEditRequest = null,
                         onImageChange = { request ->
-                            val model = currentModel.value
-                            if (model != null) {
-                                previewEditService.applyImageChange(
-                                    request = request,
-                                    model = model,
-                                    webView = webView,
-                                    onComplete = {
-                                        // Live preview is applied immediately
-                                    }
-                                )
-                            } else {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("No AI model available. Please configure one in Settings.")
+                            // Use DirectEditService for image changes without AI
+                            directEditService.applyImageChange(
+                                request = request,
+                                webView = webView,
+                                onComplete = {
+                                    // Live preview + file changes applied
                                 }
-                            }
+                            )
                         },
                         onPickImage = {
                             // Store element info for when image is picked
@@ -944,6 +934,9 @@ private fun PreviewScreen(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
+                        // Disable AI features for Edit mode (manual editing)
+                        enableAiFeatures = false,
+                        hasValidModel = currentModel.value != null,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -1089,6 +1082,8 @@ private fun AgentPromptBar(
     onClearSelection: () -> Unit,
     onSubmit: (String) -> Unit,
     isProcessing: Boolean = false,
+    hasValidModel: Boolean = true,
+    onNavigateToModels: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var promptText by remember { mutableStateOf("") }
@@ -1107,6 +1102,44 @@ private fun AgentPromptBar(
                 .padding(12.dp)
                 .imePadding()
         ) {
+            // Show warning if no AI model is selected
+            if (!hasValidModel) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "No AI Model Selected",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontFamily = PoppinsFontFamily,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = "Please select a model in AI Models settings",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Processing indicator
             if (isProcessing) {
                 Row(
