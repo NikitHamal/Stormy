@@ -36,21 +36,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Generate keystore if missing
-        run: |
-          if [ ! -f "keystore/codex-release.jks" ]; then
-            mkdir -p keystore
-            keytool -genkey -v \
-              -keystore keystore/codex-release.jks \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -alias codex \
-              -storepass codex2024 \
-              -keypass codex2024 \
-              -dname "CN=CodeX, OU=Mobile Development, O=CodeX, L=Unknown, ST=Unknown, C=US"
-          fi
-
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
