@@ -11,6 +11,7 @@ import io.github.rosemoe.sora.lang.completion.CompletionPublisher
 import io.github.rosemoe.sora.lang.format.Formatter
 import io.github.rosemoe.sora.lang.smartEnter.NewlineHandler
 import io.github.rosemoe.sora.lang.styling.CodeBlock
+import io.github.rosemoe.sora.lang.styling.MappedSpans
 import io.github.rosemoe.sora.lang.styling.Span
 import io.github.rosemoe.sora.lang.styling.Styles
 import io.github.rosemoe.sora.lang.styling.TextStyle
@@ -72,6 +73,15 @@ class SimpleLanguage(private val config: LanguageConfig) : Language {
     override fun getAnalyzeManager(): AnalyzeManager = analyzeManager
 
     override fun getInterruptionLevel(): Int = Language.INTERRUPTION_LEVEL_STRONG
+
+    override fun requireAutoComplete(
+        content: ContentReference,
+        position: CharPosition,
+        publisher: CompletionPublisher,
+        extraArguments: Bundle
+    ) {
+        // No auto-completion for simple language
+    }
 
     override fun getIndentAdvance(content: ContentReference, line: Int, column: Int): Int {
         val text = content.getLine(line)
@@ -150,14 +160,16 @@ class SimpleAnalyzeManagerImpl(private val config: LanguageConfig) : AnalyzeMana
 
     private fun analyze(content: ContentReference): Styles {
         val styles = Styles()
+        val spansBuilder = MappedSpans.Builder()
         val lineCount = content.lineCount
 
         for (line in 0 until lineCount) {
             val lineContent = content.getLine(line)
             val spans = analyzeLine(lineContent.toString(), line)
-            styles.spans.add(spans)
+            spansBuilder.addLineAt(line, spans)
         }
 
+        styles.spans = spansBuilder.build()
         return styles
     }
 
