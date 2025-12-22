@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,6 +90,11 @@ fun EditorScreen(
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) {
+        assetDrawerState.close()
+        gitDrawerState.close()
+    }
+
     // File Tree drawer (start-side drawer - outer for proper gesture handling)
     ModalNavigationDrawer(
         drawerState = fileDrawerState,
@@ -115,13 +121,11 @@ fun EditorScreen(
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                if (gitDrawerState.isOpen) {
-                    uiState.project?.let { project ->
-                        GitDrawer(
-                            projectPath = project.rootPath,
-                            onClose = { scope.launch { gitDrawerState.close() } }
-                        )
-                    }
+                uiState.project?.let { project ->
+                    GitDrawer(
+                        projectPath = project.rootPath,
+                        onClose = { scope.launch { gitDrawerState.close() } }
+                    )
                 }
             },
             gesturesEnabled = false,
