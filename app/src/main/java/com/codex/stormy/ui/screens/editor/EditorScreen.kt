@@ -89,6 +89,11 @@ fun EditorScreen(
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) {
+        assetDrawerState.close()
+        gitDrawerState.close()
+    }
+
     // File Tree drawer (start-side drawer - outer for proper gesture handling)
     ModalNavigationDrawer(
         drawerState = fileDrawerState,
