@@ -133,7 +133,7 @@ fun SliderPropertyEditor(
             )
             Text(
                 text = if (unit == "x" || unit == "%") {
-                    String.format("%.1f$unit", sliderValue)
+                    String.format("%.1f", sliderValue) + unit
                 } else {
                     "${sliderValue.toInt()}$unit"
                 },

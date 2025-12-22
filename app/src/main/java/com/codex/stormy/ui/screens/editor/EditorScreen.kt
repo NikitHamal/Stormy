@@ -82,6 +82,7 @@ fun EditorScreen(
     projectId: String,
     onBackClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onGitSettingsClick: () -> Unit = {},
     viewModel: EditorViewModel = viewModel(
         factory = EditorViewModel.Factory,
         key = projectId
@@ -155,7 +156,8 @@ fun EditorScreen(
                     uiState.project?.let { project ->
                         GitDrawer(
                             projectPath = project.rootPath,
-                            onClose = { scope.launch { gitDrawerState.close() } }
+                            onClose = { scope.launch { gitDrawerState.close() } },
+                            onNavigateToGitSettings = onGitSettingsClick
                         )
                     }
                 }

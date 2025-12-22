@@ -102,6 +102,9 @@ fun CodeXNavGraph(
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onGitSettingsClick = {
+                    navController.navigate(Screen.GitSettings.route)
                 }
             )
         }
