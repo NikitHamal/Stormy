@@ -115,13 +115,11 @@ fun EditorScreen(
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                if (gitDrawerState.isOpen) {
-                    uiState.project?.let { project ->
-                        GitDrawer(
-                            projectPath = project.rootPath,
-                            onClose = { scope.launch { gitDrawerState.close() } }
-                        )
-                    }
+                uiState.project?.let { project ->
+                    GitDrawer(
+                        projectPath = project.rootPath,
+                        onClose = { scope.launch { gitDrawerState.close() } }
+                    )
                 }
             },
             gesturesEnabled = false,
