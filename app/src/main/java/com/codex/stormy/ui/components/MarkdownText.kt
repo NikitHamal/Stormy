@@ -202,9 +202,11 @@ private fun CodeBlockView(
         }
 
         // Code content with horizontal scroll
+        // Use explicit background and text colors to ensure visibility in both themes
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(if (isDarkTheme) Color(0xFF1E1E24) else Color(0xFFF5F5F7))
                 .horizontalScroll(scrollState)
                 .padding(12.dp)
         ) {
@@ -215,7 +217,8 @@ private fun CodeBlockView(
                     fontSize = 12.sp,
                     lineHeight = 18.sp
                 ),
-                color = if (isDarkTheme) Color(0xFFE5E1E6) else Color(0xFF1B1B1F)
+                // Ensure high contrast text color for both themes
+                color = if (isDarkTheme) Color(0xFFE5E1E6) else Color(0xFF24292E)
             )
         }
     }
@@ -230,10 +233,13 @@ private fun InlineCodeView(
     isDarkTheme: Boolean,
     codeBackgroundColor: Color
 ) {
+    // Use explicit background colors to ensure visibility
+    val bgColor = if (isDarkTheme) Color(0xFF2D2D35) else Color(0xFFEEEEF0)
+
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(4.dp))
-            .background(codeBackgroundColor)
+            .background(bgColor)
             .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
         Text(
@@ -242,7 +248,8 @@ private fun InlineCodeView(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp
             ),
-            color = if (isDarkTheme) Color(0xFFE06C75) else Color(0xFFD73A49)
+            // High contrast colors for inline code
+            color = if (isDarkTheme) Color(0xFFE06C75) else Color(0xFFC41A16)
         )
     }
 }

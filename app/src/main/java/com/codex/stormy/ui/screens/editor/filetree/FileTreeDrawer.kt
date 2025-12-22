@@ -26,12 +26,14 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DriveFolderUpload
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -71,6 +73,8 @@ fun FileTreeDrawer(
     onCreateFolder: (parentPath: String, folderName: String) -> Unit,
     onDeleteFile: (path: String) -> Unit,
     onRenameFile: (oldPath: String, newName: String) -> Unit,
+    onImportFile: (parentPath: String) -> Unit,
+    onImportFolder: (parentPath: String) -> Unit,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -107,7 +111,7 @@ fun FileTreeDrawer(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.NoteAdd,
-                            contentDescription = "New File",
+                            contentDescription = context.getString(R.string.file_new_file),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -118,7 +122,29 @@ fun FileTreeDrawer(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.CreateNewFolder,
-                            contentDescription = "New Folder",
+                            contentDescription = context.getString(R.string.file_new_folder),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onImportFile("") },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.UploadFile,
+                            contentDescription = context.getString(R.string.file_import_file),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onImportFolder("") },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.DriveFolderUpload,
+                            contentDescription = context.getString(R.string.file_import_folder),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -129,7 +155,7 @@ fun FileTreeDrawer(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
-                            contentDescription = "Close",
+                            contentDescription = context.getString(R.string.action_close),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -151,7 +177,9 @@ fun FileTreeDrawer(
                         onCreateFile = { showCreateFileDialog = it },
                         onCreateFolder = { showCreateFolderDialog = it },
                         onRename = { showRenameDialog = it },
-                        onDelete = { showDeleteDialog = it }
+                        onDelete = { showDeleteDialog = it },
+                        onImportFile = onImportFile,
+                        onImportFolder = onImportFolder
                     )
                 }
             }
@@ -236,6 +264,8 @@ private fun FileTreeItem(
     onCreateFolder: (parentPath: String) -> Unit,
     onRename: (FileTreeNode) -> Unit,
     onDelete: (FileTreeNode) -> Unit,
+    onImportFile: (parentPath: String) -> Unit,
+    onImportFolder: (parentPath: String) -> Unit,
     depth: Int = 0
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -314,6 +344,14 @@ private fun FileTreeItem(
                                 showMenu = false
                                 onCreateFolder(node.path)
                             },
+                            onImportFile = {
+                                showMenu = false
+                                onImportFile(node.path)
+                            },
+                            onImportFolder = {
+                                showMenu = false
+                                onImportFolder(node.path)
+                            },
                             onRename = {
                                 showMenu = false
                                 onRename(node)
@@ -343,6 +381,8 @@ private fun FileTreeItem(
                                 onCreateFolder = onCreateFolder,
                                 onRename = onRename,
                                 onDelete = onDelete,
+                                onImportFile = onImportFile,
+                                onImportFolder = onImportFolder,
                                 depth = depth + 1
                             )
                         }
@@ -414,6 +454,8 @@ private fun FileTreeItem(
                         isFolder = false,
                         onCreateFile = null,
                         onCreateFolder = null,
+                        onImportFile = null,
+                        onImportFolder = null,
                         onRename = {
                             showMenu = false
                             onRename(node)
@@ -436,6 +478,8 @@ private fun FileTreeContextMenu(
     isFolder: Boolean,
     onCreateFile: (() -> Unit)?,
     onCreateFolder: (() -> Unit)?,
+    onImportFile: (() -> Unit)?,
+    onImportFolder: (() -> Unit)?,
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -461,6 +505,26 @@ private fun FileTreeContextMenu(
                 onClick = onCreateFolder,
                 leadingIcon = {
                     Icon(Icons.Outlined.CreateNewFolder, contentDescription = null)
+                }
+            )
+        }
+
+        if (isFolder && onImportFile != null) {
+            DropdownMenuItem(
+                text = { Text(context.getString(R.string.file_import_file)) },
+                onClick = onImportFile,
+                leadingIcon = {
+                    Icon(Icons.Outlined.UploadFile, contentDescription = null)
+                }
+            )
+        }
+
+        if (isFolder && onImportFolder != null) {
+            DropdownMenuItem(
+                text = { Text(context.getString(R.string.file_import_folder)) },
+                onClick = onImportFolder,
+                leadingIcon = {
+                    Icon(Icons.Outlined.DriveFolderUpload, contentDescription = null)
                 }
             )
         }

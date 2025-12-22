@@ -163,7 +163,7 @@ class ToolExecutor(
     // ==================== File Operations ====================
 
     private suspend fun executeReadFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         return projectRepository.readFile(projectId, path)
@@ -178,7 +178,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeWriteFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val content = args.getStringArg("content")
             ?: return ToolResult(false, "", "Missing required argument: content")
@@ -219,7 +219,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeListFiles(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path") ?: ""
+        val path = args.getPathArg("path") ?: ""
 
         return try {
             val fileTree = projectRepository.getFileTree(projectId)
@@ -253,7 +253,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeDeleteFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         // Get old content for reference
@@ -270,7 +270,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeCreateFolder(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         return projectRepository.createFolder(projectId, path)
@@ -281,9 +281,9 @@ class ToolExecutor(
     }
 
     private suspend fun executeRenameFile(projectId: String, args: JsonObject): ToolResult {
-        val oldPath = args.getStringArg("old_path")
+        val oldPath = args.getPathArg("old_path")
             ?: return ToolResult(false, "", "Missing required argument: old_path")
-        val newPath = args.getStringArg("new_path")
+        val newPath = args.getPathArg("new_path")
             ?: return ToolResult(false, "", "Missing required argument: new_path")
 
         return projectRepository.renameFile(projectId, oldPath, newPath)
@@ -297,9 +297,9 @@ class ToolExecutor(
     }
 
     private suspend fun executeCopyFile(projectId: String, args: JsonObject): ToolResult {
-        val sourcePath = args.getStringArg("source_path")
+        val sourcePath = args.getPathArg("source_path")
             ?: return ToolResult(false, "", "Missing required argument: source_path")
-        val destinationPath = args.getStringArg("destination_path")
+        val destinationPath = args.getPathArg("destination_path")
             ?: return ToolResult(false, "", "Missing required argument: destination_path")
 
         return projectRepository.copyFile(projectId, sourcePath, destinationPath)
@@ -313,9 +313,9 @@ class ToolExecutor(
     }
 
     private suspend fun executeMoveFile(projectId: String, args: JsonObject): ToolResult {
-        val sourcePath = args.getStringArg("source_path")
+        val sourcePath = args.getPathArg("source_path")
             ?: return ToolResult(false, "", "Missing required argument: source_path")
-        val destinationPath = args.getStringArg("destination_path")
+        val destinationPath = args.getPathArg("destination_path")
             ?: return ToolResult(false, "", "Missing required argument: destination_path")
 
         return projectRepository.moveFile(projectId, sourcePath, destinationPath)
@@ -504,7 +504,7 @@ class ToolExecutor(
     }
 
     private suspend fun executePatchFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val oldContent = args.getStringArg("old_content")
             ?: return ToolResult(false, "", "Missing required argument: old_content")
@@ -528,7 +528,7 @@ class ToolExecutor(
     // ==================== Enhanced File Operations ====================
 
     private suspend fun executeInsertAtLine(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val lineNumber = args.getStringArg("line_number")?.toIntOrNull()
             ?: return ToolResult(false, "", "Missing or invalid argument: line_number")
@@ -574,7 +574,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeGetFileInfo(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         val project = projectRepository.getProjectById(projectId)
@@ -621,7 +621,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeRegexReplace(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val pattern = args.getStringArg("pattern")
             ?: return ToolResult(false, "", "Missing required argument: pattern")
@@ -667,7 +667,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeAppendToFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val content = args.getStringArg("content")
             ?: return ToolResult(false, "", "Missing required argument: content")
@@ -691,7 +691,7 @@ class ToolExecutor(
     }
 
     private suspend fun executePrependToFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val content = args.getStringArg("content")
             ?: return ToolResult(false, "", "Missing required argument: content")

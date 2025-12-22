@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -32,6 +33,8 @@ import com.codex.stormy.data.repository.ProjectRepository
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.domain.model.Project
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -132,6 +135,11 @@ class EditorViewModel(
     private var _shouldContinueAgentLoop = false
     private var _agentIterationCount = 0
     private var _taskCompleted = false
+
+    // Streaming update debouncing for performance
+    private var _streamingUpdateJob: Job? = null
+    private var _lastStreamingUpdate = 0L
+    private var _pendingStreamingUpdate = false
 
     val uiState: StateFlow<EditorUiState> = combine(
         _project,
@@ -692,6 +700,42 @@ class EditorViewModel(
         }
     }
 
+    /**
+     * Import a file from device storage into the project
+     * @param fileUri URI of the file to import
+     * @param targetPath Target folder path within the project (empty string for root)
+     */
+    fun importFile(fileUri: Uri, targetPath: String) {
+        viewModelScope.launch {
+            projectRepository.importFileToProject(projectId, fileUri, targetPath)
+                .onSuccess { importedPath ->
+                    loadFileTree()
+                    // Optionally open the imported file
+                    openFile(importedPath)
+                }
+                .onFailure { error ->
+                    _error.value = error.message ?: "Failed to import file"
+                }
+        }
+    }
+
+    /**
+     * Import a folder from device storage into the project
+     * @param folderUri URI of the folder to import (document tree URI)
+     * @param targetPath Target folder path within the project (empty string for root)
+     */
+    fun importFolder(folderUri: Uri, targetPath: String) {
+        viewModelScope.launch {
+            projectRepository.importFolderToProject(projectId, folderUri, targetPath)
+                .onSuccess { filesImported ->
+                    loadFileTree()
+                }
+                .onFailure { error ->
+                    _error.value = error.message ?: "Failed to import folder"
+                }
+        }
+    }
+
     fun toggleAgentMode() {
         _agentMode.value = !_agentMode.value
     }
@@ -819,13 +863,34 @@ class EditorViewModel(
                         // Streaming started
                     }
                     is StreamEvent.ContentDelta -> {
-                        _streamingContent.value += event.content
-                        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
+                        // Close any open think block before adding regular content
+                        val currentContent = _streamingContent.value
+                        val hasUnclosedThinkTag = currentContent.contains("<think>") && !currentContent.contains("</think>")
+
+                        if (hasUnclosedThinkTag && event.content.isNotEmpty()) {
+                            // Close the think block before adding regular content
+                            _streamingContent.value += "</think>\n${event.content}"
+                        } else {
+                            _streamingContent.value += event.content
+                        }
+                        // Use debounced update for better performance
+                        debouncedStreamingUpdate()
                     }
                     is StreamEvent.ReasoningDelta -> {
-                        // Handle reasoning for thinking models - show in UI
-                        _streamingContent.value += event.reasoning
-                        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
+                        // Handle reasoning for thinking models - wrap in <think> tags for proper parsing
+                        // Check if we already have an open <think> tag without a closing tag
+                        val currentContent = _streamingContent.value
+                        val hasOpenThinkTag = currentContent.contains("<think>") && !currentContent.contains("</think>")
+
+                        if (!hasOpenThinkTag && event.reasoning.isNotEmpty()) {
+                            // Start a new think block
+                            _streamingContent.value += "<think>${event.reasoning}"
+                        } else if (hasOpenThinkTag) {
+                            // Continue the existing think block
+                            _streamingContent.value += event.reasoning
+                        }
+                        // Use debounced update for better performance
+                        debouncedStreamingUpdate()
                     }
                     is StreamEvent.ToolCalls -> {
                         // Store tool calls for processing after stream completes
@@ -1021,7 +1086,50 @@ class EditorViewModel(
         updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
     }
 
+    /**
+     * Debounced update for streaming content to reduce UI lag.
+     * Updates are batched and applied at most every STREAMING_UPDATE_INTERVAL_MS.
+     */
+    private fun debouncedStreamingUpdate() {
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastUpdate = currentTime - _lastStreamingUpdate
+
+        if (timeSinceLastUpdate >= STREAMING_UPDATE_INTERVAL_MS) {
+            // Enough time has passed, update immediately
+            _lastStreamingUpdate = currentTime
+            updateLastAssistantMessageDirect(_streamingContent.value, MessageStatus.STREAMING)
+        } else if (!_pendingStreamingUpdate) {
+            // Schedule a delayed update
+            _pendingStreamingUpdate = true
+            _streamingUpdateJob?.cancel()
+            _streamingUpdateJob = viewModelScope.launch {
+                delay(STREAMING_UPDATE_INTERVAL_MS - timeSinceLastUpdate)
+                _pendingStreamingUpdate = false
+                _lastStreamingUpdate = System.currentTimeMillis()
+                updateLastAssistantMessageDirect(_streamingContent.value, MessageStatus.STREAMING)
+            }
+        }
+        // If pendingStreamingUpdate is true, an update is already scheduled
+    }
+
+    /**
+     * Flush any pending streaming updates immediately
+     */
+    private fun flushStreamingUpdate() {
+        _streamingUpdateJob?.cancel()
+        _pendingStreamingUpdate = false
+        _lastStreamingUpdate = System.currentTimeMillis()
+    }
+
     private fun updateLastAssistantMessage(content: String, status: MessageStatus) {
+        // For non-streaming updates, flush any pending and update directly
+        if (status != MessageStatus.STREAMING) {
+            flushStreamingUpdate()
+        }
+        updateLastAssistantMessageDirect(content, status)
+    }
+
+    private fun updateLastAssistantMessageDirect(content: String, status: MessageStatus) {
         val currentMessages = _messages.value.toMutableList()
         if (currentMessages.isNotEmpty()) {
             val lastMessage = currentMessages.last()
@@ -1135,6 +1243,7 @@ class EditorViewModel(
 
     companion object {
         private const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
+        private const val STREAMING_UPDATE_INTERVAL_MS = 50L // Debounce interval for streaming updates (20 FPS)
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

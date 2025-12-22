@@ -174,15 +174,44 @@ class DirectEditService(
     /**
      * Update CSS file with the style change
      * Finds or creates a rule for the selector and updates the property
+     * Falls back to inline <style> tag in HTML if no external CSS file exists
      */
     private fun updateCssFile(request: StyleChangeRequest): Result<Unit> {
-        // Find the CSS file
-        val cssFile = findCssFile() ?: return Result.failure(Exception("No CSS file found"))
-
-        val content = cssFile.readText()
         val selector = request.selector
         val property = request.property
         val value = request.newValue
+
+        // First, try to find an external CSS file
+        val cssFile = findCssFile()
+        if (cssFile != null) {
+            return updateExternalCssFile(cssFile, selector, property, value)
+        }
+
+        // No external CSS file - check for inline <style> tag in HTML
+        val htmlFile = findHtmlFile()
+        if (htmlFile != null) {
+            val htmlContent = htmlFile.readText()
+            if (htmlContent.contains("<style", ignoreCase = true)) {
+                return updateInlineStyleTag(htmlFile, htmlContent, selector, property, value)
+            }
+
+            // No <style> tag exists - create one in the HTML
+            return createInlineStyleTag(htmlFile, htmlContent, selector, property, value)
+        }
+
+        return Result.failure(Exception("No CSS or HTML file found to apply styles"))
+    }
+
+    /**
+     * Update an external CSS file with the style change
+     */
+    private fun updateExternalCssFile(
+        cssFile: File,
+        selector: String,
+        property: String,
+        value: String
+    ): Result<Unit> {
+        val content = cssFile.readText()
 
         // Try to find existing rule for this selector
         val rulePattern = Pattern.compile(
@@ -194,29 +223,7 @@ class DirectEditService(
         val newContent = if (matcher.find()) {
             // Found existing rule - update or add the property
             val existingStyles = matcher.group(2) ?: ""
-
-            // Check if property already exists in the rule
-            val propertyPattern = Pattern.compile(
-                """(${Pattern.quote(property)})\s*:\s*[^;]+;?""",
-                Pattern.CASE_INSENSITIVE
-            )
-            val propertyMatcher = propertyPattern.matcher(existingStyles)
-
-            val newStyles = if (propertyMatcher.find()) {
-                // Replace existing property
-                propertyMatcher.replaceFirst("$property: $value;")
-            } else {
-                // Add new property to the rule
-                val trimmedStyles = existingStyles.trim()
-                if (trimmedStyles.isEmpty()) {
-                    "\n    $property: $value;\n"
-                } else if (trimmedStyles.endsWith(";")) {
-                    "$trimmedStyles\n    $property: $value;\n"
-                } else {
-                    "$trimmedStyles;\n    $property: $value;\n"
-                }
-            }
-
+            val newStyles = updatePropertyInStyles(existingStyles, property, value)
             matcher.replaceFirst("$selector {\n$newStyles}")
         } else {
             // No existing rule - create new one at the end
@@ -226,6 +233,128 @@ class DirectEditService(
 
         cssFile.writeText(newContent)
         return Result.success(Unit)
+    }
+
+    /**
+     * Update an inline <style> tag in HTML with the style change
+     */
+    private fun updateInlineStyleTag(
+        htmlFile: File,
+        htmlContent: String,
+        selector: String,
+        property: String,
+        value: String
+    ): Result<Unit> {
+        // Find the <style>...</style> block
+        val stylePattern = Pattern.compile(
+            """(<style[^>]*>)([\s\S]*?)(</style>)""",
+            Pattern.CASE_INSENSITIVE
+        )
+        val styleMatcher = stylePattern.matcher(htmlContent)
+
+        if (!styleMatcher.find()) {
+            return Result.failure(Exception("Could not parse style tag"))
+        }
+
+        val styleOpenTag = styleMatcher.group(1) ?: "<style>"
+        val styleContent = styleMatcher.group(2) ?: ""
+        val styleCloseTag = styleMatcher.group(3) ?: "</style>"
+
+        // Try to find existing rule for this selector within the style content
+        val rulePattern = Pattern.compile(
+            """(${Pattern.quote(selector)})\s*\{([^}]*)\}""",
+            Pattern.CASE_INSENSITIVE or Pattern.DOTALL
+        )
+        val ruleMatcher = rulePattern.matcher(styleContent)
+
+        val newStyleContent = if (ruleMatcher.find()) {
+            // Found existing rule - update or add the property
+            val existingStyles = ruleMatcher.group(2) ?: ""
+            val newStyles = updatePropertyInStyles(existingStyles, property, value)
+            ruleMatcher.replaceFirst("$selector {\n$newStyles}")
+        } else {
+            // No existing rule - add new one
+            val newRule = "\n        $selector {\n            $property: $value;\n        }"
+            styleContent + newRule
+        }
+
+        val newHtmlContent = styleMatcher.replaceFirst("$styleOpenTag$newStyleContent\n    $styleCloseTag")
+        htmlFile.writeText(newHtmlContent)
+        return Result.success(Unit)
+    }
+
+    /**
+     * Create an inline <style> tag in HTML when none exists
+     */
+    private fun createInlineStyleTag(
+        htmlFile: File,
+        htmlContent: String,
+        selector: String,
+        property: String,
+        value: String
+    ): Result<Unit> {
+        val styleBlock = """
+    <style>
+        $selector {
+            $property: $value;
+        }
+    </style>"""
+
+        // Insert the style tag before </head> if it exists, otherwise before </html> or at the end
+        val newHtmlContent = when {
+            htmlContent.contains("</head>", ignoreCase = true) -> {
+                htmlContent.replaceFirst(
+                    Regex("</head>", RegexOption.IGNORE_CASE),
+                    "$styleBlock\n</head>"
+                )
+            }
+            htmlContent.contains("<body", ignoreCase = true) -> {
+                htmlContent.replaceFirst(
+                    Regex("<body", RegexOption.IGNORE_CASE),
+                    "$styleBlock\n<body"
+                )
+            }
+            htmlContent.contains("</html>", ignoreCase = true) -> {
+                htmlContent.replaceFirst(
+                    Regex("</html>", RegexOption.IGNORE_CASE),
+                    "$styleBlock\n</html>"
+                )
+            }
+            else -> {
+                // No standard HTML structure - prepend the style
+                "$styleBlock\n$htmlContent"
+            }
+        }
+
+        htmlFile.writeText(newHtmlContent)
+        return Result.success(Unit)
+    }
+
+    /**
+     * Helper to update or add a property in an existing styles block
+     */
+    private fun updatePropertyInStyles(existingStyles: String, property: String, value: String): String {
+        // Check if property already exists in the rule
+        val propertyPattern = Pattern.compile(
+            """(${Pattern.quote(property)})\s*:\s*[^;]+;?""",
+            Pattern.CASE_INSENSITIVE
+        )
+        val propertyMatcher = propertyPattern.matcher(existingStyles)
+
+        return if (propertyMatcher.find()) {
+            // Replace existing property
+            propertyMatcher.replaceFirst("$property: $value;")
+        } else {
+            // Add new property to the rule
+            val trimmedStyles = existingStyles.trim()
+            if (trimmedStyles.isEmpty()) {
+                "\n    $property: $value;\n"
+            } else if (trimmedStyles.endsWith(";")) {
+                "$trimmedStyles\n    $property: $value;\n"
+            } else {
+                "$trimmedStyles;\n    $property: $value;\n"
+            }
+        }
     }
 
     /**

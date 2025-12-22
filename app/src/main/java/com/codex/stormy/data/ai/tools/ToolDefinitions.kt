@@ -697,6 +697,67 @@ fun JsonObject.getStringArg(key: String): String? {
 }
 
 /**
+ * Helper to extract a file path argument with sanitization.
+ * Normalizes paths to prevent EISDIR and other path resolution errors:
+ * - Removes leading slashes (e.g., "/index.html" -> "index.html")
+ * - Removes leading "./" (e.g., "./style.css" -> "style.css")
+ * - Normalizes path separators
+ * - Prevents path traversal attacks
+ */
+fun JsonObject.getPathArg(key: String): String? {
+    val rawPath = this[key]?.jsonPrimitive?.content ?: return null
+    return sanitizePath(rawPath)
+}
+
+/**
+ * Sanitize a file path to ensure it's a valid relative path within the project.
+ */
+fun sanitizePath(path: String): String {
+    var sanitized = path.trim()
+
+    // Remove leading slashes (absolute path style)
+    while (sanitized.startsWith("/") || sanitized.startsWith("\\")) {
+        sanitized = sanitized.substring(1)
+    }
+
+    // Remove leading "./" references
+    while (sanitized.startsWith("./") || sanitized.startsWith(".\\")) {
+        sanitized = sanitized.substring(2)
+    }
+
+    // Normalize path separators to forward slashes
+    sanitized = sanitized.replace("\\", "/")
+
+    // Remove any double slashes
+    while (sanitized.contains("//")) {
+        sanitized = sanitized.replace("//", "/")
+    }
+
+    // Prevent path traversal - remove any ".." components that try to escape
+    val parts = sanitized.split("/").toMutableList()
+    val cleanParts = mutableListOf<String>()
+    for (part in parts) {
+        when (part) {
+            ".." -> {
+                // Only allow going up if we're within the project
+                if (cleanParts.isNotEmpty()) {
+                    cleanParts.removeAt(cleanParts.lastIndex)
+                }
+                // Ignore attempts to go above project root
+            }
+            ".", "" -> {
+                // Skip empty and current directory references
+            }
+            else -> {
+                cleanParts.add(part)
+            }
+        }
+    }
+
+    return cleanParts.joinToString("/")
+}
+
+/**
  * Helper to extract boolean argument from tool call
  */
 fun JsonObject.getBooleanArg(key: String, default: Boolean = false): Boolean {

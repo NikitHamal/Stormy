@@ -270,16 +270,14 @@ class PreviewEditService(
                     // AI responded but didn't execute any tool calls
                     Log.w(TAG, "AI did not execute any tool calls. Message: ${result.message}")
 
-                    // Check if the model supports tool calls
-                    if (!model.supportsToolCalls) {
-                        _status.value = PreviewEditStatus.Error(
-                            "This model doesn't support tool calls. Please select a different model."
-                        )
+                    // Provide helpful guidance based on model type
+                    val errorMessage = if (model.isThinkingModel) {
+                        // Thinking models like DeepSeek-R1 may not always use tools
+                        "This model prefers reasoning over tool use. Try a code-focused model like Qwen Coder."
                     } else {
-                        _status.value = PreviewEditStatus.Error(
-                            "AI did not modify any files. Try being more specific about what changes you want."
-                        )
+                        "AI did not modify any files. Try being more specific about what changes you want."
                     }
+                    _status.value = PreviewEditStatus.Error(errorMessage)
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
@@ -301,20 +299,18 @@ class PreviewEditService(
      * 2. Tool execution
      * 3. Feeding results back to AI
      * 4. Continuing until AI completes or max turns reached
+     *
+     * Note: We attempt tool calls for all models as DeepInfra and other providers
+     * can handle tool calls at the API level even for models not specifically
+     * optimized for them. If a model truly doesn't support tools, the API will
+     * simply return a regular response without tool calls.
      */
     private suspend fun executeAiEdit(prompt: String, model: AiModel): AiEditResult {
         return withContext(Dispatchers.IO) {
             try {
-                // Check if model supports tool calls
-                if (!model.supportsToolCalls) {
-                    return@withContext AiEditResult(
-                        success = false,
-                        message = "Model does not support tool calls",
-                        error = "Please select a model that supports function calling/tool use"
-                    )
-                }
-
                 // Create system message for editing context
+                // Note: We include tool instructions even for models that may not
+                // natively support tools - the API provider handles this gracefully
                 val systemMessage = buildSystemPrompt()
 
                 // Build initial message list
