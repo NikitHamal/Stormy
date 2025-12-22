@@ -449,6 +449,21 @@ object StormyTools {
         )
     )
 
+    // Self-reflection tool
+    val THINK = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "think",
+            description = "Use this tool to reason about your approach, plan next steps, or reflect on the current state of the task. This helps organize complex tasks and make better decisions. Call this before making significant changes or when facing difficult problems.",
+            parameters = createParametersJson(
+                properties = mapOf(
+                    "thought" to Pair("string", "Your reasoning, analysis, or plan. Be specific about what you're thinking and why.")
+                ),
+                required = listOf("thought")
+            )
+        )
+    )
+
     // ==================== Git Tools ====================
 
     val GIT_STATUS = Tool(
@@ -612,6 +627,7 @@ object StormyTools {
      * Get all tools for agent mode
      */
     fun getAllTools(): List<Tool> = listOf(
+        // File operations
         READ_FILE,
         WRITE_FILE,
         LIST_FILES,
@@ -620,19 +636,30 @@ object StormyTools {
         RENAME_FILE,
         COPY_FILE,
         MOVE_FILE,
+        // Enhanced file operations
+        INSERT_AT_LINE,
+        GET_FILE_INFO,
+        REGEX_REPLACE,
+        APPEND_TO_FILE,
+        PREPEND_TO_FILE,
+        // Memory operations
         SAVE_MEMORY,
         RECALL_MEMORY,
         LIST_MEMORIES,
         DELETE_MEMORY,
         UPDATE_MEMORY,
+        // Search operations
         SEARCH_FILES,
         SEARCH_REPLACE,
         PATCH_FILE,
+        // Task management
         CREATE_TODO,
         UPDATE_TODO,
         LIST_TODOS,
+        // Agent control
         ASK_USER,
         FINISH_TASK,
+        THINK,
         // Git tools
         GIT_STATUS,
         GIT_STAGE,

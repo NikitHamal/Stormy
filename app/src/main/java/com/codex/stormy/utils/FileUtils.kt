@@ -356,4 +356,205 @@ object FileUtils {
         FONT(0xFF9C27B0),
         DEFAULT(0xFF808080)
     }
+
+    /**
+     * Copy a folder and its contents from a document tree URI to destination.
+     * Uses DocumentsContract for proper SAF traversal.
+     * @param context Android context
+     * @param sourceTreeUri Source document tree URI from folder picker
+     * @param destDir Destination directory
+     * @param progressCallback Optional callback for progress updates (copied files, total files)
+     * @return Result with total files copied or error
+     */
+    suspend fun copyFolderFromUri(
+        context: Context,
+        sourceTreeUri: Uri,
+        destDir: File,
+        progressCallback: ((copied: Int, total: Int) -> Unit)? = null
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val documentId = android.provider.DocumentsContract.getTreeDocumentId(sourceTreeUri)
+            val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+                sourceTreeUri,
+                documentId
+            )
+
+            // First pass: count total files for progress
+            val totalFiles = countDocumentsRecursive(context, sourceTreeUri, documentId)
+            var copiedFiles = 0
+
+            // Ensure destination exists
+            if (!destDir.exists()) {
+                destDir.mkdirs()
+            }
+
+            // Copy contents recursively
+            copyDocumentsRecursive(
+                context = context,
+                treeUri = sourceTreeUri,
+                documentId = documentId,
+                destDir = destDir
+            ) {
+                copiedFiles++
+                progressCallback?.invoke(copiedFiles, totalFiles)
+            }
+
+            Result.success(copiedFiles)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Count documents recursively in a document tree
+     */
+    private fun countDocumentsRecursive(
+        context: Context,
+        treeUri: Uri,
+        documentId: String
+    ): Int {
+        var count = 0
+        val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            documentId
+        )
+
+        context.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+            ),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID
+            )
+            val mimeIndex = cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+
+            while (cursor.moveToNext()) {
+                val childId = cursor.getString(idIndex)
+                val mimeType = cursor.getString(mimeIndex)
+
+                if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                    count += countDocumentsRecursive(context, treeUri, childId)
+                } else {
+                    count++
+                }
+            }
+        }
+
+        return count
+    }
+
+    /**
+     * Copy documents recursively from a document tree
+     */
+    private fun copyDocumentsRecursive(
+        context: Context,
+        treeUri: Uri,
+        documentId: String,
+        destDir: File,
+        onFileCopied: () -> Unit
+    ) {
+        val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            documentId
+        )
+
+        context.contentResolver.query(
+            childrenUri,
+            arrayOf(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+            ),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID
+            )
+            val nameIndex = cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME
+            )
+            val mimeIndex = cursor.getColumnIndexOrThrow(
+                android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+
+            while (cursor.moveToNext()) {
+                val childId = cursor.getString(idIndex)
+                val childName = cursor.getString(nameIndex)
+                val mimeType = cursor.getString(mimeIndex)
+
+                if (mimeType == android.provider.DocumentsContract.Document.MIME_TYPE_DIR) {
+                    // Create subdirectory and recurse
+                    val subDir = File(destDir, childName)
+                    subDir.mkdirs()
+                    copyDocumentsRecursive(context, treeUri, childId, subDir, onFileCopied)
+                } else {
+                    // Copy file
+                    val documentUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                        treeUri,
+                        childId
+                    )
+                    val destFile = File(destDir, childName)
+
+                    try {
+                        context.contentResolver.openInputStream(documentUri)?.use { input ->
+                            destFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        onFileCopied()
+                    } catch (e: Exception) {
+                        // Log and continue with other files
+                        android.util.Log.w("FileUtils", "Failed to copy file: $childName", e)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Get the display name of a document from its URI
+     */
+    fun getDocumentDisplayName(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)
+                } else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Get folder name from a document tree URI
+     */
+    fun getFolderNameFromTreeUri(context: Context, treeUri: Uri): String? {
+        return try {
+            val documentId = android.provider.DocumentsContract.getTreeDocumentId(treeUri)
+            val documentUri = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                documentId
+            )
+            getDocumentDisplayName(context, documentUri)
+        } catch (e: Exception) {
+            null
+        }
+    }
 }

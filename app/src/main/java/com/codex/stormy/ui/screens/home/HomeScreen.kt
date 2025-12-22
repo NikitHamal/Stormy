@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -95,6 +96,7 @@ fun HomeScreen(
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var showCloneDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
 
@@ -113,6 +115,25 @@ fun HomeScreen(
                 snackbarHostState.showSnackbar(error)
             }
             viewModel.clearCloneState()
+        }
+    }
+
+    // Handle import completion - navigate to imported project
+    LaunchedEffect(uiState.importedProjectId) {
+        uiState.importedProjectId?.let { projectId ->
+            viewModel.acknowledgeImportedProject()
+            showImportDialog = false
+            onProjectClick(projectId)
+        }
+    }
+
+    // Show import error
+    LaunchedEffect(uiState.importError) {
+        uiState.importError?.let { error ->
+            scope.launch {
+                snackbarHostState.showSnackbar(error)
+            }
+            viewModel.clearImportState()
         }
     }
 
@@ -180,6 +201,19 @@ fun HomeScreen(
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Outlined.Code,
+                                contentDescription = null
+                            )
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Import Folder") },
+                        onClick = {
+                            showFabMenu = false
+                            showImportDialog = true
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Upload,
                                 contentDescription = null
                             )
                         }
@@ -265,6 +299,22 @@ fun HomeScreen(
             progress = uiState.cloneProgress,
             progressMessage = uiState.cloneProgressMessage,
             error = uiState.cloneError
+        )
+    }
+
+    if (showImportDialog) {
+        ImportFolderDialog(
+            onDismiss = {
+                showImportDialog = false
+                viewModel.clearImportState()
+            },
+            onImport = { name, description, folderUri ->
+                viewModel.importFolder(name, description, folderUri)
+            },
+            isImporting = uiState.isImporting,
+            progress = uiState.importProgress,
+            progressMessage = uiState.importProgressMessage,
+            error = uiState.importError
         )
     }
 }
