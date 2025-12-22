@@ -5,6 +5,7 @@ import android.webkit.WebView
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.ai.StreamEvent
+import com.codex.stormy.data.ai.ToolCallRequest
 import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.tools.StormyTools
 import com.codex.stormy.data.ai.tools.ToolExecutor
@@ -374,11 +375,19 @@ class PreviewEditService(
 
                     // Add assistant message with tool calls to conversation history
                     val assistantContent = if (responseContent.isNotEmpty()) responseContent.toString() else null
+                    // Convert ToolCallResponse to ToolCallRequest for ChatRequestMessage
+                    val toolCallRequests = toolCalls.map { response ->
+                        ToolCallRequest(
+                            id = response.id,
+                            type = response.type,
+                            function = response.function
+                        )
+                    }
                     messages.add(
                         ChatRequestMessage(
                             role = "assistant",
                             content = assistantContent,
-                            toolCalls = toolCalls
+                            toolCalls = toolCallRequests
                         )
                     )
 
