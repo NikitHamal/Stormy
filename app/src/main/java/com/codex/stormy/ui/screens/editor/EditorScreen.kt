@@ -2,6 +2,7 @@ package com.codex.stormy.ui.screens.editor
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +48,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +70,7 @@ import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
 import com.codex.stormy.ui.screens.git.GitDrawer
 import com.codex.stormy.ui.screens.preview.PreviewActivity
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 enum class EditorTab {
@@ -90,42 +94,70 @@ fun EditorScreen(
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    // Track if any drawer is open for back handler
+    val isAnyDrawerOpen by remember {
+        derivedStateOf {
+            fileDrawerState.isOpen || assetDrawerState.isOpen || gitDrawerState.isOpen
+        }
+    }
+
+    // Ensure all drawers start closed - critical fix for auto-opening issue
     LaunchedEffect(Unit) {
-        assetDrawerState.close()
-        gitDrawerState.close()
+        // Force close all drawers on initial composition
+        fileDrawerState.snapTo(DrawerValue.Closed)
+        assetDrawerState.snapTo(DrawerValue.Closed)
+        gitDrawerState.snapTo(DrawerValue.Closed)
+    }
+
+    // Back button handler - closes drawers first before navigating back
+    BackHandler(enabled = isAnyDrawerOpen) {
+        scope.launch {
+            closeAllDrawers(
+                scope = scope,
+                fileDrawerState = fileDrawerState,
+                assetDrawerState = assetDrawerState,
+                gitDrawerState = gitDrawerState
+            )
+        }
     }
 
     // File Tree drawer (start-side drawer - outer for proper gesture handling)
     ModalNavigationDrawer(
         drawerState = fileDrawerState,
         drawerContent = {
-            FileTreeDrawer(
-                fileTree = uiState.fileTree,
-                expandedFolders = uiState.expandedFolders,
-                selectedFilePath = uiState.currentFile?.path,
-                onFileClick = { file ->
-                    viewModel.openFile(file.path)
-                    scope.launch { fileDrawerState.close() }
-                },
-                onFolderToggle = viewModel::toggleFolder,
-                onCreateFile = viewModel::createFile,
-                onCreateFolder = viewModel::createFolder,
-                onDeleteFile = viewModel::deleteFile,
-                onRenameFile = viewModel::renameFile,
-                onClose = { scope.launch { fileDrawerState.close() } }
-            )
+            // Only render drawer content when drawer is being shown to prevent unnecessary composition
+            if (fileDrawerState.isOpen || fileDrawerState.isAnimationRunning) {
+                FileTreeDrawer(
+                    fileTree = uiState.fileTree,
+                    expandedFolders = uiState.expandedFolders,
+                    selectedFilePath = uiState.currentFile?.path,
+                    onFileClick = { file ->
+                        viewModel.openFile(file.path)
+                        scope.launch { fileDrawerState.close() }
+                    },
+                    onFolderToggle = viewModel::toggleFolder,
+                    onCreateFile = viewModel::createFile,
+                    onCreateFolder = viewModel::createFolder,
+                    onDeleteFile = viewModel::deleteFile,
+                    onRenameFile = viewModel::renameFile,
+                    onClose = { scope.launch { fileDrawerState.close() } }
+                )
+            }
         },
-        gesturesEnabled = true
+        gesturesEnabled = fileDrawerState.isOpen // Only enable gestures when drawer is open
     ) {
         // Git drawer (end-side drawer - no gestures to avoid conflicts)
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                uiState.project?.let { project ->
-                    GitDrawer(
-                        projectPath = project.rootPath,
-                        onClose = { scope.launch { gitDrawerState.close() } }
-                    )
+                // Only render when drawer is being shown
+                if (gitDrawerState.isOpen || gitDrawerState.isAnimationRunning) {
+                    uiState.project?.let { project ->
+                        GitDrawer(
+                            projectPath = project.rootPath,
+                            onClose = { scope.launch { gitDrawerState.close() } }
+                        )
+                    }
                 }
             },
             gesturesEnabled = false,
@@ -135,34 +167,37 @@ fun EditorScreen(
             ModalNavigationDrawer(
                 drawerState = assetDrawerState,
                 drawerContent = {
-                    uiState.project?.let { project ->
-                        AssetManagerDrawer(
-                            projectPath = project.rootPath,
-                            onClose = { scope.launch { assetDrawerState.close() } },
-                            onAssetClick = { asset ->
-                                // Open asset file in code editor if it's a text-based file
-                                val textExtensions = listOf("svg", "json", "xml", "txt", "md")
-                                if (asset.extension.lowercase() in textExtensions) {
-                                    viewModel.openFile(asset.path)
-                                    scope.launch { assetDrawerState.close() }
+                    // Only render when drawer is being shown
+                    if (assetDrawerState.isOpen || assetDrawerState.isAnimationRunning) {
+                        uiState.project?.let { project ->
+                            AssetManagerDrawer(
+                                projectPath = project.rootPath,
+                                onClose = { scope.launch { assetDrawerState.close() } },
+                                onAssetClick = { asset ->
+                                    // Open asset file in code editor if it's a text-based file
+                                    val textExtensions = listOf("svg", "json", "xml", "txt", "md")
+                                    if (asset.extension.lowercase() in textExtensions) {
+                                        viewModel.openFile(asset.path)
+                                        scope.launch { assetDrawerState.close() }
+                                    }
+                                },
+                                onAssetDelete = { asset ->
+                                    // Refresh file tree after deletion
+                                    viewModel.refreshFileTree()
+                                },
+                                onAssetAdded = {
+                                    // Refresh file tree after adding asset
+                                    viewModel.refreshFileTree()
+                                },
+                                onCopyPath = { path ->
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.assets_path_copied),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
-                            },
-                            onAssetDelete = { asset ->
-                                // Refresh file tree after deletion
-                                viewModel.refreshFileTree()
-                            },
-                            onAssetAdded = {
-                                // Refresh file tree after adding asset
-                                viewModel.refreshFileTree()
-                            },
-                            onCopyPath = { path ->
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.assets_path_copied),
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        )
+                            )
+                        }
                     }
                 },
                 gesturesEnabled = false
@@ -171,10 +206,45 @@ fun EditorScreen(
                     topBar = {
                         EditorTopBar(
                             projectName = uiState.project?.name ?: "",
-                            onBackClick = onBackClick,
-                            onMenuClick = { scope.launch { fileDrawerState.open() } },
-                            onAssetsClick = { scope.launch { assetDrawerState.open() } },
-                            onGitClick = { scope.launch { gitDrawerState.open() } },
+                            onBackClick = {
+                                // Close drawers first if any are open, otherwise navigate back
+                                if (isAnyDrawerOpen) {
+                                    scope.launch {
+                                        closeAllDrawers(
+                                            scope = scope,
+                                            fileDrawerState = fileDrawerState,
+                                            assetDrawerState = assetDrawerState,
+                                            gitDrawerState = gitDrawerState
+                                        )
+                                    }
+                                } else {
+                                    onBackClick()
+                                }
+                            },
+                            onMenuClick = {
+                                scope.launch {
+                                    // Close other drawers first
+                                    if (gitDrawerState.isOpen) gitDrawerState.close()
+                                    if (assetDrawerState.isOpen) assetDrawerState.close()
+                                    fileDrawerState.open()
+                                }
+                            },
+                            onAssetsClick = {
+                                scope.launch {
+                                    // Close other drawers first
+                                    if (fileDrawerState.isOpen) fileDrawerState.close()
+                                    if (gitDrawerState.isOpen) gitDrawerState.close()
+                                    assetDrawerState.open()
+                                }
+                            },
+                            onGitClick = {
+                                scope.launch {
+                                    // Close other drawers first
+                                    if (fileDrawerState.isOpen) fileDrawerState.close()
+                                    if (assetDrawerState.isOpen) assetDrawerState.close()
+                                    gitDrawerState.open()
+                                }
+                            },
                             onPreviewClick = {
                                 uiState.project?.let { project ->
                                     val intent = Intent(context, PreviewActivity::class.java).apply {
@@ -188,68 +258,89 @@ fun EditorScreen(
                         )
                     }
                 ) { innerPadding ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                ) {
-                    EditorTabs(
-                        selectedTab = uiState.selectedTab,
-                        onTabSelected = viewModel::selectTab
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        EditorTabs(
+                            selectedTab = uiState.selectedTab,
+                            onTabSelected = viewModel::selectTab
+                        )
 
-                    AnimatedContent(
-                        targetState = uiState.selectedTab,
-                        transitionSpec = {
-                            fadeIn() togetherWith fadeOut()
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                        label = "editor_tab_content"
-                    ) { tab ->
-                        when (tab) {
-                            EditorTab.CHAT -> ChatTab(
-                                messages = uiState.messages,
-                                inputText = uiState.chatInput,
-                                isLoading = uiState.isAiProcessing,
-                                agentMode = uiState.agentMode,
-                                taskList = uiState.taskList,
-                                currentModel = uiState.currentModel,
-                                availableModels = uiState.availableModels,
-                                onInputChange = viewModel::updateChatInput,
-                                onSendMessage = viewModel::sendMessage,
-                                onToggleAgentMode = viewModel::toggleAgentMode,
-                                onModelChange = viewModel::setModel
-                            )
-                            EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
-                                // File tabs row
-                                if (uiState.openFiles.isNotEmpty()) {
-                                    FileTabsRow(
-                                        openFiles = uiState.openFiles,
-                                        currentIndex = uiState.currentFileIndex,
-                                        onTabClick = viewModel::switchToFileTab,
-                                        onTabClose = viewModel::closeFileTab,
-                                        onCloseOthers = viewModel::closeOtherTabs,
-                                        onCloseAll = viewModel::closeAllTabs
+                        AnimatedContent(
+                            targetState = uiState.selectedTab,
+                            transitionSpec = {
+                                fadeIn() togetherWith fadeOut()
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                            label = "editor_tab_content"
+                        ) { tab ->
+                            when (tab) {
+                                EditorTab.CHAT -> ChatTab(
+                                    messages = uiState.messages,
+                                    inputText = uiState.chatInput,
+                                    isLoading = uiState.isAiProcessing,
+                                    agentMode = uiState.agentMode,
+                                    taskList = uiState.taskList,
+                                    currentModel = uiState.currentModel,
+                                    availableModels = uiState.availableModels,
+                                    onInputChange = viewModel::updateChatInput,
+                                    onSendMessage = viewModel::sendMessage,
+                                    onToggleAgentMode = viewModel::toggleAgentMode,
+                                    onModelChange = viewModel::setModel
+                                )
+                                EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
+                                    // File tabs row
+                                    if (uiState.openFiles.isNotEmpty()) {
+                                        FileTabsRow(
+                                            openFiles = uiState.openFiles,
+                                            currentIndex = uiState.currentFileIndex,
+                                            onTabClick = viewModel::switchToFileTab,
+                                            onTabClose = viewModel::closeFileTab,
+                                            onCloseOthers = viewModel::closeOtherTabs,
+                                            onCloseAll = viewModel::closeAllTabs
+                                        )
+                                    }
+
+                                    CodeTab(
+                                        currentFile = uiState.currentFile,
+                                        fileContent = uiState.fileContent,
+                                        isModified = uiState.isFileModified,
+                                        lineNumbers = uiState.showLineNumbers,
+                                        wordWrap = uiState.wordWrap,
+                                        fontSize = uiState.fontSize,
+                                        onContentChange = viewModel::updateFileContent,
+                                        onSave = viewModel::saveCurrentFile
                                     )
                                 }
-
-                                CodeTab(
-                                    currentFile = uiState.currentFile,
-                                    fileContent = uiState.fileContent,
-                                    isModified = uiState.isFileModified,
-                                    lineNumbers = uiState.showLineNumbers,
-                                    wordWrap = uiState.wordWrap,
-                                    fontSize = uiState.fontSize,
-                                    onContentChange = viewModel::updateFileContent,
-                                    onSave = viewModel::saveCurrentFile
-                                )
                             }
                         }
                     }
                 }
             }
         }
-        }
+    }
+}
+
+/**
+ * Helper function to close all drawers
+ */
+private suspend fun closeAllDrawers(
+    scope: CoroutineScope,
+    fileDrawerState: DrawerState,
+    assetDrawerState: DrawerState,
+    gitDrawerState: DrawerState
+) {
+    // Close drawers in order of priority (innermost first to prevent visual glitches)
+    if (assetDrawerState.isOpen) {
+        assetDrawerState.close()
+    }
+    if (gitDrawerState.isOpen) {
+        gitDrawerState.close()
+    }
+    if (fileDrawerState.isOpen) {
+        fileDrawerState.close()
     }
 }
 

@@ -891,11 +891,8 @@ private fun getAssetIcon(type: AssetType): androidx.compose.ui.graphics.vector.I
 }
 
 private fun formatFileSize(size: Long): String {
-    return when {
-        size < 1024 -> "$size B"
-        size < 1024 * 1024 -> "${size / 1024} KB"
-        else -> String.format("%.1f MB", size / (1024.0 * 1024.0))
-    }
+    // Use centralized FileUtils for consistent formatting across app
+    return com.codex.stormy.utils.FileUtils.formatFileSize(size)
 }
 
 private fun getAssetType(extension: String): AssetType {
