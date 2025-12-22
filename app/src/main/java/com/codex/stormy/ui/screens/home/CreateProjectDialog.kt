@@ -32,7 +32,7 @@ import androidx.compose.material.icons.outlined.Html
 import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.ThreeDRotation
+import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -85,7 +85,7 @@ private fun getTemplateIcon(template: ProjectTemplate): ImageVector = when (temp
     ProjectTemplate.ANDROID_APP -> Icons.Outlined.Android
     ProjectTemplate.PWA -> Icons.Outlined.InstallMobile
     ProjectTemplate.PHASER -> Icons.Outlined.Games
-    ProjectTemplate.THREE_JS -> Icons.Outlined.ThreeDRotation
+    ProjectTemplate.THREE_JS -> Icons.Outlined.ViewInAr
     ProjectTemplate.EXPRESS_API -> Icons.Outlined.Api
     ProjectTemplate.PORTFOLIO -> Icons.Outlined.Person
     ProjectTemplate.BLOG -> Icons.Outlined.Article
