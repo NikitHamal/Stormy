@@ -215,26 +215,39 @@ class ProjectRepository(
      * Import a single file from a URI to an existing project.
      * @param projectId Target project ID
      * @param fileUri URI from file picker
-     * @param targetPath Target path within project (relative)
+     * @param targetFolderPath Target folder path within project (relative, empty string for root)
      * @return Result with the imported file path or error
      */
     suspend fun importFileToProject(
         projectId: String,
         fileUri: Uri,
-        targetPath: String
+        targetFolderPath: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val project = projectDao.getProjectById(projectId)
                 ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
 
-            val targetDir = File(project.rootPath, targetPath).parentFile ?: File(project.rootPath)
-            val fileName = targetPath.substringAfterLast("/")
+            // Determine target directory - root if empty, otherwise the specified folder
+            val targetDir = if (targetFolderPath.isEmpty()) {
+                File(project.rootPath)
+            } else {
+                File(project.rootPath, targetFolderPath)
+            }
 
+            // Ensure target directory exists
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+
+            // Get the original filename from the URI
+            val originalFileName = FileUtils.getDocumentDisplayName(context, fileUri)
+
+            // Copy file with original filename
             val copyResult = FileUtils.copyFromUri(
                 context = context,
                 sourceUri = fileUri,
                 destDir = targetDir,
-                fileName = fileName
+                fileName = originalFileName
             )
 
             copyResult.onSuccess {
@@ -244,6 +257,51 @@ class ProjectRepository(
             copyResult.map { file ->
                 file.absolutePath.removePrefix(project.rootPath + File.separator)
             }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Import a folder and its contents from a URI to an existing project.
+     * @param projectId Target project ID
+     * @param folderUri URI from folder picker (document tree URI)
+     * @param targetFolderPath Target folder path within project (relative, empty string for root)
+     * @return Result with the number of files imported or error
+     */
+    suspend fun importFolderToProject(
+        projectId: String,
+        folderUri: Uri,
+        targetFolderPath: String
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            // Determine target directory - root if empty, otherwise the specified folder
+            val targetDir = if (targetFolderPath.isEmpty()) {
+                File(project.rootPath)
+            } else {
+                File(project.rootPath, targetFolderPath)
+            }
+
+            // Ensure target directory exists
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+
+            // Copy folder contents recursively
+            val copyResult = FileUtils.copyFolderFromUri(
+                context = context,
+                sourceTreeUri = folderUri,
+                destDir = targetDir
+            )
+
+            copyResult.onSuccess {
+                projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            }
+
+            copyResult
         } catch (e: Exception) {
             Result.failure(e)
         }
