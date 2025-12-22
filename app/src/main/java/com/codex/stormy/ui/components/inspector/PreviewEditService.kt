@@ -583,11 +583,3 @@ Instructions:
         _status.value = PreviewEditStatus.Idle
     }
 }
-
-/**
- * Data class for agent-selected elements
- */
-data class AgentSelectedElement(
-    val selector: String,
-    val outerHTML: String
-)
