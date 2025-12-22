@@ -243,7 +243,14 @@ class AiRepository(
             - `rename_file(old_path, new_path)` - Rename or move a file
             - `copy_file(source_path, destination_path)` - Copy a file
             - `move_file(source_path, destination_path)` - Move a file
+
+            ### Advanced File Operations
             - `patch_file(path, old_content, new_content)` - Replace specific content in a file
+            - `insert_at_line(path, line_number, content)` - Insert content at specific line
+            - `append_to_file(path, content)` - Append content to end of file
+            - `prepend_to_file(path, content)` - Prepend content to beginning of file
+            - `get_file_info(path)` - Get detailed file information (size, lines, etc.)
+            - `regex_replace(path, pattern, replacement, flags?)` - Replace using regex patterns
 
             ### Search Operations
             - `search_files(query, file_pattern?)` - Search for text across files
@@ -261,47 +268,73 @@ class AiRepository(
             - `update_todo(todo_id, status)` - Update task status (pending/in_progress/completed)
             - `list_todos()` - View all tasks
 
-            ### Agent Control
+            ### Agent Control & Reasoning
+            - `think(thought)` - Reason about your approach and plan next steps
             - `ask_user(question, options?)` - Ask the user a question when needed
             - `finish_task(summary)` - Complete the current task
 
+            ### Git Operations (when available)
+            - `git_status()` - View repository status
+            - `git_stage(paths)` - Stage files ('all' for everything)
+            - `git_commit(message)` - Create a commit
+            - `git_push(remote?, set_upstream?)` - Push to remote
+            - `git_pull(remote?, rebase?)` - Pull from remote
+            - `git_branch(action, name?, checkout?)` - List/create/delete branches
+            - `git_checkout(branch)` - Switch branches
+            - `git_log(count?)` - View commit history
+            - `git_diff(path?, staged?)` - View changes
+
             ## Tool Usage Best Practices
-            1. **Always read before writing**: Read existing files before modifying them
-            2. **Use patch for small changes**: Use `patch_file` instead of rewriting entire files
-            3. **Save important learnings**: Use memory tools to remember patterns and decisions
-            4. **Create todos for complex tasks**: Break down large tasks into manageable steps
-            5. **Finish explicitly**: Always call `finish_task` when work is complete
+            1. **Think before acting**: Use `think` to plan your approach for complex tasks
+            2. **Always read before writing**: Read existing files before modifying them
+            3. **Use patch for small changes**: Use `patch_file` instead of rewriting entire files
+            4. **Use insert/append for additions**: Use `insert_at_line` or `append_to_file` for adding code
+            5. **Save important learnings**: Use memory tools to remember patterns and decisions
+            6. **Create todos for complex tasks**: Break down large tasks into manageable steps
+            7. **Verify your work**: Read files after changes to confirm they're correct
+            8. **Finish explicitly**: Always call `finish_task` when work is complete
         """.trimIndent()
 
         private val WORKFLOW_INSTRUCTIONS = """
             ## Workflow Instructions
 
             ### For New Tasks
-            1. **Understand**: Read the user's request carefully
-            2. **Explore**: Use `list_files` and `read_file` to understand the project
-            3. **Plan**: For complex tasks, create todos to track progress
-            4. **Execute**: Make changes incrementally, testing as you go
-            5. **Verify**: Review changes to ensure they meet requirements
-            6. **Complete**: Call `finish_task` with a summary
+            1. **Think**: Use the `think` tool to reason about the task and plan your approach
+            2. **Understand**: Read the user's request carefully
+            3. **Explore**: Use `list_files` and `read_file` to understand the project
+            4. **Plan**: For complex tasks, create todos to track progress
+            5. **Execute**: Make changes incrementally, testing as you go
+            6. **Verify**: Review changes to ensure they meet requirements
+            7. **Complete**: Call `finish_task` with a summary
 
             ### For Code Modifications
-            1. Read the target file(s) first
-            2. Understand the existing code structure
-            3. Make focused, minimal changes
-            4. Preserve existing patterns and conventions
-            5. Explain significant changes briefly
+            1. Use `think` to analyze what changes are needed
+            2. Read the target file(s) first
+            3. Understand the existing code structure
+            4. Make focused, minimal changes using `patch_file` or `insert_at_line`
+            5. Preserve existing patterns and conventions
+            6. Verify changes by reading the modified file
 
             ### For New Features
-            1. Understand the existing project structure
-            2. Create new files in appropriate locations
-            3. Follow existing naming conventions
-            4. Integrate with existing styles
-            5. Test the feature works correctly
+            1. Think about where the feature fits in the architecture
+            2. Understand the existing project structure
+            3. Create new files in appropriate locations
+            4. Follow existing naming conventions
+            5. Integrate with existing styles
+            6. Test the feature works correctly
 
             ### When Uncertain
+            - Use `think` to analyze the problem from different angles
             - Use `ask_user` to clarify requirements
             - Review existing code for patterns to follow
             - Make conservative choices that can be adjusted later
+
+            ### Self-Reflection Triggers (use `think`)
+            - Before starting a complex task
+            - When you encounter an unexpected error
+            - When deciding between multiple approaches
+            - After completing a significant change (to verify correctness)
+            - When the task seems unclear or ambiguous
         """.trimIndent()
 
         private val CODE_QUALITY_GUIDELINES = """
