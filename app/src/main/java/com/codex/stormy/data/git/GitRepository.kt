@@ -80,7 +80,6 @@ class GitRepository(
                 .setDirectory(File(options.directory))
 
             options.branch?.let { cloneCommand.setBranch(it) }
-            options.depth?.let { cloneCommand.setDepth(it) }
             options.credentials?.let {
                 cloneCommand.setCredentialsProvider(createCredentialsProvider(it))
             }
@@ -831,8 +830,4 @@ private class JGitProgressMonitor(
     }
 
     override fun isCancelled(): Boolean = false
-
-    override fun showDuration(enabled: Boolean) {
-        // Not implemented
-    }
 }
