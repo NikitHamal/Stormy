@@ -814,23 +814,27 @@ private fun PreviewScreen(
             val currentModel = remember { mutableStateOf<com.codex.stormy.data.ai.AiModel?>(null) }
 
             // Load current model using proper resolution priority
-            LaunchedEffect(Unit) {
+            LaunchedEffect(projectId) {
                 val app = CodeXApplication.getInstance()
+                val project = app.projectRepository.getProjectById(projectId)
 
-                // Priority 1: Project's last used model (would need project access)
-                // For preview, we use user's default or first enabled model
+                var resolvedModel: com.codex.stormy.data.ai.AiModel? = null
+
+                // Priority 1: Project's last used model
+                if (project != null && !project.lastUsedModelId.isNullOrEmpty()) {
+                    resolvedModel = app.aiModelRepository.getModelById(project.lastUsedModelId)
+                }
 
                 // Priority 2: User's global default model
-                val defaultModelId = app.preferencesRepository.defaultModelId.first()
-                if (defaultModelId.isNotEmpty()) {
-                    currentModel.value = app.aiModelRepository.getModelById(defaultModelId)
+                if (resolvedModel == null) {
+                    val defaultModelId = app.preferencesRepository.defaultModelId.first()
+                    if (defaultModelId.isNotEmpty()) {
+                        resolvedModel = app.aiModelRepository.getModelById(defaultModelId)
+                    }
                 }
 
-                // Priority 3: First enabled model as fallback
-                if (currentModel.value == null) {
-                    val enabledModels = app.aiModelRepository.getEnabledModels()
-                    currentModel.value = enabledModels.firstOrNull()
-                }
+                // Priority 3: null (no model selected - user must select one)
+                currentModel.value = resolvedModel
             }
 
             // Agent selection floating prompt bar
@@ -853,6 +857,10 @@ private fun PreviewScreen(
                                 )
                             }
 
+                            val app = CodeXApplication.getInstance()
+                            scope.launch {
+                                app.projectRepository.updateLastUsedModelId(projectId, model.id)
+                            }
                             previewEditService.applyAgentEdit(
                                 prompt = prompt,
                                 elements = agentElements,

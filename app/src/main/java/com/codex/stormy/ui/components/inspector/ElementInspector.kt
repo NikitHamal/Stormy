@@ -1289,6 +1289,7 @@ private fun ImageTab(
 /**
  * Text tab - Typography settings
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TextTab(
     element: InspectorElementData,
