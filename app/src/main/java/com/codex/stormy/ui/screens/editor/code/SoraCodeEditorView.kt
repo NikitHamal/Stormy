@@ -42,6 +42,7 @@ fun SoraCodeEditorView(
     showLineNumbers: Boolean,
     wordWrap: Boolean,
     fontSize: Float,
+    codeAutocompletion: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -69,12 +70,13 @@ fun SoraCodeEditorView(
     }
 
     // Update editor settings when they change
-    LaunchedEffect(showLineNumbers, wordWrap, fontSize, editorInstance) {
+    LaunchedEffect(showLineNumbers, wordWrap, fontSize, codeAutocompletion, editorInstance) {
         editorInstance?.let { editor ->
             withContext(Dispatchers.Main) {
                 editor.isLineNumberEnabled = showLineNumbers
                 editor.isWordwrap = wordWrap
                 editor.setTextSize(fontSize)
+                editor.getComponent(EditorAutoCompletion::class.java)?.isEnabled = codeAutocompletion
             }
         }
     }
@@ -112,6 +114,7 @@ fun SoraCodeEditorView(
                 editor.isLineNumberEnabled = showLineNumbers
                 editor.isWordwrap = wordWrap
                 editor.setTextSize(fontSize)
+                editor.getComponent(EditorAutoCompletion::class.java)?.isEnabled = codeAutocompletion
 
                 // Set up content change listener
                 editor.subscribeEvent(ContentChangeEvent::class.java) { event, _ ->

@@ -344,6 +344,7 @@ fun EditorScreen(
                                         lineNumbers = uiState.showLineNumbers,
                                         wordWrap = uiState.wordWrap,
                                         fontSize = uiState.fontSize,
+                                        codeAutocompletion = uiState.codeAutocompletion,
                                         onContentChange = viewModel::updateFileContent,
                                         onSave = viewModel::saveCurrentFile
                                     )

@@ -122,6 +122,21 @@ data class GeminiUsageMetadata(
 /**
  * Response model for Gemini models API
  */
+/**
+ * Error response model for Gemini API
+ */
+@Serializable
+data class GeminiErrorResponse(
+    val error: GeminiErrorDetail? = null
+)
+
+@Serializable
+data class GeminiErrorDetail(
+    val code: Int? = null,
+    val message: String? = null,
+    val status: String? = null
+)
+
 @Serializable
 data class GeminiModelsResponse(
     val models: List<GeminiModelInfo>
@@ -166,6 +181,65 @@ class GeminiProvider(
     }
 
     /**
+     * Normalize model ID to ensure correct format for Gemini API
+     * Gemini API expects: models/gemini-1.5-pro
+     */
+    private fun normalizeModelId(modelId: String): String {
+        // If already has models/ prefix, use as-is
+        if (modelId.startsWith("models/")) {
+            return modelId
+        }
+        // Otherwise add the prefix
+        return "models/$modelId"
+    }
+
+    /**
+     * Parse Gemini API error response to provide user-friendly error messages
+     */
+    private fun parseGeminiError(statusCode: Int, errorBody: String?): String {
+        return try {
+            if (errorBody.isNullOrBlank()) {
+                return getDefaultErrorMessage(statusCode)
+            }
+
+            // Try to parse the error JSON
+            val errorResponse = json.decodeFromString<GeminiErrorResponse>(errorBody)
+            val errorMessage = errorResponse.error?.message ?: errorResponse.error?.status
+
+            when {
+                errorMessage?.contains("not found", ignoreCase = true) == true ->
+                    "Model not found. Please check that the model is available and try again."
+                errorMessage?.contains("API key", ignoreCase = true) == true || statusCode == 401 ->
+                    "Invalid API key. Please check your Gemini API key in Settings."
+                errorMessage?.contains("quota", ignoreCase = true) == true || statusCode == 429 ->
+                    "API quota exceeded. Please try again later or check your usage limits."
+                errorMessage?.contains("permission", ignoreCase = true) == true || statusCode == 403 ->
+                    "Access denied. Your API key may not have permission to use this model."
+                statusCode == 400 ->
+                    "Invalid request: ${errorMessage ?: "Please check your input"}"
+                statusCode == 503 ->
+                    "Service temporarily unavailable. Please try again later."
+                else -> errorMessage ?: getDefaultErrorMessage(statusCode)
+            }
+        } catch (e: Exception) {
+            getDefaultErrorMessage(statusCode)
+        }
+    }
+
+    private fun getDefaultErrorMessage(statusCode: Int): String {
+        return when (statusCode) {
+            400 -> "Bad request. Please try again."
+            401 -> "Invalid API key. Please check your Gemini API key in Settings."
+            403 -> "Access denied. Please check your API key permissions."
+            404 -> "Model not found. Please select a different model."
+            429 -> "Rate limit exceeded. Please wait a moment and try again."
+            500 -> "Server error. Please try again later."
+            503 -> "Service temporarily unavailable. Please try again later."
+            else -> "Request failed with status $statusCode"
+        }
+    }
+
+    /**
      * Send a chat completion request with streaming response
      */
     fun streamChatCompletion(
@@ -193,8 +267,9 @@ class GeminiProvider(
             val requestBody = json.encodeToString(GeminiRequest.serializer(), request)
                 .toRequestBody("application/json".toMediaType())
 
+            val normalizedModelId = normalizeModelId(model.id)
             val httpRequest = Request.Builder()
-                .url("$baseUrl/${model.id}:streamGenerateContent?key=$apiKey&alt=sse")
+                .url("$baseUrl/$normalizedModelId:streamGenerateContent?key=$apiKey&alt=sse")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("User-Agent", USER_AGENT)
                 .post(requestBody)
@@ -204,7 +279,8 @@ class GeminiProvider(
 
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string()
-                trySend(StreamEvent.Error("Request failed: ${response.code} - ${errorBody ?: response.message}"))
+                val errorMessage = parseGeminiError(response.code, errorBody)
+                trySend(StreamEvent.Error(errorMessage))
                 channel.close()
                 return@callbackFlow
             }
@@ -315,8 +391,9 @@ class GeminiProvider(
             val requestBody = json.encodeToString(GeminiRequest.serializer(), request)
                 .toRequestBody("application/json".toMediaType())
 
+            val normalizedModelId = normalizeModelId(model.id)
             val httpRequest = Request.Builder()
-                .url("$baseUrl/${model.id}:generateContent?key=$apiKey")
+                .url("$baseUrl/$normalizedModelId:generateContent?key=$apiKey")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("User-Agent", USER_AGENT)
                 .post(requestBody)
@@ -326,9 +403,8 @@ class GeminiProvider(
 
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string()
-                return@withContext Result.failure(
-                    IOException("Request failed: ${response.code} - ${errorBody ?: response.message}")
-                )
+                val errorMessage = parseGeminiError(response.code, errorBody)
+                return@withContext Result.failure(IOException(errorMessage))
             }
 
             val responseBody = response.body?.string()

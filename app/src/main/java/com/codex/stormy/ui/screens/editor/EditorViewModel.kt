@@ -70,6 +70,7 @@ data class EditorUiState(
     val showLineNumbers: Boolean = true,
     val wordWrap: Boolean = true,
     val fontSize: Float = 14f,
+    val codeAutocompletion: Boolean = true,
     val isLoading: Boolean = false,
     val error: String? = null,
     val agentMode: Boolean = true,
@@ -181,6 +182,8 @@ class EditorViewModel(
         state.copy(wordWrap = wordWrap)
     }.combine(preferencesRepository.fontSize) { state, fontSize ->
         state.copy(fontSize = fontSize)
+    }.combine(preferencesRepository.codeAutocompletion) { state, codeAutocompletion ->
+        state.copy(codeAutocompletion = codeAutocompletion)
     }.combine(_contextTokenCount) { state, tokenCount ->
         state.copy(contextTokenCount = tokenCount)
     }.combine(_contextMaxTokens) { state, maxTokens ->
@@ -327,43 +330,23 @@ class EditorViewModel(
 
     /**
      * Load persisted chat history from database
-     * Uses smart merging to prevent duplicate messages and race conditions
+     * Uses a simpler approach: database is always the source of truth when not streaming
      */
     private fun loadChatHistory() {
         viewModelScope.launch {
             chatRepository.getMessagesForProject(projectId).collect { dbMessages ->
-                // Only update if we're not currently processing (to avoid overwriting streaming)
+                // Only update from database if we're not currently processing AI response
+                // During AI processing, the in-memory state is managed by streaming logic
                 if (!_isAiProcessing.value) {
-                    // Smart merge: use database as source of truth, but preserve order
-                    // and prevent duplicates by comparing message IDs
-                    val currentMessages = _messages.value
-                    val currentIds = currentMessages.map { it.id }.toSet()
-                    val dbIds = dbMessages.map { it.id }.toSet()
-
-                    // If the sets of IDs match, use database version (may have updated content)
-                    // If they differ, prefer database but this shouldn't happen in normal flow
-                    if (currentIds == dbIds && currentMessages.size == dbMessages.size) {
-                        // IDs match - safe to replace with database version
-                        _messages.value = dbMessages
-                    } else if (currentMessages.isEmpty() || dbMessages.containsAll(currentIds)) {
-                        // Initial load or database has all our messages - use database
-                        _messages.value = dbMessages
-                    }
-                    // Otherwise keep current in-memory state to prevent race condition issues
+                    // Database is the source of truth when not streaming
+                    // Use distinctBy to prevent any duplicate IDs just in case
+                    _messages.value = dbMessages.distinctBy { it.id }
 
                     // Rebuild message history for AI context
                     rebuildMessageHistoryFromMessages(_messages.value)
                 }
             }
         }
-    }
-
-    /**
-     * Check if database messages contain all the given IDs
-     */
-    private fun List<ChatMessage>.containsAll(ids: Set<String>): Boolean {
-        val dbIds = this.map { it.id }.toSet()
-        return dbIds.containsAll(ids)
     }
 
     /**

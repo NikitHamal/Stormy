@@ -2,13 +2,17 @@ package com.codex.stormy.ui.screens.home
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,13 +33,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material3.AlertDialog
@@ -57,13 +65,17 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,8 +83,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -99,6 +115,18 @@ fun HomeScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
+    var projectToEdit by remember { mutableStateOf<Project?>(null) }
+
+    // Multi-select state
+    var isSelectionMode by remember { mutableStateOf(false) }
+    val selectedProjects = remember { mutableStateListOf<String>() }
+
+    // Exit selection mode when all items are deselected
+    LaunchedEffect(selectedProjects.size) {
+        if (selectedProjects.isEmpty() && isSelectionMode) {
+            isSelectionMode = false
+        }
+    }
 
     // Handle clone completion - navigate to cloned project
     LaunchedEffect(uiState.clonedProjectId) {
@@ -141,22 +169,78 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = context.getString(R.string.home_title),
-                        style = MaterialTheme.typography.headlineSmall
-                    )
+                navigationIcon = {
+                    if (isSelectionMode) {
+                        IconButton(onClick = {
+                            selectedProjects.clear()
+                            isSelectionMode = false
+                        }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Cancel selection"
+                            )
+                        }
+                    }
                 },
-                actions = {
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = context.getString(R.string.action_settings)
+                title = {
+                    if (isSelectionMode) {
+                        Text(
+                            text = "${selectedProjects.size} selected",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    } else {
+                        Text(
+                            text = context.getString(R.string.home_title),
+                            style = MaterialTheme.typography.headlineSmall
                         )
                     }
                 },
+                actions = {
+                    if (isSelectionMode) {
+                        // Select all action
+                        IconButton(onClick = {
+                            if (selectedProjects.size == uiState.projects.size) {
+                                selectedProjects.clear()
+                            } else {
+                                selectedProjects.clear()
+                                selectedProjects.addAll(uiState.projects.map { it.id })
+                            }
+                        }) {
+                            Icon(
+                                imageVector = Icons.Outlined.SelectAll,
+                                contentDescription = "Select all"
+                            )
+                        }
+                        // Delete selected action
+                        IconButton(onClick = {
+                            // Delete all selected projects
+                            selectedProjects.forEach { projectId ->
+                                viewModel.deleteProject(projectId)
+                            }
+                            selectedProjects.clear()
+                            isSelectionMode = false
+                        }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = "Delete selected",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = onSettingsClick) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = context.getString(R.string.action_settings)
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = if (isSelectionMode) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    }
                 )
             )
         },
@@ -252,12 +336,32 @@ fun HomeScreen(
                     ProjectsList(
                         projects = uiState.projects,
                         onProjectClick = { project ->
-                            viewModel.openProject(project.id)
-                            onProjectClick(project.id)
+                            if (isSelectionMode) {
+                                // Toggle selection
+                                if (selectedProjects.contains(project.id)) {
+                                    selectedProjects.remove(project.id)
+                                } else {
+                                    selectedProjects.add(project.id)
+                                }
+                            } else {
+                                viewModel.openProject(project.id)
+                                onProjectClick(project.id)
+                            }
                         },
                         onDeleteClick = { project ->
                             projectToDelete = project
                         },
+                        onEditClick = { project ->
+                            projectToEdit = project
+                        },
+                        onLongClick = { project ->
+                            if (!isSelectionMode) {
+                                isSelectionMode = true
+                                selectedProjects.add(project.id)
+                            }
+                        },
+                        isSelectionMode = isSelectionMode,
+                        selectedProjects = selectedProjects,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -282,6 +386,17 @@ fun HomeScreen(
             onConfirm = {
                 viewModel.deleteProject(project.id)
                 projectToDelete = null
+            }
+        )
+    }
+
+    projectToEdit?.let { project ->
+        EditProjectDialog(
+            project = project,
+            onDismiss = { projectToEdit = null },
+            onConfirm = { newName, newDescription ->
+                viewModel.updateProject(project.id, newName, newDescription)
+                projectToEdit = null
             }
         )
     }
@@ -445,8 +560,14 @@ private fun ProjectsList(
     projects: List<Project>,
     onProjectClick: (Project) -> Unit,
     onDeleteClick: (Project) -> Unit,
+    onEditClick: (Project) -> Unit,
+    onLongClick: (Project) -> Unit,
+    isSelectionMode: Boolean,
+    selectedProjects: List<String>,
     modifier: Modifier = Modifier
 ) {
+    val hapticFeedback = LocalHapticFeedback.current
+
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -456,10 +577,17 @@ private fun ProjectsList(
             items = projects,
             key = { it.id }
         ) { project ->
-            ProjectCard(
+            SwipeableProjectCard(
                 project = project,
                 onClick = { onProjectClick(project) },
                 onDeleteClick = { onDeleteClick(project) },
+                onEditClick = { onEditClick(project) },
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick(project)
+                },
+                isSelectionMode = isSelectionMode,
+                isSelected = selectedProjects.contains(project.id),
                 modifier = Modifier
                     .fillMaxWidth()
                     .animateItem(
@@ -475,100 +603,193 @@ private fun ProjectsList(
     }
 }
 
+/**
+ * Swipeable project card with swipe-to-delete and selection support
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProjectCard(
+private fun SwipeableProjectCard(
     project: Project,
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    onEditClick: () -> Unit,
+    onLongClick: () -> Unit,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { dismissValue ->
+            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                onDeleteClick()
+                false // Return false to not actually dismiss (let dialog handle it)
+            } else {
+                false
+            }
+        }
+    )
 
-    Card(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    // Animate selection scale
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 0.95f else 1f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "selection_scale"
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = !isSelectionMode,
+        backgroundContent = {
+            // Delete background
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.FolderOpen,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer
                 )
             }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = project.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (project.description.isNotEmpty()) {
-                    Text(
-                        text = project.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Text(
-                    text = project.formattedLastOpened,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(
-                        imageVector = Icons.Outlined.MoreVert,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
+        },
+        content = {
+            Card(
+                modifier = Modifier
+                    .scale(scale)
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    ),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    }
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = {
-                            showMenu = false
-                            onDeleteClick()
-                        },
-                        leadingIcon = {
+                    // Selection indicator or folder icon
+                    if (isSelectionMode) {
+                        Icon(
+                            imageVector = if (isSelected) {
+                                Icons.Outlined.CheckCircle
+                            } else {
+                                Icons.Outlined.RadioButtonUnchecked
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
-                                imageVector = Icons.Outlined.Delete,
+                                imageVector = Icons.Outlined.FolderOpen,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
-                    )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = project.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (project.description.isNotEmpty()) {
+                            Text(
+                                text = project.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = project.formattedLastOpened,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+
+                    // Only show menu in non-selection mode
+                    if (!isSelectionMode) {
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.MoreVert,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit") },
+                                    onClick = {
+                                        showMenu = false
+                                        onEditClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        showMenu = false
+                                        onDeleteClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Delete,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -600,6 +821,66 @@ private fun DeleteProjectDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(context.getString(R.string.action_cancel))
+            }
+        }
+    )
+}
+
+/**
+ * Dialog for editing project name and description
+ */
+@Composable
+private fun EditProjectDialog(
+    project: Project,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit
+) {
+    var name by remember { mutableStateOf(project.name) }
+    var description by remember { mutableStateOf(project.description) }
+    val focusManager = LocalFocusManager.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Edit Project")
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Project Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (Optional)") },
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim(), description.trim()) },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )

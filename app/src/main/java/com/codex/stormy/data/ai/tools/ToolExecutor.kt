@@ -62,7 +62,12 @@ class ToolExecutor(
     private val memoryStorage: MemoryStorage,
     private val gitManager: GitManager? = null
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
+    // JSON parser with lenient settings for more robust parsing
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
 
     // Current project path for Git operations
     private var currentProjectPath: File? = null
@@ -88,7 +93,13 @@ class ToolExecutor(
         toolCall: ToolCallResponse
     ): ToolResult {
         return try {
-            val arguments = json.parseToJsonElement(toolCall.function.arguments).jsonObject
+            // Parse arguments with robust error handling
+            val arguments = parseToolArguments(toolCall.function.arguments)
+                ?: return ToolResult(
+                    success = false,
+                    output = "",
+                    error = "Failed to parse tool arguments. The AI sent malformed JSON."
+                )
 
             when (toolCall.function.name) {
                 // File operations
@@ -148,13 +159,80 @@ class ToolExecutor(
                     error = "Unknown tool: ${toolCall.function.name}"
                 )
             }
+        } catch (e: kotlinx.serialization.SerializationException) {
+            ToolResult(
+                success = false,
+                output = "",
+                error = "JSON parsing error: ${e.message?.take(100)}"
+            )
+        } catch (e: IllegalArgumentException) {
+            ToolResult(
+                success = false,
+                output = "",
+                error = "Invalid argument: ${e.message?.take(100)}"
+            )
+        } catch (e: java.io.IOException) {
+            ToolResult(
+                success = false,
+                output = "",
+                error = "File I/O error: ${e.message?.take(100)}"
+            )
         } catch (e: Exception) {
             ToolResult(
                 success = false,
                 output = "",
-                error = "Error executing tool: ${e.message}"
+                error = "Error executing tool: ${e.message?.take(100)}"
             )
         }
+    }
+
+    /**
+     * Robustly parse tool arguments from the AI's JSON string.
+     * Handles various edge cases and malformed JSON gracefully.
+     */
+    private fun parseToolArguments(arguments: String): JsonObject? {
+        if (arguments.isBlank()) {
+            // Return empty object for tools with no arguments
+            return JsonObject(emptyMap())
+        }
+
+        return try {
+            // Try standard parsing first
+            json.parseToJsonElement(arguments).jsonObject
+        } catch (e: Exception) {
+            // Try to fix common JSON issues
+            try {
+                val fixed = fixMalformedJson(arguments)
+                json.parseToJsonElement(fixed).jsonObject
+            } catch (e2: Exception) {
+                // Log the error for debugging
+                android.util.Log.e("ToolExecutor", "Failed to parse arguments: $arguments", e2)
+                null
+            }
+        }
+    }
+
+    /**
+     * Attempt to fix common JSON malformations from AI responses.
+     */
+    private fun fixMalformedJson(jsonString: String): String {
+        var fixed = jsonString.trim()
+
+        // Remove trailing commas before closing braces/brackets
+        fixed = fixed.replace(Regex(",\\s*}"), "}")
+        fixed = fixed.replace(Regex(",\\s*]"), "]")
+
+        // Fix unescaped newlines in strings (common in content arguments)
+        // This is a simplified fix - proper solution would need a state machine
+        fixed = fixed.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+        // Ensure it's wrapped in braces if not already
+        if (!fixed.startsWith("{") && !fixed.startsWith("[")) {
+            // Try to wrap as object
+            fixed = "{$fixed}"
+        }
+
+        return fixed
     }
 
     // ==================== File Operations ====================

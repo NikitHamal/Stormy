@@ -18,6 +18,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -69,7 +70,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.ui.components.MarkdownText
+import com.codex.stormy.ui.components.diff.CollapsibleDiffView
+import com.codex.stormy.ui.components.diff.DiffSummaryBadge
 import com.codex.stormy.ui.theme.PoppinsFontFamily
+import com.codex.stormy.utils.DiffUtils
 
 /**
  * Represents the current AI activity status for live indicators
@@ -95,7 +99,11 @@ sealed class MessageContentBlock {
         val status: ToolStatus,
         val output: String? = null,
         val filePath: String? = null,
-        val isActive: Boolean = false
+        val isActive: Boolean = false,
+        val additions: Int = 0,
+        val deletions: Int = 0,
+        val oldContent: String? = null,
+        val newContent: String? = null
     ) : MessageContentBlock()
     data class CodeBlock(val code: String, val language: String?) : MessageContentBlock()
     data class ReasoningBlock(val content: String, val isActive: Boolean = false) : MessageContentBlock()
@@ -106,13 +114,123 @@ enum class ToolStatus {
 }
 
 /**
- * Parse AI message content into structured blocks with improved reasoning detection
+ * Parse AI message content into structured blocks with improved reasoning detection.
+ * This parser properly separates AI text responses from tool outputs to prevent content bleeding.
  */
 fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<MessageContentBlock> {
     val blocks = mutableListOf<MessageContentBlock>()
     if (content.isBlank()) return blocks
 
-    var remainingContent = content
+    // Split content by tool call markers to properly separate text from tool outputs
+    val segments = splitByToolCalls(content)
+
+    for ((index, segment) in segments.withIndex()) {
+        when (segment.type) {
+            SegmentType.TEXT -> {
+                // Process text segment for thinking/reasoning tags
+                processTextSegment(segment.content, blocks, isStreaming && index == segments.lastIndex)
+            }
+            SegmentType.TOOL_CALL -> {
+                // Add tool call block directly
+                blocks.add(MessageContentBlock.ToolCallBlock(
+                    toolName = segment.toolName ?: "Unknown Tool",
+                    status = segment.toolStatus ?: ToolStatus.RUNNING,
+                    output = segment.toolOutput,
+                    filePath = extractFilePath(segment.toolName ?: "", segment.toolOutput ?: ""),
+                    isActive = segment.toolStatus == ToolStatus.RUNNING && isStreaming
+                ))
+            }
+        }
+    }
+
+    // If no blocks were created, add the entire content as text
+    if (blocks.isEmpty() && content.isNotBlank()) {
+        blocks.add(MessageContentBlock.TextBlock(content))
+    }
+
+    return blocks
+}
+
+/**
+ * Segment type for content splitting
+ */
+private enum class SegmentType {
+    TEXT, TOOL_CALL
+}
+
+/**
+ * Represents a parsed segment of the AI message
+ */
+private data class ContentSegment(
+    val type: SegmentType,
+    val content: String,
+    val toolName: String? = null,
+    val toolStatus: ToolStatus? = null,
+    val toolOutput: String? = null
+)
+
+/**
+ * Split content by tool call markers (\n\n🔧) to properly separate text from tool outputs.
+ * This ensures that text responses don't bleed into tool sections.
+ */
+private fun splitByToolCalls(content: String): List<ContentSegment> {
+    val segments = mutableListOf<ContentSegment>()
+
+    // Pattern to match tool calls: 🔧 **Tool Name**\n✅/❌/⏳ output
+    val toolCallPattern = Regex(
+        """🔧\s*\*\*([^*]+)\*\*\s*\n(✅|❌|⏳)\s*(.*)""",
+        setOf(RegexOption.MULTILINE)
+    )
+
+    // Split by tool call separator (double newline before 🔧)
+    val parts = content.split(Regex("""\n\n(?=🔧)"""))
+
+    for (part in parts) {
+        val trimmed = part.trim()
+        if (trimmed.isEmpty()) continue
+
+        // Check if this part is a tool call
+        val toolMatch = toolCallPattern.find(trimmed)
+        if (toolMatch != null && trimmed.startsWith("🔧")) {
+            val toolName = toolMatch.groupValues[1].trim()
+            val statusEmoji = toolMatch.groupValues[2]
+            val output = toolMatch.groupValues[3].trim()
+
+            val status = when (statusEmoji) {
+                "✅" -> ToolStatus.SUCCESS
+                "❌" -> ToolStatus.ERROR
+                else -> ToolStatus.RUNNING
+            }
+
+            segments.add(ContentSegment(
+                type = SegmentType.TOOL_CALL,
+                content = trimmed,
+                toolName = toolName,
+                toolStatus = status,
+                toolOutput = output.ifEmpty { null }
+            ))
+        } else {
+            // This is text content
+            segments.add(ContentSegment(
+                type = SegmentType.TEXT,
+                content = trimmed
+            ))
+        }
+    }
+
+    return segments
+}
+
+/**
+ * Process a text segment for thinking/reasoning tags
+ */
+private fun processTextSegment(
+    content: String,
+    blocks: MutableList<MessageContentBlock>,
+    isStreaming: Boolean
+) {
+    if (content.isBlank()) return
+
     var lastEnd = 0
 
     // Pattern to match thinking/reasoning sections - multiple formats
@@ -131,20 +249,13 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
         Regex("""<reason>([\s\S]*)$""", RegexOption.IGNORE_CASE)
     )
 
-    // Pattern to match tool call sections
-    val toolCallPattern = Regex(
-        """🔧\s*\*\*([^*]+)\*\*\n(✅|❌|⏳)\s*(.+?)(?=\n\n🔧|\n\n[^🔧✅❌⏳]|$)""",
-        RegexOption.DOT_MATCHES_ALL
-    )
-
     // First, extract thinking/reasoning blocks (closed tags)
     for (pattern in thinkingPatterns) {
         val matches = pattern.findAll(content)
         for (match in matches) {
             val textBefore = content.substring(lastEnd, match.range.first).trim()
-            if (textBefore.isNotEmpty() && !textBefore.matches(Regex("^\\s*$"))) {
-                // Check if text contains tool calls
-                processTextWithToolCalls(textBefore, blocks, false)
+            if (textBefore.isNotEmpty()) {
+                blocks.add(MessageContentBlock.TextBlock(textBefore))
             }
             blocks.add(MessageContentBlock.ReasoningBlock(
                 content = match.groupValues[1].trim(),
@@ -161,7 +272,7 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
             if (match != null) {
                 val textBefore = content.substring(lastEnd, lastEnd + match.range.first).trim()
                 if (textBefore.isNotEmpty()) {
-                    processTextWithToolCalls(textBefore, blocks, false)
+                    blocks.add(MessageContentBlock.TextBlock(textBefore))
                 }
                 blocks.add(MessageContentBlock.ReasoningBlock(
                     content = match.groupValues[1].trim(),
@@ -177,77 +288,14 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
     if (lastEnd < content.length) {
         val remainingText = content.substring(lastEnd).trim()
         if (remainingText.isNotEmpty()) {
-            processTextWithToolCalls(remainingText, blocks, isStreaming)
-        }
-    }
-
-    // If no blocks were created, add the entire content as text
-    if (blocks.isEmpty() && content.isNotBlank()) {
-        blocks.add(MessageContentBlock.TextBlock(content))
-    }
-
-    return blocks
-}
-
-/**
- * Process text content that may contain tool calls
- */
-private fun processTextWithToolCalls(
-    text: String,
-    blocks: MutableList<MessageContentBlock>,
-    isStreaming: Boolean
-) {
-    val toolCallPattern = Regex(
-        """🔧\s*\*\*([^*]+)\*\*\n(✅|❌|⏳)\s*(.+?)(?=\n\n🔧|\n\n[^🔧✅❌⏳]|$)""",
-        RegexOption.DOT_MATCHES_ALL
-    )
-
-    var lastEnd = 0
-    val matches = toolCallPattern.findAll(text)
-
-    for (match in matches) {
-        val textBefore = text.substring(lastEnd, match.range.first).trim()
-        if (textBefore.isNotEmpty()) {
-            blocks.add(MessageContentBlock.TextBlock(textBefore))
-        }
-
-        val toolName = match.groupValues[1].trim()
-        val statusEmoji = match.groupValues[2]
-        val output = match.groupValues[3].trim()
-
-        val status = when (statusEmoji) {
-            "✅" -> ToolStatus.SUCCESS
-            "❌" -> ToolStatus.ERROR
-            "⏳" -> ToolStatus.RUNNING
-            else -> ToolStatus.RUNNING
-        }
-
-        val filePath = extractFilePath(toolName, output)
-
-        blocks.add(MessageContentBlock.ToolCallBlock(
-            toolName = toolName,
-            status = status,
-            output = output,
-            filePath = filePath,
-            isActive = status == ToolStatus.RUNNING && isStreaming
-        ))
-
-        lastEnd = match.range.last + 1
-    }
-
-    // Add remaining text
-    if (lastEnd < text.length) {
-        val remainingText = text.substring(lastEnd).trim()
-        if (remainingText.isNotEmpty()) {
             blocks.add(MessageContentBlock.TextBlock(remainingText))
         }
-    }
-
-    // If no matches found, add entire text as text block
-    if (matches.count() == 0 && text.isNotEmpty()) {
-        blocks.add(MessageContentBlock.TextBlock(text))
+    } else if (lastEnd == 0 && content.isNotEmpty()) {
+        // No patterns matched, add entire content as text
+        blocks.add(MessageContentBlock.TextBlock(content))
     }
 }
+
 
 /**
  * Extract file path from tool output
@@ -308,7 +356,11 @@ fun AiMessageContent(
                         status = block.status,
                         output = block.output,
                         filePath = block.filePath,
-                        isActive = block.isActive && isStreaming
+                        isActive = block.isActive && isStreaming,
+                        additions = block.additions,
+                        deletions = block.deletions,
+                        oldContent = block.oldContent,
+                        newContent = block.newContent
                     )
                 }
                 is MessageContentBlock.TextBlock -> {
@@ -485,14 +537,16 @@ private fun ReasoningSection(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                         modifier = Modifier.padding(horizontal = 12.dp)
                     )
-                    Text(
-                        text = content,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
-                        lineHeight = 18.sp,
-                        modifier = Modifier.padding(12.dp)
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = content,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = PoppinsFontFamily,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
                 }
             }
         }
@@ -579,14 +633,16 @@ private fun ThinkingSection(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                         modifier = Modifier.padding(horizontal = 12.dp)
                     )
-                    Text(
-                        text = content,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        lineHeight = 18.sp,
-                        modifier = Modifier.padding(12.dp)
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = content,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = PoppinsFontFamily,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            lineHeight = 18.sp,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
                 }
             }
         }
@@ -627,7 +683,7 @@ private fun PulsingDots() {
 }
 
 /**
- * Tool call section with collapsible output
+ * Tool call section with collapsible output and diff view for file operations
  */
 @Composable
 private fun ToolCallSection(
@@ -636,6 +692,10 @@ private fun ToolCallSection(
     output: String?,
     filePath: String?,
     isActive: Boolean = false,
+    additions: Int = 0,
+    deletions: Int = 0,
+    oldContent: String? = null,
+    newContent: String? = null,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -645,6 +705,25 @@ private fun ToolCallSection(
         ToolStatus.ERROR -> MaterialTheme.colorScheme.error
         ToolStatus.RUNNING -> MaterialTheme.colorScheme.tertiary
     }
+
+    // Check if this is a file modification tool that should show diff
+    val isFileModificationTool = toolName.lowercase().let { name ->
+        name.contains("write") || name.contains("patch") ||
+        name.contains("create") || name.contains("edit") ||
+        name.contains("modify") || name.contains("update")
+    }
+    val hasDiffData = oldContent != null && newContent != null && oldContent != newContent
+    val showDiffView = isFileModificationTool && hasDiffData && status == ToolStatus.SUCCESS
+
+    // Compute diff once and cache it
+    val diffResult = remember(oldContent, newContent) {
+        if (showDiffView && oldContent != null && newContent != null) {
+            DiffUtils.computeDiff(oldContent, newContent)
+        } else null
+    }
+
+    val displayAdditions = if (additions > 0) additions else diffResult?.additions ?: 0
+    val displayDeletions = if (deletions > 0) deletions else diffResult?.deletions ?: 0
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -660,7 +739,7 @@ private fun ToolCallSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = output != null) { isExpanded = !isExpanded }
+                    .clickable(enabled = output != null || showDiffView) { isExpanded = !isExpanded }
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -716,6 +795,14 @@ private fun ToolCallSection(
                     )
                 }
 
+                // Diff summary badge for file modifications
+                if (showDiffView || (displayAdditions > 0 || displayDeletions > 0)) {
+                    DiffSummaryBadge(
+                        additions = displayAdditions,
+                        deletions = displayDeletions
+                    )
+                }
+
                 // Status icon
                 Icon(
                     imageVector = when (status) {
@@ -728,8 +815,8 @@ private fun ToolCallSection(
                     tint = statusColor
                 )
 
-                // Expand indicator if there's output
-                if (output != null) {
+                // Expand indicator if there's output or diff
+                if (output != null || showDiffView) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                         contentDescription = null,
@@ -740,7 +827,7 @@ private fun ToolCallSection(
             }
 
             AnimatedVisibility(
-                visible = isExpanded && output != null,
+                visible = isExpanded && (output != null || showDiffView),
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
@@ -749,20 +836,39 @@ private fun ToolCallSection(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                         modifier = Modifier.padding(horizontal = 10.dp)
                     )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.5f))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            text = output ?: "",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
+
+                    // Show diff view for file modifications
+                    if (showDiffView) {
+                        CollapsibleDiffView(
+                            filePath = filePath ?: "file",
+                            oldContent = oldContent ?: "",
+                            newContent = newContent ?: "",
+                            toolName = toolName,
+                            isSuccess = status == ToolStatus.SUCCESS,
+                            modifier = Modifier.padding(8.dp),
+                            initiallyExpanded = true
                         )
+                    }
+
+                    // Show text output if available (and not just diff)
+                    if (output != null && (!showDiffView || output.isNotBlank())) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.5f))
+                                .padding(10.dp)
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = output,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -912,15 +1018,17 @@ private fun CodeSection(
                 }
             }
 
-            Text(
-                text = code,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(12.dp)
-            )
+            SelectionContainer {
+                Text(
+                    text = code,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
         }
     }
 }
