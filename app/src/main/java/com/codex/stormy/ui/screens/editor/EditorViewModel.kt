@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor
 
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -32,6 +33,8 @@ import com.codex.stormy.data.repository.ProjectRepository
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.domain.model.Project
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -132,6 +135,11 @@ class EditorViewModel(
     private var _shouldContinueAgentLoop = false
     private var _agentIterationCount = 0
     private var _taskCompleted = false
+
+    // Streaming update debouncing for performance
+    private var _streamingUpdateJob: Job? = null
+    private var _lastStreamingUpdate = 0L
+    private var _pendingStreamingUpdate = false
 
     val uiState: StateFlow<EditorUiState> = combine(
         _project,
@@ -319,19 +327,43 @@ class EditorViewModel(
 
     /**
      * Load persisted chat history from database
+     * Uses smart merging to prevent duplicate messages and race conditions
      */
     private fun loadChatHistory() {
         viewModelScope.launch {
-            chatRepository.getMessagesForProject(projectId).collect { messages ->
+            chatRepository.getMessagesForProject(projectId).collect { dbMessages ->
                 // Only update if we're not currently processing (to avoid overwriting streaming)
                 if (!_isAiProcessing.value) {
-                    _messages.value = messages
+                    // Smart merge: use database as source of truth, but preserve order
+                    // and prevent duplicates by comparing message IDs
+                    val currentMessages = _messages.value
+                    val currentIds = currentMessages.map { it.id }.toSet()
+                    val dbIds = dbMessages.map { it.id }.toSet()
+
+                    // If the sets of IDs match, use database version (may have updated content)
+                    // If they differ, prefer database but this shouldn't happen in normal flow
+                    if (currentIds == dbIds && currentMessages.size == dbMessages.size) {
+                        // IDs match - safe to replace with database version
+                        _messages.value = dbMessages
+                    } else if (currentMessages.isEmpty() || dbMessages.containsAll(currentIds)) {
+                        // Initial load or database has all our messages - use database
+                        _messages.value = dbMessages
+                    }
+                    // Otherwise keep current in-memory state to prevent race condition issues
 
                     // Rebuild message history for AI context
-                    rebuildMessageHistoryFromMessages(messages)
+                    rebuildMessageHistoryFromMessages(_messages.value)
                 }
             }
         }
+    }
+
+    /**
+     * Check if database messages contain all the given IDs
+     */
+    private fun List<ChatMessage>.containsAll(ids: Set<String>): Boolean {
+        val dbIds = this.map { it.id }.toSet()
+        return dbIds.containsAll(ids)
     }
 
     /**
@@ -692,6 +724,42 @@ class EditorViewModel(
         }
     }
 
+    /**
+     * Import a file from device storage into the project
+     * @param fileUri URI of the file to import
+     * @param targetPath Target folder path within the project (empty string for root)
+     */
+    fun importFile(fileUri: Uri, targetPath: String) {
+        viewModelScope.launch {
+            projectRepository.importFileToProject(projectId, fileUri, targetPath)
+                .onSuccess { importedPath ->
+                    loadFileTree()
+                    // Optionally open the imported file
+                    openFile(importedPath)
+                }
+                .onFailure { error ->
+                    _error.value = error.message ?: "Failed to import file"
+                }
+        }
+    }
+
+    /**
+     * Import a folder from device storage into the project
+     * @param folderUri URI of the folder to import (document tree URI)
+     * @param targetPath Target folder path within the project (empty string for root)
+     */
+    fun importFolder(folderUri: Uri, targetPath: String) {
+        viewModelScope.launch {
+            projectRepository.importFolderToProject(projectId, folderUri, targetPath)
+                .onSuccess { filesImported ->
+                    loadFileTree()
+                }
+                .onFailure { error ->
+                    _error.value = error.message ?: "Failed to import folder"
+                }
+        }
+    }
+
     fun toggleAgentMode() {
         _agentMode.value = !_agentMode.value
     }
@@ -819,13 +887,37 @@ class EditorViewModel(
                         // Streaming started
                     }
                     is StreamEvent.ContentDelta -> {
-                        _streamingContent.value += event.content
-                        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
+                        // Handle content delta - may contain inline <think> tags from some models
+                        val currentContent = _streamingContent.value
+                        val hasUnclosedThinkTag = hasUnclosedThinkingTag(currentContent)
+                        val deltaContainsCloseTag = event.content.lowercase().contains("</think>")
+                        val deltaContainsOpenTag = event.content.lowercase().contains("<think>")
+
+                        if (hasUnclosedThinkTag && !deltaContainsCloseTag && !deltaContainsOpenTag && event.content.isNotEmpty()) {
+                            // We have an open think block from ReasoningDelta, and this is regular content
+                            // Close the think block before adding regular content
+                            _streamingContent.value += "</think>\n${event.content}"
+                        } else {
+                            // Either no open think tag, or the delta contains tags that will handle closure
+                            _streamingContent.value += event.content
+                        }
+                        // Use debounced update for better performance
+                        debouncedStreamingUpdate()
                     }
                     is StreamEvent.ReasoningDelta -> {
-                        // Handle reasoning for thinking models - show in UI
-                        _streamingContent.value += event.reasoning
-                        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
+                        // Handle reasoning for thinking models - wrap in <think> tags for proper parsing
+                        val currentContent = _streamingContent.value
+                        val hasOpenThinkTag = hasUnclosedThinkingTag(currentContent)
+
+                        if (!hasOpenThinkTag && event.reasoning.isNotEmpty()) {
+                            // Start a new think block
+                            _streamingContent.value += "<think>${event.reasoning}"
+                        } else if (hasOpenThinkTag) {
+                            // Continue the existing think block
+                            _streamingContent.value += event.reasoning
+                        }
+                        // Use debounced update for better performance
+                        debouncedStreamingUpdate()
                     }
                     is StreamEvent.ToolCalls -> {
                         // Store tool calls for processing after stream completes
@@ -1021,13 +1113,63 @@ class EditorViewModel(
         updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
     }
 
+    /**
+     * Debounced update for streaming content to reduce UI lag.
+     * Updates are batched and applied at most every STREAMING_UPDATE_INTERVAL_MS.
+     */
+    private fun debouncedStreamingUpdate() {
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastUpdate = currentTime - _lastStreamingUpdate
+
+        if (timeSinceLastUpdate >= STREAMING_UPDATE_INTERVAL_MS) {
+            // Enough time has passed, update immediately
+            _lastStreamingUpdate = currentTime
+            updateLastAssistantMessageDirect(_streamingContent.value, MessageStatus.STREAMING)
+        } else if (!_pendingStreamingUpdate) {
+            // Schedule a delayed update
+            _pendingStreamingUpdate = true
+            _streamingUpdateJob?.cancel()
+            _streamingUpdateJob = viewModelScope.launch {
+                delay(STREAMING_UPDATE_INTERVAL_MS - timeSinceLastUpdate)
+                _pendingStreamingUpdate = false
+                _lastStreamingUpdate = System.currentTimeMillis()
+                updateLastAssistantMessageDirect(_streamingContent.value, MessageStatus.STREAMING)
+            }
+        }
+        // If pendingStreamingUpdate is true, an update is already scheduled
+    }
+
+    /**
+     * Flush any pending streaming updates immediately
+     */
+    private fun flushStreamingUpdate() {
+        _streamingUpdateJob?.cancel()
+        _pendingStreamingUpdate = false
+        _lastStreamingUpdate = System.currentTimeMillis()
+    }
+
     private fun updateLastAssistantMessage(content: String, status: MessageStatus) {
+        // For non-streaming updates, flush any pending and update directly
+        if (status != MessageStatus.STREAMING) {
+            flushStreamingUpdate()
+        }
+        updateLastAssistantMessageDirect(content, status)
+    }
+
+    private fun updateLastAssistantMessageDirect(content: String, status: MessageStatus) {
         val currentMessages = _messages.value.toMutableList()
         if (currentMessages.isNotEmpty()) {
             val lastMessage = currentMessages.last()
             if (!lastMessage.isUser) {
+                // Sanitize content when saving (not streaming)
+                val sanitizedContent = if (status != MessageStatus.STREAMING) {
+                    sanitizeAiResponseContent(content)
+                } else {
+                    content
+                }
+
                 val updatedMessage = lastMessage.copy(
-                    content = content,
+                    content = sanitizedContent,
                     status = status
                 )
                 currentMessages[currentMessages.lastIndex] = updatedMessage
@@ -1041,6 +1183,77 @@ class EditorViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Check if content has any unclosed thinking/reasoning tags
+     * Supports multiple tag formats used by different AI providers
+     */
+    private fun hasUnclosedThinkingTag(content: String): Boolean {
+        val lowerContent = content.lowercase()
+        val tagPairs = listOf(
+            "<think>" to "</think>",
+            "<thinking>" to "</thinking>",
+            "<reasoning>" to "</reasoning>",
+            "<reason>" to "</reason>"
+        )
+
+        for ((openTag, closeTag) in tagPairs) {
+            val openCount = lowerContent.split(openTag).size - 1
+            val closeCount = lowerContent.split(closeTag).size - 1
+            if (openCount > closeCount) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Sanitize AI response content to ensure proper tag closure and remove polluted content
+     * This handles various thinking/reasoning tag formats from different AI providers
+     */
+    private fun sanitizeAiResponseContent(content: String): String {
+        var result = content
+
+        // List of thinking/reasoning tag pairs to process
+        val tagPairs = listOf(
+            "<think>" to "</think>",
+            "<thinking>" to "</thinking>",
+            "<reasoning>" to "</reasoning>",
+            "<reason>" to "</reason>"
+        )
+
+        // Close any unclosed thinking tags
+        for ((openTag, closeTag) in tagPairs) {
+            val openCount = result.lowercase().split(openTag.lowercase()).size - 1
+            val closeCount = result.lowercase().split(closeTag.lowercase()).size - 1
+
+            if (openCount > closeCount) {
+                // Add missing closing tags
+                repeat(openCount - closeCount) {
+                    result = "$result$closeTag"
+                }
+            }
+        }
+
+        // Normalize all thinking tag variants to <think></think> for consistent parsing
+        result = result
+            .replace(Regex("<thinking>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</thinking>", RegexOption.IGNORE_CASE), "</think>")
+            .replace(Regex("<reasoning>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</reasoning>", RegexOption.IGNORE_CASE), "</think>")
+            .replace(Regex("<reason>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</reason>", RegexOption.IGNORE_CASE), "</think>")
+
+        // Remove any empty thinking blocks
+        result = result.replace(Regex("<think>\\s*</think>", RegexOption.IGNORE_CASE), "")
+
+        // Clean up excessive whitespace but preserve paragraph breaks
+        result = result
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+
+        return result
     }
 
     fun clearChat() {
@@ -1135,6 +1348,7 @@ class EditorViewModel(
 
     companion object {
         private const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
+        private const val STREAMING_UPDATE_INTERVAL_MS = 50L // Debounce interval for streaming updates (20 FPS)
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

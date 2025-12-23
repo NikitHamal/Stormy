@@ -66,6 +66,10 @@
     <!-- File Tree -->
     <string name="file_new_file">New File</string>
     <string name="file_new_folder">New Folder</string>
+    <string name="file_import_file">Import File</string>
+    <string name="file_import_folder">Import Folder</string>
+    <string name="file_import_success">Imported successfully</string>
+    <string name="file_import_error">Failed to import: %1$s</string>
     <string name="file_rename">Rename</string>
     <string name="file_delete">Delete</string>
     <string name="file_delete_confirm">Delete \"%1$s\"?</string>

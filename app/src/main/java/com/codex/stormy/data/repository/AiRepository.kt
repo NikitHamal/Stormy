@@ -1,6 +1,7 @@
 package com.codex.stormy.data.repository
 
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.ChatCompletionResponse
 import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.DeepInfraProvider
@@ -60,6 +61,27 @@ class AiRepository(
     ): Flow<StreamEvent> {
         val provider = getOrCreateProvider()
         return provider.streamChatCompletion(
+            model = model,
+            messages = messages,
+            tools = tools,
+            temperature = temperature,
+            maxTokens = maxTokens
+        )
+    }
+
+    /**
+     * Non-streaming chat completion - more reliable for tool calls
+     * Returns the complete response at once rather than streaming
+     */
+    suspend fun chat(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>? = null,
+        temperature: Float = 0.7f,
+        maxTokens: Int? = null
+    ): Result<ChatCompletionResponse> {
+        val provider = getOrCreateProvider()
+        return provider.chatCompletion(
             model = model,
             messages = messages,
             tools = tools,
@@ -243,7 +265,14 @@ class AiRepository(
             - `rename_file(old_path, new_path)` - Rename or move a file
             - `copy_file(source_path, destination_path)` - Copy a file
             - `move_file(source_path, destination_path)` - Move a file
+
+            ### Advanced File Operations
             - `patch_file(path, old_content, new_content)` - Replace specific content in a file
+            - `insert_at_line(path, line_number, content)` - Insert content at specific line
+            - `append_to_file(path, content)` - Append content to end of file
+            - `prepend_to_file(path, content)` - Prepend content to beginning of file
+            - `get_file_info(path)` - Get detailed file information (size, lines, etc.)
+            - `regex_replace(path, pattern, replacement, flags?)` - Replace using regex patterns
 
             ### Search Operations
             - `search_files(query, file_pattern?)` - Search for text across files
@@ -265,12 +294,26 @@ class AiRepository(
             - `ask_user(question, options?)` - Ask the user a question when needed
             - `finish_task(summary)` - Complete the current task
 
+            ### Git Operations (when available)
+            - `git_status()` - View repository status
+            - `git_stage(paths)` - Stage files ('all' for everything)
+            - `git_commit(message)` - Create a commit
+            - `git_push(remote?, set_upstream?)` - Push to remote
+            - `git_pull(remote?, rebase?)` - Pull from remote
+            - `git_branch(action, name?, checkout?)` - List/create/delete branches
+            - `git_checkout(branch)` - Switch branches
+            - `git_log(count?)` - View commit history
+            - `git_diff(path?, staged?)` - View changes
+
             ## Tool Usage Best Practices
-            1. **Always read before writing**: Read existing files before modifying them
-            2. **Use patch for small changes**: Use `patch_file` instead of rewriting entire files
-            3. **Save important learnings**: Use memory tools to remember patterns and decisions
-            4. **Create todos for complex tasks**: Break down large tasks into manageable steps
-            5. **Finish explicitly**: Always call `finish_task` when work is complete
+            1. **Plan before acting**: Consider your approach for complex tasks before executing
+            2. **Always read before writing**: Read existing files before modifying them
+            3. **Use patch for small changes**: Use `patch_file` instead of rewriting entire files
+            4. **Use insert/append for additions**: Use `insert_at_line` or `append_to_file` for adding code
+            5. **Save important learnings**: Use memory tools to remember patterns and decisions
+            6. **Create todos for complex tasks**: Break down large tasks into manageable steps
+            7. **Verify your work**: Read files after changes to confirm they're correct
+            8. **Finish explicitly**: Always call `finish_task` when work is complete
         """.trimIndent()
 
         private val WORKFLOW_INSTRUCTIONS = """
@@ -285,20 +328,23 @@ class AiRepository(
             6. **Complete**: Call `finish_task` with a summary
 
             ### For Code Modifications
-            1. Read the target file(s) first
-            2. Understand the existing code structure
-            3. Make focused, minimal changes
-            4. Preserve existing patterns and conventions
-            5. Explain significant changes briefly
+            1. Analyze what changes are needed
+            2. Read the target file(s) first
+            3. Understand the existing code structure
+            4. Make focused, minimal changes using `patch_file` or `insert_at_line`
+            5. Preserve existing patterns and conventions
+            6. Verify changes by reading the modified file
 
             ### For New Features
-            1. Understand the existing project structure
-            2. Create new files in appropriate locations
-            3. Follow existing naming conventions
-            4. Integrate with existing styles
-            5. Test the feature works correctly
+            1. Consider where the feature fits in the architecture
+            2. Understand the existing project structure
+            3. Create new files in appropriate locations
+            4. Follow existing naming conventions
+            5. Integrate with existing styles
+            6. Test the feature works correctly
 
             ### When Uncertain
+            - Analyze the problem from different angles
             - Use `ask_user` to clarify requirements
             - Review existing code for patterns to follow
             - Make conservative choices that can be adjusted later

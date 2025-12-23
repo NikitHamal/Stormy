@@ -1,8 +1,11 @@
 package com.codex.stormy.ui.screens.editor
 
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,6 +85,7 @@ fun EditorScreen(
     projectId: String,
     onBackClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onGitSettingsClick: () -> Unit = {},
     viewModel: EditorViewModel = viewModel(
         factory = EditorViewModel.Factory,
         key = projectId
@@ -93,6 +97,27 @@ fun EditorScreen(
     val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    // Track target path for import operations
+    var importTargetPath by remember { mutableStateOf("") }
+
+    // File picker launcher for importing files
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.importFile(it, importTargetPath)
+        }
+    }
+
+    // Folder picker launcher for importing folders
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.importFolder(it, importTargetPath)
+        }
+    }
 
     // Track if any drawer is open for back handler
     val isAnyDrawerOpen by remember {
@@ -140,6 +165,14 @@ fun EditorScreen(
                     onCreateFolder = viewModel::createFolder,
                     onDeleteFile = viewModel::deleteFile,
                     onRenameFile = viewModel::renameFile,
+                    onImportFile = { parentPath ->
+                        importTargetPath = parentPath
+                        filePickerLauncher.launch("*/*")
+                    },
+                    onImportFolder = { parentPath ->
+                        importTargetPath = parentPath
+                        folderPickerLauncher.launch(null)
+                    },
                     onClose = { scope.launch { fileDrawerState.close() } }
                 )
             }
@@ -155,7 +188,8 @@ fun EditorScreen(
                     uiState.project?.let { project ->
                         GitDrawer(
                             projectPath = project.rootPath,
-                            onClose = { scope.launch { gitDrawerState.close() } }
+                            onClose = { scope.launch { gitDrawerState.close() } },
+                            onNavigateToGitSettings = onGitSettingsClick
                         )
                     }
                 }

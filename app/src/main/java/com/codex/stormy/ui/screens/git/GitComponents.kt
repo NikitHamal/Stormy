@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -190,6 +192,7 @@ fun GitPanel(
     onViewDiff: (String, Boolean) -> Unit,
     onInitRepo: () -> Unit,
     onOpenSettings: () -> Unit,
+    onClose: () -> Unit,
     onRefreshCI: () -> Unit = {},
     onRerunWorkflow: (Long) -> Unit = {},
     onCancelWorkflow: (Long) -> Unit = {},
@@ -208,7 +211,8 @@ fun GitPanel(
             status = uiState.status,
             isLoading = uiState.isLoading,
             onRefresh = onRefresh,
-            onSettings = onOpenSettings
+            onSettings = onOpenSettings,
+            onClose = onClose
         )
 
         // Operation progress
@@ -326,7 +330,8 @@ private fun GitPanelHeader(
     status: GitRepositoryStatus?,
     isLoading: Boolean,
     onRefresh: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onClose: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -374,6 +379,15 @@ private fun GitPanelHeader(
             Icon(
                 imageVector = Icons.Outlined.Settings,
                 contentDescription = "Settings",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+            Icon(
+                imageVector = Icons.Outlined.Close,
+                contentDescription = "Close",
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -874,7 +888,71 @@ private fun BranchesSection(
         }
     }
 
-    // Create branch dialog would go here
+    // Create branch dialog
+    if (showCreateDialog) {
+        var branchName by remember { mutableStateOf("") }
+        var checkoutAfterCreate by remember { mutableStateOf(true) }
+
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            title = {
+                Text(
+                    text = "Create Branch",
+                    fontFamily = PoppinsFontFamily,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Create a new branch from '${currentBranch?.name ?: "current"}'",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = branchName,
+                        onValueChange = { branchName = it.replace(" ", "-") },
+                        label = { Text("Branch name", fontFamily = PoppinsFontFamily) },
+                        placeholder = { Text("feature/my-feature") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Switch(
+                            checked = checkoutAfterCreate,
+                            onCheckedChange = { checkoutAfterCreate = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Switch to branch after creating",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = PoppinsFontFamily
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onCreateBranch(branchName, checkoutAfterCreate)
+                        showCreateDialog = false
+                    },
+                    enabled = branchName.isNotBlank()
+                ) {
+                    Text("Create", fontFamily = PoppinsFontFamily)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text("Cancel", fontFamily = PoppinsFontFamily)
+                }
+            }
+        )
+    }
 }
 
 @Composable

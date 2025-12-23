@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.home
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -31,7 +32,13 @@ data class HomeUiState(
     val cloneProgress: Float? = null,
     val cloneProgressMessage: String? = null,
     val cloneError: String? = null,
-    val clonedProjectId: String? = null
+    val clonedProjectId: String? = null,
+    // Import state
+    val isImporting: Boolean = false,
+    val importProgress: Float? = null,
+    val importProgressMessage: String? = null,
+    val importError: String? = null,
+    val importedProjectId: String? = null
 )
 
 class HomeViewModel(
@@ -55,6 +62,18 @@ class HomeViewModel(
         val clonedProjectId: String? = null
     )
 
+    // Import state
+    private val _importState = MutableStateFlow(ImportState())
+    val importState: StateFlow<ImportState> = _importState.asStateFlow()
+
+    data class ImportState(
+        val isImporting: Boolean = false,
+        val progress: Float? = null,
+        val progressMessage: String? = null,
+        val error: String? = null,
+        val importedProjectId: String? = null
+    )
+
     @OptIn(ExperimentalCoroutinesApi::class)
     private val projects = _searchQuery.flatMapLatest { query ->
         if (query.isEmpty()) {
@@ -64,13 +83,18 @@ class HomeViewModel(
         }
     }
 
+    // Combine clone and import state for efficient flow combination
+    private val operationState = combine(_cloneState, _importState) { clone, import ->
+        clone to import
+    }
+
     val uiState: StateFlow<HomeUiState> = combine(
         projects,
         _searchQuery,
         _isLoading,
         _error,
-        _cloneState
-    ) { projects, query, loading, error, clone ->
+        operationState
+    ) { projects, query, loading, error, (clone, import) ->
         HomeUiState(
             projects = projects,
             searchQuery = query,
@@ -80,7 +104,12 @@ class HomeViewModel(
             cloneProgress = clone.progress,
             cloneProgressMessage = clone.progressMessage,
             cloneError = clone.error,
-            clonedProjectId = clone.clonedProjectId
+            clonedProjectId = clone.clonedProjectId,
+            isImporting = import.isImporting,
+            importProgress = import.progress,
+            importProgressMessage = import.progressMessage,
+            importError = import.error,
+            importedProjectId = import.importedProjectId
         )
     }.stateIn(
         scope = viewModelScope,
@@ -214,6 +243,59 @@ class HomeViewModel(
 
     fun acknowledgeClonedProject() {
         _cloneState.update { it.copy(clonedProjectId = null) }
+    }
+
+    /**
+     * Import a project from a folder selected via document picker
+     */
+    fun importFolder(name: String, description: String, folderUri: Uri) {
+        viewModelScope.launch {
+            _importState.update {
+                ImportState(
+                    isImporting = true,
+                    progressMessage = "Scanning folder..."
+                )
+            }
+
+            val result = projectRepository.importProjectFromFolder(
+                name = name,
+                description = description,
+                sourceFolderUri = folderUri,
+                progressCallback = { copied, total ->
+                    val progress = if (total > 0) copied.toFloat() / total else 0f
+                    _importState.update {
+                        it.copy(
+                            progress = progress,
+                            progressMessage = "Copying files... ($copied/$total)"
+                        )
+                    }
+                }
+            )
+
+            result.onSuccess { project ->
+                _importState.update {
+                    ImportState(
+                        isImporting = false,
+                        importedProjectId = project.id
+                    )
+                }
+            }.onFailure { throwable ->
+                _importState.update {
+                    ImportState(
+                        isImporting = false,
+                        error = throwable.message ?: "Failed to import folder"
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearImportState() {
+        _importState.value = ImportState()
+    }
+
+    fun acknowledgeImportedProject() {
+        _importState.update { it.copy(importedProjectId = null) }
     }
 
     companion object {

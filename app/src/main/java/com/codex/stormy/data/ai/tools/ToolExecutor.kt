@@ -113,6 +113,13 @@ class ToolExecutor(
                 "search_replace" -> executeSearchReplace(projectId, arguments)
                 "patch_file" -> executePatchFile(projectId, arguments)
 
+                // Enhanced file operations
+                "insert_at_line" -> executeInsertAtLine(projectId, arguments)
+                "get_file_info" -> executeGetFileInfo(projectId, arguments)
+                "regex_replace" -> executeRegexReplace(projectId, arguments)
+                "append_to_file" -> executeAppendToFile(projectId, arguments)
+                "prepend_to_file" -> executePrependToFile(projectId, arguments)
+
                 // Todo operations
                 "create_todo" -> executeCreateTodo(projectId, arguments)
                 "update_todo" -> executeUpdateTodo(projectId, arguments)
@@ -153,7 +160,7 @@ class ToolExecutor(
     // ==================== File Operations ====================
 
     private suspend fun executeReadFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         return projectRepository.readFile(projectId, path)
@@ -168,7 +175,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeWriteFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val content = args.getStringArg("content")
             ?: return ToolResult(false, "", "Missing required argument: content")
@@ -209,7 +216,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeListFiles(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path") ?: ""
+        val path = args.getPathArg("path") ?: ""
 
         return try {
             val fileTree = projectRepository.getFileTree(projectId)
@@ -243,7 +250,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeDeleteFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         // Get old content for reference
@@ -260,7 +267,7 @@ class ToolExecutor(
     }
 
     private suspend fun executeCreateFolder(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
 
         return projectRepository.createFolder(projectId, path)
@@ -271,9 +278,9 @@ class ToolExecutor(
     }
 
     private suspend fun executeRenameFile(projectId: String, args: JsonObject): ToolResult {
-        val oldPath = args.getStringArg("old_path")
+        val oldPath = args.getPathArg("old_path")
             ?: return ToolResult(false, "", "Missing required argument: old_path")
-        val newPath = args.getStringArg("new_path")
+        val newPath = args.getPathArg("new_path")
             ?: return ToolResult(false, "", "Missing required argument: new_path")
 
         return projectRepository.renameFile(projectId, oldPath, newPath)
@@ -287,9 +294,9 @@ class ToolExecutor(
     }
 
     private suspend fun executeCopyFile(projectId: String, args: JsonObject): ToolResult {
-        val sourcePath = args.getStringArg("source_path")
+        val sourcePath = args.getPathArg("source_path")
             ?: return ToolResult(false, "", "Missing required argument: source_path")
-        val destinationPath = args.getStringArg("destination_path")
+        val destinationPath = args.getPathArg("destination_path")
             ?: return ToolResult(false, "", "Missing required argument: destination_path")
 
         return projectRepository.copyFile(projectId, sourcePath, destinationPath)
@@ -303,9 +310,9 @@ class ToolExecutor(
     }
 
     private suspend fun executeMoveFile(projectId: String, args: JsonObject): ToolResult {
-        val sourcePath = args.getStringArg("source_path")
+        val sourcePath = args.getPathArg("source_path")
             ?: return ToolResult(false, "", "Missing required argument: source_path")
-        val destinationPath = args.getStringArg("destination_path")
+        val destinationPath = args.getPathArg("destination_path")
             ?: return ToolResult(false, "", "Missing required argument: destination_path")
 
         return projectRepository.moveFile(projectId, sourcePath, destinationPath)
@@ -494,7 +501,7 @@ class ToolExecutor(
     }
 
     private suspend fun executePatchFile(projectId: String, args: JsonObject): ToolResult {
-        val path = args.getStringArg("path")
+        val path = args.getPathArg("path")
             ?: return ToolResult(false, "", "Missing required argument: path")
         val oldContent = args.getStringArg("old_content")
             ?: return ToolResult(false, "", "Missing required argument: old_content")
@@ -512,6 +519,195 @@ class ToolExecutor(
                     ToolResult(true, "File patched successfully: $path")
                 },
                 onFailure = { ToolResult(false, "", "Failed to patch file: ${it.message}") }
+            )
+    }
+
+    // ==================== Enhanced File Operations ====================
+
+    private suspend fun executeInsertAtLine(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getPathArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val lineNumber = args.getStringArg("line_number")?.toIntOrNull()
+            ?: return ToolResult(false, "", "Missing or invalid argument: line_number")
+        val content = args.getStringArg("content")
+            ?: return ToolResult(false, "", "Missing required argument: content")
+
+        return projectRepository.readFile(projectId, path)
+            .fold(
+                onSuccess = { existingContent ->
+                    val lines = existingContent.lines().toMutableList()
+                    val insertIndex = when {
+                        lineNumber <= 0 -> 0
+                        lineNumber > lines.size -> lines.size
+                        else -> lineNumber - 1
+                    }
+
+                    // Insert content lines at the specified position
+                    val contentLines = content.lines()
+                    lines.addAll(insertIndex, contentLines)
+
+                    val newContent = lines.joinToString("\n")
+                    projectRepository.writeFile(projectId, path, newContent)
+                        .fold(
+                            onSuccess = {
+                                interactionCallback?.onFileChanged(path, FileChangeType.MODIFIED, existingContent, newContent)
+                                ToolResult(true, "Inserted ${contentLines.size} line(s) at line $lineNumber in $path")
+                            },
+                            onFailure = { ToolResult(false, "", "Failed to write file: ${it.message}") }
+                        )
+                },
+                onFailure = {
+                    // File doesn't exist, create it with content
+                    projectRepository.createFile(projectId, path, content)
+                        .fold(
+                            onSuccess = {
+                                interactionCallback?.onFileChanged(path, FileChangeType.CREATED, null, content)
+                                ToolResult(true, "Created file $path with content")
+                            },
+                            onFailure = { ToolResult(false, "", "Failed to create file: ${it.message}") }
+                        )
+                }
+            )
+    }
+
+    private suspend fun executeGetFileInfo(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getPathArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+
+        val project = projectRepository.getProjectById(projectId)
+            ?: return ToolResult(false, "", "Project not found")
+
+        val file = File(project.rootPath, path)
+        if (!file.exists()) {
+            return ToolResult(false, "", "File not found: $path")
+        }
+
+        return try {
+            val info = buildString {
+                appendLine("File: $path")
+                appendLine("Size: ${formatFileSize(file.length())}")
+                appendLine("Extension: ${file.extension.ifEmpty { "(none)" }}")
+
+                if (file.isFile) {
+                    val content = file.readText()
+                    val lineCount = content.lines().size
+                    appendLine("Lines: $lineCount")
+                    appendLine("Characters: ${content.length}")
+                }
+
+                val lastModified = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                    .format(java.util.Date(file.lastModified()))
+                appendLine("Last modified: $lastModified")
+                appendLine("Type: ${if (file.isDirectory) "Directory" else "File"}")
+                appendLine("Readable: ${file.canRead()}")
+                appendLine("Writable: ${file.canWrite()}")
+            }
+            ToolResult(true, info)
+        } catch (e: Exception) {
+            ToolResult(false, "", "Failed to get file info: ${e.message}")
+        }
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes < 1024 -> "$bytes B"
+            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+            bytes < 1024 * 1024 * 1024 -> String.format("%.2f MB", bytes / (1024.0 * 1024.0))
+            else -> String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
+        }
+    }
+
+    private suspend fun executeRegexReplace(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getPathArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val pattern = args.getStringArg("pattern")
+            ?: return ToolResult(false, "", "Missing required argument: pattern")
+        val replacement = args.getStringArg("replacement")
+            ?: return ToolResult(false, "", "Missing required argument: replacement")
+        val flags = args.getStringArg("flags") ?: "g"
+
+        return projectRepository.readFile(projectId, path)
+            .fold(
+                onSuccess = { existingContent ->
+                    try {
+                        val regexOptions = mutableSetOf<RegexOption>()
+                        if (flags.contains("i")) regexOptions.add(RegexOption.IGNORE_CASE)
+                        if (flags.contains("m")) regexOptions.add(RegexOption.MULTILINE)
+
+                        val regex = Regex(pattern, regexOptions)
+                        val matchCount = regex.findAll(existingContent).count()
+
+                        if (matchCount == 0) {
+                            return@fold ToolResult(true, "No matches found for pattern: $pattern")
+                        }
+
+                        val newContent = if (flags.contains("g") || !flags.contains("1")) {
+                            regex.replace(existingContent, replacement)
+                        } else {
+                            regex.replaceFirst(existingContent, replacement)
+                        }
+
+                        projectRepository.writeFile(projectId, path, newContent)
+                            .fold(
+                                onSuccess = {
+                                    interactionCallback?.onFileChanged(path, FileChangeType.MODIFIED, existingContent, newContent)
+                                    ToolResult(true, "Replaced $matchCount match(es) in $path")
+                                },
+                                onFailure = { ToolResult(false, "", "Failed to write file: ${it.message}") }
+                            )
+                    } catch (e: Exception) {
+                        ToolResult(false, "", "Invalid regex pattern: ${e.message}")
+                    }
+                },
+                onFailure = { ToolResult(false, "", "Failed to read file: ${it.message}") }
+            )
+    }
+
+    private suspend fun executeAppendToFile(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getPathArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val content = args.getStringArg("content")
+            ?: return ToolResult(false, "", "Missing required argument: content")
+
+        val existingContent = projectRepository.readFile(projectId, path).getOrNull()
+        val newContent = if (existingContent != null) {
+            existingContent + content
+        } else {
+            content
+        }
+
+        return projectRepository.writeFile(projectId, path, newContent)
+            .fold(
+                onSuccess = {
+                    val changeType = if (existingContent != null) FileChangeType.MODIFIED else FileChangeType.CREATED
+                    interactionCallback?.onFileChanged(path, changeType, existingContent, newContent)
+                    ToolResult(true, "Content appended to $path")
+                },
+                onFailure = { ToolResult(false, "", "Failed to append to file: ${it.message}") }
+            )
+    }
+
+    private suspend fun executePrependToFile(projectId: String, args: JsonObject): ToolResult {
+        val path = args.getPathArg("path")
+            ?: return ToolResult(false, "", "Missing required argument: path")
+        val content = args.getStringArg("content")
+            ?: return ToolResult(false, "", "Missing required argument: content")
+
+        val existingContent = projectRepository.readFile(projectId, path).getOrNull()
+        val newContent = if (existingContent != null) {
+            content + existingContent
+        } else {
+            content
+        }
+
+        return projectRepository.writeFile(projectId, path, newContent)
+            .fold(
+                onSuccess = {
+                    val changeType = if (existingContent != null) FileChangeType.MODIFIED else FileChangeType.CREATED
+                    interactionCallback?.onFileChanged(path, changeType, existingContent, newContent)
+                    ToolResult(true, "Content prepended to $path")
+                },
+                onFailure = { ToolResult(false, "", "Failed to prepend to file: ${it.message}") }
             )
     }
 

@@ -1,13 +1,13 @@
 package com.codex.stormy.ui.components.inspector
 
+import android.util.Log
 import android.webkit.WebView
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.ChatRequestMessage
-import com.codex.stormy.data.ai.StreamEvent
+import com.codex.stormy.data.ai.ToolCallRequest
 import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.tools.StormyTools
 import com.codex.stormy.data.ai.tools.ToolExecutor
-import com.codex.stormy.data.ai.tools.ToolResult
 import com.codex.stormy.data.repository.AiRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val TAG = "PreviewEditService"
 
 /**
  * Status of preview edit operation
@@ -32,8 +34,28 @@ sealed class PreviewEditStatus {
 }
 
 /**
- * Service for handling direct preview editing via AI agent
- * Allows editing elements without going to chat interface
+ * Result of AI edit execution with detailed information
+ */
+data class AiEditResult(
+    val success: Boolean,
+    val message: String,
+    val toolCallsExecuted: Int = 0,
+    val filesModified: List<String> = emptyList(),
+    val error: String? = null
+)
+
+/**
+ * Service for handling direct preview editing via AI agent.
+ * Allows editing elements without going to chat interface.
+ *
+ * This service handles:
+ * - Style changes (CSS property modifications)
+ * - Text content changes
+ * - Image source changes
+ * - Multi-element agent edits
+ *
+ * Changes are applied both as live preview (instant visual feedback)
+ * and persisted to files (via AI tool calls).
  */
 class PreviewEditService(
     private val aiRepository: AiRepository,
@@ -49,6 +71,9 @@ class PreviewEditService(
 
     // Debounce delay for batching rapid style changes (e.g., slider dragging)
     private val DEBOUNCE_DELAY_MS = 500L
+
+    // Maximum turns for multi-turn tool execution
+    private val MAX_TOOL_TURNS = 5
 
     /**
      * Apply a style change to an element via AI
@@ -82,8 +107,12 @@ class PreviewEditService(
                     val prompt = buildStyleChangePrompt(request)
                     val result = executeAiEdit(prompt, model)
 
-                    if (result.success) {
+                    if (result.success && result.toolCallsExecuted > 0) {
                         _status.value = PreviewEditStatus.Success("Style applied")
+                    } else if (result.success && result.toolCallsExecuted == 0) {
+                        // AI didn't make any tool calls - this is a failure for style changes
+                        Log.w(TAG, "AI did not execute any tool calls for style change")
+                        _status.value = PreviewEditStatus.Error("AI did not modify any files")
                     } else {
                         _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                     }
@@ -91,6 +120,7 @@ class PreviewEditService(
                     // Silently ignore cancellation - this is expected during rapid changes
                     _status.value = PreviewEditStatus.Idle
                 } catch (e: Exception) {
+                    Log.e(TAG, "Style change failed", e)
                     _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
                 } finally {
                     onComplete()
@@ -126,15 +156,18 @@ class PreviewEditService(
                 val prompt = buildTextChangePrompt(request)
                 val result = executeAiEdit(prompt, model)
 
-                if (result.success) {
+                if (result.success && result.toolCallsExecuted > 0) {
                     _status.value = PreviewEditStatus.Success("Text updated")
+                } else if (result.success && result.toolCallsExecuted == 0) {
+                    Log.w(TAG, "AI did not execute any tool calls for text change")
+                    _status.value = PreviewEditStatus.Error("AI did not modify any files")
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
             } catch (e: CancellationException) {
-                // Silently ignore cancellation
                 _status.value = PreviewEditStatus.Idle
             } catch (e: Exception) {
+                Log.e(TAG, "Text change failed", e)
                 _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
             } finally {
                 onComplete()
@@ -162,7 +195,7 @@ class PreviewEditService(
                 val fullPrompt = buildFreeformEditPrompt(prompt, elementSelector, elementHtml)
                 val result = executeAiEdit(fullPrompt, model)
 
-                if (result.success) {
+                if (result.success && result.toolCallsExecuted > 0) {
                     _status.value = PreviewEditStatus.Editing
 
                     // Reload the WebView to show changes
@@ -171,231 +204,21 @@ class PreviewEditService(
                     }
 
                     _status.value = PreviewEditStatus.Success("Changes applied")
+                } else if (result.success && result.toolCallsExecuted == 0) {
+                    Log.w(TAG, "AI did not execute any tool calls for freeform edit")
+                    _status.value = PreviewEditStatus.Error("AI did not modify any files. Try rephrasing your request.")
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
             } catch (e: CancellationException) {
                 _status.value = PreviewEditStatus.Idle
             } catch (e: Exception) {
+                Log.e(TAG, "Freeform edit failed", e)
                 _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
             } finally {
                 onComplete()
             }
         }
-    }
-
-    /**
-     * Execute AI edit with tool use
-     */
-    private suspend fun executeAiEdit(prompt: String, model: AiModel): ToolResult {
-        return withContext(Dispatchers.IO) {
-            try {
-                // Create system message for editing context
-                val systemMessage = """You are a web development AI assistant helping to edit HTML/CSS files directly.
-                    |
-                    |When editing files:
-                    |1. First read the relevant file(s) to understand the current state
-                    |2. Use the patch_file tool to make precise, targeted changes
-                    |3. Only change what's necessary to accomplish the user's request
-                    |4. Preserve all existing functionality and styling unless specifically asked to change it
-                    |
-                    |Available files in the project: index.html, style.css, script.js (and any others in the project)
-                    |
-                    |IMPORTANT: Make minimal, targeted changes. Do not rewrite entire files.
-                """.trimMargin()
-
-                // Build messages using ChatRequestMessage
-                val messages = listOf(
-                    ChatRequestMessage(role = "system", content = systemMessage),
-                    ChatRequestMessage(role = "user", content = prompt)
-                )
-
-                // Stream response with tools
-                val responseContent = StringBuilder()
-                val toolCalls = mutableListOf<ToolCallResponse>()
-
-                aiRepository.streamChat(
-                    model = model,
-                    messages = messages,
-                    tools = StormyTools.getAllTools()
-                ).collect { event ->
-                    when (event) {
-                        is StreamEvent.ContentDelta -> {
-                            responseContent.append(event.content)
-                        }
-                        is StreamEvent.ToolCalls -> {
-                            toolCalls.addAll(event.toolCalls)
-                        }
-                        is StreamEvent.Completed -> {
-                            // Processing complete
-                        }
-                        is StreamEvent.Error -> {
-                            throw Exception(event.message)
-                        }
-                        else -> {}
-                    }
-                }
-
-                // Process tool calls if any
-                if (toolCalls.isNotEmpty()) {
-                    var lastResult: ToolResult? = null
-
-                    for (toolCall in toolCalls) {
-                        val toolResult = toolExecutor.execute(projectId, toolCall)
-                        lastResult = toolResult
-
-                        if (!toolResult.success) {
-                            return@withContext toolResult
-                        }
-                    }
-
-                    return@withContext lastResult ?: ToolResult(true, "Changes applied successfully")
-                }
-
-                // No tool calls, return the message content
-                ToolResult(
-                    success = true,
-                    output = responseContent.toString().ifEmpty { "Edit completed" }
-                )
-            } catch (e: Exception) {
-                ToolResult(
-                    success = false,
-                    output = "",
-                    error = e.message ?: "Failed to execute edit"
-                )
-            }
-        }
-    }
-
-    /**
-     * Apply live CSS update to WebView for instant visual feedback
-     */
-    private suspend fun applyLiveStyleUpdate(
-        webView: WebView,
-        selector: String,
-        property: String,
-        value: String
-    ) {
-        withContext(Dispatchers.Main) {
-            val script = """
-                (function() {
-                    var elements = document.querySelectorAll('$selector');
-                    elements.forEach(function(el) {
-                        el.style['$property'] = '$value';
-                    });
-                    return elements.length;
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
-    }
-
-    /**
-     * Apply live text update to WebView
-     */
-    private suspend fun applyLiveTextUpdate(
-        webView: WebView,
-        selector: String,
-        newText: String
-    ) {
-        withContext(Dispatchers.Main) {
-            val escapedText = newText
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-
-            val script = """
-                (function() {
-                    var elements = document.querySelectorAll('$selector');
-                    if (elements.length > 0) {
-                        // Get first text node or set textContent
-                        var el = elements[0];
-                        var textNode = null;
-                        for (var i = 0; i < el.childNodes.length; i++) {
-                            if (el.childNodes[i].nodeType === Node.TEXT_NODE && el.childNodes[i].textContent.trim()) {
-                                textNode = el.childNodes[i];
-                                break;
-                            }
-                        }
-                        if (textNode) {
-                            textNode.textContent = '$escapedText';
-                        } else if (!el.children.length) {
-                            el.textContent = '$escapedText';
-                        }
-                    }
-                    return elements.length;
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
-    }
-
-    /**
-     * Build prompt for style change
-     */
-    private fun buildStyleChangePrompt(request: StyleChangeRequest): String {
-        return """Please update the CSS for the element matching selector "${request.selector}".
-
-Change the "${request.property}" property from "${request.oldValue ?: "unset"}" to "${request.newValue}".
-
-Element HTML for reference:
-```html
-${request.elementHtml.take(300)}
-```
-
-Instructions:
-1. First read the CSS file (usually style.css or styles.css)
-2. Find or create a rule for this selector
-3. Use patch_file to update just the relevant CSS property
-4. If the selector doesn't exist, add a new rule with just this property"""
-    }
-
-    /**
-     * Build prompt for text content change
-     */
-    private fun buildTextChangePrompt(request: TextChangeRequest): String {
-        return """Please update the text content in the HTML file.
-
-Element selector: "${request.selector}"
-Old text: "${request.oldText}"
-New text: "${request.newText}"
-
-Element HTML for reference:
-```html
-${request.elementHtml.take(300)}
-```
-
-Instructions:
-1. First read the HTML file (usually index.html)
-2. Find this element and update its text content
-3. Use patch_file to make the minimal change needed
-4. Preserve all attributes and child elements"""
-    }
-
-    /**
-     * Build prompt for freeform AI edit
-     */
-    private fun buildFreeformEditPrompt(
-        userPrompt: String,
-        selector: String,
-        elementHtml: String
-    ): String {
-        return """User request: $userPrompt
-
-Target element: $selector
-Element HTML:
-```html
-${elementHtml.take(500)}
-```
-
-Instructions:
-1. Read the relevant files (HTML, CSS, JS as needed)
-2. Make the changes requested by the user
-3. Use patch_file for precise, targeted modifications
-4. Only change what's necessary to accomplish the request
-5. Test your changes mentally to ensure they work correctly"""
     }
 
     /**
@@ -415,32 +238,457 @@ Instructions:
             _status.value = PreviewEditStatus.Analyzing
 
             try {
+                Log.d(TAG, "Starting agent edit with ${elements.size} elements")
+                Log.d(TAG, "Prompt: $prompt")
+                Log.d(TAG, "Model: ${model.id}, supportsToolCalls: ${model.supportsToolCalls}")
+
                 val fullPrompt = buildAgentEditPrompt(prompt, elements)
                 val result = executeAiEdit(fullPrompt, model)
 
-                if (result.success) {
+                Log.d(TAG, "Agent edit result: success=${result.success}, toolCallsExecuted=${result.toolCallsExecuted}, files=${result.filesModified}")
+
+                if (result.success && result.toolCallsExecuted > 0) {
                     _status.value = PreviewEditStatus.Editing
+
+                    // Small delay to ensure file changes are complete
+                    delay(100)
 
                     // Reload the WebView to show changes
                     withContext(Dispatchers.Main) {
                         webView?.reload()
                     }
 
-                    _status.value = PreviewEditStatus.Success(
-                        if (elements.size == 1) "Element updated"
-                        else "${elements.size} elements updated"
-                    )
+                    val successMessage = if (elements.size == 1) {
+                        "Element updated"
+                    } else {
+                        "${elements.size} elements updated"
+                    }
+                    _status.value = PreviewEditStatus.Success(successMessage)
+                } else if (result.success && result.toolCallsExecuted == 0) {
+                    // AI responded but didn't execute any tool calls
+                    Log.w(TAG, "AI did not execute any tool calls. Message: ${result.message}")
+
+                    // Provide helpful guidance based on model type
+                    val errorMessage = if (model.isThinkingModel) {
+                        // Thinking models like DeepSeek-R1 may not always use tools
+                        "This model prefers reasoning over tool use. Try a code-focused model like Qwen Coder."
+                    } else {
+                        "AI did not modify any files. Try being more specific about what changes you want."
+                    }
+                    _status.value = PreviewEditStatus.Error(errorMessage)
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
             } catch (e: CancellationException) {
                 _status.value = PreviewEditStatus.Idle
             } catch (e: Exception) {
+                Log.e(TAG, "Agent edit failed", e)
                 _status.value = PreviewEditStatus.Error(e.message ?: "Failed to apply changes")
             } finally {
                 onComplete()
             }
         }
+    }
+
+    /**
+     * Execute AI edit with multi-turn tool use support.
+     * Uses non-streaming API for more reliable tool call handling.
+     *
+     * Handles the complete cycle of:
+     * 1. Initial AI response with potential tool calls
+     * 2. Tool execution
+     * 3. Feeding results back to AI
+     * 4. Continuing until AI completes or max turns reached
+     *
+     * Note: We attempt tool calls for all models as DeepInfra and other providers
+     * can handle tool calls at the API level even for models not specifically
+     * optimized for them. If a model truly doesn't support tools, the API will
+     * simply return a regular response without tool calls.
+     */
+    private suspend fun executeAiEdit(prompt: String, model: AiModel): AiEditResult {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Create system message for editing context
+                val systemMessage = buildSystemPrompt()
+
+                // Build initial message list
+                val messages = mutableListOf(
+                    ChatRequestMessage(role = "system", content = systemMessage),
+                    ChatRequestMessage(role = "user", content = prompt)
+                )
+
+                var totalToolCalls = 0
+                val modifiedFiles = mutableListOf<String>()
+                var turns = 0
+
+                // Multi-turn loop to handle AI tool calls
+                while (turns < MAX_TOOL_TURNS) {
+                    turns++
+                    Log.d(TAG, "AI turn $turns")
+
+                    // Use non-streaming API for reliable tool call handling
+                    val result = aiRepository.chat(
+                        model = model,
+                        messages = messages,
+                        tools = StormyTools.getAllTools()
+                    )
+
+                    // Handle API failure
+                    if (result.isFailure) {
+                        val error = result.exceptionOrNull()?.message ?: "Unknown API error"
+                        Log.e(TAG, "API call failed: $error")
+                        return@withContext AiEditResult(
+                            success = false,
+                            message = "",
+                            error = error
+                        )
+                    }
+
+                    val response = result.getOrNull()
+                    val choice = response?.choices?.firstOrNull()
+                    val message = choice?.message
+
+                    if (message == null) {
+                        Log.e(TAG, "No message in response")
+                        return@withContext AiEditResult(
+                            success = false,
+                            message = "",
+                            error = "No response from AI"
+                        )
+                    }
+
+                    val responseContent = message.content ?: ""
+                    val toolCalls = message.toolCalls ?: emptyList()
+
+                    Log.d(TAG, "Turn $turns: content=${responseContent.length} chars, toolCalls=${toolCalls.size}")
+
+                    // If no tool calls, the AI has finished
+                    if (toolCalls.isEmpty()) {
+                        Log.d(TAG, "No tool calls, AI finished. Total tool calls executed: $totalToolCalls")
+
+                        return@withContext AiEditResult(
+                            success = true,
+                            message = responseContent.ifEmpty { "Edit completed" },
+                            toolCallsExecuted = totalToolCalls,
+                            filesModified = modifiedFiles.distinct()
+                        )
+                    }
+
+                    // Add assistant message with tool calls to conversation history
+                    val assistantContent = responseContent.ifEmpty { null }
+                    val toolCallRequests = toolCalls.map { tc ->
+                        ToolCallRequest(
+                            id = tc.id,
+                            type = tc.type,
+                            function = tc.function
+                        )
+                    }
+                    messages.add(
+                        ChatRequestMessage(
+                            role = "assistant",
+                            content = assistantContent,
+                            toolCalls = toolCallRequests
+                        )
+                    )
+
+                    // Execute each tool call and collect results
+                    for (toolCall in toolCalls) {
+                        Log.d(TAG, "Executing tool: ${toolCall.function.name}")
+                        val toolResult = toolExecutor.execute(projectId, toolCall)
+                        totalToolCalls++
+
+                        Log.d(TAG, "Tool ${toolCall.function.name} result: success=${toolResult.success}")
+
+                        // Track file modifications
+                        if (toolResult.success && isFileModificationTool(toolCall.function.name)) {
+                            val path = extractPathFromToolCall(toolCall)
+                            if (path != null && !modifiedFiles.contains(path)) {
+                                modifiedFiles.add(path)
+                            }
+                        }
+
+                        // Add tool result to messages
+                        messages.add(
+                            ChatRequestMessage(
+                                role = "tool",
+                                content = if (toolResult.success) toolResult.output else (toolResult.error ?: "Tool execution failed"),
+                                toolCallId = toolCall.id,
+                                name = toolCall.function.name
+                            )
+                        )
+
+                        // If a tool failed, report the error but continue
+                        if (!toolResult.success) {
+                            Log.w(TAG, "Tool ${toolCall.function.name} failed: ${toolResult.error}")
+                        }
+                    }
+                }
+
+                // Max turns reached
+                Log.w(TAG, "Max turns ($MAX_TOOL_TURNS) reached")
+                AiEditResult(
+                    success = true,
+                    message = "Edit completed (max turns reached)",
+                    toolCallsExecuted = totalToolCalls,
+                    filesModified = modifiedFiles.distinct()
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "executeAiEdit failed", e)
+                AiEditResult(
+                    success = false,
+                    message = "",
+                    error = e.message ?: "Failed to execute edit"
+                )
+            }
+        }
+    }
+
+    /**
+     * Build the system prompt that guides the AI's behavior
+     */
+    private fun buildSystemPrompt(): String {
+        return """You are a web development AI assistant that directly modifies HTML/CSS/JS files.
+
+CRITICAL INSTRUCTIONS:
+1. You MUST use tools to make changes. Do NOT just describe what you would do.
+2. ALWAYS use read_file first to see the current file contents before making changes.
+3. Use patch_file for precise, targeted modifications (preferred for small changes).
+4. Use write_file only when creating new files or making large changes.
+5. Make the MINIMUM changes necessary to accomplish the task.
+
+WORKFLOW:
+1. Read the relevant file(s) to understand current state
+2. Identify exactly what needs to change
+3. Use patch_file with old_content and new_content to make precise changes
+4. DO NOT rewrite entire files unless absolutely necessary
+
+IMPORTANT:
+- The project typically has index.html, style.css, and script.js files
+- CSS changes should modify style.css (or the main CSS file)
+- HTML structure changes should modify index.html (or the main HTML file)
+- Always preserve existing code that isn't being changed
+- Use valid CSS/HTML syntax
+
+You have access to these tools:
+- read_file: Read file contents
+- write_file: Create or overwrite a file
+- patch_file: Make precise changes to specific parts of a file (PREFERRED)
+- list_files: List project files
+
+START IMMEDIATELY with tool calls. Do not ask for confirmation."""
+    }
+
+    /**
+     * Check if a tool name is a file modification tool
+     */
+    private fun isFileModificationTool(toolName: String): Boolean {
+        return toolName in listOf("write_file", "patch_file", "delete_file", "rename_file")
+    }
+
+    /**
+     * Extract file path from tool call arguments
+     */
+    private fun extractPathFromToolCall(toolCall: ToolCallResponse): String? {
+        return try {
+            val json = kotlinx.serialization.json.Json.parseToJsonElement(toolCall.function.arguments)
+            json.jsonObject["path"]?.let {
+                it.jsonPrimitive.content
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Apply live CSS update to WebView for instant visual feedback
+     */
+    private suspend fun applyLiveStyleUpdate(
+        webView: WebView,
+        selector: String,
+        property: String,
+        value: String
+    ) {
+        withContext(Dispatchers.Main) {
+            val escapedSelector = selector.replace("'", "\\'")
+            val escapedProperty = property.replace("'", "\\'")
+            val escapedValue = value.replace("'", "\\'")
+
+            val script = """
+                (function() {
+                    try {
+                        var elements = document.querySelectorAll('$escapedSelector');
+                        elements.forEach(function(el) {
+                            el.style['$escapedProperty'] = '$escapedValue';
+                        });
+                        return elements.length;
+                    } catch (e) {
+                        console.error('Live style update error:', e);
+                        return 0;
+                    }
+                })();
+            """.trimIndent()
+
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Apply live text update to WebView
+     */
+    private suspend fun applyLiveTextUpdate(
+        webView: WebView,
+        selector: String,
+        newText: String
+    ) {
+        withContext(Dispatchers.Main) {
+            val escapedSelector = selector.replace("'", "\\'")
+            val escapedText = newText
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+
+            val script = """
+                (function() {
+                    try {
+                        var elements = document.querySelectorAll('$escapedSelector');
+                        if (elements.length > 0) {
+                            var el = elements[0];
+                            var textNode = null;
+                            for (var i = 0; i < el.childNodes.length; i++) {
+                                if (el.childNodes[i].nodeType === Node.TEXT_NODE && el.childNodes[i].textContent.trim()) {
+                                    textNode = el.childNodes[i];
+                                    break;
+                                }
+                            }
+                            if (textNode) {
+                                textNode.textContent = '$escapedText';
+                            } else if (!el.children.length) {
+                                el.textContent = '$escapedText';
+                            }
+                        }
+                        return elements.length;
+                    } catch (e) {
+                        console.error('Live text update error:', e);
+                        return 0;
+                    }
+                })();
+            """.trimIndent()
+
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Apply live image source update to WebView
+     */
+    private suspend fun applyLiveImageUpdate(
+        webView: WebView,
+        selector: String,
+        newSrc: String
+    ) {
+        withContext(Dispatchers.Main) {
+            val escapedSelector = selector.replace("'", "\\'")
+            val escapedSrc = newSrc
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+
+            val script = """
+                (function() {
+                    try {
+                        var elements = document.querySelectorAll('$escapedSelector');
+                        elements.forEach(function(el) {
+                            if (el.tagName === 'IMG') {
+                                el.src = '$escapedSrc';
+                            }
+                        });
+                        return elements.length;
+                    } catch (e) {
+                        console.error('Live image update error:', e);
+                        return 0;
+                    }
+                })();
+            """.trimIndent()
+
+            webView.evaluateJavascript(script, null)
+        }
+    }
+
+    /**
+     * Build prompt for style change
+     */
+    private fun buildStyleChangePrompt(request: StyleChangeRequest): String {
+        return """Update the CSS for element matching selector "${request.selector}".
+
+TASK: Change the "${request.property}" property from "${request.oldValue ?: "unset"}" to "${request.newValue}".
+
+Element HTML for reference:
+```html
+${request.elementHtml.take(500)}
+```
+
+INSTRUCTIONS:
+1. First, read the CSS file (try style.css, then styles.css, then main.css)
+2. Find or create a CSS rule for the selector "${request.selector}"
+3. Use patch_file to update ONLY the "${request.property}" property
+4. If the selector doesn't exist in the CSS file, add a new rule
+
+Example patch for an existing rule:
+- old_content: "background-color: blue;"
+- new_content: "background-color: red;"
+
+START NOW - read the CSS file first."""
+    }
+
+    /**
+     * Build prompt for text content change
+     */
+    private fun buildTextChangePrompt(request: TextChangeRequest): String {
+        return """Update the text content in the HTML file.
+
+TASK: Change the text content of element "${request.selector}".
+
+OLD TEXT: "${request.oldText}"
+NEW TEXT: "${request.newText}"
+
+Element HTML for reference:
+```html
+${request.elementHtml.take(500)}
+```
+
+INSTRUCTIONS:
+1. First, read index.html (or the main HTML file)
+2. Find the element and locate the text to change
+3. Use patch_file to replace ONLY the old text with the new text
+4. Preserve all HTML tags, attributes, and surrounding content
+
+START NOW - read index.html first."""
+    }
+
+    /**
+     * Build prompt for freeform AI edit
+     */
+    private fun buildFreeformEditPrompt(
+        userPrompt: String,
+        selector: String,
+        elementHtml: String
+    ): String {
+        return """USER REQUEST: $userPrompt
+
+TARGET ELEMENT: $selector
+
+Element HTML:
+```html
+${elementHtml.take(500)}
+```
+
+INSTRUCTIONS:
+1. Read the relevant file(s) first to understand the current state
+2. Make the specific changes requested
+3. Use patch_file for precise modifications
+4. Only change what's necessary for the user's request
+
+START NOW - read the relevant files and make the changes."""
     }
 
     /**
@@ -451,27 +699,25 @@ Instructions:
         elements: List<AgentSelectedElement>
     ): String {
         val elementDescriptions = elements.mapIndexed { index, element ->
-            """
-            |Element ${index + 1}: ${element.selector}
-            |```html
-            |${element.outerHTML.take(300)}
-            |```
-            """.trimMargin()
+            """Element ${index + 1}: ${element.selector}
+```html
+${element.outerHTML.take(300)}
+```"""
         }.joinToString("\n\n")
 
-        return """User request: $userPrompt
+        return """USER REQUEST: $userPrompt
 
-Selected elements (${elements.size} total):
+SELECTED ELEMENTS (${elements.size} total):
 $elementDescriptions
 
-Instructions:
-1. Read the relevant files (HTML, CSS, JS as needed)
+INSTRUCTIONS:
+1. Read the HTML and CSS files to understand the current state
 2. Apply the user's requested changes to ALL the selected elements
-3. Use patch_file for precise, targeted modifications
-4. If the change affects styling, update the CSS file appropriately
-5. If the change affects HTML structure, update the HTML file
-6. Ensure consistency across all modified elements
-7. Only change what's necessary to accomplish the request"""
+3. Use patch_file for each modification
+4. If multiple elements share a class, you can modify the CSS class instead of inline styles
+5. Ensure consistency across all modified elements
+
+START NOW - read the files and apply the changes to all selected elements."""
     }
 
     /**
@@ -501,14 +747,18 @@ Instructions:
                 val prompt = buildImageChangePrompt(request)
                 val result = executeAiEdit(prompt, model)
 
-                if (result.success) {
+                if (result.success && result.toolCallsExecuted > 0) {
                     _status.value = PreviewEditStatus.Success("Image updated")
+                } else if (result.success && result.toolCallsExecuted == 0) {
+                    Log.w(TAG, "AI did not execute any tool calls for image change")
+                    _status.value = PreviewEditStatus.Error("AI did not modify any files")
                 } else {
                     _status.value = PreviewEditStatus.Error(result.error ?: "Unknown error")
                 }
             } catch (e: CancellationException) {
                 _status.value = PreviewEditStatus.Idle
             } catch (e: Exception) {
+                Log.e(TAG, "Image change failed", e)
                 _status.value = PreviewEditStatus.Error(e.message ?: "Failed to update image")
             } finally {
                 onComplete()
@@ -517,39 +767,12 @@ Instructions:
     }
 
     /**
-     * Apply live image source update to WebView
-     */
-    private suspend fun applyLiveImageUpdate(
-        webView: WebView,
-        selector: String,
-        newSrc: String
-    ) {
-        withContext(Dispatchers.Main) {
-            val escapedSrc = newSrc
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-
-            val script = """
-                (function() {
-                    var elements = document.querySelectorAll('$selector');
-                    elements.forEach(function(el) {
-                        if (el.tagName === 'IMG') {
-                            el.src = '$escapedSrc';
-                        }
-                    });
-                    return elements.length;
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
-    }
-
-    /**
      * Build prompt for image source change
      */
     private fun buildImageChangePrompt(request: ImageChangeRequest): String {
-        return """Please update the image source (src attribute) in the HTML file.
+        return """Update the image source (src attribute) in the HTML file.
+
+TASK: Change the src attribute of the image element.
 
 Element selector: "${request.selector}"
 Old src: "${request.oldSrc ?: "none"}"
@@ -560,11 +783,17 @@ Element HTML for reference:
 ${request.elementHtml.take(300)}
 ```
 
-Instructions:
-1. First read the HTML file (usually index.html)
+INSTRUCTIONS:
+1. First read index.html (or the main HTML file)
 2. Find the <img> element matching this selector
-3. Use patch_file to update the src attribute to the new value
-4. Keep all other attributes (alt, class, id, etc.) unchanged"""
+3. Use patch_file to update ONLY the src attribute to the new value
+4. Keep all other attributes (alt, class, id, etc.) unchanged
+
+Example patch:
+- old_content: src="old-image.jpg"
+- new_content: src="${request.newSrc}"
+
+START NOW - read index.html first."""
     }
 
     /**
@@ -584,10 +813,9 @@ Instructions:
     }
 }
 
-/**
- * Data class for agent-selected elements
- */
-data class AgentSelectedElement(
-    val selector: String,
-    val outerHTML: String
-)
+// Extension to access JsonObject
+private val kotlinx.serialization.json.JsonElement.jsonObject: kotlinx.serialization.json.JsonObject
+    get() = this as kotlinx.serialization.json.JsonObject
+
+private val kotlinx.serialization.json.JsonElement.jsonPrimitive: kotlinx.serialization.json.JsonPrimitive
+    get() = this as kotlinx.serialization.json.JsonPrimitive

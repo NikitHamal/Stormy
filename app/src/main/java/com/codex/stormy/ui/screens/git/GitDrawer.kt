@@ -27,6 +27,7 @@ import java.io.File
 fun GitDrawer(
     projectPath: String,
     onClose: () -> Unit,
+    onNavigateToGitSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -42,9 +43,6 @@ fun GitDrawer(
     )
 
     val uiState by viewModel.uiState.collectAsState()
-
-    // Dialogs
-    var showSettingsDialog by remember { mutableStateOf(false) }
 
     // Open repository when drawer opens
     LaunchedEffect(projectPath) {
@@ -88,7 +86,8 @@ fun GitDrawer(
             onCreateBranch = { name, checkout -> viewModel.createBranch(name, checkout) },
             onViewDiff = { path, staged -> viewModel.getFileDiff(path, staged) },
             onInitRepo = { viewModel.initRepository() },
-            onOpenSettings = { showSettingsDialog = true },
+            onOpenSettings = onNavigateToGitSettings,
+            onClose = onClose,
             onRefreshCI = { viewModel.refreshCIStatus() },
             onRerunWorkflow = { runId -> viewModel.rerunWorkflow(runId) },
             onCancelWorkflow = { runId -> viewModel.cancelWorkflow(runId) },
@@ -96,21 +95,6 @@ fun GitDrawer(
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 context.startActivity(intent)
             }
-        )
-    }
-
-    // Settings dialog
-    if (showSettingsDialog) {
-        GitSettingsDialog(
-            userName = uiState.userName,
-            userEmail = uiState.userEmail,
-            onSaveIdentity = { name, email ->
-                viewModel.setGitIdentity(name, email)
-            },
-            onSaveCredentials = { host, username, password ->
-                viewModel.saveCredentials(host, username, password)
-            },
-            onDismiss = { showSettingsDialog = false }
         )
     }
 }

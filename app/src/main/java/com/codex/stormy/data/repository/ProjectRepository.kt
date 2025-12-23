@@ -1,11 +1,13 @@
 package com.codex.stormy.data.repository
 
 import android.content.Context
+import android.net.Uri
 import com.codex.stormy.data.local.dao.ProjectDao
 import com.codex.stormy.data.local.entity.ProjectEntity
 import com.codex.stormy.data.local.entity.ProjectTemplate
 import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.domain.model.Project
+import com.codex.stormy.utils.FileUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -144,6 +146,165 @@ class ProjectRepository(
 
     suspend fun updateLastUsedModelId(projectId: String, modelId: String?) = withContext(Dispatchers.IO) {
         projectDao.updateLastUsedModelId(projectId, modelId)
+    }
+
+    /**
+     * Import a project from a folder selected via document picker.
+     * Copies all contents from the source folder to a new project.
+     * @param name Project name
+     * @param description Optional project description
+     * @param sourceFolderUri URI from OpenDocumentTree picker
+     * @param progressCallback Optional callback for import progress
+     * @return Result with the created project or error
+     */
+    suspend fun importProjectFromFolder(
+        name: String,
+        description: String,
+        sourceFolderUri: Uri,
+        progressCallback: ((copied: Int, total: Int) -> Unit)? = null
+    ): Result<Project> = withContext(Dispatchers.IO) {
+        try {
+            if (projectDao.countProjectsByName(name) > 0) {
+                return@withContext Result.failure(ProjectExistsException(name))
+            }
+
+            val projectId = UUID.randomUUID().toString()
+            val timestamp = System.currentTimeMillis()
+            val projectDir = File(projectsBaseDir, projectId)
+
+            if (!projectDir.mkdirs()) {
+                return@withContext Result.failure(ProjectCreationException("Failed to create project directory"))
+            }
+
+            // Copy folder contents
+            val copyResult = FileUtils.copyFolderFromUri(
+                context = context,
+                sourceTreeUri = sourceFolderUri,
+                destDir = projectDir,
+                progressCallback = progressCallback
+            )
+
+            if (copyResult.isFailure) {
+                // Clean up failed project
+                projectDir.deleteRecursively()
+                return@withContext Result.failure(
+                    copyResult.exceptionOrNull() ?: Exception("Failed to copy folder contents")
+                )
+            }
+
+            val project = Project(
+                id = projectId,
+                name = name,
+                description = description.ifBlank { "Imported from device storage" },
+                template = ProjectTemplate.BLANK,
+                createdAt = timestamp,
+                updatedAt = timestamp,
+                lastOpenedAt = timestamp,
+                thumbnailPath = null,
+                rootPath = projectDir.absolutePath
+            )
+
+            projectDao.insertProject(project.toEntity())
+            Result.success(project)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Import a single file from a URI to an existing project.
+     * @param projectId Target project ID
+     * @param fileUri URI from file picker
+     * @param targetFolderPath Target folder path within project (relative, empty string for root)
+     * @return Result with the imported file path or error
+     */
+    suspend fun importFileToProject(
+        projectId: String,
+        fileUri: Uri,
+        targetFolderPath: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            // Determine target directory - root if empty, otherwise the specified folder
+            val targetDir = if (targetFolderPath.isEmpty()) {
+                File(project.rootPath)
+            } else {
+                File(project.rootPath, targetFolderPath)
+            }
+
+            // Ensure target directory exists
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+
+            // Get the original filename from the URI
+            val originalFileName = FileUtils.getDocumentDisplayName(context, fileUri)
+
+            // Copy file with original filename
+            val copyResult = FileUtils.copyFromUri(
+                context = context,
+                sourceUri = fileUri,
+                destDir = targetDir,
+                fileName = originalFileName
+            )
+
+            copyResult.onSuccess {
+                projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            }
+
+            copyResult.map { file ->
+                file.absolutePath.removePrefix(project.rootPath + File.separator)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Import a folder and its contents from a URI to an existing project.
+     * @param projectId Target project ID
+     * @param folderUri URI from folder picker (document tree URI)
+     * @param targetFolderPath Target folder path within project (relative, empty string for root)
+     * @return Result with the number of files imported or error
+     */
+    suspend fun importFolderToProject(
+        projectId: String,
+        folderUri: Uri,
+        targetFolderPath: String
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val project = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            // Determine target directory - root if empty, otherwise the specified folder
+            val targetDir = if (targetFolderPath.isEmpty()) {
+                File(project.rootPath)
+            } else {
+                File(project.rootPath, targetFolderPath)
+            }
+
+            // Ensure target directory exists
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+
+            // Copy folder contents recursively
+            val copyResult = FileUtils.copyFolderFromUri(
+                context = context,
+                sourceTreeUri = folderUri,
+                destDir = targetDir
+            )
+
+            copyResult.onSuccess {
+                projectDao.updateUpdatedAt(projectId, System.currentTimeMillis())
+            }
+
+            copyResult
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     suspend fun getFileTree(projectId: String): List<FileTreeNode> = withContext(Dispatchers.IO) {
@@ -499,146 +660,7 @@ class ProjectRepository(
     }
 
     private fun createTemplateFiles(projectDir: File, template: ProjectTemplate) {
-        when (template) {
-            ProjectTemplate.BLANK -> createBlankTemplate(projectDir)
-            ProjectTemplate.HTML_BASIC -> createBasicHtmlTemplate(projectDir)
-            ProjectTemplate.TAILWIND -> createTailwindTemplate(projectDir)
-            ProjectTemplate.LANDING_PAGE -> createLandingPageTemplate(projectDir)
-        }
-    }
-
-    private fun createBlankTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText("")
-    }
-
-    private fun createBasicHtmlTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(BASIC_HTML_TEMPLATE)
-        File(projectDir, "style.css").writeText(BASIC_CSS_TEMPLATE)
-        File(projectDir, "script.js").writeText(BASIC_JS_TEMPLATE)
-    }
-
-    private fun createTailwindTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(TAILWIND_HTML_TEMPLATE)
-    }
-
-    private fun createLandingPageTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(LANDING_PAGE_HTML_TEMPLATE)
-        File(projectDir, "style.css").writeText(LANDING_PAGE_CSS_TEMPLATE)
-    }
-
-    companion object {
-        private val BASIC_HTML_TEMPLATE = """
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>My Website</title>
-                <link rel="stylesheet" href="style.css">
-            </head>
-            <body>
-                <h1>Hello, World!</h1>
-                <p>Welcome to my website.</p>
-                <script src="script.js"></script>
-            </body>
-            </html>
-        """.trimIndent()
-
-        private val BASIC_CSS_TEMPLATE = """
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-
-            body {
-                font-family: system-ui, -apple-system, sans-serif;
-                line-height: 1.6;
-                padding: 2rem;
-            }
-
-            h1 {
-                color: #333;
-                margin-bottom: 1rem;
-            }
-
-            p {
-                color: #666;
-            }
-        """.trimIndent()
-
-        private val BASIC_JS_TEMPLATE = """
-            // Your JavaScript code here
-            console.log('Hello from JavaScript!');
-        """.trimIndent()
-
-        private val TAILWIND_HTML_TEMPLATE = """
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>My Tailwind Website</title>
-                <script src="https://cdn.tailwindcss.com"></script>
-            </head>
-            <body class="bg-gray-100 min-h-screen">
-                <div class="container mx-auto px-4 py-8">
-                    <h1 class="text-4xl font-bold text-gray-800 mb-4">Hello, World!</h1>
-                    <p class="text-gray-600">Welcome to my Tailwind CSS website.</p>
-                </div>
-            </body>
-            </html>
-        """.trimIndent()
-
-        private val LANDING_PAGE_HTML_TEMPLATE = """
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Landing Page</title>
-                <script src="https://cdn.tailwindcss.com"></script>
-                <link rel="stylesheet" href="style.css">
-            </head>
-            <body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen">
-                <nav class="container mx-auto px-6 py-4">
-                    <div class="flex items-center justify-between">
-                        <div class="text-white text-2xl font-bold">Brand</div>
-                        <div class="hidden md:flex space-x-6">
-                            <a href="#" class="text-white/90 hover:text-white transition">Home</a>
-                            <a href="#" class="text-white/90 hover:text-white transition">Features</a>
-                            <a href="#" class="text-white/90 hover:text-white transition">About</a>
-                            <a href="#" class="text-white/90 hover:text-white transition">Contact</a>
-                        </div>
-                    </div>
-                </nav>
-
-                <main class="container mx-auto px-6 py-16 text-center">
-                    <h1 class="text-5xl md:text-6xl font-bold text-white mb-6">
-                        Build Something Amazing
-                    </h1>
-                    <p class="text-xl text-white/80 mb-8 max-w-2xl mx-auto">
-                        Create beautiful, responsive websites with modern tools and frameworks.
-                    </p>
-                    <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                        <button class="px-8 py-3 bg-white text-indigo-600 font-semibold rounded-full hover:bg-opacity-90 transition">
-                            Get Started
-                        </button>
-                        <button class="px-8 py-3 border-2 border-white text-white font-semibold rounded-full hover:bg-white/10 transition">
-                            Learn More
-                        </button>
-                    </div>
-                </main>
-            </body>
-            </html>
-        """.trimIndent()
-
-        private val LANDING_PAGE_CSS_TEMPLATE = """
-            /* Custom styles */
-            body {
-                font-family: system-ui, -apple-system, sans-serif;
-            }
-        """.trimIndent()
+        ProjectTemplateGenerator.createTemplateFiles(projectDir, template)
     }
 }
 
