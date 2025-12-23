@@ -327,19 +327,43 @@ class EditorViewModel(
 
     /**
      * Load persisted chat history from database
+     * Uses smart merging to prevent duplicate messages and race conditions
      */
     private fun loadChatHistory() {
         viewModelScope.launch {
-            chatRepository.getMessagesForProject(projectId).collect { messages ->
+            chatRepository.getMessagesForProject(projectId).collect { dbMessages ->
                 // Only update if we're not currently processing (to avoid overwriting streaming)
                 if (!_isAiProcessing.value) {
-                    _messages.value = messages
+                    // Smart merge: use database as source of truth, but preserve order
+                    // and prevent duplicates by comparing message IDs
+                    val currentMessages = _messages.value
+                    val currentIds = currentMessages.map { it.id }.toSet()
+                    val dbIds = dbMessages.map { it.id }.toSet()
+
+                    // If the sets of IDs match, use database version (may have updated content)
+                    // If they differ, prefer database but this shouldn't happen in normal flow
+                    if (currentIds == dbIds && currentMessages.size == dbMessages.size) {
+                        // IDs match - safe to replace with database version
+                        _messages.value = dbMessages
+                    } else if (currentMessages.isEmpty() || dbMessages.containsAll(currentIds)) {
+                        // Initial load or database has all our messages - use database
+                        _messages.value = dbMessages
+                    }
+                    // Otherwise keep current in-memory state to prevent race condition issues
 
                     // Rebuild message history for AI context
-                    rebuildMessageHistoryFromMessages(messages)
+                    rebuildMessageHistoryFromMessages(_messages.value)
                 }
             }
         }
+    }
+
+    /**
+     * Check if database messages contain all the given IDs
+     */
+    private fun List<ChatMessage>.containsAll(ids: Set<String>): Boolean {
+        val dbIds = this.map { it.id }.toSet()
+        return dbIds.containsAll(ids)
     }
 
     /**
@@ -863,14 +887,18 @@ class EditorViewModel(
                         // Streaming started
                     }
                     is StreamEvent.ContentDelta -> {
-                        // Close any open think block before adding regular content
+                        // Handle content delta - may contain inline <think> tags from some models
                         val currentContent = _streamingContent.value
-                        val hasUnclosedThinkTag = currentContent.contains("<think>") && !currentContent.contains("</think>")
+                        val hasUnclosedThinkTag = hasUnclosedThinkingTag(currentContent)
+                        val deltaContainsCloseTag = event.content.lowercase().contains("</think>")
+                        val deltaContainsOpenTag = event.content.lowercase().contains("<think>")
 
-                        if (hasUnclosedThinkTag && event.content.isNotEmpty()) {
+                        if (hasUnclosedThinkTag && !deltaContainsCloseTag && !deltaContainsOpenTag && event.content.isNotEmpty()) {
+                            // We have an open think block from ReasoningDelta, and this is regular content
                             // Close the think block before adding regular content
                             _streamingContent.value += "</think>\n${event.content}"
                         } else {
+                            // Either no open think tag, or the delta contains tags that will handle closure
                             _streamingContent.value += event.content
                         }
                         // Use debounced update for better performance
@@ -878,9 +906,8 @@ class EditorViewModel(
                     }
                     is StreamEvent.ReasoningDelta -> {
                         // Handle reasoning for thinking models - wrap in <think> tags for proper parsing
-                        // Check if we already have an open <think> tag without a closing tag
                         val currentContent = _streamingContent.value
-                        val hasOpenThinkTag = currentContent.contains("<think>") && !currentContent.contains("</think>")
+                        val hasOpenThinkTag = hasUnclosedThinkingTag(currentContent)
 
                         if (!hasOpenThinkTag && event.reasoning.isNotEmpty()) {
                             // Start a new think block
@@ -1134,8 +1161,15 @@ class EditorViewModel(
         if (currentMessages.isNotEmpty()) {
             val lastMessage = currentMessages.last()
             if (!lastMessage.isUser) {
+                // Sanitize content when saving (not streaming)
+                val sanitizedContent = if (status != MessageStatus.STREAMING) {
+                    sanitizeAiResponseContent(content)
+                } else {
+                    content
+                }
+
                 val updatedMessage = lastMessage.copy(
-                    content = content,
+                    content = sanitizedContent,
                     status = status
                 )
                 currentMessages[currentMessages.lastIndex] = updatedMessage
@@ -1149,6 +1183,77 @@ class EditorViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Check if content has any unclosed thinking/reasoning tags
+     * Supports multiple tag formats used by different AI providers
+     */
+    private fun hasUnclosedThinkingTag(content: String): Boolean {
+        val lowerContent = content.lowercase()
+        val tagPairs = listOf(
+            "<think>" to "</think>",
+            "<thinking>" to "</thinking>",
+            "<reasoning>" to "</reasoning>",
+            "<reason>" to "</reason>"
+        )
+
+        for ((openTag, closeTag) in tagPairs) {
+            val openCount = lowerContent.split(openTag).size - 1
+            val closeCount = lowerContent.split(closeTag).size - 1
+            if (openCount > closeCount) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Sanitize AI response content to ensure proper tag closure and remove polluted content
+     * This handles various thinking/reasoning tag formats from different AI providers
+     */
+    private fun sanitizeAiResponseContent(content: String): String {
+        var result = content
+
+        // List of thinking/reasoning tag pairs to process
+        val tagPairs = listOf(
+            "<think>" to "</think>",
+            "<thinking>" to "</thinking>",
+            "<reasoning>" to "</reasoning>",
+            "<reason>" to "</reason>"
+        )
+
+        // Close any unclosed thinking tags
+        for ((openTag, closeTag) in tagPairs) {
+            val openCount = result.lowercase().split(openTag.lowercase()).size - 1
+            val closeCount = result.lowercase().split(closeTag.lowercase()).size - 1
+
+            if (openCount > closeCount) {
+                // Add missing closing tags
+                repeat(openCount - closeCount) {
+                    result = "$result$closeTag"
+                }
+            }
+        }
+
+        // Normalize all thinking tag variants to <think></think> for consistent parsing
+        result = result
+            .replace(Regex("<thinking>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</thinking>", RegexOption.IGNORE_CASE), "</think>")
+            .replace(Regex("<reasoning>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</reasoning>", RegexOption.IGNORE_CASE), "</think>")
+            .replace(Regex("<reason>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</reason>", RegexOption.IGNORE_CASE), "</think>")
+
+        // Remove any empty thinking blocks
+        result = result.replace(Regex("<think>\\s*</think>", RegexOption.IGNORE_CASE), "")
+
+        // Clean up excessive whitespace but preserve paragraph breaks
+        result = result
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+
+        return result
     }
 
     fun clearChat() {

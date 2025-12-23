@@ -449,21 +449,6 @@ object StormyTools {
         )
     )
 
-    // Self-reflection tool
-    val THINK = Tool(
-        type = "function",
-        function = FunctionDefinition(
-            name = "think",
-            description = "Use this tool to reason about your approach, plan next steps, or reflect on the current state of the task. This helps organize complex tasks and make better decisions. Call this before making significant changes or when facing difficult problems.",
-            parameters = createParametersJson(
-                properties = mapOf(
-                    "thought" to Pair("string", "Your reasoning, analysis, or plan. Be specific about what you're thinking and why.")
-                ),
-                required = listOf("thought")
-            )
-        )
-    )
-
     // ==================== Git Tools ====================
 
     val GIT_STATUS = Tool(
@@ -659,7 +644,6 @@ object StormyTools {
         // Agent control
         ASK_USER,
         FINISH_TASK,
-        THINK,
         // Git tools
         GIT_STATUS,
         GIT_STAGE,
