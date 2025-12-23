@@ -193,11 +193,8 @@ class GeminiProvider(
             val requestBody = json.encodeToString(GeminiRequest.serializer(), request)
                 .toRequestBody("application/json".toMediaType())
 
-            // Extract model name from full model ID (e.g., "models/gemini-pro" -> "gemini-pro")
-            val modelName = model.id.removePrefix("models/")
-
             val httpRequest = Request.Builder()
-                .url("$baseUrl/models/$modelName:streamGenerateContent?key=$apiKey&alt=sse")
+                .url("$baseUrl/${model.id}:streamGenerateContent?key=$apiKey&alt=sse")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("User-Agent", USER_AGENT)
                 .post(requestBody)
@@ -318,11 +315,8 @@ class GeminiProvider(
             val requestBody = json.encodeToString(GeminiRequest.serializer(), request)
                 .toRequestBody("application/json".toMediaType())
 
-            // Extract model name from full model ID
-            val modelName = model.id.removePrefix("models/")
-
             val httpRequest = Request.Builder()
-                .url("$baseUrl/models/$modelName:generateContent?key=$apiKey")
+                .url("$baseUrl/${model.id}:generateContent?key=$apiKey")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("User-Agent", USER_AGENT)
                 .post(requestBody)
