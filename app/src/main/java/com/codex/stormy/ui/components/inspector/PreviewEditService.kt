@@ -4,12 +4,10 @@ import android.util.Log
 import android.webkit.WebView
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.ChatRequestMessage
-import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.ToolCallRequest
 import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.tools.StormyTools
 import com.codex.stormy.data.ai.tools.ToolExecutor
-import com.codex.stormy.data.ai.tools.ToolResult
 import com.codex.stormy.data.repository.AiRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -294,6 +292,8 @@ class PreviewEditService(
 
     /**
      * Execute AI edit with multi-turn tool use support.
+     * Uses non-streaming API for more reliable tool call handling.
+     *
      * Handles the complete cycle of:
      * 1. Initial AI response with potential tool calls
      * 2. Tool execution
@@ -309,8 +309,6 @@ class PreviewEditService(
         return withContext(Dispatchers.IO) {
             try {
                 // Create system message for editing context
-                // Note: We include tool instructions even for models that may not
-                // natively support tools - the API provider handles this gracefully
                 val systemMessage = buildSystemPrompt()
 
                 // Build initial message list
@@ -328,32 +326,39 @@ class PreviewEditService(
                     turns++
                     Log.d(TAG, "AI turn $turns")
 
-                    // Stream response with tools
-                    val responseContent = StringBuilder()
-                    val toolCalls = mutableListOf<ToolCallResponse>()
-
-                    aiRepository.streamChat(
+                    // Use non-streaming API for reliable tool call handling
+                    val result = aiRepository.chat(
                         model = model,
                         messages = messages,
                         tools = StormyTools.getAllTools()
-                    ).collect { event ->
-                        when (event) {
-                            is StreamEvent.ContentDelta -> {
-                                responseContent.append(event.content)
-                            }
-                            is StreamEvent.ToolCalls -> {
-                                toolCalls.addAll(event.toolCalls)
-                                Log.d(TAG, "Received ${event.toolCalls.size} tool calls")
-                            }
-                            is StreamEvent.Completed -> {
-                                Log.d(TAG, "Stream completed")
-                            }
-                            is StreamEvent.Error -> {
-                                throw Exception(event.message)
-                            }
-                            else -> {}
-                        }
+                    )
+
+                    // Handle API failure
+                    if (result.isFailure) {
+                        val error = result.exceptionOrNull()?.message ?: "Unknown API error"
+                        Log.e(TAG, "API call failed: $error")
+                        return@withContext AiEditResult(
+                            success = false,
+                            message = "",
+                            error = error
+                        )
                     }
+
+                    val response = result.getOrNull()
+                    val choice = response?.choices?.firstOrNull()
+                    val message = choice?.message
+
+                    if (message == null) {
+                        Log.e(TAG, "No message in response")
+                        return@withContext AiEditResult(
+                            success = false,
+                            message = "",
+                            error = "No response from AI"
+                        )
+                    }
+
+                    val responseContent = message.content ?: ""
+                    val toolCalls = message.toolCalls ?: emptyList()
 
                     Log.d(TAG, "Turn $turns: content=${responseContent.length} chars, toolCalls=${toolCalls.size}")
 
@@ -363,20 +368,19 @@ class PreviewEditService(
 
                         return@withContext AiEditResult(
                             success = true,
-                            message = responseContent.toString().ifEmpty { "Edit completed" },
+                            message = responseContent.ifEmpty { "Edit completed" },
                             toolCallsExecuted = totalToolCalls,
                             filesModified = modifiedFiles.distinct()
                         )
                     }
 
                     // Add assistant message with tool calls to conversation history
-                    val assistantContent = if (responseContent.isNotEmpty()) responseContent.toString() else null
-                    // Convert ToolCallResponse to ToolCallRequest for ChatRequestMessage
-                    val toolCallRequests = toolCalls.map { response ->
+                    val assistantContent = responseContent.ifEmpty { null }
+                    val toolCallRequests = toolCalls.map { tc ->
                         ToolCallRequest(
-                            id = response.id,
-                            type = response.type,
-                            function = response.function
+                            id = tc.id,
+                            type = tc.type,
+                            function = tc.function
                         )
                     }
                     messages.add(

@@ -120,9 +120,6 @@ class ToolExecutor(
                 "append_to_file" -> executeAppendToFile(projectId, arguments)
                 "prepend_to_file" -> executePrependToFile(projectId, arguments)
 
-                // Agent reasoning
-                "think" -> executeThink(arguments)
-
                 // Todo operations
                 "create_todo" -> executeCreateTodo(projectId, arguments)
                 "update_todo" -> executeUpdateTodo(projectId, arguments)
@@ -712,16 +709,6 @@ class ToolExecutor(
                 },
                 onFailure = { ToolResult(false, "", "Failed to prepend to file: ${it.message}") }
             )
-    }
-
-    private fun executeThink(args: JsonObject): ToolResult {
-        val thought = args.getStringArg("thought")
-            ?: return ToolResult(false, "", "Missing required argument: thought")
-
-        // The think tool is used for agent self-reflection and reasoning
-        // It doesn't perform any actions but helps the agent organize thoughts
-        // The output is included in the conversation for context
-        return ToolResult(true, "Reasoning: $thought")
     }
 
     // ==================== Todo Operations ====================

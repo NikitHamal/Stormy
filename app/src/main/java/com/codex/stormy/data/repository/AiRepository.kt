@@ -1,6 +1,7 @@
 package com.codex.stormy.data.repository
 
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.ChatCompletionResponse
 import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.DeepInfraProvider
@@ -60,6 +61,27 @@ class AiRepository(
     ): Flow<StreamEvent> {
         val provider = getOrCreateProvider()
         return provider.streamChatCompletion(
+            model = model,
+            messages = messages,
+            tools = tools,
+            temperature = temperature,
+            maxTokens = maxTokens
+        )
+    }
+
+    /**
+     * Non-streaming chat completion - more reliable for tool calls
+     * Returns the complete response at once rather than streaming
+     */
+    suspend fun chat(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>? = null,
+        temperature: Float = 0.7f,
+        maxTokens: Int? = null
+    ): Result<ChatCompletionResponse> {
+        val provider = getOrCreateProvider()
+        return provider.chatCompletion(
             model = model,
             messages = messages,
             tools = tools,
@@ -268,8 +290,7 @@ class AiRepository(
             - `update_todo(todo_id, status)` - Update task status (pending/in_progress/completed)
             - `list_todos()` - View all tasks
 
-            ### Agent Control & Reasoning
-            - `think(thought)` - Reason about your approach and plan next steps
+            ### Agent Control
             - `ask_user(question, options?)` - Ask the user a question when needed
             - `finish_task(summary)` - Complete the current task
 
@@ -285,7 +306,7 @@ class AiRepository(
             - `git_diff(path?, staged?)` - View changes
 
             ## Tool Usage Best Practices
-            1. **Think before acting**: Use `think` to plan your approach for complex tasks
+            1. **Plan before acting**: Consider your approach for complex tasks before executing
             2. **Always read before writing**: Read existing files before modifying them
             3. **Use patch for small changes**: Use `patch_file` instead of rewriting entire files
             4. **Use insert/append for additions**: Use `insert_at_line` or `append_to_file` for adding code
@@ -299,16 +320,15 @@ class AiRepository(
             ## Workflow Instructions
 
             ### For New Tasks
-            1. **Think**: Use the `think` tool to reason about the task and plan your approach
-            2. **Understand**: Read the user's request carefully
-            3. **Explore**: Use `list_files` and `read_file` to understand the project
-            4. **Plan**: For complex tasks, create todos to track progress
-            5. **Execute**: Make changes incrementally, testing as you go
-            6. **Verify**: Review changes to ensure they meet requirements
-            7. **Complete**: Call `finish_task` with a summary
+            1. **Understand**: Read the user's request carefully
+            2. **Explore**: Use `list_files` and `read_file` to understand the project
+            3. **Plan**: For complex tasks, create todos to track progress
+            4. **Execute**: Make changes incrementally, testing as you go
+            5. **Verify**: Review changes to ensure they meet requirements
+            6. **Complete**: Call `finish_task` with a summary
 
             ### For Code Modifications
-            1. Use `think` to analyze what changes are needed
+            1. Analyze what changes are needed
             2. Read the target file(s) first
             3. Understand the existing code structure
             4. Make focused, minimal changes using `patch_file` or `insert_at_line`
@@ -316,7 +336,7 @@ class AiRepository(
             6. Verify changes by reading the modified file
 
             ### For New Features
-            1. Think about where the feature fits in the architecture
+            1. Consider where the feature fits in the architecture
             2. Understand the existing project structure
             3. Create new files in appropriate locations
             4. Follow existing naming conventions
@@ -324,17 +344,10 @@ class AiRepository(
             6. Test the feature works correctly
 
             ### When Uncertain
-            - Use `think` to analyze the problem from different angles
+            - Analyze the problem from different angles
             - Use `ask_user` to clarify requirements
             - Review existing code for patterns to follow
             - Make conservative choices that can be adjusted later
-
-            ### Self-Reflection Triggers (use `think`)
-            - Before starting a complex task
-            - When you encounter an unexpected error
-            - When deciding between multiple approaches
-            - After completing a significant change (to verify correctness)
-            - When the task seems unclear or ambiguous
         """.trimIndent()
 
         private val CODE_QUALITY_GUIDELINES = """
