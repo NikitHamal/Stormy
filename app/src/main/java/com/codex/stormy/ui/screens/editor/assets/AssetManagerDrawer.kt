@@ -41,6 +41,8 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FontDownload
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.EmojiSymbols
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -124,6 +126,10 @@ fun AssetManagerDrawer(
     var showAddMenu by remember { mutableStateOf(false) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<AssetFile?>(null) }
+    var showImageDetail by remember { mutableStateOf<AssetFile?>(null) }
+    var showIconLibrary by remember { mutableStateOf(false) }
+    var showColorPicker by remember { mutableStateOf(false) }
+    var showFontManager by remember { mutableStateOf(false) }
     var expandedSections by remember { mutableStateOf(setOf(AssetType.IMAGE, AssetType.FONT, AssetType.OTHER)) }
 
     // Load assets
@@ -252,6 +258,37 @@ fun AssetManagerDrawer(
                                     Icon(Icons.Outlined.CreateNewFolder, contentDescription = null)
                                 }
                             )
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            DropdownMenuItem(
+                                text = { Text("Icon Library") },
+                                onClick = {
+                                    showAddMenu = false
+                                    showIconLibrary = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.EmojiSymbols, contentDescription = null)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Color Picker") },
+                                onClick = {
+                                    showAddMenu = false
+                                    showColorPicker = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.ColorLens, contentDescription = null)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Font Manager") },
+                                onClick = {
+                                    showAddMenu = false
+                                    showFontManager = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.FontDownload, contentDescription = null)
+                                }
+                            )
                         }
                     }
 
@@ -311,7 +348,10 @@ fun AssetManagerDrawer(
                                     AssetGridSection(
                                         assets = images,
                                         projectPath = projectPath,
-                                        onAssetClick = onAssetClick,
+                                        onAssetClick = { asset ->
+                                            // Show image detail dialog for images
+                                            showImageDetail = asset
+                                        },
                                         onCopyPath = { asset ->
                                             clipboardManager.setText(AnnotatedString(asset.relativePath))
                                             onCopyPath(asset.relativePath)
@@ -324,7 +364,10 @@ fun AssetManagerDrawer(
                                     AssetListItem(
                                         asset = asset,
                                         projectPath = projectPath,
-                                        onClick = { onAssetClick(asset) },
+                                        onClick = {
+                                            // Show image detail dialog for images
+                                            showImageDetail = asset
+                                        },
                                         onCopyPath = {
                                             clipboardManager.setText(AnnotatedString(asset.relativePath))
                                             onCopyPath(asset.relativePath)
@@ -459,6 +502,56 @@ fun AssetManagerDrawer(
                 TextButton(onClick = { showDeleteDialog = null }) {
                     Text(context.getString(R.string.action_cancel))
                 }
+            }
+        )
+    }
+
+    // Image detail dialog with optimization
+    showImageDetail?.let { asset ->
+        ImageDetailDialog(
+            asset = asset,
+            projectPath = projectPath,
+            onDismiss = { showImageDetail = null },
+            onImageOptimized = { optimizedFile ->
+                // Refresh assets to show the new optimized image
+                loadAssets()
+                onAssetAdded()
+            }
+        )
+    }
+
+    // Icon Library dialog
+    if (showIconLibrary) {
+        IconLibraryDialog(
+            onDismiss = { showIconLibrary = false },
+            onIconSelected = { icon, code ->
+                // Copy to clipboard and close
+                clipboardManager.setText(AnnotatedString(code))
+                onCopyPath(code) // Reuse the copy callback for toast
+            }
+        )
+    }
+
+    // Color Picker dialog
+    if (showColorPicker) {
+        ColorPickerDialog(
+            onDismiss = { showColorPicker = false },
+            onColorSelected = { color, code ->
+                // Copy to clipboard
+                clipboardManager.setText(AnnotatedString(code))
+                onCopyPath(code) // Reuse the copy callback for toast
+            }
+        )
+    }
+
+    // Font Manager dialog
+    if (showFontManager) {
+        FontManagerDialog(
+            onDismiss = { showFontManager = false },
+            onFontSelected = { font, code ->
+                // Copy to clipboard
+                clipboardManager.setText(AnnotatedString(code))
+                onCopyPath(code) // Reuse the copy callback for toast
             }
         )
     }

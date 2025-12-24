@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,11 +29,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -40,12 +46,15 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
@@ -73,6 +82,8 @@ import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
 import com.codex.stormy.ui.screens.git.GitDrawer
 import com.codex.stormy.ui.screens.preview.PreviewActivity
+import com.codex.stormy.ui.theme.PoppinsFontFamily
+import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -344,7 +355,6 @@ fun EditorScreen(
                                         lineNumbers = uiState.showLineNumbers,
                                         wordWrap = uiState.wordWrap,
                                         fontSize = uiState.fontSize,
-                                        codeAutocompletion = uiState.codeAutocompletion,
                                         onContentChange = viewModel::updateFileContent,
                                         onSave = viewModel::saveCurrentFile
                                     )
@@ -355,6 +365,24 @@ fun EditorScreen(
                 }
             }
         }
+    }
+
+    // Large file warning dialog
+    uiState.largeFileWarning?.let { warning ->
+        LargeFileWarningDialog(
+            warning = warning,
+            onDismiss = viewModel::dismissLargeFileWarning,
+            onOpenAnyway = { viewModel.confirmOpenLargeFile(readOnly = false) },
+            onOpenReadOnly = { viewModel.confirmOpenLargeFile(readOnly = true) }
+        )
+    }
+
+    // File loading progress indicator
+    if (uiState.fileLoadProgress < 1f && uiState.fileLoadProgress > 0f) {
+        FileLoadingProgressDialog(
+            fileName = uiState.openFiles.lastOrNull()?.name ?: "file",
+            progress = uiState.fileLoadProgress
+        )
     }
 }
 
@@ -689,4 +717,198 @@ private fun FileTypeIcon(
             maxLines = 1
         )
     }
+}
+
+/**
+ * Dialog shown when user tries to open a large file
+ * Provides options to open normally, open read-only, or cancel
+ */
+@Composable
+private fun LargeFileWarningDialog(
+    warning: LargeFileWarning,
+    onDismiss: () -> Unit,
+    onOpenAnyway: () -> Unit,
+    onOpenReadOnly: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Outlined.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(32.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Large File Warning",
+                style = MaterialTheme.typography.titleLarge,
+                fontFamily = PoppinsFontFamily,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // File info
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = warning.fileName,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontFamily = PoppinsFontFamily,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = warning.formattedSize,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Warning message
+                Text(
+                    text = warning.warningMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Info rows
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Timer,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Estimated load time: ${warning.estimatedLoadTime}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (warning.lineCount > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "~${warning.lineCount} lines",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (warning.canEdit) {
+                TextButton(onClick = onOpenAnyway) {
+                    Text("Open Anyway")
+                }
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+                if (warning.suggestReadOnly) {
+                    TextButton(onClick = onOpenReadOnly) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Visibility,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Read-Only")
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+/**
+ * Dialog showing file loading progress for large files
+ */
+@Composable
+private fun FileLoadingProgressDialog(
+    fileName: String,
+    progress: Float
+) {
+    AlertDialog(
+        onDismissRequest = { /* Cannot dismiss while loading */ },
+        title = {
+            Text(
+                text = "Loading File",
+                style = MaterialTheme.typography.titleMedium,
+                fontFamily = PoppinsFontFamily,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = fileName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp),
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    )
+
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = { /* No confirm button while loading */ }
+    )
 }

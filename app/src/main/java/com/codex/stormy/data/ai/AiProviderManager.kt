@@ -5,6 +5,9 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Unified manager for all AI providers
  * Handles provider selection, API key management, and dynamic model fetching
+ *
+ * DeepInfra works without an API key using the free inference endpoint.
+ * OpenRouter and Gemini require API keys.
  */
 class AiProviderManager(
     private val deepInfraApiKey: String = "",
@@ -13,6 +16,7 @@ class AiProviderManager(
 ) {
 
     // Provider instances (lazy initialization)
+    // DeepInfra works without API key - it uses the free inference endpoint
     private val deepInfraProvider by lazy { DeepInfraProvider(deepInfraApiKey) }
     private val openRouterProvider by lazy { OpenRouterProvider(openRouterApiKey) }
     private val geminiProvider by lazy { GeminiProvider(geminiApiKey) }
@@ -24,10 +28,12 @@ class AiProviderManager(
 
     /**
      * Get the appropriate provider instance based on the model's provider
+     * DeepInfra is always available (free API), others require API keys
      */
     fun getProvider(model: AiModel): Any? {
         return when (model.provider) {
-            AiProvider.DEEPINFRA -> if (deepInfraApiKey.isNotBlank()) deepInfraProvider else null
+            // DeepInfra works without API key - always return provider
+            AiProvider.DEEPINFRA -> deepInfraProvider
             AiProvider.OPENROUTER -> if (openRouterApiKey.isNotBlank()) openRouterProvider else null
             AiProvider.GEMINI -> if (geminiApiKey.isNotBlank()) geminiProvider else null
             else -> null
@@ -36,6 +42,7 @@ class AiProviderManager(
 
     /**
      * Stream chat completion using the appropriate provider
+     * DeepInfra works without API key (free inference endpoint)
      */
     fun streamChatCompletion(
         model: AiModel,
@@ -45,8 +52,8 @@ class AiProviderManager(
         maxTokens: Int? = null
     ): Flow<StreamEvent>? {
         return when (model.provider) {
+            // DeepInfra works without API key - always allow
             AiProvider.DEEPINFRA -> {
-                if (deepInfraApiKey.isBlank()) return null
                 deepInfraProvider.streamChatCompletion(model, messages, tools, temperature, maxTokens)
             }
             AiProvider.OPENROUTER -> {
@@ -63,6 +70,7 @@ class AiProviderManager(
 
     /**
      * Non-streaming chat completion using the appropriate provider
+     * DeepInfra works without API key (free inference endpoint)
      */
     suspend fun chatCompletion(
         model: AiModel,
@@ -72,21 +80,19 @@ class AiProviderManager(
         maxTokens: Int? = null
     ): Result<ChatCompletionResponse> {
         return when (model.provider) {
+            // DeepInfra works without API key - always allow
             AiProvider.DEEPINFRA -> {
-                if (deepInfraApiKey.isBlank()) {
-                    return Result.failure(Exception("DeepInfra API key not configured"))
-                }
                 deepInfraProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
             }
             AiProvider.OPENROUTER -> {
                 if (openRouterApiKey.isBlank()) {
-                    return Result.failure(Exception("OpenRouter API key not configured"))
+                    return Result.failure(Exception("OpenRouter API key not configured. Please add your API key in Settings."))
                 }
                 openRouterProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
             }
             AiProvider.GEMINI -> {
                 if (geminiApiKey.isBlank()) {
-                    return Result.failure(Exception("Gemini API key not configured"))
+                    return Result.failure(Exception("Gemini API key not configured. Please add your API key in Settings."))
                 }
                 geminiProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
             }
@@ -157,11 +163,13 @@ class AiProviderManager(
     }
 
     /**
-     * Check if a provider is configured (has API key)
+     * Check if a provider is configured and ready to use
+     * DeepInfra is always available (free API), others require API keys
      */
     fun isProviderConfigured(provider: AiProvider): Boolean {
         return when (provider) {
-            AiProvider.DEEPINFRA -> deepInfraApiKey.isNotBlank()
+            // DeepInfra always works - free API
+            AiProvider.DEEPINFRA -> true
             AiProvider.OPENROUTER -> openRouterApiKey.isNotBlank()
             AiProvider.GEMINI -> geminiApiKey.isNotBlank()
             else -> false

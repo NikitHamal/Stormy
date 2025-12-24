@@ -241,6 +241,7 @@ class GeminiProvider(
 
     /**
      * Send a chat completion request with streaming response
+     * Uses x-goog-api-key header for authentication (recommended method)
      */
     fun streamChatCompletion(
         model: AiModel,
@@ -268,9 +269,11 @@ class GeminiProvider(
                 .toRequestBody("application/json".toMediaType())
 
             val normalizedModelId = normalizeModelId(model.id)
+            // Use x-goog-api-key header for authentication (recommended by Google)
             val httpRequest = Request.Builder()
-                .url("$baseUrl/$normalizedModelId:streamGenerateContent?key=$apiKey&alt=sse")
+                .url("$baseUrl/$normalizedModelId:streamGenerateContent?alt=sse")
                 .addHeader("Content-Type", "application/json")
+                .addHeader("x-goog-api-key", apiKey)
                 .addHeader("User-Agent", USER_AGENT)
                 .post(requestBody)
                 .build()
@@ -365,6 +368,7 @@ class GeminiProvider(
 
     /**
      * Send a non-streaming chat completion request
+     * Uses x-goog-api-key header for authentication (recommended method)
      */
     suspend fun chatCompletion(
         model: AiModel,
@@ -392,9 +396,11 @@ class GeminiProvider(
                 .toRequestBody("application/json".toMediaType())
 
             val normalizedModelId = normalizeModelId(model.id)
+            // Use x-goog-api-key header for authentication (recommended by Google)
             val httpRequest = Request.Builder()
-                .url("$baseUrl/$normalizedModelId:generateContent?key=$apiKey")
+                .url("$baseUrl/$normalizedModelId:generateContent")
                 .addHeader("Content-Type", "application/json")
+                .addHeader("x-goog-api-key", apiKey)
                 .addHeader("User-Agent", USER_AGENT)
                 .post(requestBody)
                 .build()
@@ -608,11 +614,13 @@ class GeminiModelService {
 
     /**
      * Fetch available models from Gemini API
+     * Uses x-goog-api-key header for authentication
      */
     suspend fun fetchAvailableModels(apiKey: String): Result<List<AiModel>> = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey")
+                .url("https://generativelanguage.googleapis.com/v1beta/models")
+                .addHeader("x-goog-api-key", apiKey)
                 .get()
                 .build()
 

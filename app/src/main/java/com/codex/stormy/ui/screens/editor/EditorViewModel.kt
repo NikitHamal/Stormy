@@ -33,7 +33,12 @@ import com.codex.stormy.data.repository.ProjectRepository
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.domain.model.Project
+import com.codex.stormy.utils.FileLoadingStrategy
+import com.codex.stormy.utils.FileSizeThresholds
+import com.codex.stormy.utils.FileUtils
+import com.codex.stormy.utils.LargeFileHandler
 import kotlinx.coroutines.Job
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,7 +56,11 @@ data class OpenFileTab(
     val name: String,
     val extension: String,
     val isModified: Boolean = false,
-    val content: String = ""
+    val content: String = "",
+    val fileSize: Long = 0,
+    val isReadOnly: Boolean = false,
+    val isLargeFile: Boolean = false,
+    val loadProgress: Float = 1f
 )
 
 data class EditorUiState(
@@ -70,7 +79,6 @@ data class EditorUiState(
     val showLineNumbers: Boolean = true,
     val wordWrap: Boolean = true,
     val fontSize: Float = 14f,
-    val codeAutocompletion: Boolean = true,
     val isLoading: Boolean = false,
     val error: String? = null,
     val agentMode: Boolean = true,
@@ -84,7 +92,26 @@ data class EditorUiState(
     // Undo/Redo state
     val undoRedoState: UndoRedoState = UndoRedoState(),
     // Task planning
-    val taskList: List<TodoItem> = emptyList()
+    val taskList: List<TodoItem> = emptyList(),
+    // Large file handling
+    val largeFileWarning: LargeFileWarning? = null,
+    val fileLoadProgress: Float = 1f,
+    val isCurrentFileReadOnly: Boolean = false
+)
+
+/**
+ * Warning shown when opening large files
+ */
+data class LargeFileWarning(
+    val filePath: String,
+    val fileName: String,
+    val fileSize: Long,
+    val formattedSize: String,
+    val lineCount: Long,
+    val warningMessage: String,
+    val estimatedLoadTime: String,
+    val canEdit: Boolean,
+    val suggestReadOnly: Boolean
 )
 
 class EditorViewModel(
@@ -130,6 +157,11 @@ class EditorViewModel(
 
     // Task planning state
     private val _taskList = MutableStateFlow<List<TodoItem>>(emptyList())
+
+    // Large file handling state
+    private val _largeFileWarning = MutableStateFlow<LargeFileWarning?>(null)
+    private val _fileLoadProgress = MutableStateFlow(1f)
+    private val _isCurrentFileReadOnly = MutableStateFlow(false)
 
     // Agent loop state tracking
     private var _pendingToolCalls = mutableListOf<ToolCallResponse>()
@@ -182,8 +214,6 @@ class EditorViewModel(
         state.copy(wordWrap = wordWrap)
     }.combine(preferencesRepository.fontSize) { state, fontSize ->
         state.copy(fontSize = fontSize)
-    }.combine(preferencesRepository.codeAutocompletion) { state, codeAutocompletion ->
-        state.copy(codeAutocompletion = codeAutocompletion)
     }.combine(_contextTokenCount) { state, tokenCount ->
         state.copy(contextTokenCount = tokenCount)
     }.combine(_contextMaxTokens) { state, maxTokens ->
@@ -194,6 +224,12 @@ class EditorViewModel(
         state.copy(undoRedoState = undoRedoState)
     }.combine(_taskList) { state, taskList ->
         state.copy(taskList = taskList)
+    }.combine(_largeFileWarning) { state, warning ->
+        state.copy(largeFileWarning = warning)
+    }.combine(_fileLoadProgress) { state, progress ->
+        state.copy(fileLoadProgress = progress)
+    }.combine(_isCurrentFileReadOnly) { state, isReadOnly ->
+        state.copy(isCurrentFileReadOnly = isReadOnly)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -425,33 +461,201 @@ class EditorViewModel(
                 return@launch
             }
 
-            projectRepository.readFile(projectId, relativePath)
-                .onSuccess { content ->
-                    val fileNode = findFileNode(relativePath)
-                    if (fileNode != null) {
-                        // Add to open files
-                        val newTab = OpenFileTab(
-                            path = relativePath,
-                            name = fileNode.name,
-                            extension = fileNode.extension,
-                            isModified = false,
-                            content = content
-                        )
-                        val updatedOpenFiles = _openFiles.value + newTab
-                        _openFiles.value = updatedOpenFiles
-                        _currentFileIndex.value = updatedOpenFiles.size - 1
+            val fileNode = findFileNode(relativePath)
+            if (fileNode == null) {
+                _error.value = "File not found: $relativePath"
+                return@launch
+            }
 
-                        _fileContent.value = content
-                        _originalFileContent.value = content
-                        _currentFile.value = fileNode
-                        // Switch to CODE tab when user explicitly opens a file from file tree
-                        _selectedTab.value = EditorTab.CODE
-                    }
+            // Check file size and determine loading strategy
+            val project = _project.value ?: return@launch
+            val file = File(project.rootPath, relativePath)
+            val fileSize = file.length()
+            val strategy = LargeFileHandler.determineStrategy(fileSize)
+
+            when (strategy) {
+                FileLoadingStrategy.UNSUPPORTED -> {
+                    // File too large - show error
+                    _error.value = "File is too large to open (${FileUtils.formatFileSize(fileSize)}). Maximum supported size is 10 MB."
+                    return@launch
                 }
-                .onFailure { error ->
-                    _error.value = error.message
+                FileLoadingStrategy.READ_ONLY_PREVIEW -> {
+                    // Show warning for very large files
+                    val analysis = LargeFileHandler.analyzeFile(file)
+                    _largeFileWarning.value = LargeFileWarning(
+                        filePath = relativePath,
+                        fileName = fileNode.name,
+                        fileSize = fileSize,
+                        formattedSize = analysis.sizeFormatted,
+                        lineCount = analysis.lineCount,
+                        warningMessage = analysis.warningMessage ?: "",
+                        estimatedLoadTime = analysis.estimatedLoadTime,
+                        canEdit = false,
+                        suggestReadOnly = true
+                    )
+                    return@launch
                 }
+                FileLoadingStrategy.PAGINATED_LOAD -> {
+                    // Show warning for large files
+                    val analysis = LargeFileHandler.analyzeFile(file)
+                    _largeFileWarning.value = LargeFileWarning(
+                        filePath = relativePath,
+                        fileName = fileNode.name,
+                        fileSize = fileSize,
+                        formattedSize = analysis.sizeFormatted,
+                        lineCount = analysis.lineCount,
+                        warningMessage = analysis.warningMessage ?: "",
+                        estimatedLoadTime = analysis.estimatedLoadTime,
+                        canEdit = true,
+                        suggestReadOnly = false
+                    )
+                    return@launch
+                }
+                FileLoadingStrategy.CHUNKED_LOAD -> {
+                    // Load with progress for medium-large files
+                    openFileWithProgress(relativePath, fileNode, fileSize)
+                }
+                FileLoadingStrategy.FULL_LOAD -> {
+                    // Normal loading for small files
+                    openFileNormal(relativePath, fileNode, fileSize)
+                }
+            }
         }
+    }
+
+    /**
+     * Open file with progress indicator for larger files
+     */
+    private suspend fun openFileWithProgress(
+        relativePath: String,
+        fileNode: FileTreeNode.FileNode,
+        fileSize: Long
+    ) {
+        val project = _project.value ?: return
+        val file = File(project.rootPath, relativePath)
+
+        _fileLoadProgress.value = 0f
+
+        LargeFileHandler.readFileWithProgress(file) { progress ->
+            _fileLoadProgress.value = progress
+        }.onSuccess { content ->
+            val newTab = OpenFileTab(
+                path = relativePath,
+                name = fileNode.name,
+                extension = fileNode.extension,
+                isModified = false,
+                content = content,
+                fileSize = fileSize,
+                isLargeFile = true
+            )
+            val updatedOpenFiles = _openFiles.value + newTab
+            _openFiles.value = updatedOpenFiles
+            _currentFileIndex.value = updatedOpenFiles.size - 1
+
+            _fileContent.value = content
+            _originalFileContent.value = content
+            _currentFile.value = fileNode
+            _fileLoadProgress.value = 1f
+            _selectedTab.value = EditorTab.CODE
+        }.onFailure { error ->
+            _error.value = error.message
+            _fileLoadProgress.value = 1f
+        }
+    }
+
+    /**
+     * Normal file loading for small files
+     */
+    private suspend fun openFileNormal(
+        relativePath: String,
+        fileNode: FileTreeNode.FileNode,
+        fileSize: Long
+    ) {
+        projectRepository.readFile(projectId, relativePath)
+            .onSuccess { content ->
+                val newTab = OpenFileTab(
+                    path = relativePath,
+                    name = fileNode.name,
+                    extension = fileNode.extension,
+                    isModified = false,
+                    content = content,
+                    fileSize = fileSize
+                )
+                val updatedOpenFiles = _openFiles.value + newTab
+                _openFiles.value = updatedOpenFiles
+                _currentFileIndex.value = updatedOpenFiles.size - 1
+
+                _fileContent.value = content
+                _originalFileContent.value = content
+                _currentFile.value = fileNode
+                _selectedTab.value = EditorTab.CODE
+            }
+            .onFailure { error ->
+                _error.value = error.message
+            }
+    }
+
+    /**
+     * Called when user confirms they want to open a large file
+     */
+    fun confirmOpenLargeFile(readOnly: Boolean = false) {
+        val warning = _largeFileWarning.value ?: return
+        _largeFileWarning.value = null
+
+        viewModelScope.launch {
+            val fileNode = findFileNode(warning.filePath) ?: return@launch
+
+            if (readOnly) {
+                // Open in read-only mode with preview
+                openFileReadOnly(warning.filePath, fileNode, warning.fileSize)
+            } else {
+                // Open normally with progress
+                openFileWithProgress(warning.filePath, fileNode, warning.fileSize)
+            }
+        }
+    }
+
+    /**
+     * Open file in read-only mode (for very large files)
+     */
+    private suspend fun openFileReadOnly(
+        relativePath: String,
+        fileNode: FileTreeNode.FileNode,
+        fileSize: Long
+    ) {
+        val project = _project.value ?: return
+        val file = File(project.rootPath, relativePath)
+
+        LargeFileHandler.readPreview(file).onSuccess { previewContent ->
+            val newTab = OpenFileTab(
+                path = relativePath,
+                name = fileNode.name,
+                extension = fileNode.extension,
+                isModified = false,
+                content = previewContent + "\n\n// ... (truncated - file too large to edit fully)",
+                fileSize = fileSize,
+                isReadOnly = true,
+                isLargeFile = true
+            )
+            val updatedOpenFiles = _openFiles.value + newTab
+            _openFiles.value = updatedOpenFiles
+            _currentFileIndex.value = updatedOpenFiles.size - 1
+
+            _fileContent.value = newTab.content
+            _originalFileContent.value = newTab.content
+            _currentFile.value = fileNode
+            _isCurrentFileReadOnly.value = true
+            _selectedTab.value = EditorTab.CODE
+        }.onFailure { error ->
+            _error.value = error.message
+        }
+    }
+
+    /**
+     * Dismiss large file warning without opening
+     */
+    fun dismissLargeFileWarning() {
+        _largeFileWarning.value = null
     }
 
     fun switchToFileTab(index: Int) {

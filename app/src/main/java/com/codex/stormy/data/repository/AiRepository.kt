@@ -99,13 +99,22 @@ class AiRepository(
 
     /**
      * Get a helpful error message for provider configuration issues
+     * DeepInfra works without API key, others require configuration
      */
     private suspend fun getProviderErrorMessage(provider: AiProvider): String {
-        val apiKey = getApiKeyForProvider(provider)
-        return if (apiKey.isBlank()) {
-            "API key for ${provider.displayName} is not configured. Please add your API key in Settings."
-        } else {
-            "Failed to connect to ${provider.displayName}. Please check your API key and network connection."
+        return when (provider) {
+            // DeepInfra doesn't require API key
+            AiProvider.DEEPINFRA -> {
+                "Failed to connect to DeepInfra. Please check your network connection and try again."
+            }
+            else -> {
+                val apiKey = getApiKeyForProvider(provider)
+                if (apiKey.isBlank()) {
+                    "API key for ${provider.displayName} is not configured. Please add your API key in Settings."
+                } else {
+                    "Failed to connect to ${provider.displayName}. Please check your API key and network connection."
+                }
+            }
         }
     }
 
