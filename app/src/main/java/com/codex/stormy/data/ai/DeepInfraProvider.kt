@@ -19,10 +19,11 @@ import java.util.concurrent.TimeUnit
 
 /**
  * AI provider implementation for DeepInfra API
- * Mirrors the gpt4free Python implementation in Kotlin
+ * Works with both free inference API (no API key required) and authenticated API
+ * Based on gpt4free implementation pattern - uses free public inference endpoint
  */
 class DeepInfraProvider(
-    private val apiKey: String
+    private val apiKey: String = ""
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -36,14 +37,30 @@ class DeepInfraProvider(
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private val baseUrl = AiProvider.DEEPINFRA.baseUrl
-
     companion object {
+        // Free inference API endpoint (no API key required)
+        private const val FREE_API_URL = "https://api.deepinfra.com/v1/openai"
+        // Authenticated API endpoint
+        private const val AUTH_API_URL = "https://api.deepinfra.com/v1/openai"
+
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        private const val ORIGIN = "https://deepinfra.com"
+        private const val REFERER = "https://deepinfra.com/"
     }
 
     /**
+     * Check if using authenticated mode (has API key)
+     */
+    private val isAuthenticated: Boolean get() = apiKey.isNotBlank()
+
+    /**
+     * Get the appropriate base URL
+     */
+    private val baseUrl: String get() = if (isAuthenticated) AUTH_API_URL else FREE_API_URL
+
+    /**
      * Send a chat completion request with streaming response
+     * Works without API key using free inference endpoint
      */
     fun streamChatCompletion(
         model: AiModel,
@@ -65,14 +82,22 @@ class DeepInfraProvider(
         val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
             .toRequestBody("application/json".toMediaType())
 
-        val httpRequest = Request.Builder()
+        // Build request with or without authentication
+        val httpRequestBuilder = Request.Builder()
             .url("$baseUrl/chat/completions")
-            .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .addHeader("Accept", "text/event-stream")
             .addHeader("User-Agent", USER_AGENT)
+            .addHeader("Origin", ORIGIN)
+            .addHeader("Referer", REFERER)
             .post(requestBody)
-            .build()
+
+        // Only add Authorization header if API key is provided
+        if (isAuthenticated) {
+            httpRequestBuilder.addHeader("Authorization", "Bearer $apiKey")
+        }
+
+        val httpRequest = httpRequestBuilder.build()
 
         val eventSourceListener = object : EventSourceListener() {
             private var accumulatedContent = StringBuilder()
@@ -186,6 +211,7 @@ class DeepInfraProvider(
 
     /**
      * Send a non-streaming chat completion request
+     * Works without API key using free inference endpoint
      */
     suspend fun chatCompletion(
         model: AiModel,
@@ -208,13 +234,21 @@ class DeepInfraProvider(
             val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
                 .toRequestBody("application/json".toMediaType())
 
-            val httpRequest = Request.Builder()
+            // Build request with or without authentication
+            val httpRequestBuilder = Request.Builder()
                 .url("$baseUrl/chat/completions")
-                .addHeader("Authorization", "Bearer $apiKey")
                 .addHeader("Content-Type", "application/json")
                 .addHeader("User-Agent", USER_AGENT)
+                .addHeader("Origin", ORIGIN)
+                .addHeader("Referer", REFERER)
                 .post(requestBody)
-                .build()
+
+            // Only add Authorization header if API key is provided
+            if (isAuthenticated) {
+                httpRequestBuilder.addHeader("Authorization", "Bearer $apiKey")
+            }
+
+            val httpRequest = httpRequestBuilder.build()
 
             val response = client.newCall(httpRequest).execute()
 

@@ -11,6 +11,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,6 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -604,7 +606,12 @@ private fun ProjectsList(
 }
 
 /**
- * Swipeable project card with swipe-to-delete and selection support
+ * Swipeable project card with swipe-to-delete and modern selection support
+ * Features:
+ * - Professional selection indicator with animated checkmark
+ * - Elevated selection visual with colored left border
+ * - Subtle scale animation for tactile feedback
+ * - Clean minimalist design in both normal and selection modes
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -630,11 +637,31 @@ private fun SwipeableProjectCard(
         }
     )
 
-    // Animate selection scale
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 0.95f else 1f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+    // Animate selection state
+    val selectionScale by animateFloatAsState(
+        targetValue = if (isSelected) 0.98f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
         label = "selection_scale"
+    )
+
+    // Selection indicator animation
+    val checkmarkScale by animateFloatAsState(
+        targetValue = if (isSelected) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "checkmark_scale"
+    )
+
+    // Border indicator animation
+    val borderWidth by animateFloatAsState(
+        targetValue = if (isSelected) 4f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "border_width"
     )
 
     SwipeToDismissBox(
@@ -643,26 +670,44 @@ private fun SwipeableProjectCard(
         enableDismissFromStartToEnd = false,
         enableDismissFromEndToStart = !isSelectionMode,
         backgroundContent = {
-            // Delete background
+            // Delete background with gradient effect
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .padding(horizontal = 20.dp),
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                MaterialTheme.colorScheme.errorContainer
+                            )
+                        )
+                    )
+                    .padding(horizontal = 24.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Delete",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         },
         content = {
             Card(
                 modifier = Modifier
-                    .scale(scale)
+                    .scale(selectionScale)
                     .combinedClickable(
                         onClick = onClick,
                         onLongClick = onLongClick
@@ -670,84 +715,173 @@ private fun SwipeableProjectCard(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
                     } else {
                         MaterialTheme.colorScheme.surfaceContainerLow
                     }
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (isSelected) 2.dp else 0.dp
+                )
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .then(
+                            if (borderWidth > 0f) {
+                                Modifier.drawWithContent {
+                                    drawContent()
+                                    // Draw selection indicator bar on the left
+                                    drawRect(
+                                        color = Color(0xFF3B82F6), // Primary blue
+                                        size = androidx.compose.ui.geometry.Size(
+                                            width = borderWidth,
+                                            height = size.height
+                                        )
+                                    )
+                                }
+                            } else Modifier
+                        )
+                        .padding(start = if (isSelected) 4.dp else 0.dp)
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Selection indicator or folder icon
-                    if (isSelectionMode) {
-                        Icon(
-                            imageVector = if (isSelected) {
-                                Icons.Outlined.CheckCircle
-                            } else {
-                                Icons.Outlined.RadioButtonUnchecked
-                            },
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
+                    // Project icon or selection checkbox
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Folder icon (always visible but fades in selection mode)
+                        AnimatedVisibility(
+                            visible = !isSelectionMode || !isSelected,
+                            enter = fadeIn() + scaleIn(),
+                            exit = fadeOut() + scaleOut()
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.FolderOpen,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isSelectionMode && !isSelected) {
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                        } else {
+                                            MaterialTheme.colorScheme.primaryContainer
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelectionMode && !isSelected) {
+                                    // Empty circle for unselected items in selection mode
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Transparent)
+                                            .border(
+                                                width = 2.dp,
+                                                color = MaterialTheme.colorScheme.outline,
+                                                shape = CircleShape
+                                            )
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FolderOpen,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+
+                        // Selection checkmark (animates in when selected)
+                        AnimatedVisibility(
+                            visible = isSelected,
+                            enter = fadeIn() + scaleIn(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
+                            ),
+                            exit = fadeOut() + scaleOut()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                            colors = listOf(
+                                                Color(0xFF3B82F6),
+                                                Color(0xFF2563EB)
+                                            )
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CheckCircle,
+                                    contentDescription = "Selected",
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .scale(checkmarkScale),
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
 
+                    // Project info
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = project.name,
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (project.description.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = project.description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = project.formattedLastOpened,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            }
                         )
                     }
 
-                    // Only show menu in non-selection mode
-                    if (!isSelectionMode) {
+                    // Action menu (only in normal mode)
+                    AnimatedVisibility(
+                        visible = !isSelectionMode,
+                        enter = fadeIn() + scaleIn(),
+                        exit = fadeOut() + scaleOut()
+                    ) {
                         Box {
                             IconButton(onClick = { showMenu = true }) {
                                 Icon(
                                     imageVector = Icons.Outlined.MoreVert,
-                                    contentDescription = null,
+                                    contentDescription = "More options",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -770,7 +904,12 @@ private fun SwipeableProjectCard(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete") },
+                                    text = {
+                                        Text(
+                                            text = "Delete",
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    },
                                     onClick = {
                                         showMenu = false
                                         onDeleteClick()

@@ -42,7 +42,6 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.automirrored.outlined.WrapText
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -189,15 +188,6 @@ fun SettingsScreen(
                     description = "Save files automatically",
                     checked = uiState.autoSave,
                     onCheckedChange = viewModel::setAutoSave
-                )
-
-                // Code Autocompletion
-                SettingsToggle(
-                    icon = Icons.Outlined.AutoAwesome,
-                    title = "Code Autocompletion",
-                    description = "Show code suggestions while typing",
-                    checked = uiState.codeAutocompletion,
-                    onCheckedChange = viewModel::setCodeAutocompletion
                 )
             }
 

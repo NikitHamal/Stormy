@@ -30,7 +30,6 @@ fun CodeTab(
     lineNumbers: Boolean,
     wordWrap: Boolean,
     fontSize: Float,
-    codeAutocompletion: Boolean,
     onContentChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
@@ -51,7 +50,6 @@ fun CodeTab(
                 showLineNumbers = lineNumbers,
                 wordWrap = wordWrap,
                 fontSize = fontSize,
-                codeAutocompletion = codeAutocompletion,
                 modifier = Modifier
                     .fillMaxSize()
                     .background(extendedColors.editorBackground)
