@@ -1,24 +1,26 @@
 package com.codex.stormy.data.repository
 
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.AiProvider
+import com.codex.stormy.data.ai.AiProviderManager
 import com.codex.stormy.data.ai.ChatCompletionResponse
 import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.ai.DeepInfraModels
-import com.codex.stormy.data.ai.DeepInfraProvider
 import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.Tool
-import com.codex.stormy.data.ai.tools.StormyTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 
 /**
  * Repository for AI interactions
+ * Handles multi-provider support with proper routing based on model provider
  */
 class AiRepository(
     private val preferencesRepository: PreferencesRepository
 ) {
-    private var cachedProvider: DeepInfraProvider? = null
-    private var cachedApiKey: String = ""
+    private var cachedProviderManager: AiProviderManager? = null
+    private var cachedApiKeys: Map<AiProvider, String> = emptyMap()
 
     /**
      * Get available models for the current provider
@@ -31,7 +33,6 @@ class AiRepository(
      * Get enabled models for display
      */
     fun getEnabledModels(): List<AiModel> {
-        // In the future, this can be filtered based on user preferences
         return DeepInfraModels.allModels
     }
 
@@ -50,7 +51,7 @@ class AiRepository(
     }
 
     /**
-     * Stream a chat completion
+     * Stream a chat completion using the appropriate provider based on model
      */
     suspend fun streamChat(
         model: AiModel,
@@ -59,18 +60,24 @@ class AiRepository(
         temperature: Float = 0.7f,
         maxTokens: Int? = null
     ): Flow<StreamEvent> {
-        val provider = getOrCreateProvider()
-        return provider.streamChatCompletion(
+        val providerManager = getOrCreateProviderManager()
+
+        // Get the stream from the appropriate provider
+        val stream = providerManager.streamChatCompletion(
             model = model,
             messages = messages,
             tools = tools,
             temperature = temperature,
             maxTokens = maxTokens
         )
+
+        return stream ?: flow {
+            emit(StreamEvent.Error(getProviderErrorMessage(model.provider)))
+        }
     }
 
     /**
-     * Non-streaming chat completion - more reliable for tool calls
+     * Non-streaming chat completion using the appropriate provider
      * Returns the complete response at once rather than streaming
      */
     suspend fun chat(
@@ -80,8 +87,8 @@ class AiRepository(
         temperature: Float = 0.7f,
         maxTokens: Int? = null
     ): Result<ChatCompletionResponse> {
-        val provider = getOrCreateProvider()
-        return provider.chatCompletion(
+        val providerManager = getOrCreateProviderManager()
+        return providerManager.chatCompletion(
             model = model,
             messages = messages,
             tools = tools,
@@ -91,7 +98,19 @@ class AiRepository(
     }
 
     /**
-     * Check if API key is configured
+     * Get a helpful error message for provider configuration issues
+     */
+    private suspend fun getProviderErrorMessage(provider: AiProvider): String {
+        val apiKey = getApiKeyForProvider(provider)
+        return if (apiKey.isBlank()) {
+            "API key for ${provider.displayName} is not configured. Please add your API key in Settings."
+        } else {
+            "Failed to connect to ${provider.displayName}. Please check your API key and network connection."
+        }
+    }
+
+    /**
+     * Check if API key is configured for the default provider (DeepInfra)
      */
     suspend fun hasApiKey(): Boolean {
         val apiKey = preferencesRepository.apiKey.first()
@@ -99,10 +118,30 @@ class AiRepository(
     }
 
     /**
-     * Get current API key
+     * Check if API key is configured for a specific provider
+     */
+    suspend fun hasApiKeyForProvider(provider: AiProvider): Boolean {
+        return getApiKeyForProvider(provider).isNotBlank()
+    }
+
+    /**
+     * Get current API key (DeepInfra - legacy)
      */
     suspend fun getApiKey(): String {
         return preferencesRepository.apiKey.first()
+    }
+
+    /**
+     * Get API key for a specific provider
+     */
+    suspend fun getApiKeyForProvider(provider: AiProvider): String {
+        return when (provider) {
+            AiProvider.DEEPINFRA -> preferencesRepository.apiKey.first()
+            AiProvider.OPENROUTER -> preferencesRepository.openRouterApiKey.first()
+            AiProvider.GEMINI -> preferencesRepository.geminiApiKey.first()
+            AiProvider.OPENAI -> preferencesRepository.openAiApiKey.first()
+            AiProvider.ANTHROPIC -> preferencesRepository.anthropicApiKey.first()
+        }
     }
 
     /**
@@ -112,18 +151,33 @@ class AiRepository(
         return preferencesRepository.aiModel.first()
     }
 
-    private suspend fun getOrCreateProvider(): DeepInfraProvider {
-        val apiKey = preferencesRepository.apiKey.first()
+    /**
+     * Get or create the provider manager with current API keys
+     */
+    private suspend fun getOrCreateProviderManager(): AiProviderManager {
+        val currentApiKeys = mapOf(
+            AiProvider.DEEPINFRA to preferencesRepository.apiKey.first(),
+            AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first(),
+            AiProvider.GEMINI to preferencesRepository.geminiApiKey.first()
+        )
 
-        // Return cached provider if API key hasn't changed
-        if (cachedProvider != null && cachedApiKey == apiKey) {
-            return cachedProvider!!
+        // Return cached manager if API keys haven't changed
+        if (cachedProviderManager != null && cachedApiKeys == currentApiKeys) {
+            return cachedProviderManager!!
         }
 
-        // Create new provider
-        cachedApiKey = apiKey
-        cachedProvider = DeepInfraProvider(apiKey)
-        return cachedProvider!!
+        // Create new provider manager
+        cachedApiKeys = currentApiKeys
+        cachedProviderManager = AiProviderManager.fromApiKeys(currentApiKeys)
+        return cachedProviderManager!!
+    }
+
+    /**
+     * Invalidate the cached provider manager (e.g., when API keys change)
+     */
+    fun invalidateProviderCache() {
+        cachedProviderManager = null
+        cachedApiKeys = emptyMap()
     }
 
     /**

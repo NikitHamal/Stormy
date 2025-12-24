@@ -196,15 +196,24 @@ class OpenRouterProvider(
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 val errorMessage = when {
-                    response != null && response.code == 401 -> "Invalid OpenRouter API key"
+                    response != null && response.code == 401 -> "Invalid OpenRouter API key. Please check your API key in Settings."
                     response != null && response.code == 402 -> "Insufficient credits. Please add credits to your OpenRouter account."
                     response != null && response.code == 429 -> "Rate limit exceeded. Please try again later."
-                    response != null && response.code == 503 -> "Service temporarily unavailable"
+                    response != null && response.code == 503 -> "Service temporarily unavailable. Please try again later."
                     response != null -> {
                         try {
                             val errorBody = response.body?.string()
                             val apiError = json.decodeFromString(ApiErrorResponse.serializer(), errorBody ?: "")
-                            apiError.error?.message ?: "Request failed with status ${response.code}"
+                            val rawMessage = apiError.error?.message ?: "Request failed with status ${response.code}"
+                            // Provide user-friendly error messages
+                            when {
+                                rawMessage.contains("does not exist", ignoreCase = true) ||
+                                rawMessage.contains("not found", ignoreCase = true) ->
+                                    "Model not found. The selected model may not be available. Please try a different model."
+                                rawMessage.contains("API key", ignoreCase = true) ->
+                                    "Invalid API key. Please check your OpenRouter API key in Settings."
+                                else -> rawMessage
+                            }
                         } catch (e: Exception) {
                             "Request failed with status ${response.code}"
                         }

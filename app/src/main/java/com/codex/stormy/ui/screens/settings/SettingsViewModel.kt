@@ -21,6 +21,7 @@ data class SettingsUiState(
     val lineNumbers: Boolean = true,
     val wordWrap: Boolean = true,
     val autoSave: Boolean = true,
+    val codeAutocompletion: Boolean = true,
     val apiKey: String = "",
     val deepInfraApiKey: String = "",
     val openRouterApiKey: String = "",
@@ -40,10 +41,10 @@ class SettingsViewModel(
         preferencesRepository.lineNumbers,
         preferencesRepository.wordWrap,
         preferencesRepository.autoSave,
+        preferencesRepository.codeAutocompletion,
         preferencesRepository.deepInfraApiKey,
         preferencesRepository.openRouterApiKey,
-        preferencesRepository.geminiApiKey,
-        preferencesRepository.aiModel
+        preferencesRepository.geminiApiKey
     ) { values ->
         SettingsUiState(
             themeMode = values[0] as ThemeMode,
@@ -52,11 +53,13 @@ class SettingsViewModel(
             lineNumbers = values[3] as Boolean,
             wordWrap = values[4] as Boolean,
             autoSave = values[5] as Boolean,
-            deepInfraApiKey = values[6] as String,
-            openRouterApiKey = values[7] as String,
-            geminiApiKey = values[8] as String,
-            aiModel = values[9] as String
+            codeAutocompletion = values[6] as Boolean,
+            deepInfraApiKey = values[7] as String,
+            openRouterApiKey = values[8] as String,
+            geminiApiKey = values[9] as String
         )
+    }.combine(preferencesRepository.aiModel) { state, aiModel ->
+        state.copy(aiModel = aiModel)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -96,6 +99,12 @@ class SettingsViewModel(
     fun setAutoSave(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setAutoSave(enabled)
+        }
+    }
+
+    fun setCodeAutocompletion(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setCodeAutocompletion(enabled)
         }
     }
 

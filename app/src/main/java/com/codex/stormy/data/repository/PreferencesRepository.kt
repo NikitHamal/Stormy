@@ -23,12 +23,15 @@ class PreferencesRepository(private val context: Context) {
         val LINE_NUMBERS = booleanPreferencesKey("line_numbers")
         val WORD_WRAP = booleanPreferencesKey("word_wrap")
         val AUTO_SAVE = booleanPreferencesKey("auto_save")
+        val CODE_AUTOCOMPLETION = booleanPreferencesKey("code_autocompletion")
 
         // API Keys for different providers
         val API_KEY = stringPreferencesKey("api_key") // DeepInfra (legacy)
         val DEEPINFRA_API_KEY = stringPreferencesKey("deepinfra_api_key")
         val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val OPENAI_API_KEY = stringPreferencesKey("openai_api_key")
+        val ANTHROPIC_API_KEY = stringPreferencesKey("anthropic_api_key")
 
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -67,6 +70,10 @@ class PreferencesRepository(private val context: Context) {
         preferences[PreferenceKeys.AUTO_SAVE] ?: true
     }
 
+    val codeAutocompletion: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.CODE_AUTOCOMPLETION] ?: true
+    }
+
     // Legacy API key (DeepInfra)
     val apiKey: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferenceKeys.API_KEY] ?: ""
@@ -85,6 +92,14 @@ class PreferencesRepository(private val context: Context) {
 
     val geminiApiKey: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
+    }
+
+    val openAiApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.OPENAI_API_KEY] ?: ""
+    }
+
+    val anthropicApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.ANTHROPIC_API_KEY] ?: ""
     }
 
     // AI Provider and Model
@@ -144,6 +159,12 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
+    suspend fun setCodeAutocompletion(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.CODE_AUTOCOMPLETION] = enabled
+        }
+    }
+
     suspend fun setApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.API_KEY] = key
@@ -165,6 +186,18 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setGeminiApiKey(key: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.GEMINI_API_KEY] = key
+        }
+    }
+
+    suspend fun setOpenAiApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.OPENAI_API_KEY] = key
+        }
+    }
+
+    suspend fun setAnthropicApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.ANTHROPIC_API_KEY] = key
         }
     }
 
@@ -204,6 +237,8 @@ class PreferencesRepository(private val context: Context) {
                 ?: preferences[PreferenceKeys.API_KEY] ?: ""
             "OPENROUTER" -> preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
             "GEMINI" -> preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
+            "OPENAI" -> preferences[PreferenceKeys.OPENAI_API_KEY] ?: ""
+            "ANTHROPIC" -> preferences[PreferenceKeys.ANTHROPIC_API_KEY] ?: ""
             else -> preferences[PreferenceKeys.API_KEY] ?: ""
         }
     }
@@ -216,6 +251,8 @@ class PreferencesRepository(private val context: Context) {
             "DEEPINFRA" -> setDeepInfraApiKey(key)
             "OPENROUTER" -> setOpenRouterApiKey(key)
             "GEMINI" -> setGeminiApiKey(key)
+            "OPENAI" -> setOpenAiApiKey(key)
+            "ANTHROPIC" -> setAnthropicApiKey(key)
             else -> setApiKey(key)
         }
     }

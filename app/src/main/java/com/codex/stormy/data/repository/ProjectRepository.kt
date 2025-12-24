@@ -87,6 +87,30 @@ class ProjectRepository(
         projectDao.updateProject(project.copy(updatedAt = System.currentTimeMillis()).toEntity())
     }
 
+    /**
+     * Update project name and description by ID
+     */
+    suspend fun updateProject(
+        projectId: String,
+        name: String,
+        description: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val existingProject = projectDao.getProjectById(projectId)
+                ?: return@withContext Result.failure(ProjectNotFoundException(projectId))
+
+            val updatedProject = Project.fromEntity(existingProject).copy(
+                name = name,
+                description = description,
+                updatedAt = System.currentTimeMillis()
+            )
+            projectDao.updateProject(updatedProject.toEntity())
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun deleteProject(projectId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val project = projectDao.getProjectById(projectId)

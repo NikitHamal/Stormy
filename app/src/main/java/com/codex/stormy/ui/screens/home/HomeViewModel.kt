@@ -155,6 +155,23 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * Update project name and description
+     */
+    fun updateProject(projectId: String, name: String, description: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+
+            projectRepository.updateProject(projectId, name, description)
+                .onFailure { throwable ->
+                    _error.value = throwable.message
+                }
+
+            _isLoading.value = false
+        }
+    }
+
     fun clearError() {
         _error.value = null
     }
