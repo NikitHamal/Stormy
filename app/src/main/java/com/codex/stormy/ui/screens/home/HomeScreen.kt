@@ -747,88 +747,11 @@ private fun SwipeableProjectCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Project icon or selection checkbox
-                    Box(
-                        modifier = Modifier.size(48.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Folder icon (always visible but fades in selection mode)
-                        AnimatedVisibility(
-                            visible = !isSelectionMode || !isSelected,
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        if (isSelectionMode && !isSelected) {
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
-                                        } else {
-                                            MaterialTheme.colorScheme.primaryContainer
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelectionMode && !isSelected) {
-                                    // Empty circle for unselected items in selection mode
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Transparent)
-                                            .border(
-                                                width = 2.dp,
-                                                color = MaterialTheme.colorScheme.outline,
-                                                shape = CircleShape
-                                            )
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Outlined.FolderOpen,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
-                        }
-
-                        // Selection checkmark (animates in when selected)
-                        AnimatedVisibility(
-                            visible = isSelected,
-                            enter = fadeIn() + scaleIn(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow
-                                )
-                            ),
-                            exit = fadeOut() + scaleOut()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(
-                                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                            colors = listOf(
-                                                Color(0xFF3B82F6),
-                                                Color(0xFF2563EB)
-                                            )
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.CheckCircle,
-                                    contentDescription = "Selected",
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .scale(checkmarkScale),
-                                    tint = Color.White
-                                )
-                            }
-                        }
-                    }
+                    ProjectIconWithSelection(
+                        isSelectionMode = isSelectionMode,
+                        isSelected = isSelected,
+                        checkmarkScale = checkmarkScale
+                    )
 
                     Spacer(modifier = Modifier.width(16.dp))
 
@@ -931,96 +854,98 @@ private fun SwipeableProjectCard(
     )
 }
 
-@Composable
-private fun DeleteProjectDialog(
-    projectName: String,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    val context = LocalContext.current
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(context.getString(R.string.home_delete_project_title))
-        },
-        text = {
-            Text(context.getString(R.string.home_delete_project_message, projectName))
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Text(context.getString(R.string.action_delete))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(context.getString(R.string.action_cancel))
-            }
-        }
-    )
-}
-
 /**
- * Dialog for editing project name and description
+ * Extracted composable for project icon with selection state.
+ * This is extracted to avoid RowScope.AnimatedVisibility ambiguity
+ * when called inside SwipeToDismissBox content lambda.
  */
 @Composable
-private fun EditProjectDialog(
-    project: Project,
-    onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+private fun ProjectIconWithSelection(
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    checkmarkScale: Float
 ) {
-    var name by remember { mutableStateOf(project.name) }
-    var description by remember { mutableStateOf(project.description) }
-    val focusManager = LocalFocusManager.current
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text("Edit Project")
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+    Box(
+        modifier = Modifier.size(48.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Folder icon (always visible but fades in selection mode)
+        AnimatedVisibility(
+            visible = !isSelectionMode || !isSelected,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (isSelectionMode && !isSelected) {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        } else {
+                            MaterialTheme.colorScheme.primaryContainer
+                        }
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Project Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description (Optional)") },
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(name.trim(), description.trim()) },
-                enabled = name.isNotBlank()
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                if (isSelectionMode && !isSelected) {
+                    // Empty circle for unselected items in selection mode
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color.Transparent)
+                            .border(
+                                width = 2.dp,
+                                color = MaterialTheme.colorScheme.outline,
+                                shape = CircleShape
+                            )
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.FolderOpen,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
-    )
+
+        // Selection checkmark (animates in when selected)
+        AnimatedVisibility(
+            visible = isSelected,
+            enter = fadeIn() + scaleIn(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            ),
+            exit = fadeOut() + scaleOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF3B82F6),
+                                Color(0xFF2563EB)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = "Selected",
+                    modifier = Modifier
+                        .size(28.dp)
+                        .scale(checkmarkScale),
+                    tint = Color.White
+                )
+            }
+        }
+    }
 }
+
