@@ -4,16 +4,10 @@ import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.DeepInfraModels
-import com.codex.stormy.data.ai.GeminiModelService
-import com.codex.stormy.data.ai.OpenRouterModelService
 import com.codex.stormy.data.local.dao.AiModelDao
 import com.codex.stormy.data.local.entity.AiModelEntity
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
@@ -21,15 +15,13 @@ import kotlinx.coroutines.withContext
  * Repository for managing AI models
  * Handles:
  * - Local persistence of model preferences
- * - Dynamic model fetching from providers (DeepInfra, OpenRouter, Gemini)
+ * - Dynamic model fetching from DeepInfra (free, no API key required)
  * - Model enable/disable state
  * - Custom model management
  */
 class AiModelRepository(
     private val aiModelDao: AiModelDao,
-    private val deepInfraModelService: DeepInfraModelService,
-    private val openRouterModelService: OpenRouterModelService = OpenRouterModelService(),
-    private val geminiModelService: GeminiModelService = GeminiModelService()
+    private val deepInfraModelService: DeepInfraModelService
 ) {
 
     /**
@@ -74,6 +66,7 @@ class AiModelRepository(
 
     /**
      * Refresh models from DeepInfra API
+     * DeepInfra provides free inference without requiring an API key
      */
     suspend fun refreshModelsFromDeepInfra(): Result<Int> = withContext(Dispatchers.IO) {
         try {
@@ -81,81 +74,6 @@ class AiModelRepository(
             mergeModelsIntoDatabase(result, AiProvider.DEEPINFRA)
         } catch (e: Exception) {
             handleRefreshError(e)
-        }
-    }
-
-    /**
-     * Refresh models from OpenRouter API
-     * @param apiKey Optional API key for more detailed model info
-     */
-    suspend fun refreshModelsFromOpenRouter(apiKey: String? = null): Result<Int> = withContext(Dispatchers.IO) {
-        try {
-            val result = openRouterModelService.fetchAvailableModels(apiKey)
-            mergeModelsIntoDatabase(result, AiProvider.OPENROUTER)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Refresh models from Gemini API
-     * @param apiKey Required API key for Gemini
-     */
-    suspend fun refreshModelsFromGemini(apiKey: String): Result<Int> = withContext(Dispatchers.IO) {
-        try {
-            if (apiKey.isBlank()) {
-                return@withContext Result.failure(Exception("Gemini API key is required"))
-            }
-            val result = geminiModelService.fetchAvailableModels(apiKey)
-            mergeModelsIntoDatabase(result, AiProvider.GEMINI)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Refresh models from all providers in parallel
-     * Returns total count of models fetched
-     */
-    suspend fun refreshModelsFromAllProviders(
-        openRouterApiKey: String? = null,
-        geminiApiKey: String? = null
-    ): Result<RefreshResult> = withContext(Dispatchers.IO) {
-        try {
-            coroutineScope {
-                val deepInfraDeferred = async { refreshModelsFromDeepInfra() }
-                val openRouterDeferred = async { refreshModelsFromOpenRouter(openRouterApiKey) }
-                val geminiDeferred = async {
-                    if (!geminiApiKey.isNullOrBlank()) {
-                        refreshModelsFromGemini(geminiApiKey)
-                    } else {
-                        Result.success(0)
-                    }
-                }
-
-                val deepInfraResult = deepInfraDeferred.await()
-                val openRouterResult = openRouterDeferred.await()
-                val geminiResult = geminiDeferred.await()
-
-                val totalCount = listOf(deepInfraResult, openRouterResult, geminiResult)
-                    .filter { it.isSuccess }
-                    .sumOf { it.getOrDefault(0) }
-
-                val errors = mutableListOf<String>()
-                deepInfraResult.onFailure { errors.add("DeepInfra: ${it.message}") }
-                openRouterResult.onFailure { errors.add("OpenRouter: ${it.message}") }
-                geminiResult.onFailure { errors.add("Gemini: ${it.message}") }
-
-                Result.success(RefreshResult(
-                    totalModels = totalCount,
-                    deepInfraCount = deepInfraResult.getOrDefault(0),
-                    openRouterCount = openRouterResult.getOrDefault(0),
-                    geminiCount = geminiResult.getOrDefault(0),
-                    errors = errors
-                ))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 
@@ -349,14 +267,3 @@ class AiModelRepository(
         )
     }
 }
-
-/**
- * Result of refreshing models from all providers
- */
-data class RefreshResult(
-    val totalModels: Int,
-    val deepInfraCount: Int,
-    val openRouterCount: Int,
-    val geminiCount: Int,
-    val errors: List<String> = emptyList()
-)

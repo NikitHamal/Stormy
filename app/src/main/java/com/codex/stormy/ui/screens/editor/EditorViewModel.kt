@@ -1533,6 +1533,26 @@ class EditorViewModel(
         undoRedoManager.clearHistory()
     }
 
+    /**
+     * Handle AI code edit request from text selection in the code editor
+     * Creates a specialized prompt for the AI to edit the selected code
+     */
+    fun handleAiCodeEdit(request: com.codex.stormy.ui.screens.editor.code.AiCodeEditRequest) {
+        // Switch to chat tab to show the AI response
+        _selectedTab.value = EditorTab.CHAT
+
+        // Create a specialized prompt for code editing
+        val prompt = buildString {
+            append("Please help me edit the following code from **${request.fileName}** ")
+            append("(lines ${request.startLine + 1}-${request.endLine + 1}):\n\n")
+            append("```\n${request.selectedText}\n```\n\n")
+            append("What changes would you like me to make to this code?")
+        }
+
+        // Set the chat input with the prompt
+        _chatInput.value = prompt
+    }
+
     companion object {
         private const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
         private const val STREAMING_UPDATE_INTERVAL_MS = 50L // Debounce interval for streaming updates (20 FPS)

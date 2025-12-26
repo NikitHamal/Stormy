@@ -9,7 +9,6 @@ import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.PreferencesRepository
-import com.codex.stormy.data.repository.RefreshResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +25,6 @@ data class AiModelsUiState(
     val filteredModels: List<AiModel> = emptyList(),
     val currentModel: AiModel? = null,
     val defaultModelId: String = "",
-    val selectedProvider: AiProvider? = null,
     val searchQuery: String = "",
     val showStreamingOnly: Boolean = false,
     val showToolCallsOnly: Boolean = false,
@@ -40,7 +38,7 @@ data class AiModelsUiState(
 
 /**
  * ViewModel for the AI Models management screen
- * Handles dynamic model fetching from all supported providers (DeepInfra, OpenRouter, Gemini)
+ * Handles model management for DeepInfra (free, no API key required)
  */
 class AiModelsViewModel(
     private val modelRepository: AiModelRepository,
@@ -51,7 +49,6 @@ class AiModelsViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
     private val _searchQuery = MutableStateFlow("")
-    private val _selectedProvider = MutableStateFlow<AiProvider?>(null)
     private val _showStreamingOnly = MutableStateFlow(false)
     private val _showToolCallsOnly = MutableStateFlow(false)
     private val _showThinkingOnly = MutableStateFlow(false)
@@ -64,7 +61,6 @@ class AiModelsViewModel(
         _isRefreshing,
         _error,
         _searchQuery,
-        _selectedProvider,
         _showStreamingOnly,
         _showToolCallsOnly,
         _showThinkingOnly,
@@ -76,17 +72,13 @@ class AiModelsViewModel(
         val isRefreshing = values[2] as Boolean
         val error = values[3] as String?
         val searchQuery = values[4] as String
-        val selectedProvider = values[5] as AiProvider?
-        val showStreamingOnly = values[6] as Boolean
-        val showToolCallsOnly = values[7] as Boolean
-        val showThinkingOnly = values[8] as Boolean
-        val (currentModel, defaultModelId) = values[9] as Pair<AiModel?, String>
+        val showStreamingOnly = values[5] as Boolean
+        val showToolCallsOnly = values[6] as Boolean
+        val showThinkingOnly = values[7] as Boolean
+        val (currentModel, defaultModelId) = values[8] as Pair<AiModel?, String>
 
         // Apply filters
         val filteredModels = models.filter { model ->
-            // Provider filter
-            val providerMatch = selectedProvider == null || model.provider == selectedProvider
-
             // Search filter
             val searchMatch = searchQuery.isBlank() ||
                     model.name.contains(searchQuery, ignoreCase = true) ||
@@ -97,7 +89,7 @@ class AiModelsViewModel(
             val toolCallsMatch = !showToolCallsOnly || model.supportsToolCalls
             val thinkingMatch = !showThinkingOnly || model.isThinkingModel
 
-            providerMatch && searchMatch && streamingMatch && toolCallsMatch && thinkingMatch
+            searchMatch && streamingMatch && toolCallsMatch && thinkingMatch
         }
 
         AiModelsUiState(
@@ -105,7 +97,6 @@ class AiModelsViewModel(
             filteredModels = filteredModels,
             currentModel = currentModel,
             defaultModelId = defaultModelId,
-            selectedProvider = selectedProvider,
             searchQuery = searchQuery,
             showStreamingOnly = showStreamingOnly,
             showToolCallsOnly = showToolCallsOnly,
@@ -114,7 +105,7 @@ class AiModelsViewModel(
             isRefreshing = isRefreshing,
             error = error,
             totalCount = models.size,
-            enabledCount = models.size // All shown models are enabled
+            enabledCount = models.size
         )
     }.stateIn(
         scope = viewModelScope,
@@ -152,85 +143,16 @@ class AiModelsViewModel(
     }
 
     /**
-     * Refresh models from all providers (DeepInfra, OpenRouter, Gemini)
-     * Fetches API keys from preferences and refreshes in parallel
+     * Refresh models from DeepInfra
+     * DeepInfra is free and doesn't require an API key
      */
     fun refreshModels() {
         viewModelScope.launch {
             _isRefreshing.value = true
             _error.value = null
 
-            // Get API keys from preferences
-            val openRouterKey = preferencesRepository.openRouterApiKey.first()
-            val geminiKey = preferencesRepository.geminiApiKey.first()
-
-            val result = modelRepository.refreshModelsFromAllProviders(
-                openRouterApiKey = openRouterKey.takeIf { it.isNotBlank() },
-                geminiApiKey = geminiKey.takeIf { it.isNotBlank() }
-            )
-
-            result.onSuccess { refreshResult ->
-                if (refreshResult.errors.isNotEmpty()) {
-                    _error.value = "Some providers failed: ${refreshResult.errors.joinToString("; ")}"
-                }
-            }.onFailure { error ->
-                _error.value = "Failed to refresh: ${error.message}"
-            }
-
-            _isRefreshing.value = false
-        }
-    }
-
-    /**
-     * Refresh models from DeepInfra only
-     */
-    fun refreshDeepInfraModels() {
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            _error.value = null
-
             modelRepository.refreshModelsFromDeepInfra().onFailure { error ->
-                _error.value = "DeepInfra: ${error.message}"
-            }
-
-            _isRefreshing.value = false
-        }
-    }
-
-    /**
-     * Refresh models from OpenRouter only
-     */
-    fun refreshOpenRouterModels() {
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            _error.value = null
-
-            val apiKey = preferencesRepository.openRouterApiKey.first()
-            modelRepository.refreshModelsFromOpenRouter(apiKey.takeIf { it.isNotBlank() }).onFailure { error ->
-                _error.value = "OpenRouter: ${error.message}"
-            }
-
-            _isRefreshing.value = false
-        }
-    }
-
-    /**
-     * Refresh models from Gemini only
-     */
-    fun refreshGeminiModels() {
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            _error.value = null
-
-            val apiKey = preferencesRepository.geminiApiKey.first()
-            if (apiKey.isBlank()) {
-                _error.value = "Gemini: API key required"
-                _isRefreshing.value = false
-                return@launch
-            }
-
-            modelRepository.refreshModelsFromGemini(apiKey).onFailure { error ->
-                _error.value = "Gemini: ${error.message}"
+                _error.value = "Failed to refresh: ${error.message}"
             }
 
             _isRefreshing.value = false
@@ -277,13 +199,6 @@ class AiModelsViewModel(
     }
 
     /**
-     * Select a provider filter
-     */
-    fun selectProvider(provider: AiProvider?) {
-        _selectedProvider.value = provider
-    }
-
-    /**
      * Toggle streaming filter
      */
     fun toggleStreamingFilter() {
@@ -309,7 +224,6 @@ class AiModelsViewModel(
      */
     fun clearFilters() {
         _searchQuery.value = ""
-        _selectedProvider.value = null
         _showStreamingOnly.value = false
         _showToolCallsOnly.value = false
         _showThinkingOnly.value = false
