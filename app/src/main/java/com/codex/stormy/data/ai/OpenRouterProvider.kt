@@ -65,6 +65,12 @@ data class OpenRouterTopProvider(
 /**
  * AI provider implementation for OpenRouter API
  * OpenRouter provides access to multiple AI models through a unified API
+ *
+ * Important: OpenRouter requires:
+ * - Valid API key in Authorization header
+ * - HTTP-Referer header for tracking
+ * - X-Title header for identification
+ * - For free models, append :free suffix or use nousresearch/nous-hermes-llama2-13b:free format
  */
 class OpenRouterProvider(
     private val apiKey: String
@@ -77,7 +83,7 @@ class OpenRouterProvider(
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)  // Increased for slower free models
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
@@ -86,6 +92,19 @@ class OpenRouterProvider(
     companion object {
         private const val USER_AGENT = "CodeX-Android/1.0"
         private const val APP_NAME = "CodeX"
+        private const val APP_SITE_URL = "https://codex.app"  // Site URL for OpenRouter attribution
+    }
+
+    /**
+     * Check if this is a free model that needs special handling
+     * Free models on OpenRouter typically have ":free" suffix or are in free tier list
+     */
+    private fun isFreeModel(modelId: String): Boolean {
+        val lowerModelId = modelId.lowercase()
+        return lowerModelId.endsWith(":free") ||
+                lowerModelId.contains("nous-hermes") ||
+                lowerModelId.contains("mythomist") ||
+                lowerModelId.contains("toppy-m-7b")
     }
 
     /**
@@ -116,7 +135,8 @@ class OpenRouterProvider(
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .addHeader("Accept", "text/event-stream")
-            .addHeader("HTTP-Referer", "https://github.com/codex-app/codex-android")
+            .addHeader("User-Agent", USER_AGENT)
+            .addHeader("HTTP-Referer", APP_SITE_URL)
             .addHeader("X-Title", APP_NAME)
             .post(requestBody)
             .build()
@@ -262,7 +282,8 @@ class OpenRouterProvider(
                 .url("$baseUrl/chat/completions")
                 .addHeader("Authorization", "Bearer $apiKey")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("HTTP-Referer", "https://github.com/codex-app/codex-android")
+                .addHeader("User-Agent", USER_AGENT)
+                .addHeader("HTTP-Referer", APP_SITE_URL)
                 .addHeader("X-Title", APP_NAME)
                 .post(requestBody)
                 .build()

@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit
 @Serializable
 data class GeminiRequest(
     val contents: List<GeminiContent>,
+    @SerialName("systemInstruction")
+    val systemInstruction: GeminiContent? = null,
     @SerialName("generationConfig")
     val generationConfig: GeminiGenerationConfig? = null,
     val tools: List<GeminiTool>? = null
@@ -251,11 +253,12 @@ class GeminiProvider(
         maxTokens: Int? = null
     ): Flow<StreamEvent> = callbackFlow {
         try {
-            // Convert messages to Gemini format
-            val geminiContents = convertMessagesToGemini(messages)
+            // Convert messages to Gemini format (separates system instruction)
+            val conversionResult = convertMessagesToGemini(messages)
 
             val request = GeminiRequest(
-                contents = geminiContents,
+                contents = conversionResult.contents,
+                systemInstruction = conversionResult.systemInstruction,
                 generationConfig = GeminiGenerationConfig(
                     temperature = temperature,
                     maxOutputTokens = maxTokens
@@ -378,11 +381,12 @@ class GeminiProvider(
         maxTokens: Int? = null
     ): Result<ChatCompletionResponse> = withContext(Dispatchers.IO) {
         try {
-            // Convert messages to Gemini format
-            val geminiContents = convertMessagesToGemini(messages)
+            // Convert messages to Gemini format (separates system instruction)
+            val conversionResult = convertMessagesToGemini(messages)
 
             val request = GeminiRequest(
-                contents = geminiContents,
+                contents = conversionResult.contents,
+                systemInstruction = conversionResult.systemInstruction,
                 generationConfig = GeminiGenerationConfig(
                     temperature = temperature,
                     maxOutputTokens = maxTokens
@@ -427,36 +431,94 @@ class GeminiProvider(
     }
 
     /**
-     * Convert OpenAI-style messages to Gemini format
+     * Result of converting messages to Gemini format
+     * Separates system instruction from conversation contents
      */
-    private fun convertMessagesToGemini(messages: List<ChatRequestMessage>): List<GeminiContent> {
-        return messages.mapNotNull { message ->
+    private data class GeminiConversionResult(
+        val contents: List<GeminiContent>,
+        val systemInstruction: GeminiContent?
+    )
+
+    /**
+     * Convert OpenAI-style messages to Gemini format
+     * Properly handles:
+     * - System instructions via dedicated systemInstruction field
+     * - Tool/function responses with role "user" (per Gemini API spec)
+     * - User and assistant message conversion
+     */
+    private fun convertMessagesToGemini(messages: List<ChatRequestMessage>): GeminiConversionResult {
+        // Extract system instruction separately
+        val systemMessage = messages.firstOrNull { it.role == "system" }
+        val systemInstruction = systemMessage?.content?.let { systemContent ->
+            GeminiContent(
+                role = "user",
+                parts = listOf(GeminiPart(text = systemContent))
+            )
+        }
+
+        // Convert non-system messages to Gemini format
+        val contents = messages.mapNotNull { message ->
             when (message.role) {
-                "system" -> {
-                    // Gemini doesn't have system role, prepend to first user message
-                    // This will be handled by combining with the next user message
-                    null
-                }
-                "user", "assistant" -> {
-                    val role = if (message.role == "user") "user" else "model"
+                "system" -> null // Handled separately as systemInstruction
+                "user" -> {
                     val parts = listOfNotNull(
                         message.content?.let { GeminiPart(text = it) }
                     )
+                    if (parts.isNotEmpty()) {
+                        GeminiContent(role = "user", parts = parts)
+                    } else null
+                }
+                "assistant" -> {
+                    // Handle assistant messages that may include tool calls
+                    val parts = mutableListOf<GeminiPart>()
+
+                    // Add text content if present
+                    message.content?.let { parts.add(GeminiPart(text = it)) }
+
+                    // Add function calls if present
+                    message.toolCalls?.forEach { toolCall ->
+                        try {
+                            val argsMap = json.decodeFromString<Map<String, String>>(
+                                toolCall.function.arguments
+                            )
+                            parts.add(GeminiPart(
+                                functionCall = GeminiFunctionCall(
+                                    name = toolCall.function.name,
+                                    args = argsMap
+                                )
+                            ))
+                        } catch (e: Exception) {
+                            // If args parsing fails, try with empty args
+                            parts.add(GeminiPart(
+                                functionCall = GeminiFunctionCall(
+                                    name = toolCall.function.name,
+                                    args = emptyMap()
+                                )
+                            ))
+                        }
+                    }
 
                     if (parts.isNotEmpty()) {
-                        GeminiContent(role = role, parts = parts)
+                        GeminiContent(role = "model", parts = parts)
                     } else null
                 }
                 "tool" -> {
-                    // Handle tool response
+                    // Tool/function responses use role "user" per Gemini API spec
                     message.content?.let { content ->
+                        // Parse the content to extract the actual result
+                        val responseMap = try {
+                            json.decodeFromString<Map<String, String>>(content)
+                        } catch (e: Exception) {
+                            mapOf("result" to content)
+                        }
+
                         GeminiContent(
-                            role = "function",
+                            role = "user",
                             parts = listOf(
                                 GeminiPart(
                                     functionResponse = GeminiFunctionResponse(
-                                        name = message.name ?: "unknown",
-                                        response = mapOf("result" to content)
+                                        name = message.name ?: message.toolCallId ?: "unknown",
+                                        response = responseMap
                                     )
                                 )
                             )
@@ -465,23 +527,9 @@ class GeminiProvider(
                 }
                 else -> null
             }
-        }.let { contents ->
-            // Prepend system message to first user message if exists
-            val systemMessage = messages.firstOrNull { it.role == "system" }
-            if (systemMessage != null && contents.isNotEmpty()) {
-                val firstUserIndex = contents.indexOfFirst { it.role == "user" }
-                if (firstUserIndex >= 0) {
-                    val firstUser = contents[firstUserIndex]
-                    val combinedParts = listOf(
-                        GeminiPart(text = "System: ${systemMessage.content}\n\n")
-                    ) + firstUser.parts
-
-                    contents.toMutableList().apply {
-                        this[firstUserIndex] = firstUser.copy(parts = combinedParts)
-                    }
-                } else contents
-            } else contents
         }
+
+        return GeminiConversionResult(contents, systemInstruction)
     }
 
     /**

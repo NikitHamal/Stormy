@@ -119,17 +119,6 @@ fun HomeScreen(
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var projectToEdit by remember { mutableStateOf<Project?>(null) }
 
-    // Multi-select state
-    var isSelectionMode by remember { mutableStateOf(false) }
-    val selectedProjects = remember { mutableStateListOf<String>() }
-
-    // Exit selection mode when all items are deselected
-    LaunchedEffect(selectedProjects.size) {
-        if (selectedProjects.isEmpty() && isSelectionMode) {
-            isSelectionMode = false
-        }
-    }
-
     // Handle clone completion - navigate to cloned project
     LaunchedEffect(uiState.clonedProjectId) {
         uiState.clonedProjectId?.let { projectId ->
@@ -171,78 +160,22 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                navigationIcon = {
-                    if (isSelectionMode) {
-                        IconButton(onClick = {
-                            selectedProjects.clear()
-                            isSelectionMode = false
-                        }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = "Cancel selection"
-                            )
-                        }
-                    }
-                },
                 title = {
-                    if (isSelectionMode) {
-                        Text(
-                            text = "${selectedProjects.size} selected",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    } else {
-                        Text(
-                            text = context.getString(R.string.home_title),
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-                    }
+                    Text(
+                        text = context.getString(R.string.home_title),
+                        style = MaterialTheme.typography.headlineSmall
+                    )
                 },
                 actions = {
-                    if (isSelectionMode) {
-                        // Select all action
-                        IconButton(onClick = {
-                            if (selectedProjects.size == uiState.projects.size) {
-                                selectedProjects.clear()
-                            } else {
-                                selectedProjects.clear()
-                                selectedProjects.addAll(uiState.projects.map { it.id })
-                            }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Outlined.SelectAll,
-                                contentDescription = "Select all"
-                            )
-                        }
-                        // Delete selected action
-                        IconButton(onClick = {
-                            // Delete all selected projects
-                            selectedProjects.forEach { projectId ->
-                                viewModel.deleteProject(projectId)
-                            }
-                            selectedProjects.clear()
-                            isSelectionMode = false
-                        }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Delete,
-                                contentDescription = "Delete selected",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    } else {
-                        IconButton(onClick = onSettingsClick) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = context.getString(R.string.action_settings)
-                            )
-                        }
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = context.getString(R.string.action_settings)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (isSelectionMode) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    }
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
@@ -338,17 +271,8 @@ fun HomeScreen(
                     ProjectsList(
                         projects = uiState.projects,
                         onProjectClick = { project ->
-                            if (isSelectionMode) {
-                                // Toggle selection
-                                if (selectedProjects.contains(project.id)) {
-                                    selectedProjects.remove(project.id)
-                                } else {
-                                    selectedProjects.add(project.id)
-                                }
-                            } else {
-                                viewModel.openProject(project.id)
-                                onProjectClick(project.id)
-                            }
+                            viewModel.openProject(project.id)
+                            onProjectClick(project.id)
                         },
                         onDeleteClick = { project ->
                             projectToDelete = project
@@ -356,14 +280,6 @@ fun HomeScreen(
                         onEditClick = { project ->
                             projectToEdit = project
                         },
-                        onLongClick = { project ->
-                            if (!isSelectionMode) {
-                                isSelectionMode = true
-                                selectedProjects.add(project.id)
-                            }
-                        },
-                        isSelectionMode = isSelectionMode,
-                        selectedProjects = selectedProjects,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -563,13 +479,8 @@ private fun ProjectsList(
     onProjectClick: (Project) -> Unit,
     onDeleteClick: (Project) -> Unit,
     onEditClick: (Project) -> Unit,
-    onLongClick: (Project) -> Unit,
-    isSelectionMode: Boolean,
-    selectedProjects: List<String>,
     modifier: Modifier = Modifier
 ) {
-    val hapticFeedback = LocalHapticFeedback.current
-
     LazyColumn(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -584,12 +495,6 @@ private fun ProjectsList(
                 onClick = { onProjectClick(project) },
                 onDeleteClick = { onDeleteClick(project) },
                 onEditClick = { onEditClick(project) },
-                onLongClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick(project)
-                },
-                isSelectionMode = isSelectionMode,
-                isSelected = selectedProjects.contains(project.id),
                 modifier = Modifier
                     .fillMaxWidth()
                     .animateItem(
@@ -606,12 +511,11 @@ private fun ProjectsList(
 }
 
 /**
- * Swipeable project card with swipe-to-delete and modern selection support
+ * Swipeable project card with swipe-to-delete functionality
  * Features:
- * - Professional selection indicator with animated checkmark
- * - Elevated selection visual with colored left border
- * - Subtle scale animation for tactile feedback
- * - Clean minimalist design in both normal and selection modes
+ * - Smooth swipe-to-delete with visual feedback
+ * - Edit and delete options via dropdown menu
+ * - Clean minimalist card design
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -620,9 +524,6 @@ private fun SwipeableProjectCard(
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onEditClick: () -> Unit,
-    onLongClick: () -> Unit,
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -637,38 +538,11 @@ private fun SwipeableProjectCard(
         }
     )
 
-    // Animate selection state
-    val selectionScale by animateFloatAsState(
-        targetValue = if (isSelected) 0.98f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "selection_scale"
-    )
-
-    // Selection indicator animation
-    val checkmarkScale by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "checkmark_scale"
-    )
-
-    // Border indicator animation
-    val borderWidth by animateFloatAsState(
-        targetValue = if (isSelected) 4f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "border_width"
-    )
-
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
         enableDismissFromStartToEnd = false,
-        enableDismissFromEndToStart = !isSelectionMode,
+        enableDismissFromEndToStart = true,
         backgroundContent = {
             // Delete background with gradient effect
             Box(
@@ -706,52 +580,33 @@ private fun SwipeableProjectCard(
         },
         content = {
             Card(
-                modifier = Modifier
-                    .scale(selectionScale)
-                    .combinedClickable(
-                        onClick = onClick,
-                        onLongClick = onLongClick
-                    ),
+                modifier = Modifier.clickable(onClick = onClick),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerLow
-                    }
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 ),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = if (isSelected) 2.dp else 0.dp
-                )
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(
-                            if (borderWidth > 0f) {
-                                Modifier.drawWithContent {
-                                    drawContent()
-                                    // Draw selection indicator bar on the left
-                                    drawRect(
-                                        color = Color(0xFF3B82F6), // Primary blue
-                                        size = androidx.compose.ui.geometry.Size(
-                                            width = borderWidth,
-                                            height = size.height
-                                        )
-                                    )
-                                }
-                            } else Modifier
-                        )
-                        .padding(start = if (isSelected) 4.dp else 0.dp)
                         .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Project icon or selection checkbox
-                    ProjectIconWithSelection(
-                        isSelectionMode = isSelectionMode,
-                        isSelected = isSelected,
-                        checkmarkScale = checkmarkScale
-                    )
+                    // Project icon
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
 
                     Spacer(modifier = Modifier.width(16.dp))
 
@@ -760,11 +615,7 @@ private fun SwipeableProjectCard(
                         Text(
                             text = project.name,
                             style = MaterialTheme.typography.titleMedium,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.onSecondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -773,11 +624,7 @@ private fun SwipeableProjectCard(
                             Text(
                                 text = project.description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -786,166 +633,61 @@ private fun SwipeableProjectCard(
                         Text(
                             text = project.formattedLastOpened,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            }
+                            color = MaterialTheme.colorScheme.outline
                         )
                     }
 
-                    // Action menu (only in normal mode)
-                    AnimatedVisibility(
-                        visible = !isSelectionMode,
-                        enter = fadeIn() + scaleIn(),
-                        exit = fadeOut() + scaleOut()
-                    ) {
-                        Box {
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Outlined.MoreVert,
-                                    contentDescription = "More options",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    // Action menu
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = "More options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Edit") },
-                                    onClick = {
-                                        showMenu = false
-                                        onEditClick()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Edit,
-                                            contentDescription = null
-                                        )
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "Delete",
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    },
-                                    onClick = {
-                                        showMenu = false
-                                        onDeleteClick()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Delete,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                )
-                            }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Edit") },
+                                onClick = {
+                                    showMenu = false
+                                    onEditClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Delete",
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onDeleteClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            )
                         }
                     }
                 }
             }
         }
     )
-}
-
-/**
- * Extracted composable for project icon with selection state.
- * This is extracted to avoid RowScope.AnimatedVisibility ambiguity
- * when called inside SwipeToDismissBox content lambda.
- */
-@Composable
-private fun ProjectIconWithSelection(
-    isSelectionMode: Boolean,
-    isSelected: Boolean,
-    checkmarkScale: Float
-) {
-    Box(
-        modifier = Modifier.size(48.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        // Folder icon (always visible but fades in selection mode)
-        AnimatedVisibility(
-            visible = !isSelectionMode || !isSelected,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (isSelectionMode && !isSelected) {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        } else {
-                            MaterialTheme.colorScheme.primaryContainer
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isSelectionMode && !isSelected) {
-                    // Empty circle for unselected items in selection mode
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(Color.Transparent)
-                            .border(
-                                width = 2.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = CircleShape
-                            )
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.FolderOpen,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        }
-
-        // Selection checkmark (animates in when selected)
-        AnimatedVisibility(
-            visible = isSelected,
-            enter = fadeIn() + scaleIn(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                )
-            ),
-            exit = fadeOut() + scaleOut()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF3B82F6),
-                                Color(0xFF2563EB)
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.CheckCircle,
-                    contentDescription = "Selected",
-                    modifier = Modifier
-                        .size(28.dp)
-                        .scale(checkmarkScale),
-                    tint = Color.White
-                )
-            }
-        }
-    }
 }
 
