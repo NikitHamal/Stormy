@@ -7,8 +7,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,12 +44,12 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -74,14 +76,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.data.git.CIStatusSummary
 import com.codex.stormy.data.git.GitBranch
 import com.codex.stormy.data.git.GitChangedFile
 import com.codex.stormy.data.git.GitCommit
 import com.codex.stormy.data.git.GitFileStatus
 import com.codex.stormy.data.git.GitOperationProgress
 import com.codex.stormy.data.git.GitRepositoryStatus
-import com.codex.stormy.data.git.WorkflowRunInfo
 import com.codex.stormy.ui.theme.PoppinsFontFamily
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -189,8 +189,10 @@ fun GitPanel(
     onRefresh: () -> Unit,
     onCheckout: (String) -> Unit,
     onCreateBranch: (String, Boolean) -> Unit,
+    onDeleteBranch: (String, Boolean) -> Unit,
     onViewDiff: (String, Boolean) -> Unit,
     onInitRepo: () -> Unit,
+    onAddRemote: (String, String) -> Unit,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit,
     onRefreshCI: () -> Unit = {},
@@ -239,6 +241,16 @@ fun GitPanel(
                         onFetch = onFetch,
                         isLoading = uiState.isLoading
                     )
+                }
+
+                // Connect to remote section (shown when no remote is configured)
+                if (uiState.status?.hasRemote == false) {
+                    item {
+                        ConnectRemoteSection(
+                            onAddRemote = onAddRemote,
+                            isLoading = uiState.isLoading
+                        )
+                    }
                 }
 
                 // Staged changes
@@ -293,7 +305,8 @@ fun GitPanel(
                         branches = uiState.localBranches,
                         currentBranch = uiState.currentBranch,
                         onCheckout = onCheckout,
-                        onCreateBranch = onCreateBranch
+                        onCreateBranch = onCreateBranch,
+                        onDeleteBranch = onDeleteBranch
                     )
                 }
 
@@ -805,10 +818,12 @@ private fun BranchesSection(
     branches: List<GitBranch>,
     currentBranch: GitBranch?,
     onCheckout: (String) -> Unit,
-    onCreateBranch: (String, Boolean) -> Unit
+    onCreateBranch: (String, Boolean) -> Unit,
+    onDeleteBranch: (String, Boolean) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var branchToDelete by remember { mutableStateOf<GitBranch?>(null) }
     val rotationState by animateFloatAsState(
         targetValue = if (expanded) 0f else -90f,
         label = "rotation"
@@ -881,11 +896,57 @@ private fun BranchesSection(
                     BranchItem(
                         branch = branch,
                         isCurrent = branch.name == currentBranch?.name,
-                        onCheckout = { onCheckout(branch.name) }
+                        onCheckout = { onCheckout(branch.name) },
+                        onDelete = { branchToDelete = branch }
                     )
                 }
             }
         }
+    }
+
+    // Delete branch confirmation dialog
+    branchToDelete?.let { branch ->
+        AlertDialog(
+            onDismissRequest = { branchToDelete = null },
+            title = {
+                Text(
+                    text = "Delete Branch",
+                    fontFamily = PoppinsFontFamily,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Are you sure you want to delete the branch '${branch.name}'?",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "This action cannot be undone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteBranch(branch.name, false)
+                        branchToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete", fontFamily = PoppinsFontFamily)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { branchToDelete = null }) {
+                    Text("Cancel", fontFamily = PoppinsFontFamily)
+                }
+            }
+        )
     }
 
     // Create branch dialog
@@ -955,67 +1016,172 @@ private fun BranchesSection(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BranchItem(
     branch: GitBranch,
     isCurrent: Boolean,
-    onCheckout: () -> Unit
+    onCheckout: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !isCurrent, onClick = onCheckout)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .background(
-                if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                else Color.Transparent
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (isCurrent) {
-            Icon(
-                imageVector = Icons.Outlined.Check,
-                contentDescription = "Current branch",
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.primary
+    var showContextMenu by remember { mutableStateOf(false) }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { if (!isCurrent) onCheckout() },
+                    onLongClick = { showContextMenu = true }
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .background(
+                    if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    else Color.Transparent
+                ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isCurrent) {
+                Icon(
+                    imageVector = Icons.Outlined.Check,
+                    contentDescription = "Current branch",
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Spacer(modifier = Modifier.width(14.dp))
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Text(
+                text = branch.name,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = if (isCurrent) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
+                modifier = Modifier.weight(1f)
             )
-        } else {
-            Spacer(modifier = Modifier.width(14.dp))
-        }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Text(
-            text = branch.name,
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            color = if (isCurrent) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-            modifier = Modifier.weight(1f)
-        )
-
-        // Tracking info
-        if (branch.aheadCount > 0 || branch.behindCount > 0) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (branch.aheadCount > 0) {
-                    Text(
-                        text = "↑${branch.aheadCount}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                if (branch.behindCount > 0) {
-                    Text(
-                        text = "↓${branch.behindCount}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary
-                    )
+            // Tracking info
+            if (branch.aheadCount > 0 || branch.behindCount > 0) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (branch.aheadCount > 0) {
+                        Text(
+                            text = "↑${branch.aheadCount}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (branch.behindCount > 0) {
+                        Text(
+                            text = "↓${branch.behindCount}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                 }
             }
+        }
+
+        // Context menu dialog (shown on long-press)
+        if (showContextMenu) {
+            AlertDialog(
+                onDismissRequest = { showContextMenu = false },
+                title = {
+                    Text(
+                        text = branch.name,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Switch to branch option (only for non-current branches)
+                        if (!isCurrent) {
+                            Surface(
+                                onClick = {
+                                    showContextMenu = false
+                                    onCheckout()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.SwapHoriz,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "Switch to this branch",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = PoppinsFontFamily
+                                    )
+                                }
+                            }
+                        }
+
+                        // Delete branch option (only for non-current branches)
+                        if (!isCurrent) {
+                            Surface(
+                                onClick = {
+                                    showContextMenu = false
+                                    onDelete()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        text = "Delete branch",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = PoppinsFontFamily,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+
+                        // Info for current branch
+                        if (isCurrent) {
+                            Text(
+                                text = "This is the current branch. Switch to another branch before deleting.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showContextMenu = false }) {
+                        Text("Close", fontFamily = PoppinsFontFamily)
+                    }
+                }
+            )
         }
     }
 }
@@ -1145,193 +1311,5 @@ private fun formatTimestamp(timestamp: Long): String {
         diff < 86400_000 -> "${diff / 3600_000}h ago"
         diff < 604800_000 -> "${diff / 86400_000}d ago"
         else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
-    }
-}
-
-/**
- * CI/CD Status section showing GitHub Actions workflow runs
- */
-@Composable
-private fun CIStatusSection(
-    ciStatus: CIStatusSummary,
-    isLoading: Boolean,
-    onRefresh: () -> Unit,
-    onRerun: (Long) -> Unit,
-    onCancel: (Long) -> Unit,
-    onOpenUrl: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(true) }
-    val rotationState by animateFloatAsState(
-        targetValue = if (expanded) 0f else -90f,
-        label = "rotation"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.KeyboardArrowDown,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(20.dp)
-                    .rotate(rotationState),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // CI status icon
-            ciStatus.currentBranchStatus?.let { status ->
-                CIStatusBadge(status = status)
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-
-            Text(
-                text = "CI/CD",
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
-            )
-
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
-                )
-            } else {
-                IconButton(
-                    onClick = onRefresh,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "Refresh CI status",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        // Workflow runs list
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            Column {
-                if (ciStatus.recentRuns.isEmpty()) {
-                    Text(
-                        text = "No workflow runs found",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = PoppinsFontFamily,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                } else {
-                    ciStatus.recentRuns.take(5).forEach { run ->
-                        WorkflowRunItem(
-                            run = run,
-                            onRerun = { onRerun(run.id) },
-                            onCancel = { onCancel(run.id) },
-                            onOpenUrl = { onOpenUrl(run.htmlUrl) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WorkflowRunItem(
-    run: WorkflowRunInfo,
-    onRerun: () -> Unit,
-    onCancel: () -> Unit,
-    onOpenUrl: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenUrl)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Status badge
-        CIStatusBadge(status = run.displayStatus)
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Run info
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = run.name,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = PoppinsFontFamily,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                run.branch?.let { branch ->
-                    Text(
-                        text = branch,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1
-                    )
-                }
-                Text(
-                    text = "#${run.runNumber}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        // Action buttons for in-progress or failed runs
-        val status = run.displayStatus
-        when (status) {
-            com.codex.stormy.data.git.CIStatus.IN_PROGRESS,
-            com.codex.stormy.data.git.CIStatus.PENDING -> {
-                IconButton(onClick = onCancel, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Cancel",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-            com.codex.stormy.data.git.CIStatus.FAILURE,
-            com.codex.stormy.data.git.CIStatus.CANCELLED -> {
-                IconButton(onClick = onRerun, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "Re-run",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            else -> {}
-        }
     }
 }

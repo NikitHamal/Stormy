@@ -3,8 +3,6 @@ package com.codex.stormy
 import android.app.Application
 import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
-import com.codex.stormy.data.ai.GeminiModelService
-import com.codex.stormy.data.ai.OpenRouterModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
 import com.codex.stormy.data.ai.tools.MemoryStorage
@@ -48,26 +46,16 @@ class CodeXApplication : Application() {
         ChatRepository(database.chatMessageDao(), this)
     }
 
-    // Model services for fetching available models from providers
+    // Model service for fetching available models from DeepInfra (free, no API key required)
     val deepInfraModelService: DeepInfraModelService by lazy {
         DeepInfraModelService()
-    }
-
-    val openRouterModelService: OpenRouterModelService by lazy {
-        OpenRouterModelService()
-    }
-
-    val geminiModelService: GeminiModelService by lazy {
-        GeminiModelService()
     }
 
     // AI Model repository for managing model storage and preferences
     val aiModelRepository: AiModelRepository by lazy {
         AiModelRepository(
             aiModelDao = database.aiModelDao(),
-            deepInfraModelService = deepInfraModelService,
-            openRouterModelService = openRouterModelService,
-            geminiModelService = geminiModelService
+            deepInfraModelService = deepInfraModelService
         )
     }
 

@@ -1,61 +1,89 @@
 # CodeX Development Continuity Ledger
 
 ## Goal (incl. success criteria)
-Comprehensive fix and feature implementation for CodeX Android IDE:
+Major CodeX Android IDE enhancement and cleanup:
 
-### Critical Fixes:
-1. **Provider Integration**: Fix Gemini and OpenRouter providers (return errors, only DeepInfra works)
-2. **Chat Tab Tool Calls**: Fix thinking/answer content bleeding into tool call blocks
-3. **Git Lock File Crash**: Fix crash when switching branches due to stale lock files
-4. **Agent Selection Mode**: Fix preview activity agent selection not working
+### Phase 1: Provider Cleanup
+1. **Remove Gemini Provider**: Delete GeminiProvider.kt and all references
+2. **Remove OpenRouter Provider**: Delete OpenRouterProvider.kt and all references
+3. **Cleanup UI**: Remove provider selection UI, model lists, settings for removed providers
+4. **Keep ONLY DeepInfra**: This is the free reverse-engineered provider
 
-### UI/UX Fixes:
-5. **Project Deletion**: Remove selection-based deletion (keep swipe-to-delete only)
-6. **Blank Template**: Don't create default index.html for blank projects
-7. **Console Text**: Make preview console output selectable
-8. **Diff View**: Implement proper diff view for write/patch tool calls
+### Phase 2: Asset Management Fixes
+5. **Icon Library**: Add Font Awesome icons, complete Material Icons, add download-to-assets
+6. **Font Manager**: Add download fonts to assets folder functionality
+7. **All existing features**: Fix any incomplete implementations
 
-### New Features:
-9. **Icon Library**: Complete Font Awesome/Material Icons with download to assets
-10. **Font Manager**: Add download fonts to assets feature
-11. **Git Branch Deletion**: Long-press to delete branches
-12. **Git Initialization**: Init/connect projects to GitHub repos
-13. **@ File Tagging**: Tag files/directories in chat with @ syntax
-14. **AI Code Edit**: Add AI edit option in code selection menu with floating prompt bar
+### Phase 3: Git Enhancements
+8. **Branch Deletion**: Long-press branch shows switch/delete options
+9. **Git Init/Connect**: Initialize non-git projects, connect to existing repos
+10. **New Git Features**: Stash, cherry-pick, interactive rebase UI, etc.
+
+### Phase 4: New Features
+11. **@ File Tagging**: Tag files/directories in chat input with @ syntax
+12. **AI Code Edit**: Selection menu option to edit code with AI floating prompt
+13. **Agent Selection Fix**: Fix preview activity agent mode
+14. **Blank Template Fix**: Don't create index.html for blank projects
+15. **Console Selection**: Make preview console text selectable
 
 ## Constraints/Assumptions
 - Kotlin + Jetpack Compose codebase
 - 500-1000 lines per file max (modular)
 - Production-grade, fully functional implementations only
 - No TODOs or placeholder code
+- No italics in UI text
+- Clean, professional, modern UI/UX
 
 ## Key Decisions
-1. Provider errors: Gemini uses different API format than OpenAI-compatible providers
-2. Tool call parsing: Need robust regex-based content block separation
-3. Git lock fix: Clean up .lock files before operations, use proper try-finally
+1. DeepInfra is the ONLY AI provider to keep (free, no API key needed)
+2. Font Awesome icons will be loaded from CDN metadata/offline catalog
+3. File tagging will use @ trigger with compact dropdown/popup
+4. AI code edit will use floating bottom bar similar to agent mode in preview
 
 ## State
 
 ### Done:
-- Previous fix: HomeScreen.kt AnimatedVisibility RowScope issue resolved
-- Codebase exploration and architecture understanding
+- Codebase exploration and full architecture understanding
+- All 111 Kotlin files mapped and analyzed
 
 ### Now:
-- Starting with Gemini and OpenRouter provider fixes
+- Phase 1: Remove Gemini and OpenRouter providers completely
 
 ### Next:
-- Chat tab tool call display fix
-- Project deletion cleanup
-- Continue with remaining items
+- Update AiProviderManager to only use DeepInfra
+- Remove UI references to other providers
+- Phase 2: Asset Management fixes
+- Phase 3: Git enhancements
+- Phase 4: New features
 
 ## Open Questions
-- UNCONFIRMED: Exact error messages from Gemini/OpenRouter
-- UNCONFIRMED: Current tool call parsing logic details
+- None currently
 
 ## Working Set
+### Provider Files (to remove):
 - `/app/src/main/java/com/codex/stormy/data/ai/GeminiProvider.kt`
 - `/app/src/main/java/com/codex/stormy/data/ai/OpenRouterProvider.kt`
+
+### Provider Files (to modify):
 - `/app/src/main/java/com/codex/stormy/data/ai/AiProviderManager.kt`
-- `/app/src/main/java/com/codex/stormy/ui/screens/home/HomeScreen.kt`
-- `/app/src/main/java/com/codex/stormy/ui/components/message/AiMessageContent.kt`
+- `/app/src/main/java/com/codex/stormy/data/ai/AiModels.kt`
+
+### Asset Files:
+- `/app/src/main/java/com/codex/stormy/ui/screens/editor/assets/IconLibraryDialog.kt`
+- `/app/src/main/java/com/codex/stormy/ui/screens/editor/assets/FontManagerDialog.kt`
+
+### Git Files:
+- `/app/src/main/java/com/codex/stormy/ui/screens/git/GitDrawer.kt`
+- `/app/src/main/java/com/codex/stormy/ui/screens/git/GitViewModel.kt`
 - `/app/src/main/java/com/codex/stormy/data/git/GitRepository.kt`
+
+### Chat/Editor Files:
+- `/app/src/main/java/com/codex/stormy/ui/components/chat/ModernChatInput.kt`
+- `/app/src/main/java/com/codex/stormy/ui/screens/editor/chat/ChatTab.kt`
+- `/app/src/main/java/com/codex/stormy/ui/screens/editor/code/SoraCodeEditorView.kt`
+
+### Preview Files:
+- `/app/src/main/java/com/codex/stormy/ui/screens/preview/PreviewActivity.kt`
+
+### Project Creation:
+- `/app/src/main/java/com/codex/stormy/data/repository/ProjectTemplateGenerator.kt`

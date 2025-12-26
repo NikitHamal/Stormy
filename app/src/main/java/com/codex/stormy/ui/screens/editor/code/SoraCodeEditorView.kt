@@ -5,7 +5,24 @@ import android.graphics.Typeface
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,18 +31,33 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.rosemoe.sora.event.ContentChangeEvent
+import io.github.rosemoe.sora.event.SelectionChangeEvent
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.component.EditorAutoCompletion
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Callback for AI-powered code edit requests from text selection
+ */
+data class AiCodeEditRequest(
+    val selectedText: String,
+    val startLine: Int,
+    val endLine: Int,
+    val filePath: String,
+    val fileName: String
+)
 
 /**
  * High-performance code editor view built on Rosemoe/Sora editor
@@ -42,6 +74,7 @@ fun SoraCodeEditorView(
     showLineNumbers: Boolean,
     wordWrap: Boolean,
     fontSize: Float,
+    onAiEditRequest: ((AiCodeEditRequest) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -51,6 +84,12 @@ fun SoraCodeEditorView(
     var editorInstance by remember { mutableStateOf<CodeEditor?>(null) }
     var lastExternalContent by remember { mutableStateOf(content) }
     var isUpdatingFromEditor by remember { mutableStateOf(false) }
+
+    // Track text selection for AI edit button
+    var hasSelection by remember { mutableStateOf(false) }
+    var selectedText by remember { mutableStateOf("") }
+    var selectionStartLine by remember { mutableStateOf(0) }
+    var selectionEndLine by remember { mutableStateOf(0) }
 
     // Update content when it changes externally (not from editor)
     LaunchedEffect(content) {
@@ -100,38 +139,97 @@ fun SoraCodeEditorView(
         }
     }
 
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            createCodeEditor(ctx, isDarkTheme, fileExtension).also { editor ->
-                editorInstance = editor
+    Box(modifier = modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                createCodeEditor(ctx, isDarkTheme, fileExtension).also { editor ->
+                    editorInstance = editor
 
-                // Set initial content
-                editor.setText(content)
-                lastExternalContent = content
+                    // Set initial content
+                    editor.setText(content)
+                    lastExternalContent = content
 
-                // Configure editor settings
-                editor.isLineNumberEnabled = showLineNumbers
-                editor.isWordwrap = wordWrap
-                editor.setTextSize(fontSize)
-                // Auto-completion is disabled
-                editor.getComponent(EditorAutoCompletion::class.java)?.isEnabled = false
+                    // Configure editor settings
+                    editor.isLineNumberEnabled = showLineNumbers
+                    editor.isWordwrap = wordWrap
+                    editor.setTextSize(fontSize)
+                    // Auto-completion is disabled
+                    editor.getComponent(EditorAutoCompletion::class.java)?.isEnabled = false
 
-                // Set up content change listener
-                editor.subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
-                    val newText = editor.text.toString()
-                    if (newText != lastExternalContent) {
-                        isUpdatingFromEditor = true
-                        lastExternalContent = newText
-                        onContentChange(newText)
+                    // Set up content change listener
+                    editor.subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
+                        val newText = editor.text.toString()
+                        if (newText != lastExternalContent) {
+                            isUpdatingFromEditor = true
+                            lastExternalContent = newText
+                            onContentChange(newText)
+                        }
+                    }
+
+                    // Set up selection change listener for AI edit feature
+                    if (onAiEditRequest != null) {
+                        editor.subscribeEvent(SelectionChangeEvent::class.java) { event, _ ->
+                            val cursor = event.editor.cursor
+                            if (cursor.isSelected) {
+                                hasSelection = true
+                                selectedText = event.editor.text.subSequence(
+                                    cursor.left,
+                                    cursor.right
+                                ).toString()
+                                selectionStartLine = cursor.leftLine
+                                selectionEndLine = cursor.rightLine
+                            } else {
+                                hasSelection = false
+                                selectedText = ""
+                            }
+                        }
                     }
                 }
+            },
+            update = { _ ->
+                // Editor updates are handled via LaunchedEffects
             }
-        },
-        update = { _ ->
-            // Editor updates are handled via LaunchedEffects
+        )
+
+        // Floating AI Edit button - appears when text is selected
+        AnimatedVisibility(
+            visible = hasSelection && onAiEditRequest != null && selectedText.isNotEmpty(),
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            IconButton(
+                onClick = {
+                    onAiEditRequest?.invoke(
+                        AiCodeEditRequest(
+                            selectedText = selectedText,
+                            startLine = selectionStartLine,
+                            endLine = selectionEndLine,
+                            filePath = filePath,
+                            fileName = fileName
+                        )
+                    )
+                    // Clear selection state after triggering
+                    hasSelection = false
+                    selectedText = ""
+                },
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.AutoAwesome,
+                    contentDescription = "AI Edit",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
-    )
+    }
 
     DisposableEffect(Unit) {
         onDispose {

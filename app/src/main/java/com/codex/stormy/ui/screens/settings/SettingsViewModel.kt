@@ -21,10 +21,6 @@ data class SettingsUiState(
     val lineNumbers: Boolean = true,
     val wordWrap: Boolean = true,
     val autoSave: Boolean = true,
-    val apiKey: String = "",
-    val deepInfraApiKey: String = "",
-    val openRouterApiKey: String = "",
-    val geminiApiKey: String = "",
     val aiModel: String = DeepInfraModels.defaultModel.id,
     val availableModels: List<AiModel> = DeepInfraModels.allModels
 )
@@ -40,9 +36,7 @@ class SettingsViewModel(
         preferencesRepository.lineNumbers,
         preferencesRepository.wordWrap,
         preferencesRepository.autoSave,
-        preferencesRepository.deepInfraApiKey,
-        preferencesRepository.openRouterApiKey,
-        preferencesRepository.geminiApiKey
+        preferencesRepository.aiModel
     ) { values ->
         SettingsUiState(
             themeMode = values[0] as ThemeMode,
@@ -51,12 +45,8 @@ class SettingsViewModel(
             lineNumbers = values[3] as Boolean,
             wordWrap = values[4] as Boolean,
             autoSave = values[5] as Boolean,
-            deepInfraApiKey = values[6] as String,
-            openRouterApiKey = values[7] as String,
-            geminiApiKey = values[8] as String
+            aiModel = values[6] as String
         )
-    }.combine(preferencesRepository.aiModel) { state, aiModel ->
-        state.copy(aiModel = aiModel)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -96,24 +86,6 @@ class SettingsViewModel(
     fun setAutoSave(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setAutoSave(enabled)
-        }
-    }
-
-    fun setDeepInfraApiKey(key: String) {
-        viewModelScope.launch {
-            preferencesRepository.setDeepInfraApiKey(key)
-        }
-    }
-
-    fun setOpenRouterApiKey(key: String) {
-        viewModelScope.launch {
-            preferencesRepository.setOpenRouterApiKey(key)
-        }
-    }
-
-    fun setGeminiApiKey(key: String) {
-        viewModelScope.launch {
-            preferencesRepository.setGeminiApiKey(key)
         }
     }
 

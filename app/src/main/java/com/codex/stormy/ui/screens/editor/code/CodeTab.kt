@@ -31,7 +31,8 @@ fun CodeTab(
     wordWrap: Boolean,
     fontSize: Float,
     onContentChange: (String) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onAiEditRequest: ((AiCodeEditRequest) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val extendedColors = CodeXTheme.extendedColors
@@ -50,6 +51,7 @@ fun CodeTab(
                 showLineNumbers = lineNumbers,
                 wordWrap = wordWrap,
                 fontSize = fontSize,
+                onAiEditRequest = onAiEditRequest,
                 modifier = Modifier
                     .fillMaxSize()
                     .background(extendedColors.editorBackground)
