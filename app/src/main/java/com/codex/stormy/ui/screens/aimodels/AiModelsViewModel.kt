@@ -25,6 +25,7 @@ data class AiModelsUiState(
     val filteredModels: List<AiModel> = emptyList(),
     val currentModel: AiModel? = null,
     val defaultModelId: String = "",
+    val selectedProvider: AiProvider? = null,
     val searchQuery: String = "",
     val showStreamingOnly: Boolean = false,
     val showToolCallsOnly: Boolean = false,
@@ -48,6 +49,7 @@ class AiModelsViewModel(
     private val _isLoading = MutableStateFlow(false)
     private val _isRefreshing = MutableStateFlow(false)
     private val _error = MutableStateFlow<String?>(null)
+    private val _selectedProvider = MutableStateFlow<AiProvider?>(null)
     private val _searchQuery = MutableStateFlow("")
     private val _showStreamingOnly = MutableStateFlow(false)
     private val _showToolCallsOnly = MutableStateFlow(false)
@@ -60,25 +62,30 @@ class AiModelsViewModel(
         _isLoading,
         _isRefreshing,
         _error,
+        _selectedProvider,
         _searchQuery,
         _showStreamingOnly,
         _showToolCallsOnly,
-        _showThinkingOnly,
-        combine(_currentModel, _defaultModelId) { current, default -> current to default }
+        combine(_showThinkingOnly, _currentModel, _defaultModelId) { thinking, current, default ->
+            Triple(thinking, current, default)
+        }
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val models = values[0] as List<AiModel>
         val isLoading = values[1] as Boolean
         val isRefreshing = values[2] as Boolean
         val error = values[3] as String?
-        val searchQuery = values[4] as String
-        val showStreamingOnly = values[5] as Boolean
-        val showToolCallsOnly = values[6] as Boolean
-        val showThinkingOnly = values[7] as Boolean
-        val (currentModel, defaultModelId) = values[8] as Pair<AiModel?, String>
+        val selectedProvider = values[4] as AiProvider?
+        val searchQuery = values[5] as String
+        val showStreamingOnly = values[6] as Boolean
+        val showToolCallsOnly = values[7] as Boolean
+        val (showThinkingOnly, currentModel, defaultModelId) = values[8] as Triple<Boolean, AiModel?, String>
 
         // Apply filters
         val filteredModels = models.filter { model ->
+            // Provider filter
+            val providerMatch = selectedProvider == null || model.provider == selectedProvider
+
             // Search filter
             val searchMatch = searchQuery.isBlank() ||
                     model.name.contains(searchQuery, ignoreCase = true) ||
@@ -89,7 +96,7 @@ class AiModelsViewModel(
             val toolCallsMatch = !showToolCallsOnly || model.supportsToolCalls
             val thinkingMatch = !showThinkingOnly || model.isThinkingModel
 
-            searchMatch && streamingMatch && toolCallsMatch && thinkingMatch
+            providerMatch && searchMatch && streamingMatch && toolCallsMatch && thinkingMatch
         }
 
         AiModelsUiState(
@@ -97,6 +104,7 @@ class AiModelsViewModel(
             filteredModels = filteredModels,
             currentModel = currentModel,
             defaultModelId = defaultModelId,
+            selectedProvider = selectedProvider,
             searchQuery = searchQuery,
             showStreamingOnly = showStreamingOnly,
             showToolCallsOnly = showToolCallsOnly,
@@ -192,6 +200,14 @@ class AiModelsViewModel(
     }
 
     /**
+     * Select a provider to filter models by
+     * Pass null to show all providers
+     */
+    fun selectProvider(provider: AiProvider?) {
+        _selectedProvider.value = provider
+    }
+
+    /**
      * Update search query
      */
     fun updateSearchQuery(query: String) {
@@ -223,6 +239,7 @@ class AiModelsViewModel(
      * Clear all filters
      */
     fun clearFilters() {
+        _selectedProvider.value = null
         _searchQuery.value = ""
         _showStreamingOnly.value = false
         _showToolCallsOnly.value = false
