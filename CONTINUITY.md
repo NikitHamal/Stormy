@@ -1,34 +1,61 @@
-# Continuity Ledger
+# CodeX Development Continuity Ledger
 
 ## Goal (incl. success criteria)
-Fix Kotlin compilation errors in HomeScreen.kt related to `AnimatedVisibility` being called incorrectly within a `RowScope` context. The build should compile successfully after the fix.
+Comprehensive fix and feature implementation for CodeX Android IDE:
+
+### Critical Fixes:
+1. **Provider Integration**: Fix Gemini and OpenRouter providers (return errors, only DeepInfra works)
+2. **Chat Tab Tool Calls**: Fix thinking/answer content bleeding into tool call blocks
+3. **Git Lock File Crash**: Fix crash when switching branches due to stale lock files
+4. **Agent Selection Mode**: Fix preview activity agent selection not working
+
+### UI/UX Fixes:
+5. **Project Deletion**: Remove selection-based deletion (keep swipe-to-delete only)
+6. **Blank Template**: Don't create default index.html for blank projects
+7. **Console Text**: Make preview console output selectable
+8. **Diff View**: Implement proper diff view for write/patch tool calls
+
+### New Features:
+9. **Icon Library**: Complete Font Awesome/Material Icons with download to assets
+10. **Font Manager**: Add download fonts to assets feature
+11. **Git Branch Deletion**: Long-press to delete branches
+12. **Git Initialization**: Init/connect projects to GitHub repos
+13. **@ File Tagging**: Tag files/directories in chat with @ syntax
+14. **AI Code Edit**: Add AI edit option in code selection menu with floating prompt bar
 
 ## Constraints/Assumptions
-- Production-grade fix required
-- Modular code (500-1000 lines max per file)
-- No TODOs or placeholder implementations
+- Kotlin + Jetpack Compose codebase
+- 500-1000 lines per file max (modular)
+- Production-grade, fully functional implementations only
+- No TODOs or placeholder code
 
-## Key decisions
-1. **Root cause**: `SwipeToDismissBox.content` lambda has `RowScope` receiver, causing the compiler to try to use `RowScope.AnimatedVisibility` instead of the top-level function when `AnimatedVisibility` is called anywhere inside that lambda.
-2. **Solution**: Extract the `AnimatedVisibility` code to a separate composable function (`ProjectIconWithSelection`) that is NOT inside the `RowScope` context. This allows the top-level `AnimatedVisibility` to be called correctly.
-3. **Modularity**: Extracted `DeleteProjectDialog` and `EditProjectDialog` to `ProjectDialogs.kt` to keep HomeScreen.kt under 1000 lines (951 lines final).
+## Key Decisions
+1. Provider errors: Gemini uses different API format than OpenAI-compatible providers
+2. Tool call parsing: Need robust regex-based content block separation
+3. Git lock fix: Clean up .lock files before operations, use proper try-finally
 
 ## State
-- Done:
-  - Identified root cause of `RowScope.AnimatedVisibility` ambiguity
-  - Extracted problematic `AnimatedVisibility` calls to new `ProjectIconWithSelection` composable
-  - Extracted `DeleteProjectDialog` and `EditProjectDialog` to `ProjectDialogs.kt` for modularity
-  - HomeScreen.kt reduced from 1044 to 951 lines
 
-- Now:
-  - Fix complete (Java not available in environment to verify build)
+### Done:
+- Previous fix: HomeScreen.kt AnimatedVisibility RowScope issue resolved
+- Codebase exploration and architecture understanding
 
-- Next:
-  - CI/CD will verify the build succeeds
+### Now:
+- Starting with Gemini and OpenRouter provider fixes
 
-## Open questions (UNCONFIRMED if needed)
-- None - fix is structurally correct based on the error analysis
+### Next:
+- Chat tab tool call display fix
+- Project deletion cleanup
+- Continue with remaining items
 
-## Working set (files/ids/commands)
-- Modified: `/app/src/main/java/com/codex/stormy/ui/screens/home/HomeScreen.kt` (951 lines)
-- Created: `/app/src/main/java/com/codex/stormy/ui/screens/home/ProjectDialogs.kt` (110 lines)
+## Open Questions
+- UNCONFIRMED: Exact error messages from Gemini/OpenRouter
+- UNCONFIRMED: Current tool call parsing logic details
+
+## Working Set
+- `/app/src/main/java/com/codex/stormy/data/ai/GeminiProvider.kt`
+- `/app/src/main/java/com/codex/stormy/data/ai/OpenRouterProvider.kt`
+- `/app/src/main/java/com/codex/stormy/data/ai/AiProviderManager.kt`
+- `/app/src/main/java/com/codex/stormy/ui/screens/home/HomeScreen.kt`
+- `/app/src/main/java/com/codex/stormy/ui/components/message/AiMessageContent.kt`
+- `/app/src/main/java/com/codex/stormy/data/git/GitRepository.kt`
