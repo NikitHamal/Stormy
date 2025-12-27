@@ -129,7 +129,6 @@ fun AssetManagerDrawer(
     var showImageDetail by remember { mutableStateOf<AssetFile?>(null) }
     var showIconLibrary by remember { mutableStateOf(false) }
     var showColorPicker by remember { mutableStateOf(false) }
-    var showFontManager by remember { mutableStateOf(false) }
     var expandedSections by remember { mutableStateOf(setOf(AssetType.IMAGE, AssetType.FONT, AssetType.OTHER)) }
 
     // Load assets
@@ -277,16 +276,6 @@ fun AssetManagerDrawer(
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Outlined.ColorLens, contentDescription = null)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Font Manager") },
-                                onClick = {
-                                    showAddMenu = false
-                                    showFontManager = true
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Outlined.FontDownload, contentDescription = null)
                                 }
                             )
                         }
@@ -537,18 +526,6 @@ fun AssetManagerDrawer(
         ColorPickerDialog(
             onDismiss = { showColorPicker = false },
             onColorSelected = { color, code ->
-                // Copy to clipboard
-                clipboardManager.setText(AnnotatedString(code))
-                onCopyPath(code) // Reuse the copy callback for toast
-            }
-        )
-    }
-
-    // Font Manager dialog
-    if (showFontManager) {
-        FontManagerDialog(
-            onDismiss = { showFontManager = false },
-            onFontSelected = { font, code ->
                 // Copy to clipboard
                 clipboardManager.setText(AnnotatedString(code))
                 onCopyPath(code) // Reuse the copy callback for toast

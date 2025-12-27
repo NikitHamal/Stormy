@@ -1,6 +1,9 @@
 package com.codex.stormy
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.decode.SvgDecoder
 import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
@@ -22,7 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class CodeXApplication : Application() {
+class CodeXApplication : Application(), ImageLoaderFactory {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -101,6 +104,15 @@ class CodeXApplication : Application() {
         applicationScope.launch {
             aiModelRepository.initializeModelsIfEmpty()
         }
+    }
+
+    // ImageLoaderFactory implementation for SVG support
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .components {
+                add(SvgDecoder.Factory())
+            }
+            .build()
     }
 
     companion object {

@@ -96,7 +96,8 @@ fun GitDrawer(
             onOpenWorkflowUrl = { url ->
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 context.startActivity(intent)
-            }
+            },
+            onResetToCommit = { commitId, hard -> viewModel.resetToCommit(commitId, hard) }
         )
     }
 }

@@ -393,6 +393,30 @@ class GitViewModel(
     }
 
     /**
+     * Reset to a specific commit
+     * @param commitId The commit hash to reset to
+     * @param hard If true, performs a hard reset (discards all changes). If false, performs a soft reset (keeps changes staged).
+     */
+    fun resetToCommit(commitId: String, hard: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+
+            when (val result = gitManager.resetToCommit(commitId, hard)) {
+                is GitOperationResult.Success -> {
+                    _uiState.update { it.copy(isLoading = false) }
+                    val resetType = if (hard) "Hard" else "Soft"
+                    _events.emit(GitUiEvent.ShowMessage("$resetType reset to ${commitId.take(7)}"))
+                }
+                is GitOperationResult.Error -> {
+                    _uiState.update { it.copy(isLoading = false, error = result.message) }
+                    _events.emit(GitUiEvent.ShowError(result.message))
+                }
+                is GitOperationResult.InProgress -> {}
+            }
+        }
+    }
+
+    /**
      * Get file diff
      */
     fun getFileDiff(path: String, staged: Boolean = false) {
