@@ -5,7 +5,9 @@ import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.api.errors.GitAPIException
+import org.eclipse.jgit.api.errors.JGitInternalException
 import org.eclipse.jgit.diff.DiffEntry
+import org.eclipse.jgit.errors.LockFailedException
 import org.eclipse.jgit.diff.DiffFormatter
 import org.eclipse.jgit.lib.BranchTrackingStatus
 import org.eclipse.jgit.lib.ObjectId
@@ -195,25 +197,76 @@ class GitRepository(
 
     /**
      * Stage files for commit
+     * Handles both added/modified files and deleted files properly
      */
     suspend fun stage(paths: List<String>): GitOperationResult<Unit> = withContext(Dispatchers.IO) {
         try {
-            val addCommand = git?.add() ?: return@withContext GitOperationResult.Error("Repository not opened")
-            paths.forEach { addCommand.addFilepattern(it) }
-            addCommand.call()
+            val gitInstance = git ?: return@withContext GitOperationResult.Error("Repository not opened")
+
+            // Get current status to identify deleted files
+            val status = gitInstance.status().call()
+            val missingFiles = status.missing
+
+            // Separate paths into existing files and deleted files
+            val existingFiles = paths.filter { it !in missingFiles }
+            val deletedFiles = paths.filter { it in missingFiles }
+
+            // Stage existing files (added/modified) using add command
+            if (existingFiles.isNotEmpty()) {
+                val addCommand = gitInstance.add()
+                existingFiles.forEach { addCommand.addFilepattern(it) }
+                addCommand.call()
+            }
+
+            // Stage deleted files using rm command (removes from index)
+            if (deletedFiles.isNotEmpty()) {
+                val rmCommand = gitInstance.rm().setCached(true)
+                deletedFiles.forEach { rmCommand.addFilepattern(it) }
+                rmCommand.call()
+            }
+
             GitOperationResult.Success(Unit, "Files staged")
+        } catch (e: JGitInternalException) {
+            // Handle lock file errors
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                GitOperationResult.Error("Repository is locked. Please try again.", e)
+            } else {
+                GitOperationResult.Error("Failed to stage files: ${e.message}", e)
+            }
         } catch (e: GitAPIException) {
             GitOperationResult.Error("Failed to stage files: ${e.message}", e)
         }
     }
 
     /**
-     * Stage all files
+     * Stage all files including deletions
      */
     suspend fun stageAll(): GitOperationResult<Unit> = withContext(Dispatchers.IO) {
         try {
-            git?.add()?.addFilepattern(".")?.call()
+            val gitInstance = git ?: return@withContext GitOperationResult.Error("Repository not opened")
+
+            // Stage all new and modified files
+            gitInstance.add()
+                .addFilepattern(".")
+                .call()
+
+            // Stage all deleted files by using add with setUpdate(true)
+            // This updates the index for tracked files (including deletions)
+            gitInstance.add()
+                .addFilepattern(".")
+                .setUpdate(true)
+                .call()
+
             GitOperationResult.Success(Unit, "All files staged")
+        } catch (e: JGitInternalException) {
+            // Handle lock file errors
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                GitOperationResult.Error("Repository is locked. Please try again.", e)
+            } else {
+                GitOperationResult.Error("Failed to stage all files: ${e.message}", e)
+            }
         } catch (e: GitAPIException) {
             GitOperationResult.Error("Failed to stage all files: ${e.message}", e)
         }
@@ -358,16 +411,27 @@ class GitRepository(
     }
 
     /**
-     * Get commit history
+     * Get commit history for the current branch
      */
     suspend fun getCommitHistory(maxCount: Int = 50): GitOperationResult<List<GitCommit>> = withContext(Dispatchers.IO) {
         try {
-            val logCommand = git?.log()?.setMaxCount(maxCount)
-                ?: return@withContext GitOperationResult.Error("Repository not opened")
+            val repo = repository ?: return@withContext GitOperationResult.Error("Repository not opened")
+            val gitInstance = git ?: return@withContext GitOperationResult.Error("Repository not opened")
+
+            // Get the HEAD reference for the current branch
+            val head = repo.resolve("HEAD")
+                ?: return@withContext GitOperationResult.Success(emptyList())
+
+            // Use log command starting from HEAD to get commits for current branch only
+            val logCommand = gitInstance.log()
+                .add(head)
+                .setMaxCount(maxCount)
 
             val commits = logCommand.call().map { it.toGitCommit() }
             GitOperationResult.Success(commits)
         } catch (e: GitAPIException) {
+            GitOperationResult.Error("Failed to get commit history: ${e.message}", e)
+        } catch (e: Exception) {
             GitOperationResult.Error("Failed to get commit history: ${e.message}", e)
         }
     }
@@ -378,56 +442,70 @@ class GitRepository(
     suspend fun getBranches(): GitOperationResult<List<GitBranch>> = withContext(Dispatchers.IO) {
         try {
             val repo = repository ?: return@withContext GitOperationResult.Error("Repository not opened")
+            val gitInstance = git ?: return@withContext GitOperationResult.Error("Git not initialized")
             val currentBranch = repo.branch
 
             val branches = mutableListOf<GitBranch>()
 
-            // Local branches
-            git?.branchList()?.call()?.forEach { ref ->
-                val branchName = ref.name.removePrefix("refs/heads/")
-                val isCurrent = branchName == currentBranch
+            // Get all branches using ListMode.ALL to ensure we get everything
+            val allRefs = gitInstance.branchList()
+                .setListMode(org.eclipse.jgit.api.ListBranchCommand.ListMode.ALL)
+                .call()
 
-                var aheadCount = 0
-                var behindCount = 0
-                var trackingBranch: String? = null
+            allRefs.forEach { ref ->
+                val refName = ref.name
 
-                try {
-                    val trackingStatus = BranchTrackingStatus.of(repo, branchName)
-                    if (trackingStatus != null) {
-                        aheadCount = trackingStatus.aheadCount
-                        behindCount = trackingStatus.behindCount
-                        trackingBranch = trackingStatus.remoteTrackingBranch?.removePrefix("refs/remotes/")
+                when {
+                    // Local branches (refs/heads/*)
+                    refName.startsWith("refs/heads/") -> {
+                        val branchName = refName.removePrefix("refs/heads/")
+                        val isCurrent = branchName == currentBranch
+
+                        var aheadCount = 0
+                        var behindCount = 0
+                        var trackingBranch: String? = null
+
+                        try {
+                            val trackingStatus = BranchTrackingStatus.of(repo, branchName)
+                            if (trackingStatus != null) {
+                                aheadCount = trackingStatus.aheadCount
+                                behindCount = trackingStatus.behindCount
+                                trackingBranch = trackingStatus.remoteTrackingBranch?.removePrefix("refs/remotes/")
+                            }
+                        } catch (e: Exception) {
+                            // Ignore tracking status errors
+                        }
+
+                        branches.add(
+                            GitBranch(
+                                name = branchName,
+                                isLocal = true,
+                                isRemote = false,
+                                isCurrent = isCurrent,
+                                trackingBranch = trackingBranch,
+                                lastCommitId = ref.objectId?.name,
+                                aheadCount = aheadCount,
+                                behindCount = behindCount
+                            )
+                        )
                     }
-                } catch (e: Exception) {
-                    // Ignore tracking status errors
+                    // Remote branches (refs/remotes/*)
+                    refName.startsWith("refs/remotes/") -> {
+                        val branchName = refName.removePrefix("refs/remotes/")
+                        // Skip HEAD references like origin/HEAD
+                        if (!branchName.endsWith("/HEAD")) {
+                            branches.add(
+                                GitBranch(
+                                    name = branchName,
+                                    isLocal = false,
+                                    isRemote = true,
+                                    isCurrent = false,
+                                    lastCommitId = ref.objectId?.name
+                                )
+                            )
+                        }
+                    }
                 }
-
-                branches.add(
-                    GitBranch(
-                        name = branchName,
-                        isLocal = true,
-                        isRemote = false,
-                        isCurrent = isCurrent,
-                        trackingBranch = trackingBranch,
-                        lastCommitId = ref.objectId?.name,
-                        aheadCount = aheadCount,
-                        behindCount = behindCount
-                    )
-                )
-            }
-
-            // Remote branches
-            git?.branchList()?.setListMode(org.eclipse.jgit.api.ListBranchCommand.ListMode.REMOTE)?.call()?.forEach { ref ->
-                val branchName = ref.name.removePrefix("refs/remotes/")
-                branches.add(
-                    GitBranch(
-                        name = branchName,
-                        isLocal = false,
-                        isRemote = true,
-                        isCurrent = false,
-                        lastCommitId = ref.objectId?.name
-                    )
-                )
             }
 
             GitOperationResult.Success(branches)
@@ -708,6 +786,29 @@ class GitRepository(
     }
 
     // Helper functions
+
+    /**
+     * Handle lock file errors by cleaning up stale lock files
+     * This can happen when a previous git operation was interrupted
+     */
+    private fun handleLockFileError() {
+        try {
+            val gitDir = File(workingDirectory, ".git")
+            val lockFiles = listOf(
+                File(gitDir, "index.lock"),
+                File(gitDir, "HEAD.lock"),
+                File(gitDir, "config.lock")
+            )
+
+            lockFiles.forEach { lockFile ->
+                if (lockFile.exists()) {
+                    lockFile.delete()
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore cleanup errors - the main error will be reported
+        }
+    }
 
     private fun createCredentialsProvider(credentials: GitCredentials): CredentialsProvider {
         return UsernamePasswordCredentialsProvider(

@@ -206,12 +206,13 @@ fun EditorScreen(
                     }
                 }
             },
-            gesturesEnabled = false,
+            gesturesEnabled = gitDrawerState.isOpen,
             scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)
         ) {
-            // Asset Manager drawer (inner drawer - no gestures to avoid conflicts)
+            // Asset Manager drawer (inner drawer)
             ModalNavigationDrawer(
                 drawerState = assetDrawerState,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f),
                 drawerContent = {
                     // Only render when drawer is being shown
                     if (assetDrawerState.isOpen || assetDrawerState.isAnimationRunning) {
@@ -246,7 +247,7 @@ fun EditorScreen(
                         }
                     }
                 },
-                gesturesEnabled = false
+                gesturesEnabled = assetDrawerState.isOpen
             ) {
                 Scaffold(
                     topBar = {

@@ -345,8 +345,9 @@ class ProjectRepository(
     private fun buildFileTree(directory: File, basePath: String, depth: Int): List<FileTreeNode> {
         val files = directory.listFiles() ?: return emptyList()
 
+        // Show all files including hidden ones (starting with .)
+        // Sort: folders first, then alphabetically
         return files
-            .filter { !it.name.startsWith(".") }
             .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
             .map { file ->
                 if (file.isDirectory) {

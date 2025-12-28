@@ -199,6 +199,7 @@ fun GitPanel(
     onRerunWorkflow: (Long) -> Unit = {},
     onCancelWorkflow: (Long) -> Unit = {},
     onOpenWorkflowUrl: (String) -> Unit = {},
+    onResetToCommit: (commitId: String, hard: Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var commitMessage by remember { mutableStateOf("") }
@@ -313,7 +314,10 @@ fun GitPanel(
                 // Recent commits
                 if (uiState.commits.isNotEmpty()) {
                     item {
-                        CommitsSection(commits = uiState.commits.take(5))
+                        CommitsSection(
+                            commits = uiState.commits.take(5),
+                            onResetToCommit = onResetToCommit
+                        )
                     }
                 }
 
@@ -1187,7 +1191,10 @@ private fun BranchItem(
 }
 
 @Composable
-private fun CommitsSection(commits: List<GitCommit>) {
+private fun CommitsSection(
+    commits: List<GitCommit>,
+    onResetToCommit: (commitId: String, hard: Boolean) -> Unit = { _, _ -> }
+) {
     var expanded by remember { mutableStateOf(false) }
     val rotationState by animateFloatAsState(
         targetValue = if (expanded) 0f else -90f,
@@ -1246,57 +1253,194 @@ private fun CommitsSection(commits: List<GitCommit>) {
         ) {
             Column {
                 commits.forEach { commit ->
-                    CommitItem(commit = commit)
+                    CommitItem(
+                        commit = commit,
+                        onSoftReset = { onResetToCommit(commit.id, false) },
+                        onHardReset = { onResetToCommit(commit.id, true) }
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CommitItem(commit: GitCommit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        // Commit hash
-        Text(
-            text = commit.shortId,
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(60.dp)
-        )
+private fun CommitItem(
+    commit: GitCommit,
+    onSoftReset: () -> Unit = {},
+    onHardReset: () -> Unit = {}
+) {
+    var showContextMenu by remember { mutableStateOf(false) }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { /* Normal click - could show commit details in future */ },
+                    onLongClick = { showContextMenu = true }
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // Commit hash
             Text(
-                text = commit.message,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = PoppinsFontFamily,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                text = commit.shortId,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.width(60.dp)
             )
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = commit.authorName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = commit.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = PoppinsFontFamily,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = formatTimestamp(commit.timestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = commit.authorName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = formatTimestamp(commit.timestamp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
             }
+        }
+
+        // Context menu dialog for reset options
+        if (showContextMenu) {
+            AlertDialog(
+                onDismissRequest = { showContextMenu = false },
+                title = {
+                    Column {
+                        Text(
+                            text = "Reset to Commit",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontFamily = PoppinsFontFamily,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = commit.shortId,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = commit.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Soft Reset option
+                        Surface(
+                            onClick = {
+                                showContextMenu = false
+                                onSoftReset()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.History,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Soft Reset",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = PoppinsFontFamily,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "Keep changes in staging area",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Hard Reset option
+                        Surface(
+                            onClick = {
+                                showContextMenu = false
+                                onHardReset()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Hard Reset",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = PoppinsFontFamily,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        text = "Discard all changes (cannot be undone)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showContextMenu = false }) {
+                        Text("Cancel", fontFamily = PoppinsFontFamily)
+                    }
+                }
+            )
         }
     }
 }

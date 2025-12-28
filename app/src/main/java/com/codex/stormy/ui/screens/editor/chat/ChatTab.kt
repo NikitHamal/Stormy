@@ -588,7 +588,8 @@ private fun ChatInput(
         }
 
         Row(
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
                 value = textFieldValue,
@@ -630,38 +631,52 @@ private fun ChatInput(
                 )
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Show stop button when processing, send button otherwise
-            if (isProcessing && onStop != null) {
-                IconButton(
-                    onClick = onStop,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    ),
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Stop,
-                        contentDescription = context.getString(R.string.action_stop)
-                    )
-                }
-            } else {
-                AnimatedVisibility(
-                    visible = textFieldValue.text.isNotBlank(),
-                    enter = fadeIn() + scaleIn(),
-                    exit = fadeOut() + scaleOut()
-                ) {
+            // Always reserve space for the button to prevent layout shift
+            // Button container with fixed size - prevents text field expansion/contraction
+            Box(
+                modifier = Modifier.size(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // Show stop button when processing, send button otherwise
+                if (isProcessing && onStop != null) {
+                    IconButton(
+                        onClick = onStop,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        ),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Stop,
+                            contentDescription = context.getString(R.string.action_stop)
+                        )
+                    }
+                } else {
+                    // Always show the send button, but control visibility with alpha
+                    // This prevents the text field from expanding when button is hidden
+                    val hasText = textFieldValue.text.isNotBlank()
                     IconButton(
                         onClick = {
-                            onSend()
-                            focusManager.clearFocus()
+                            if (hasText) {
+                                onSend()
+                                focusManager.clearFocus()
+                            }
                         },
-                        enabled = isEnabled && textFieldValue.text.isNotBlank(),
+                        enabled = isEnabled && hasText,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = if (hasText) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            contentColor = if (hasText) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            },
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         ),
                         modifier = Modifier.size(48.dp)
                     ) {
