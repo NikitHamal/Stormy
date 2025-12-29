@@ -207,7 +207,9 @@ class AiRepository(
         fileTree: String,
         currentFile: String? = null,
         currentFileContent: String? = null,
-        memories: String = ""
+        memories: String = "",
+        semanticMemories: String = "",
+        userPreferences: String = ""
     ): String {
         return buildString {
             appendLine("**Project:** $projectName")
@@ -226,6 +228,17 @@ class AiRepository(
                 appendLine("```")
             }
 
+            // Include semantic memories (learned project knowledge)
+            if (semanticMemories.isNotBlank()) {
+                appendLine(semanticMemories)
+            }
+
+            // Include user preferences
+            if (userPreferences.isNotBlank()) {
+                appendLine(userPreferences)
+            }
+
+            // Include basic memories for backwards compatibility
             if (memories.isNotBlank()) {
                 appendLine("\n$memories")
             }

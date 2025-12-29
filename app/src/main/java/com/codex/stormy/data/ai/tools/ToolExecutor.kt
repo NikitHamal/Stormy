@@ -1,9 +1,16 @@
 package com.codex.stormy.data.ai.tools
 
 import com.codex.stormy.data.ai.ToolCallResponse
+import com.codex.stormy.data.ai.memory.MemoryCategory
+import com.codex.stormy.data.ai.memory.MemoryImportance
+import com.codex.stormy.data.ai.memory.MemorySource
+import com.codex.stormy.data.ai.memory.SemanticMemorySystem
 import com.codex.stormy.data.git.GitManager
 import com.codex.stormy.data.git.GitOperationResult
 import com.codex.stormy.data.repository.ProjectRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -60,7 +67,8 @@ enum class FileChangeType {
 class ToolExecutor(
     private val projectRepository: ProjectRepository,
     private val memoryStorage: MemoryStorage,
-    private val gitManager: GitManager? = null
+    private val gitManager: GitManager? = null,
+    private val semanticMemorySystem: SemanticMemorySystem? = null
 ) {
     // JSON parser with lenient settings for more robust parsing
     private val json = Json {
@@ -68,6 +76,9 @@ class ToolExecutor(
         isLenient = true
         coerceInputValues = true
     }
+
+    // Coroutine scope for background learning operations
+    private val learningScope = CoroutineScope(Dispatchers.IO)
 
     // Current project path for Git operations
     private var currentProjectPath: File? = null
@@ -267,6 +278,8 @@ class ToolExecutor(
                 .fold(
                     onSuccess = {
                         interactionCallback?.onFileChanged(path, FileChangeType.CREATED, null, content)
+                        // Auto-learn from generated code in background
+                        triggerAutoLearning(projectId, path, content)
                         ToolResult(true, "File created successfully: $path")
                     },
                     onFailure = {
@@ -275,6 +288,7 @@ class ToolExecutor(
                             .fold(
                                 onSuccess = {
                                     interactionCallback?.onFileChanged(path, FileChangeType.MODIFIED, oldContent, content)
+                                    triggerAutoLearning(projectId, path, content)
                                     ToolResult(true, "File written successfully: $path")
                                 },
                                 onFailure = { ToolResult(false, "", "Failed to write file: ${it.message}") }
@@ -286,10 +300,27 @@ class ToolExecutor(
                 .fold(
                     onSuccess = {
                         interactionCallback?.onFileChanged(path, FileChangeType.MODIFIED, oldContent, content)
+                        // Auto-learn from generated code in background
+                        triggerAutoLearning(projectId, path, content)
                         ToolResult(true, "File updated successfully: $path")
                     },
                     onFailure = { ToolResult(false, "", "Failed to write file: ${it.message}") }
                 )
+        }
+    }
+
+    /**
+     * Trigger auto-learning from generated code in background
+     */
+    private fun triggerAutoLearning(projectId: String, path: String, content: String) {
+        semanticMemorySystem?.let { memorySystem ->
+            learningScope.launch {
+                try {
+                    memorySystem.learnFromGeneratedCode(projectId, path, content)
+                } catch (e: Exception) {
+                    android.util.Log.e("ToolExecutor", "Auto-learning failed", e)
+                }
+            }
         }
     }
 
@@ -410,20 +441,81 @@ class ToolExecutor(
             ?: return ToolResult(false, "", "Missing required argument: key")
         val value = args.getStringArg("value")
             ?: return ToolResult(false, "", "Missing required argument: value")
+        val categoryStr = args.getStringArg("category")
+        val importanceStr = args.getStringArg("importance")
+        val tagsStr = args.getStringArg("tags")
+        val relatedFilesStr = args.getStringArg("related_files")
 
         return try {
-            memoryStorage.save(projectId, key, value)
-            ToolResult(true, "Memory saved: $key")
+            // Use semantic memory system if available
+            if (semanticMemorySystem != null) {
+                val category = parseMemoryCategory(categoryStr)
+                val importance = parseMemoryImportance(importanceStr)
+                val tags = tagsStr?.split(",")?.map { it.trim() } ?: emptyList()
+                val relatedFiles = relatedFilesStr?.split(",")?.map { it.trim() } ?: emptyList()
+
+                semanticMemorySystem.saveMemory(
+                    projectId = projectId,
+                    category = category,
+                    key = key,
+                    value = value,
+                    importance = importance,
+                    source = MemorySource.AGENT,
+                    tags = tags,
+                    relatedFiles = relatedFiles
+                )
+                ToolResult(true, "Memory saved: $key (category: ${category.displayName})")
+            } else {
+                // Fallback to basic memory storage
+                memoryStorage.save(projectId, key, value)
+                ToolResult(true, "Memory saved: $key")
+            }
         } catch (e: Exception) {
             ToolResult(false, "", "Failed to save memory: ${e.message}")
+        }
+    }
+
+    private fun parseMemoryCategory(categoryStr: String?): MemoryCategory {
+        if (categoryStr == null) return MemoryCategory.GENERAL_NOTES
+        return when (categoryStr.uppercase().replace(" ", "_")) {
+            "PROJECT_STRUCTURE", "STRUCTURE" -> MemoryCategory.PROJECT_STRUCTURE
+            "CODING_PATTERNS", "PATTERNS", "CODE" -> MemoryCategory.CODING_PATTERNS
+            "FRAMEWORK_CONFIG", "FRAMEWORK", "CONFIG" -> MemoryCategory.FRAMEWORK_CONFIG
+            "USER_PREFERENCES", "PREFERENCES", "USER" -> MemoryCategory.USER_PREFERENCES
+            "COMPONENT_KNOWLEDGE", "COMPONENTS", "COMPONENT" -> MemoryCategory.COMPONENT_KNOWLEDGE
+            "STYLING_PATTERNS", "STYLING", "STYLES" -> MemoryCategory.STYLING_PATTERNS
+            "ERROR_SOLUTIONS", "ERRORS", "SOLUTIONS" -> MemoryCategory.ERROR_SOLUTIONS
+            "TASK_HISTORY", "TASKS", "HISTORY" -> MemoryCategory.TASK_HISTORY
+            else -> MemoryCategory.GENERAL_NOTES
+        }
+    }
+
+    private fun parseMemoryImportance(importanceStr: String?): MemoryImportance {
+        if (importanceStr == null) return MemoryImportance.MEDIUM
+        return when (importanceStr.uppercase()) {
+            "CRITICAL", "HIGHEST" -> MemoryImportance.CRITICAL
+            "HIGH", "IMPORTANT" -> MemoryImportance.HIGH
+            "LOW", "MINOR" -> MemoryImportance.LOW
+            else -> MemoryImportance.MEDIUM
         }
     }
 
     private suspend fun executeRecallMemory(projectId: String, args: JsonObject): ToolResult {
         val key = args.getStringArg("key")
             ?: return ToolResult(false, "", "Missing required argument: key")
+        val categoryStr = args.getStringArg("category")
 
         return try {
+            // Try semantic memory first
+            if (semanticMemorySystem != null && categoryStr != null) {
+                val category = parseMemoryCategory(categoryStr)
+                val memory = semanticMemorySystem.recallMemory(projectId, category, key)
+                if (memory != null) {
+                    return ToolResult(true, "${memory.value} (confidence: ${(memory.confidence * 100).toInt()}%)")
+                }
+            }
+
+            // Fallback to basic memory storage
             val value = memoryStorage.recall(projectId, key)
             if (value != null) {
                 ToolResult(true, value)
@@ -437,14 +529,39 @@ class ToolExecutor(
 
     private suspend fun executeListMemories(projectId: String): ToolResult {
         return try {
-            val memories = memoryStorage.list(projectId)
-            if (memories.isEmpty()) {
-                ToolResult(true, "No memories saved for this project")
-            } else {
-                val output = memories.entries.joinToString("\n") { (key, value) ->
-                    "• $key: $value"
+            // Use semantic memory system if available for richer output
+            if (semanticMemorySystem != null) {
+                val memories = semanticMemorySystem.getAllMemories(projectId)
+                if (memories.isEmpty()) {
+                    return ToolResult(true, "No memories saved for this project")
+                }
+
+                val output = buildString {
+                    val grouped = memories.groupBy { it.category }
+                    for ((category, categoryMemories) in grouped.entries.sortedByDescending { it.key.priority }) {
+                        appendLine("\n${category.displayName}:")
+                        for (memory in categoryMemories.take(10)) {
+                            val confidenceIcon = when {
+                                memory.confidence >= 0.8f -> "★"
+                                memory.confidence >= 0.5f -> "☆"
+                                else -> "○"
+                            }
+                            appendLine("  $confidenceIcon ${memory.key}: ${memory.value.take(100)}${if (memory.value.length > 100) "..." else ""}")
+                        }
+                    }
                 }
                 ToolResult(true, output)
+            } else {
+                // Fallback to basic memory storage
+                val memories = memoryStorage.list(projectId)
+                if (memories.isEmpty()) {
+                    ToolResult(true, "No memories saved for this project")
+                } else {
+                    val output = memories.entries.joinToString("\n") { (key, value) ->
+                        "• $key: $value"
+                    }
+                    ToolResult(true, output)
+                }
             }
         } catch (e: Exception) {
             ToolResult(false, "", "Failed to list memories: ${e.message}")
@@ -454,8 +571,19 @@ class ToolExecutor(
     private suspend fun executeDeleteMemory(projectId: String, args: JsonObject): ToolResult {
         val key = args.getStringArg("key")
             ?: return ToolResult(false, "", "Missing required argument: key")
+        val categoryStr = args.getStringArg("category")
 
         return try {
+            // Try semantic memory deletion first
+            if (semanticMemorySystem != null && categoryStr != null) {
+                val category = parseMemoryCategory(categoryStr)
+                val deleted = semanticMemorySystem.deleteMemory(projectId, category, key)
+                if (deleted) {
+                    return ToolResult(true, "Memory deleted: $key (from ${category.displayName})")
+                }
+            }
+
+            // Fallback to basic memory storage
             val deleted = memoryStorage.delete(projectId, key)
             if (deleted) {
                 ToolResult(true, "Memory deleted: $key")
@@ -472,15 +600,33 @@ class ToolExecutor(
             ?: return ToolResult(false, "", "Missing required argument: key")
         val value = args.getStringArg("value")
             ?: return ToolResult(false, "", "Missing required argument: value")
+        val categoryStr = args.getStringArg("category")
+        val importanceStr = args.getStringArg("importance")
 
         return try {
-            // Check if memory exists first
-            val existing = memoryStorage.recall(projectId, key)
-            memoryStorage.save(projectId, key, value)
-            if (existing != null) {
-                ToolResult(true, "Memory updated: $key")
+            // Use semantic memory system if available
+            if (semanticMemorySystem != null) {
+                val category = parseMemoryCategory(categoryStr)
+                val importance = parseMemoryImportance(importanceStr)
+
+                semanticMemorySystem.saveMemory(
+                    projectId = projectId,
+                    category = category,
+                    key = key,
+                    value = value,
+                    importance = importance,
+                    source = MemorySource.AGENT
+                )
+                ToolResult(true, "Memory updated: $key (category: ${category.displayName})")
             } else {
-                ToolResult(true, "Memory created: $key")
+                // Fallback to basic memory storage
+                val existing = memoryStorage.recall(projectId, key)
+                memoryStorage.save(projectId, key, value)
+                if (existing != null) {
+                    ToolResult(true, "Memory updated: $key")
+                } else {
+                    ToolResult(true, "Memory created: $key")
+                }
             }
         } catch (e: Exception) {
             ToolResult(false, "", "Failed to update memory: ${e.message}")
