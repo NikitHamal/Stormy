@@ -1,59 +1,52 @@
 # Continuity Ledger
 
 ## Goal (incl. success criteria)
-Major CodeX Stormy app enhancement with:
-1. Fix Git index lock crash (LockFailedException)
-2. Fix Git push not working properly
-3. Change project storage to external: storage/emulated/0/CodeX/Projects/
-4. Fix image viewer in code editor (shows 0x0)
-5. Complete UI/UX overhaul - modern black/white/grey professional theme
-6. Remove API section from Settings
-7. Make Stormy agent memory system functional
-8. Make preview console text selectable
-9. Implement framework preview support (React, Vue, Next.js, etc.)
-10. Add advanced AI tools and enhance agent capabilities
+Major CodeX Stormy app enhancement:
+1. **Fix build error** - GitRepository.kt:501 `isNotEmpty()` compilation error
+2. **Enhance Stormy agent memory system** - Make it fully functional, auto-learn, context-aware
+3. **Make console text selectable** in preview screen
+4. **Framework preview support** - React, Vue, Next.js, Svelte with embedded dev server
+5. **Optimize performance** - Templates, memory system, preview
 
-**Success criteria**: All features working, production-grade quality, no TODOs left
+**Success criteria**: All features working, build passes, production-grade quality
 
 ## Constraints/Assumptions
 - Files max 500-1000 lines (modularization)
 - Production-grade code only
 - No TODOs, placeholders, or incomplete implementations
-- Android app using Kotlin/Compose
-- External storage requires proper permissions on Android
+- Kotlin/Jetpack Compose Android app
+- DeepInfra AI provider (free, no API key)
+- Framework preview via embedded lightweight dev server
 
 ## Key decisions
-- Using modern design system with black/white/grey palette
-- Storage path: storage/emulated/0/CodeX/Projects/(project name)
-- Memory system will use improved context integration
-- Framework preview will use embedded dev server approach
+- Build error: `results` is `Iterable<PushResult>`, need to convert to list first for `isNotEmpty()`
+- Memory system: Enhance with auto-learning, semantic categorization, context injection
+- Console selection: Already uses `SelectionContainer` but needs verification
+- Framework preview: Use embedded esbuild-lite/parcel-like build system for React/Vue/Svelte
 
 ## State
 
 ### Done
-- (none yet)
+- Codebase exploration and analysis complete
 
 ### Now
-- Starting with Git crash fix (index.lock handling)
+- Fix GitRepository.kt build error at line 501
 
 ### Next
-- Git push fix
-- Storage location change
-- Image viewer fix
-- UI theme overhaul
-- Settings cleanup
-- Memory system enhancement
-- Console text selection
-- Framework preview
-- Agent tools enhancement
+1. Enhance memory storage system with semantic memory
+2. Add auto-learning capabilities to Stormy agent
+3. Implement memory context injection in AI conversations
+4. Verify console text selection works
+5. Create embedded dev server for framework preview
+6. Update templates with preview entry points
+7. Performance optimizations
 
 ## Open questions (UNCONFIRMED if needed)
 - None currently
 
 ## Working set (files/ids/commands)
-- `app/src/main/java/com/codex/stormy/data/git/GitRepository.kt`
-- `app/src/main/java/com/codex/stormy/data/git/GitManager.kt`
-- `app/src/main/java/com/codex/stormy/data/repository/ProjectRepository.kt`
-- `app/src/main/java/com/codex/stormy/ui/theme/Color.kt`
-- `app/src/main/java/com/codex/stormy/ui/theme/Theme.kt`
-- `app/src/main/java/com/codex/stormy/data/ai/tools/MemoryStorage.kt`
+- `app/src/main/java/com/codex/stormy/data/git/GitRepository.kt` - Build error fix
+- `app/src/main/java/com/codex/stormy/data/ai/tools/MemoryStorage.kt` - Memory enhancement
+- `app/src/main/java/com/codex/stormy/data/ai/tools/ToolExecutor.kt` - Tool integration
+- `app/src/main/java/com/codex/stormy/data/repository/AiRepository.kt` - Memory context injection
+- `app/src/main/java/com/codex/stormy/ui/screens/preview/PreviewActivity.kt` - Framework preview

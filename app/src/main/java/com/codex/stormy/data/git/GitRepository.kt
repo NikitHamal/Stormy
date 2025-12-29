@@ -453,7 +453,7 @@ class GitRepository(
 
             pushCommand.setProgressMonitor(JGitProgressMonitor(progressCallback))
 
-            val results = pushCommand.call()
+            val results = pushCommand.call().toList()
 
             // Validate push results - check if any refs were actually updated
             var pushedSuccessfully = false

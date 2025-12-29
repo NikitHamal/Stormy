@@ -8,6 +8,7 @@ import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
+import com.codex.stormy.data.ai.memory.SemanticMemorySystem
 import com.codex.stormy.data.ai.tools.MemoryStorage
 import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.ai.undo.UndoRedoManager
@@ -74,12 +75,16 @@ class CodeXApplication : Application(), ImageLoaderFactory {
         MemoryStorage(this)
     }
 
+    val semanticMemorySystem: SemanticMemorySystem by lazy {
+        SemanticMemorySystem(this)
+    }
+
     val undoRedoManager: UndoRedoManager by lazy {
         UndoRedoManager(projectRepository)
     }
 
     val toolExecutor: ToolExecutor by lazy {
-        ToolExecutor(projectRepository, memoryStorage, gitManager)
+        ToolExecutor(projectRepository, memoryStorage, gitManager, semanticMemorySystem)
     }
 
     // Git integration
