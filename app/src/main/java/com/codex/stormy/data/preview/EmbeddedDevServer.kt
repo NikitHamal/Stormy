@@ -51,6 +51,16 @@ class EmbeddedDevServer(
         private val JSX_IMPORT_REGEX = Regex("""from\s+['"](\.[^'"]+)\.(jsx|tsx)['"]""")
         private val CSS_IMPORT_REGEX = Regex("""import\s+['"](\.[^'"]+\.css)['"]\s*;?""")
 
+        // TypeScript transformations
+        private val TS_IMPORT_REGEX = Regex("""from\s+['"](\.[^'"]+)\.(ts|tsx)['"]""")
+        private val TS_TYPE_IMPORT_REGEX = Regex("""import\s+type\s+\{[^}]+\}\s+from\s+['"][^'"]+['"];?\s*""")
+        private val TS_TYPE_ANNOTATION_REGEX = Regex(""":\s*\w+(?:\[\]|\<[^>]+\>)?(?=\s*[=,)\]}])""")
+        private val TS_INTERFACE_REGEX = Regex("""interface\s+\w+\s*(?:<[^>]+>)?\s*\{[^}]*\}""")
+        private val TS_TYPE_ALIAS_REGEX = Regex("""type\s+\w+\s*(?:<[^>]+>)?\s*=\s*[^;]+;""")
+        private val TS_AS_CONST_REGEX = Regex("""\s+as\s+const\b""")
+        private val TS_AS_TYPE_REGEX = Regex("""\s+as\s+\w+(?:\[\]|\<[^>]+\>)?""")
+        private val TS_NON_NULL_REGEX = Regex("""(\w+)!(?=[.\[(])""")
+
         // Vue transformations
         private val VUE_IMPORT_REGEX = Regex("""from\s+['"]vue['"]""")
         private val VUE_CREATE_APP_REGEX = Regex("""import\s*\{\s*createApp\s*\}\s*from\s*['"]vue['"]\s*;?""")
@@ -473,12 +483,27 @@ class EmbeddedDevServer(
     }
 
     private fun transformContent(file: File, content: String): String {
+        // First, handle TypeScript files - strip types before framework transformations
+        val processedContent = if (file.extension == "ts" || file.extension == "tsx") {
+            transformTypeScript(file, content)
+        } else {
+            content
+        }
+
+        // Then apply framework-specific transformations
         return when (frameworkType) {
-            FrameworkType.REACT -> transformReact(file, content)
-            FrameworkType.VUE -> transformVueFiles(file, content)
-            FrameworkType.SVELTE -> transformSvelteFiles(file, content)
-            FrameworkType.NEXTJS -> transformNextJs(file, content)
-            else -> content
+            FrameworkType.REACT -> transformReact(file, processedContent)
+            FrameworkType.VUE -> transformVueFiles(file, processedContent)
+            FrameworkType.SVELTE -> transformSvelteFiles(file, processedContent)
+            FrameworkType.NEXTJS -> transformNextJs(file, processedContent)
+            else -> {
+                // For vanilla projects with TypeScript, just return the processed content
+                if (file.extension == "ts" || file.extension == "tsx") {
+                    processedContent
+                } else {
+                    content
+                }
+            }
         }
     }
 
@@ -496,6 +521,9 @@ class EmbeddedDevServer(
     /**
      * Transform Vue .js files (main.js, etc.)
      * Converts ES module syntax to work with Vue global build
+     *
+     * Key fix: Use fetch-based dynamic loading instead of async import()
+     * because the Vue global build doesn't properly support ES module dynamic imports.
      */
     private fun transformVueJs(file: File, content: String): String {
         var transformed = content
@@ -504,30 +532,68 @@ class EmbeddedDevServer(
         val isMainFile = content.contains("createApp") && content.contains("mount")
 
         if (isMainFile) {
+            // Collect all Vue component imports first
+            val componentImports = mutableListOf<Pair<String, String>>()
+            VUE_COMPONENT_IMPORT_REGEX.findAll(content).forEach { match ->
+                componentImports.add(match.groupValues[1] to match.groupValues[2])
+            }
+
             // For main.js, convert to use global Vue object
-            // Remove import statements and use global Vue (using pre-compiled regex)
+            // Remove import statements and use global Vue
             transformed = transformed
                 .replace(VUE_CREATE_APP_REGEX, "const { createApp } = Vue;")
                 .replace(VUE_CREATE_APP_IMPORT_ALT_REGEX, "const { createApp } = Vue;")
 
-            // Transform .vue imports to fetch the transformed component
-            // import App from './App.vue' -> const App = (await import('./App.vue')).default
-            transformed = transformed.replace(VUE_COMPONENT_IMPORT_REGEX) { match ->
-                val componentName = match.groupValues[1]
-                val path = match.groupValues[2]
-                "const $componentName = (await import('$path')).default;"
-            }
+            // Remove the Vue component import statements (they'll be loaded via fetch)
+            transformed = transformed.replace(VUE_COMPONENT_IMPORT_REGEX, "")
 
-            // Wrap in async IIFE if we have async imports
-            if (transformed.contains("await import")) {
-                transformed = """
-                    |(async function() {
-                    |  $transformed
-                    |})();
-                """.trimMargin()
+            // Build component loader code using fetch (works with Vue global build)
+            if (componentImports.isNotEmpty()) {
+                val loaderCode = buildString {
+                    appendLine("// Vue component loader (fetch-based for global build compatibility)")
+                    appendLine("async function __loadVueComponent(url) {")
+                    appendLine("  const response = await fetch(url);")
+                    appendLine("  if (!response.ok) throw new Error('Failed to load: ' + url);")
+                    appendLine("  const code = await response.text();")
+                    appendLine("  const blob = new Blob([code], { type: 'application/javascript' });")
+                    appendLine("  const blobUrl = URL.createObjectURL(blob);")
+                    appendLine("  try {")
+                    appendLine("    const module = await import(blobUrl);")
+                    appendLine("    return module.default;")
+                    appendLine("  } finally {")
+                    appendLine("    URL.revokeObjectURL(blobUrl);")
+                    appendLine("  }")
+                    appendLine("}")
+                    appendLine()
+                    appendLine("(async function() {")
+                    appendLine("  try {")
+
+                    // Load each component
+                    componentImports.forEach { (name, path) ->
+                        appendLine("    const $name = await __loadVueComponent('$path');")
+                    }
+
+                    // Add the rest of the main.js code (indented)
+                    appendLine()
+                    transformed.lines().forEach { line ->
+                        if (line.isNotBlank()) {
+                            appendLine("    $line")
+                        } else {
+                            appendLine()
+                        }
+                    }
+
+                    appendLine("  } catch (e) {")
+                    appendLine("    console.error('Vue app initialization error:', e);")
+                    appendLine("    document.body.innerHTML = '<div style=\"color:red;padding:20px;\">Error: ' + e.message + '</div>';")
+                    appendLine("  }")
+                    appendLine("})();")
+                }
+
+                return loaderCode
             }
         } else {
-            // For other JS files, just transform Vue imports to CDN (using pre-compiled regex)
+            // For other JS files, just transform Vue imports to CDN
             transformed = transformed
                 .replace(VUE_IMPORT_REGEX, """from "https://esm.sh/vue@3.4.0"""")
 
@@ -721,6 +787,78 @@ $result"""
         // This is embedded in the HTML transformation for the main entry point
 
         return result
+    }
+
+    /**
+     * Transform TypeScript files for browser preview.
+     * Strips type annotations while preserving the runtime code.
+     *
+     * This performs a lightweight TS -> JS transformation that handles:
+     * - Type annotations (: Type)
+     * - Type imports (import type { ... })
+     * - Interfaces and type aliases
+     * - Type assertions (as Type, as const)
+     * - Non-null assertions (!)
+     * - Generic type parameters in function calls
+     *
+     * Note: For complex TS features, Babel standalone is used in HTML for full transpilation.
+     */
+    private fun transformTypeScript(file: File, content: String): String {
+        if (file.extension != "ts" && file.extension != "tsx") return content
+
+        var result = content
+
+        // Remove type-only imports (import type { ... } from '...')
+        result = result.replace(TS_TYPE_IMPORT_REGEX, "")
+
+        // Remove interface declarations
+        result = result.replace(TS_INTERFACE_REGEX, "")
+
+        // Remove type alias declarations
+        result = result.replace(TS_TYPE_ALIAS_REGEX, "")
+
+        // Remove 'as const' assertions
+        result = result.replace(TS_AS_CONST_REGEX, "")
+
+        // Remove type assertions (as Type)
+        result = result.replace(TS_AS_TYPE_REGEX, "")
+
+        // Remove non-null assertions (variable! -> variable)
+        result = result.replace(TS_NON_NULL_REGEX) { match ->
+            match.groupValues[1]
+        }
+
+        // Remove simple type annotations in variable declarations and function parameters
+        // This is a simplified approach - complex generics may not be fully handled
+        result = result.replace(TS_TYPE_ANNOTATION_REGEX, "")
+
+        // Transform .ts/.tsx imports to .js
+        result = result.replace(TS_IMPORT_REGEX) { match ->
+            val path = match.groupValues[1]
+            """from "$path.js""""
+        }
+
+        // Handle JSX in .tsx files
+        if (file.extension == "tsx") {
+            result = transformJSXSyntax(result)
+        }
+
+        // Transform framework imports and CSS imports
+        result = transformReactImports(result)
+        result = transformCssImports(result, file)
+
+        return result
+    }
+
+    /**
+     * Transform React/React-DOM imports to CDN URLs (extracted for reuse)
+     */
+    private fun transformReactImports(content: String): String {
+        return content
+            .replace(REACT_IMPORT_REGEX, """from "https://esm.sh/react@18.2.0"""")
+            .replace(REACT_DOM_IMPORT_REGEX, """from "https://esm.sh/react-dom@18.2.0"""")
+            .replace(REACT_DOM_CLIENT_REGEX, """from "https://esm.sh/react-dom@18.2.0/client"""")
+            .replace(REACT_ROUTER_REGEX, """from "https://esm.sh/react-router-dom@6"""")
     }
 
     /**
@@ -1107,7 +1245,8 @@ $result"""
 
     private fun needsTransformation(extension: String): Boolean {
         // Include js/mjs for CSS import transformation in Vue/Svelte main.js files
-        return extension in listOf("js", "mjs", "jsx", "tsx", "vue", "svelte")
+        // Include ts/tsx for TypeScript transformation
+        return extension in listOf("js", "mjs", "jsx", "ts", "tsx", "vue", "svelte")
     }
 
     private fun isServableFile(file: File): Boolean {

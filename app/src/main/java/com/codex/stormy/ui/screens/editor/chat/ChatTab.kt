@@ -355,6 +355,90 @@ private fun AgentModeToggle(
     }
 }
 
+/**
+ * User message bubble with reduced font size and expandable text for long messages.
+ * Font size reduced by 2sp from default bodyMedium (14sp -> 12sp)
+ * Long messages (>300 chars) are collapsed with "Show more" option
+ */
+@Composable
+private fun UserMessageBubble(
+    content: String,
+    timestamp: String,
+    bubbleColor: androidx.compose.ui.graphics.Color,
+    textColor: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier
+) {
+    // Threshold for collapsing long messages (in characters)
+    val collapseThreshold = 300
+    val isLongMessage = content.length > collapseThreshold
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Display text - truncated if long and not expanded
+    val displayText = if (isLongMessage && !isExpanded) {
+        content.take(collapseThreshold) + "..."
+    } else {
+        content
+    }
+
+    Box(
+        modifier = modifier
+            .widthIn(max = 320.dp)
+            .clip(
+                RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = 16.dp,
+                    bottomEnd = 4.dp
+                )
+            )
+            .background(bubbleColor)
+            .then(
+                if (isLongMessage) {
+                    Modifier.clickable { isExpanded = !isExpanded }
+                } else {
+                    Modifier
+                }
+            )
+            .padding(12.dp)
+    ) {
+        Column {
+            Text(
+                text = displayText,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.sp,  // Reduced from 14sp (bodyMedium) to 12sp
+                    lineHeight = 18.sp
+                ),
+                color = textColor,
+                modifier = Modifier.animateContentSize()
+            )
+
+            // Show expand/collapse indicator for long messages
+            if (isLongMessage) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (isExpanded) "Show less" else "Show more",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = textColor.copy(alpha = 0.8f),
+                    modifier = Modifier.align(Alignment.End)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = timestamp,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp
+                ),
+                color = textColor.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+    }
+}
+
 @Composable
 private fun ChatBubble(
     message: ChatMessage,
@@ -372,37 +456,12 @@ private fun ChatBubble(
         if (message.isUser) {
             // User message - compact bubble style
             if (message.content.isNotEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = 320.dp)
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = 16.dp,
-                                topEnd = 16.dp,
-                                bottomStart = 16.dp,
-                                bottomEnd = 4.dp
-                            )
-                        )
-                        .background(extendedColors.chatUserBubble)
-                        .padding(12.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = message.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = extendedColors.chatUserText
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = message.formattedTime,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = extendedColors.chatUserText.copy(alpha = 0.7f),
-                            modifier = Modifier.align(Alignment.End)
-                        )
-                    }
-                }
+                UserMessageBubble(
+                    content = message.content,
+                    timestamp = message.formattedTime,
+                    bubbleColor = extendedColors.chatUserBubble,
+                    textColor = extendedColors.chatUserText
+                )
             }
         } else {
             // AI message - professional IDE-style with structured content

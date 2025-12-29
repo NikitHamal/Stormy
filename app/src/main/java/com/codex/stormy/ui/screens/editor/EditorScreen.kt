@@ -335,6 +335,7 @@ fun EditorScreen(
                                     fileTree = uiState.fileTree,
                                     onInputChange = viewModel::updateChatInput,
                                     onSendMessage = viewModel::sendMessage,
+                                    onStopGeneration = viewModel::stopGeneration,
                                     onToggleAgentMode = viewModel::toggleAgentMode,
                                     onModelChange = viewModel::setModel
                                 )
