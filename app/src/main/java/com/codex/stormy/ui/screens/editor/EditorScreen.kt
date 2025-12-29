@@ -78,6 +78,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
 import com.codex.stormy.ui.screens.editor.assets.AssetManagerDrawer
 import com.codex.stormy.ui.screens.editor.chat.ChatTab
+import com.codex.stormy.ui.screens.editor.code.AiCodeEditRequest
 import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
 import com.codex.stormy.ui.screens.git.GitDrawer
@@ -205,12 +206,13 @@ fun EditorScreen(
                     }
                 }
             },
-            gesturesEnabled = false,
+            gesturesEnabled = gitDrawerState.isOpen,
             scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)
         ) {
-            // Asset Manager drawer (inner drawer - no gestures to avoid conflicts)
+            // Asset Manager drawer (inner drawer)
             ModalNavigationDrawer(
                 drawerState = assetDrawerState,
+                scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f),
                 drawerContent = {
                     // Only render when drawer is being shown
                     if (assetDrawerState.isOpen || assetDrawerState.isAnimationRunning) {
@@ -245,7 +247,7 @@ fun EditorScreen(
                         }
                     }
                 },
-                gesturesEnabled = false
+                gesturesEnabled = assetDrawerState.isOpen
             ) {
                 Scaffold(
                     topBar = {
@@ -330,6 +332,7 @@ fun EditorScreen(
                                     taskList = uiState.taskList,
                                     currentModel = uiState.currentModel,
                                     availableModels = uiState.availableModels,
+                                    fileTree = uiState.fileTree,
                                     onInputChange = viewModel::updateChatInput,
                                     onSendMessage = viewModel::sendMessage,
                                     onToggleAgentMode = viewModel::toggleAgentMode,
@@ -356,7 +359,10 @@ fun EditorScreen(
                                         wordWrap = uiState.wordWrap,
                                         fontSize = uiState.fontSize,
                                         onContentChange = viewModel::updateFileContent,
-                                        onSave = viewModel::saveCurrentFile
+                                        onSave = viewModel::saveCurrentFile,
+                                        onAiEditRequest = { request ->
+                                            viewModel.handleAiCodeEdit(request)
+                                        }
                                     )
                                 }
                             }

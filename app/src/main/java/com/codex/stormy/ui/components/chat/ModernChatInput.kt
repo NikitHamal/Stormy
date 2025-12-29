@@ -64,11 +64,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.domain.model.FileTreeNode
 
 /**
  * Modern chat input component inspired by professional AI coding assistants
@@ -78,6 +81,7 @@ import com.codex.stormy.data.ai.AiModel
  * - Context actions (attach file, add code, etc.)
  * - Agent mode indicator
  * - Expandable input area
+ * - @ file/folder mention support
  */
 @Composable
 fun ModernChatInput(
@@ -90,6 +94,7 @@ fun ModernChatInput(
     agentMode: Boolean = true,
     currentModel: AiModel,
     onModelClick: () -> Unit,
+    fileTree: List<FileTreeNode> = emptyList(),
     placeholder: String = "Ask Stormy anything...",
     modifier: Modifier = Modifier
 ) {
@@ -97,180 +102,215 @@ fun ModernChatInput(
     val focusManager = LocalFocusManager.current
     var showContextActions by remember { mutableStateOf(false) }
 
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(200)),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
-        shadowElevation = 2.dp
-    ) {
-        Column {
-            // Context actions bar (hidden by default)
-            AnimatedVisibility(
-                visible = showContextActions,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                ContextActionsBar(
-                    onAddFile = { /* TODO: Implement file picker */ },
-                    onAddCode = { /* TODO: Implement code snippet */ },
-                    onAddImage = { /* TODO: Implement image picker */ },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+    // @ mention state
+    var textFieldValue by remember(value) {
+        mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
+    }
+    val mentionQuery = remember(textFieldValue) {
+        extractMentionQuery(textFieldValue.text, textFieldValue.selection.start)
+    }
+    val showMentionPopup = mentionQuery != null
+
+    Column(modifier = modifier) {
+        // @ mention popup (above the input)
+        FileMentionPopup(
+            isVisible = showMentionPopup,
+            query = mentionQuery ?: "",
+            fileTree = fileTree,
+            onSelectItem = { item ->
+                val (newText, newCursor) = replaceMentionInText(
+                    textFieldValue.text,
+                    textFieldValue.selection.start,
+                    item
                 )
-            }
+                textFieldValue = TextFieldValue(
+                    text = newText,
+                    selection = TextRange(newCursor)
+                )
+                onValueChange(newText)
+            },
+            onDismiss = { },
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
 
-            // Main input area
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Left side actions
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(animationSpec = tween(200)),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            tonalElevation = 1.dp,
+            shadowElevation = 2.dp
+        ) {
+            Column {
+                // Context actions bar (hidden by default)
+                AnimatedVisibility(
+                    visible = showContextActions,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
                 ) {
-                    // Add context button
-                    InputActionButton(
-                        icon = if (showContextActions) Icons.Outlined.ExpandLess else Icons.Outlined.Add,
-                        contentDescription = "Add context",
-                        onClick = { showContextActions = !showContextActions },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    ContextActionsBar(
+                        onAddFile = { },
+                        onAddCode = { },
+                        onAddImage = { },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 }
 
-                // Text input field
-                Column(
-                    modifier = Modifier.weight(1f)
+                // Main input area
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Model selector chip
-                    ModelChip(
-                        model = currentModel,
-                        onClick = onModelClick,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-
-                    // Text input
-                    BasicTextField(
-                        value = value,
-                        onValueChange = onValueChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 24.dp, max = 120.dp)
-                            .focusRequester(focusRequester),
-                        enabled = isEnabled,
-                        textStyle = TextStyle(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                        keyboardActions = KeyboardActions(
-                            onSend = {
-                                if (value.isNotBlank() && isEnabled) {
-                                    onSend()
-                                    focusManager.clearFocus()
-                                }
-                            }
-                        ),
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (value.isEmpty()) {
-                                    Text(
-                                        text = placeholder,
-                                        style = TextStyle(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            fontSize = 15.sp
-                                        )
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-
-                    // Agent mode indicator
-                    AnimatedVisibility(
-                        visible = agentMode,
-                        enter = fadeIn(),
-                        exit = fadeOut()
+                    // Left side actions
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(top = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoAwesome,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = "Agent mode",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                fontSize = 11.sp
-                            )
-                        }
+                        // Add context button
+                        InputActionButton(
+                            icon = if (showContextActions) Icons.Outlined.ExpandLess else Icons.Outlined.Add,
+                            contentDescription = "Add context",
+                            onClick = { showContextActions = !showContextActions },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                }
 
-                // Right side actions
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Send or Stop button
-                    AnimatedVisibility(
-                        visible = value.isNotBlank() || isProcessing,
-                        enter = fadeIn() + scaleIn(),
-                        exit = fadeOut() + scaleOut()
+                    // Text input field
+                    Column(
+                        modifier = Modifier.weight(1f)
                     ) {
-                        if (isProcessing && onStop != null) {
-                            // Stop button when processing
-                            IconButton(
-                                onClick = onStop,
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                                ),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Stop,
-                                    contentDescription = "Stop generation",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        } else {
-                            // Send button
-                            IconButton(
-                                onClick = {
-                                    if (value.isNotBlank() && isEnabled) {
+                        // Model selector chip
+                        ModelChip(
+                            model = currentModel,
+                            onClick = onModelClick,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+
+                        // Text input with @ mention support
+                        BasicTextField(
+                            value = textFieldValue,
+                            onValueChange = { newValue ->
+                                textFieldValue = newValue
+                                onValueChange(newValue.text)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 24.dp, max = 120.dp)
+                                .focusRequester(focusRequester),
+                            enabled = isEnabled,
+                            textStyle = TextStyle(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 15.sp,
+                                lineHeight = 22.sp
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    if (textFieldValue.text.isNotBlank() && isEnabled) {
                                         onSend()
                                         focusManager.clearFocus()
                                     }
-                                },
-                                enabled = isEnabled && value.isNotBlank(),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                ),
-                                modifier = Modifier.size(40.dp)
+                                }
+                            ),
+                            decorationBox = { innerTextField ->
+                                Box {
+                                    if (textFieldValue.text.isEmpty()) {
+                                        Text(
+                                            text = placeholder,
+                                            style = TextStyle(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                fontSize = 15.sp
+                                            )
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+
+                        // Agent mode indicator
+                        AnimatedVisibility(
+                            visible = agentMode,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(top = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Send message",
-                                    modifier = Modifier.size(18.dp)
+                                    imageVector = Icons.Outlined.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                                 )
+                                Text(
+                                    text = "Agent mode",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Right side actions
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Send or Stop button
+                        AnimatedVisibility(
+                            visible = textFieldValue.text.isNotBlank() || isProcessing,
+                            enter = fadeIn() + scaleIn(),
+                            exit = fadeOut() + scaleOut()
+                        ) {
+                            if (isProcessing && onStop != null) {
+                                // Stop button when processing
+                                IconButton(
+                                    onClick = onStop,
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                    ),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Stop,
+                                        contentDescription = "Stop generation",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            } else {
+                                // Send button
+                                IconButton(
+                                    onClick = {
+                                        if (textFieldValue.text.isNotBlank() && isEnabled) {
+                                            onSend()
+                                            focusManager.clearFocus()
+                                        }
+                                    },
+                                    enabled = isEnabled && textFieldValue.text.isNotBlank(),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Send message",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }

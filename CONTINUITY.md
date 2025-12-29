@@ -1,61 +1,52 @@
-# CodeX Development Continuity Ledger
+# Continuity Ledger
 
 ## Goal (incl. success criteria)
-Comprehensive fix and feature implementation for CodeX Android IDE:
+Major CodeX Stormy app enhancement:
+1. **Fix build error** - GitRepository.kt:501 `isNotEmpty()` compilation error
+2. **Enhance Stormy agent memory system** - Make it fully functional, auto-learn, context-aware
+3. **Make console text selectable** in preview screen
+4. **Framework preview support** - React, Vue, Next.js, Svelte with embedded dev server
+5. **Optimize performance** - Templates, memory system, preview
 
-### Critical Fixes:
-1. **Provider Integration**: Fix Gemini and OpenRouter providers (return errors, only DeepInfra works)
-2. **Chat Tab Tool Calls**: Fix thinking/answer content bleeding into tool call blocks
-3. **Git Lock File Crash**: Fix crash when switching branches due to stale lock files
-4. **Agent Selection Mode**: Fix preview activity agent selection not working
-
-### UI/UX Fixes:
-5. **Project Deletion**: Remove selection-based deletion (keep swipe-to-delete only)
-6. **Blank Template**: Don't create default index.html for blank projects
-7. **Console Text**: Make preview console output selectable
-8. **Diff View**: Implement proper diff view for write/patch tool calls
-
-### New Features:
-9. **Icon Library**: Complete Font Awesome/Material Icons with download to assets
-10. **Font Manager**: Add download fonts to assets feature
-11. **Git Branch Deletion**: Long-press to delete branches
-12. **Git Initialization**: Init/connect projects to GitHub repos
-13. **@ File Tagging**: Tag files/directories in chat with @ syntax
-14. **AI Code Edit**: Add AI edit option in code selection menu with floating prompt bar
+**Success criteria**: All features working, build passes, production-grade quality
 
 ## Constraints/Assumptions
-- Kotlin + Jetpack Compose codebase
-- 500-1000 lines per file max (modular)
-- Production-grade, fully functional implementations only
-- No TODOs or placeholder code
+- Files max 500-1000 lines (modularization)
+- Production-grade code only
+- No TODOs, placeholders, or incomplete implementations
+- Kotlin/Jetpack Compose Android app
+- DeepInfra AI provider (free, no API key)
+- Framework preview via embedded lightweight dev server
 
-## Key Decisions
-1. Provider errors: Gemini uses different API format than OpenAI-compatible providers
-2. Tool call parsing: Need robust regex-based content block separation
-3. Git lock fix: Clean up .lock files before operations, use proper try-finally
+## Key decisions
+- Build error: `results` is `Iterable<PushResult>`, need to convert to list first for `isNotEmpty()`
+- Memory system: Enhance with auto-learning, semantic categorization, context injection
+- Console selection: Already uses `SelectionContainer` but needs verification
+- Framework preview: Use embedded esbuild-lite/parcel-like build system for React/Vue/Svelte
 
 ## State
 
-### Done:
-- Previous fix: HomeScreen.kt AnimatedVisibility RowScope issue resolved
-- Codebase exploration and architecture understanding
+### Done
+- Codebase exploration and analysis complete
 
-### Now:
-- Starting with Gemini and OpenRouter provider fixes
+### Now
+- Fix GitRepository.kt build error at line 501
 
-### Next:
-- Chat tab tool call display fix
-- Project deletion cleanup
-- Continue with remaining items
+### Next
+1. Enhance memory storage system with semantic memory
+2. Add auto-learning capabilities to Stormy agent
+3. Implement memory context injection in AI conversations
+4. Verify console text selection works
+5. Create embedded dev server for framework preview
+6. Update templates with preview entry points
+7. Performance optimizations
 
-## Open Questions
-- UNCONFIRMED: Exact error messages from Gemini/OpenRouter
-- UNCONFIRMED: Current tool call parsing logic details
+## Open questions (UNCONFIRMED if needed)
+- None currently
 
-## Working Set
-- `/app/src/main/java/com/codex/stormy/data/ai/GeminiProvider.kt`
-- `/app/src/main/java/com/codex/stormy/data/ai/OpenRouterProvider.kt`
-- `/app/src/main/java/com/codex/stormy/data/ai/AiProviderManager.kt`
-- `/app/src/main/java/com/codex/stormy/ui/screens/home/HomeScreen.kt`
-- `/app/src/main/java/com/codex/stormy/ui/components/message/AiMessageContent.kt`
-- `/app/src/main/java/com/codex/stormy/data/git/GitRepository.kt`
+## Working set (files/ids/commands)
+- `app/src/main/java/com/codex/stormy/data/git/GitRepository.kt` - Build error fix
+- `app/src/main/java/com/codex/stormy/data/ai/tools/MemoryStorage.kt` - Memory enhancement
+- `app/src/main/java/com/codex/stormy/data/ai/tools/ToolExecutor.kt` - Tool integration
+- `app/src/main/java/com/codex/stormy/data/repository/AiRepository.kt` - Memory context injection
+- `app/src/main/java/com/codex/stormy/ui/screens/preview/PreviewActivity.kt` - Framework preview

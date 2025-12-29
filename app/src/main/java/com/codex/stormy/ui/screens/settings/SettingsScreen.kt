@@ -1,14 +1,6 @@
 package com.codex.stormy.ui.screens.settings
 
 import android.os.Build
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -34,23 +24,16 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.ModelTraining
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Save
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.automirrored.outlined.WrapText
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -58,7 +41,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -68,17 +50,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.BuildConfig
@@ -99,7 +75,6 @@ fun SettingsScreen(
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontSizeDialog by remember { mutableStateOf(false) }
-    var showApiKeysSection by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -207,20 +182,8 @@ fun SettingsScreen(
                 SettingsNavItem(
                     icon = Icons.Outlined.Memory,
                     title = "Memories",
-                    subtitle = "AI conversation memory",
+                    subtitle = "AI agent learnings & context",
                     onClick = onNavigateToMemories
-                )
-
-                // API Keys Section
-                ApiKeysSection(
-                    isExpanded = showApiKeysSection,
-                    onExpandToggle = { showApiKeysSection = !showApiKeysSection },
-                    deepInfraKey = uiState.deepInfraApiKey,
-                    openRouterKey = uiState.openRouterApiKey,
-                    geminiKey = uiState.geminiApiKey,
-                    onDeepInfraKeyChange = viewModel::setDeepInfraApiKey,
-                    onOpenRouterKeyChange = viewModel::setOpenRouterApiKey,
-                    onGeminiKeyChange = viewModel::setGeminiApiKey
                 )
             }
 
@@ -607,177 +570,6 @@ private fun SettingsInfoItem(
             style = MaterialTheme.typography.bodyMedium,
             fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-/**
- * Collapsible API keys section
- * Note: DeepInfra is free/public and doesn't require an API key
- */
-@Composable
-private fun ApiKeysSection(
-    isExpanded: Boolean,
-    onExpandToggle: () -> Unit,
-    deepInfraKey: String,
-    openRouterKey: String,
-    geminiKey: String,
-    onDeepInfraKeyChange: (String) -> Unit,
-    onOpenRouterKeyChange: (String) -> Unit,
-    onGeminiKeyChange: (String) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(300))
-    ) {
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onExpandToggle)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Key,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(22.dp)
-                )
-                Column {
-                    Text(
-                        text = "API Keys",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = PoppinsFontFamily,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Configure provider keys",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Icon(
-                imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isExpanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                        else Color.Transparent
-                    )
-            )
-        }
-
-        // Expanded content
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Note: DeepInfra doesn't require an API key (free/public)
-
-                ApiKeyInput(
-                    label = "OpenRouter",
-                    value = openRouterKey,
-                    onValueChange = onOpenRouterKeyChange,
-                    placeholder = "Enter OpenRouter API key"
-                )
-
-                ApiKeyInput(
-                    label = "Gemini",
-                    value = geminiKey,
-                    onValueChange = onGeminiKeyChange,
-                    placeholder = "Enter Gemini API key"
-                )
-            }
-        }
-    }
-}
-
-/**
- * Individual API key input field
- */
-@Composable
-private fun ApiKeyInput(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String
-) {
-    var isVisible by remember { mutableStateOf(false) }
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = PoppinsFontFamily,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = {
-                Text(
-                    text = placeholder,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = PoppinsFontFamily
-                )
-            },
-            visualTransformation = if (isVisible) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            trailingIcon = {
-                IconButton(onClick = { isVisible = !isVisible }) {
-                    Icon(
-                        imageVector = if (isVisible) {
-                            Icons.Outlined.VisibilityOff
-                        } else {
-                            Icons.Outlined.Visibility
-                        },
-                        contentDescription = if (isVisible) "Hide" else "Show",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-            ),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                fontFamily = PoppinsFontFamily
-            ),
-            modifier = Modifier.fillMaxWidth()
         )
     }
 }

@@ -1,12 +1,14 @@
 package com.codex.stormy
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.decode.SvgDecoder
 import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
-import com.codex.stormy.data.ai.GeminiModelService
-import com.codex.stormy.data.ai.OpenRouterModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
+import com.codex.stormy.data.ai.memory.SemanticMemorySystem
 import com.codex.stormy.data.ai.tools.MemoryStorage
 import com.codex.stormy.data.ai.tools.ToolExecutor
 import com.codex.stormy.data.ai.undo.UndoRedoManager
@@ -24,7 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class CodeXApplication : Application() {
+class CodeXApplication : Application(), ImageLoaderFactory {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -48,26 +50,16 @@ class CodeXApplication : Application() {
         ChatRepository(database.chatMessageDao(), this)
     }
 
-    // Model services for fetching available models from providers
+    // Model service for fetching available models from DeepInfra (free, no API key required)
     val deepInfraModelService: DeepInfraModelService by lazy {
         DeepInfraModelService()
-    }
-
-    val openRouterModelService: OpenRouterModelService by lazy {
-        OpenRouterModelService()
-    }
-
-    val geminiModelService: GeminiModelService by lazy {
-        GeminiModelService()
     }
 
     // AI Model repository for managing model storage and preferences
     val aiModelRepository: AiModelRepository by lazy {
         AiModelRepository(
             aiModelDao = database.aiModelDao(),
-            deepInfraModelService = deepInfraModelService,
-            openRouterModelService = openRouterModelService,
-            geminiModelService = geminiModelService
+            deepInfraModelService = deepInfraModelService
         )
     }
 
@@ -83,12 +75,16 @@ class CodeXApplication : Application() {
         MemoryStorage(this)
     }
 
+    val semanticMemorySystem: SemanticMemorySystem by lazy {
+        SemanticMemorySystem(this)
+    }
+
     val undoRedoManager: UndoRedoManager by lazy {
         UndoRedoManager(projectRepository)
     }
 
     val toolExecutor: ToolExecutor by lazy {
-        ToolExecutor(projectRepository, memoryStorage, gitManager)
+        ToolExecutor(projectRepository, memoryStorage, gitManager, semanticMemorySystem)
     }
 
     // Git integration
@@ -113,6 +109,15 @@ class CodeXApplication : Application() {
         applicationScope.launch {
             aiModelRepository.initializeModelsIfEmpty()
         }
+    }
+
+    // ImageLoaderFactory implementation for SVG support
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .components {
+                add(SvgDecoder.Factory())
+            }
+            .build()
     }
 
     companion object {

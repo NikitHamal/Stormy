@@ -84,8 +84,10 @@ fun GitDrawer(
             onRefresh = { viewModel.refresh() },
             onCheckout = { branch -> viewModel.checkout(branch) },
             onCreateBranch = { name, checkout -> viewModel.createBranch(name, checkout) },
+            onDeleteBranch = { name, force -> viewModel.deleteBranch(name, force) },
             onViewDiff = { path, staged -> viewModel.getFileDiff(path, staged) },
             onInitRepo = { viewModel.initRepository() },
+            onAddRemote = { name, url -> viewModel.addRemote(name, url) },
             onOpenSettings = onNavigateToGitSettings,
             onClose = onClose,
             onRefreshCI = { viewModel.refreshCIStatus() },
@@ -94,7 +96,8 @@ fun GitDrawer(
             onOpenWorkflowUrl = { url ->
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 context.startActivity(intent)
-            }
+            },
+            onResetToCommit = { commitId, hard -> viewModel.resetToCommit(commitId, hard) }
         )
     }
 }

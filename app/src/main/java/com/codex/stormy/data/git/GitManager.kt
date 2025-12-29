@@ -499,6 +499,29 @@ class GitManager(
         return result
     }
 
+    // Reset operations
+
+    /**
+     * Reset to a specific commit
+     * @param commitId The commit hash to reset to
+     * @param hard If true, performs a hard reset (discards all changes). If false, performs a soft reset (keeps changes staged).
+     */
+    suspend fun resetToCommit(
+        commitId: String,
+        hard: Boolean = false
+    ): GitOperationResult<Unit> {
+        val repo = _currentRepository
+            ?: return GitOperationResult.Error("No repository open")
+        val mode = if (hard) {
+            org.eclipse.jgit.api.ResetCommand.ResetType.HARD
+        } else {
+            org.eclipse.jgit.api.ResetCommand.ResetType.SOFT
+        }
+        val result = repo.reset(commitId, mode)
+        if (result is GitOperationResult.Success) refreshStatus()
+        return result
+    }
+
     /**
      * Close a repository
      */

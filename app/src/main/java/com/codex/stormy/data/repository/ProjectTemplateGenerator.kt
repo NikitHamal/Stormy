@@ -49,7 +49,7 @@ object ProjectTemplateGenerator {
     }
 
     private fun createBlankTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText("")
+        // Blank template creates no files - just an empty project directory
     }
 
     private fun createBasicHtmlTemplate(projectDir: File) {

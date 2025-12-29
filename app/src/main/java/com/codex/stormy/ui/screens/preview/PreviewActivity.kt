@@ -113,6 +113,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -133,6 +134,9 @@ import com.codex.stormy.ui.components.inspector.PreviewEditStatus
 import com.codex.stormy.ui.components.inspector.StyleChangeRequest
 import com.codex.stormy.ui.components.inspector.TextChangeRequest
 import com.codex.stormy.ui.components.inspector.VisualElementInspector
+import com.codex.stormy.data.preview.FrameworkType
+import com.codex.stormy.data.preview.PreviewServerManager
+import com.codex.stormy.data.preview.PreviewServerState
 import com.codex.stormy.ui.theme.CodeXTheme
 import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.flow.first
@@ -168,6 +172,10 @@ class PreviewActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         webView?.destroy()
+        // Stop the preview server for this project
+        if (projectPath.isNotEmpty()) {
+            PreviewServerManager.getInstance().stopServerForProject(projectPath)
+        }
     }
 
     companion object {
@@ -317,9 +325,26 @@ private fun PreviewScreen(
     var pageTitle by remember { mutableStateOf("Preview") }
     var showMoreMenu by remember { mutableStateOf(false) }
     var desktopMode by remember { mutableStateOf(false) }
-    var serverRunning by remember { mutableStateOf(true) }
     var showConsole by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<ConsoleLogEntry>() }
+
+    // Embedded dev server for framework projects
+    val serverManager = remember { PreviewServerManager.getInstance() }
+    val serverState by serverManager.serverState.collectAsState()
+    var previewUrl by remember { mutableStateOf<String?>(null) }
+
+    // Detect framework type
+    val frameworkType = remember(projectPath) {
+        FrameworkType.detect(File(projectPath))
+    }
+
+    // Start server for framework projects
+    LaunchedEffect(projectPath) {
+        if (projectPath.isNotEmpty()) {
+            val url = serverManager.getPreviewUrl(projectPath)
+            previewUrl = url
+        }
+    }
 
     // Selection mode enum for cycling through modes
     // Mode cycle: DISABLED -> INSPECTOR -> EDITOR -> AGENT -> DISABLED
@@ -670,20 +695,49 @@ private fun PreviewScreen(
                                 }
                             )
                             HorizontalDivider()
+
+                            // Show framework type indicator
+                            if (frameworkType != FrameworkType.VANILLA) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = when (serverState) {
+                                                is PreviewServerState.Running -> "Server: ${frameworkType.displayName} (port ${(serverState as PreviewServerState.Running).port})"
+                                                is PreviewServerState.Starting -> "Starting server..."
+                                                is PreviewServerState.Error -> "Server error"
+                                                PreviewServerState.Stopped -> "Server stopped"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    },
+                                    onClick = { },
+                                    enabled = false
+                                )
+                            }
+
                             DropdownMenuItem(
-                                text = { Text(if (serverRunning) "Stop server" else "Start server") },
+                                text = {
+                                    Text(
+                                        if (serverState is PreviewServerState.Running) "Stop server"
+                                        else "Start server"
+                                    )
+                                },
                                 onClick = {
-                                    serverRunning = !serverRunning
-                                    if (serverRunning) {
-                                        webView?.reload()
-                                    } else {
-                                        webView?.loadUrl("about:blank")
+                                    scope.launch {
+                                        if (serverState is PreviewServerState.Running) {
+                                            serverManager.stopServerForProject(projectPath)
+                                            webView?.loadUrl("about:blank")
+                                        } else {
+                                            val url = serverManager.getPreviewUrl(projectPath)
+                                            previewUrl = url
+                                            webView?.loadUrl(url)
+                                        }
                                     }
                                     showMoreMenu = false
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = if (serverRunning) Icons.Outlined.Stop
+                                        imageVector = if (serverState is PreviewServerState.Running) Icons.Outlined.Stop
                                         else Icons.Outlined.PlayArrow,
                                         contentDescription = null
                                     )
@@ -719,6 +773,7 @@ private fun PreviewScreen(
             ) {
                 WebViewPreview(
                     projectPath = projectPath,
+                    previewUrl = previewUrl,
                     modifier = Modifier.fillMaxSize(),
                     selectionMode = selectionMode,
                     onWebViewCreated = { wv ->
@@ -1432,12 +1487,14 @@ private fun ConsolePanel(
                 )
             }
         } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(logs) { log ->
-                    ConsoleLogItem(log)
+            SelectionContainer {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(logs) { log ->
+                        ConsoleLogItem(log)
+                    }
                 }
             }
         }
@@ -1981,6 +2038,7 @@ private const val DESKTOP_USER_AGENT =
 @Composable
 private fun WebViewPreview(
     projectPath: String,
+    previewUrl: String? = null,
     modifier: Modifier = Modifier,
     selectionMode: SelectionMode = SelectionMode.DISABLED,
     onWebViewCreated: (WebView) -> Unit,
@@ -2066,15 +2124,25 @@ private fun WebViewPreview(
                     }
                 }
 
-                val indexFile = File(projectPath, "index.html")
-                if (indexFile.exists()) {
-                    loadUrl("file://${indexFile.absolutePath}")
-                } else {
-                    loadData(
-                        "<html><body><h2>No index.html found</h2><p>Create an index.html file to preview your website.</p></body></html>",
-                        "text/html",
-                        "UTF-8"
-                    )
+                // Load the appropriate URL
+                when {
+                    // Use provided preview URL (HTTP server for frameworks)
+                    previewUrl != null -> {
+                        loadUrl(previewUrl)
+                    }
+                    // Fallback to file:// for vanilla HTML
+                    else -> {
+                        val indexFile = File(projectPath, "index.html")
+                        if (indexFile.exists()) {
+                            loadUrl("file://${indexFile.absolutePath}")
+                        } else {
+                            loadData(
+                                "<html><body><h2>No index.html found</h2><p>Create an index.html file to preview your website.</p></body></html>",
+                                "text/html",
+                                "UTF-8"
+                            )
+                        }
+                    }
                 }
 
                 onWebViewCreated(this)

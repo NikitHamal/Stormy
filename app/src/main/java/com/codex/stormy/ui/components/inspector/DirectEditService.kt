@@ -359,7 +359,7 @@ class DirectEditService(
 
     /**
      * Update HTML file with text content change
-     * This is a simplified implementation - for complex cases, use AI service
+     * Uses multiple strategies to find and replace text robustly
      */
     private fun updateHtmlText(request: TextChangeRequest): Result<Unit> {
         val htmlFile = findHtmlFile() ?: return Result.failure(Exception("No HTML file found"))
@@ -368,14 +368,186 @@ class DirectEditService(
         val oldText = request.oldText
         val newText = request.newText
 
-        // Simple text replacement - find and replace the old text
-        if (!content.contains(oldText)) {
-            return Result.failure(Exception("Could not find text to replace"))
+        // Strategy 1: Direct text match (fastest)
+        if (content.contains(oldText)) {
+            val newContent = content.replace(oldText, newText)
+            htmlFile.writeText(newContent)
+            return Result.success(Unit)
         }
 
-        val newContent = content.replace(oldText, newText)
-        htmlFile.writeText(newContent)
-        return Result.success(Unit)
+        // Strategy 2: Normalize whitespace and try again
+        // DOM innerHTML often collapses whitespace differently than the source file
+        val normalizedOldText = oldText.trim().replace(Regex("\\s+"), " ")
+        val normalizedSearchPattern = buildNormalizedPattern(normalizedOldText)
+
+        val matcher = normalizedSearchPattern.matcher(content)
+        if (matcher.find()) {
+            val foundText = matcher.group()
+            val newContent = content.replace(foundText, newText)
+            htmlFile.writeText(newContent)
+            return Result.success(Unit)
+        }
+
+        // Strategy 3: Try to find text within HTML tags using a flexible pattern
+        // This handles cases where the text is inside tags with varying whitespace
+        val escapedOldText = Pattern.quote(normalizedOldText)
+        val flexiblePattern = Pattern.compile(
+            ">\\s*${escapedOldText}\\s*<",
+            Pattern.CASE_INSENSITIVE or Pattern.DOTALL
+        )
+        val flexibleMatcher = flexiblePattern.matcher(content)
+        if (flexibleMatcher.find()) {
+            val match = flexibleMatcher.group()
+            // Preserve the surrounding > and <
+            val replacement = match.replaceFirst(Pattern.quote(normalizedOldText).toRegex(), newText)
+            val newContent = content.replace(match, replacement)
+            htmlFile.writeText(newContent)
+            return Result.success(Unit)
+        }
+
+        // Strategy 4: Try HTML entity decoded matching
+        val decodedOldText = decodeHtmlEntities(oldText)
+        if (decodedOldText != oldText && content.contains(decodedOldText)) {
+            val newContent = content.replace(decodedOldText, newText)
+            htmlFile.writeText(newContent)
+            return Result.success(Unit)
+        }
+
+        // Strategy 5: Fuzzy match - find similar text in the file
+        val fuzzyMatch = findFuzzyMatch(content, oldText)
+        if (fuzzyMatch != null) {
+            val newContent = content.replace(fuzzyMatch, newText)
+            htmlFile.writeText(newContent)
+            return Result.success(Unit)
+        }
+
+        return Result.failure(Exception("Could not find text to replace. The text may have been modified or contains special formatting."))
+    }
+
+    /**
+     * Build a regex pattern that allows flexible whitespace matching
+     */
+    private fun buildNormalizedPattern(text: String): Pattern {
+        // Escape regex special chars and allow flexible whitespace
+        val escaped = text.split(" ").joinToString("\\s+") { part ->
+            Pattern.quote(part)
+        }
+        return Pattern.compile(escaped, Pattern.CASE_INSENSITIVE)
+    }
+
+    /**
+     * Decode common HTML entities
+     */
+    private fun decodeHtmlEntities(text: String): String {
+        return text
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&nbsp;", " ")
+    }
+
+    /**
+     * Find a fuzzy match for the text in the content
+     * Returns the actual text found in content that closely matches oldText
+     */
+    private fun findFuzzyMatch(content: String, oldText: String): String? {
+        val trimmedOld = oldText.trim()
+        if (trimmedOld.length < 3) return null // Too short for fuzzy matching
+
+        // Try to find the text with different whitespace combinations
+        val words = trimmedOld.split(Regex("\\s+"))
+        if (words.isEmpty()) return null
+
+        // Look for sequences of words in the content
+        val searchWindow = trimmedOld.length * 2 // Allow some extra space for whitespace
+        var bestMatch: String? = null
+        var bestScore = 0.0
+
+        // Find all occurrences of the first word
+        val firstWord = words.first()
+        var startIndex = 0
+
+        while (startIndex < content.length) {
+            val wordIndex = content.indexOf(firstWord, startIndex, ignoreCase = true)
+            if (wordIndex == -1) break
+
+            // Extract a window of text to check
+            val windowEnd = minOf(wordIndex + searchWindow, content.length)
+            val windowText = content.substring(wordIndex, windowEnd)
+
+            // Check if all words are present in order
+            var allWordsFound = true
+            var lastIndex = 0
+            for (word in words) {
+                val idx = windowText.indexOf(word, lastIndex, ignoreCase = true)
+                if (idx == -1) {
+                    allWordsFound = false
+                    break
+                }
+                lastIndex = idx + word.length
+            }
+
+            if (allWordsFound) {
+                // Find the actual end of the matched text
+                val matchEnd = wordIndex + lastIndex
+                val candidateMatch = content.substring(wordIndex, matchEnd)
+                val score = calculateSimilarity(trimmedOld, candidateMatch)
+
+                if (score > bestScore && score > 0.7) { // 70% similarity threshold
+                    bestScore = score
+                    bestMatch = candidateMatch
+                }
+            }
+
+            startIndex = wordIndex + 1
+        }
+
+        return bestMatch
+    }
+
+    /**
+     * Calculate similarity between two strings (0.0 to 1.0)
+     */
+    private fun calculateSimilarity(s1: String, s2: String): Double {
+        val normalized1 = s1.lowercase().replace(Regex("\\s+"), " ").trim()
+        val normalized2 = s2.lowercase().replace(Regex("\\s+"), " ").trim()
+
+        if (normalized1 == normalized2) return 1.0
+        if (normalized1.isEmpty() || normalized2.isEmpty()) return 0.0
+
+        val longer = if (normalized1.length >= normalized2.length) normalized1 else normalized2
+        val shorter = if (normalized1.length < normalized2.length) normalized1 else normalized2
+
+        val longerLength = longer.length
+        if (longerLength == 0) return 1.0
+
+        return (longerLength - levenshteinDistance(longer, shorter)) / longerLength.toDouble()
+    }
+
+    /**
+     * Calculate Levenshtein distance between two strings
+     */
+    private fun levenshteinDistance(s1: String, s2: String): Int {
+        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+
+        for (i in 0..s1.length) dp[i][0] = i
+        for (j in 0..s2.length) dp[0][j] = j
+
+        for (i in 1..s1.length) {
+            for (j in 1..s2.length) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                dp[i][j] = minOf(
+                    dp[i - 1][j] + 1,      // deletion
+                    dp[i][j - 1] + 1,      // insertion
+                    dp[i - 1][j - 1] + cost // substitution
+                )
+            }
+        }
+
+        return dp[s1.length][s2.length]
     }
 
     /**

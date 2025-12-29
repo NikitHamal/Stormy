@@ -16,6 +16,7 @@ import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.context.ContextUsageLevel
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
+import com.codex.stormy.data.ai.memory.SemanticMemorySystem
 import com.codex.stormy.data.ai.tools.FileChangeType
 import com.codex.stormy.data.ai.tools.MemoryStorage
 import com.codex.stormy.data.ai.tools.StormyTools
@@ -125,7 +126,8 @@ class EditorViewModel(
     private val userPreferencesLearner: UserPreferencesLearner,
     private val toolExecutor: ToolExecutor,
     private val memoryStorage: MemoryStorage,
-    private val undoRedoManager: UndoRedoManager
+    private val undoRedoManager: UndoRedoManager,
+    private val semanticMemorySystem: SemanticMemorySystem
 ) : ViewModel() {
 
     private val projectId: String = savedStateHandle["projectId"] ?: ""
@@ -976,6 +978,16 @@ class EditorViewModel(
             // Save user message to database
             chatRepository.saveMessage(userMessage)
 
+            // Auto-learn from user message (non-blocking)
+            if (_agentMode.value) {
+                try {
+                    val currentFile = _currentFile.value?.path
+                    semanticMemorySystem.learnFromUserMessage(projectId, content, currentFile)
+                } catch (e: Exception) {
+                    // Silently ignore learning errors - don't disrupt user experience
+                }
+            }
+
             sendAiRequest()
         }
     }
@@ -1019,6 +1031,21 @@ class EditorViewModel(
             memoryStorage.getContextString(projectId)
         } else ""
 
+        // Get semantic memory context for richer project knowledge
+        val semanticMemoryContext = if (isAgentMode) {
+            try {
+                val currentFiles = _currentFile.value?.path?.let { listOf(it) } ?: emptyList()
+                semanticMemorySystem.buildContextString(
+                    projectId = projectId,
+                    currentFiles = currentFiles,
+                    queryTags = emptyList(),
+                    maxTokens = 2000
+                )
+            } catch (e: Exception) {
+                "" // Gracefully handle any memory system errors
+            }
+        } else ""
+
         // Get file tree for context
         val fileTreeContext = if (isAgentMode) {
             buildFileTreeContext()
@@ -1028,7 +1055,7 @@ class EditorViewModel(
         val preferencesContext = userPreferencesLearner.getPreferencesContext(projectId)
 
         val systemMessage = aiRepository.createSystemMessage(
-            projectContext = "Project: $projectName$fileTreeContext$currentFileContent$memoryContext$preferencesContext"
+            projectContext = "Project: $projectName$fileTreeContext$currentFileContent$memoryContext$semanticMemoryContext$preferencesContext"
         )
 
         // Optimize message history if needed for context window
@@ -1533,6 +1560,26 @@ class EditorViewModel(
         undoRedoManager.clearHistory()
     }
 
+    /**
+     * Handle AI code edit request from text selection in the code editor
+     * Creates a specialized prompt for the AI to edit the selected code
+     */
+    fun handleAiCodeEdit(request: com.codex.stormy.ui.screens.editor.code.AiCodeEditRequest) {
+        // Switch to chat tab to show the AI response
+        _selectedTab.value = EditorTab.CHAT
+
+        // Create a specialized prompt for code editing
+        val prompt = buildString {
+            append("Please help me edit the following code from **${request.fileName}** ")
+            append("(lines ${request.startLine + 1}-${request.endLine + 1}):\n\n")
+            append("```\n${request.selectedText}\n```\n\n")
+            append("What changes would you like me to make to this code?")
+        }
+
+        // Set the chat input with the prompt
+        _chatInput.value = prompt
+    }
+
     companion object {
         private const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
         private const val STREAMING_UPDATE_INTERVAL_MS = 50L // Debounce interval for streaming updates (20 FPS)
@@ -1553,7 +1600,8 @@ class EditorViewModel(
                     userPreferencesLearner = application.userPreferencesLearner,
                     toolExecutor = application.toolExecutor,
                     memoryStorage = application.memoryStorage,
-                    undoRedoManager = application.undoRedoManager
+                    undoRedoManager = application.undoRedoManager,
+                    semanticMemorySystem = application.semanticMemorySystem
                 ) as T
             }
         }

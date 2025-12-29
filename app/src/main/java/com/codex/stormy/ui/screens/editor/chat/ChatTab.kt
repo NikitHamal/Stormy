@@ -71,7 +71,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,8 +84,13 @@ import com.codex.stormy.data.ai.tools.TodoItem
 import com.codex.stormy.domain.model.ChatMessage
 import com.codex.stormy.ui.components.DiffView
 import com.codex.stormy.ui.components.TaskPlanningPanel
+import com.codex.stormy.ui.components.chat.FileMentionPopup
 import com.codex.stormy.ui.components.chat.ModelSelectorSheet
+import com.codex.stormy.ui.components.chat.MentionItem
+import com.codex.stormy.ui.components.chat.extractMentionQuery
+import com.codex.stormy.ui.components.chat.replaceMentionInText
 import com.codex.stormy.ui.components.message.AiMessageContent
+import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.ui.components.toUiCodeChange
 import com.codex.stormy.ui.theme.CodeXTheme
 import kotlinx.coroutines.launch
@@ -98,6 +105,7 @@ fun ChatTab(
     taskList: List<TodoItem> = emptyList(),
     currentModel: AiModel? = null,
     availableModels: List<AiModel> = emptyList(),
+    fileTree: List<FileTreeNode> = emptyList(),
     onInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
     onStopGeneration: (() -> Unit)? = null,
@@ -178,6 +186,7 @@ fun ChatTab(
             agentMode = agentMode,
             currentModel = currentModel,
             onModelClick = { showModelSelector = true },
+            fileTree = fileTree,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
@@ -464,12 +473,42 @@ private fun ChatInput(
     agentMode: Boolean,
     currentModel: AiModel?,
     onModelClick: () -> Unit,
+    fileTree: List<FileTreeNode> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
+    // @ mention state
+    var textFieldValue by remember(value) {
+        mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
+    }
+    val mentionQuery = remember(textFieldValue) {
+        extractMentionQuery(textFieldValue.text, textFieldValue.selection.start)
+    }
+    val showMentionPopup = mentionQuery != null
+
     Column(modifier = modifier) {
+        // @ mention popup (above the input)
+        FileMentionPopup(
+            isVisible = showMentionPopup,
+            query = mentionQuery ?: "",
+            fileTree = fileTree,
+            onSelectItem = { item ->
+                val (newText, newCursor) = replaceMentionInText(
+                    textFieldValue.text,
+                    textFieldValue.selection.start,
+                    item
+                )
+                textFieldValue = TextFieldValue(
+                    text = newText,
+                    selection = TextRange(newCursor)
+                )
+                onValueChange(newText)
+            },
+            onDismiss = { },
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
         // Model selector row - compact chip that opens bottom sheet
         Surface(
             onClick = onModelClick,
@@ -549,11 +588,15 @@ private fun ChatInput(
         }
 
         Row(
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = textFieldValue,
+                onValueChange = { newValue ->
+                    textFieldValue = newValue
+                    onValueChange(newValue.text)
+                },
                 modifier = Modifier.weight(1f),
                 placeholder = {
                     Text(
@@ -580,7 +623,7 @@ private fun ChatInput(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(
                     onSend = {
-                        if (value.isNotBlank()) {
+                        if (textFieldValue.text.isNotBlank()) {
                             onSend()
                             focusManager.clearFocus()
                         }
@@ -588,38 +631,52 @@ private fun ChatInput(
                 )
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Show stop button when processing, send button otherwise
-            if (isProcessing && onStop != null) {
-                IconButton(
-                    onClick = onStop,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    ),
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Stop,
-                        contentDescription = context.getString(R.string.action_stop)
-                    )
-                }
-            } else {
-                AnimatedVisibility(
-                    visible = value.isNotBlank(),
-                    enter = fadeIn() + scaleIn(),
-                    exit = fadeOut() + scaleOut()
-                ) {
+            // Always reserve space for the button to prevent layout shift
+            // Button container with fixed size - prevents text field expansion/contraction
+            Box(
+                modifier = Modifier.size(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // Show stop button when processing, send button otherwise
+                if (isProcessing && onStop != null) {
+                    IconButton(
+                        onClick = onStop,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        ),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Stop,
+                            contentDescription = context.getString(R.string.action_stop)
+                        )
+                    }
+                } else {
+                    // Always show the send button, but control visibility with alpha
+                    // This prevents the text field from expanding when button is hidden
+                    val hasText = textFieldValue.text.isNotBlank()
                     IconButton(
                         onClick = {
-                            onSend()
-                            focusManager.clearFocus()
+                            if (hasText) {
+                                onSend()
+                                focusManager.clearFocus()
+                            }
                         },
-                        enabled = isEnabled && value.isNotBlank(),
+                        enabled = isEnabled && hasText,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = if (hasText) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            contentColor = if (hasText) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            },
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         ),
                         modifier = Modifier.size(48.dp)
                     ) {

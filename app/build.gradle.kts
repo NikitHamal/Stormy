@@ -107,6 +107,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
 
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
