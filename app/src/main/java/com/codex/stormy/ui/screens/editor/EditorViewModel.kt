@@ -38,9 +38,13 @@ import com.codex.stormy.utils.FileLoadingStrategy
 import com.codex.stormy.utils.FileSizeThresholds
 import com.codex.stormy.utils.FileUtils
 import com.codex.stormy.utils.LargeFileHandler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import java.io.File
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -170,6 +174,10 @@ class EditorViewModel(
     private var _shouldContinueAgentLoop = false
     private var _agentIterationCount = 0
     private var _taskCompleted = false
+
+    // AI generation job for cancellation support
+    private var _aiGenerationJob: Job? = null
+    private var _isGenerationCancelled = false
 
     // Streaming update debouncing for performance
     private var _streamingUpdateJob: Job? = null
@@ -969,12 +977,14 @@ class EditorViewModel(
         // Reset agent loop state for new conversation turn
         _agentIterationCount = 0
         _taskCompleted = false
+        _isGenerationCancelled = false
         _pendingToolCalls.clear()
 
         // Add to message history for AI context
         _messageHistory.add(aiRepository.createUserMessage(content))
 
-        viewModelScope.launch {
+        // Track the generation job for cancellation support
+        _aiGenerationJob = viewModelScope.launch {
             // Save user message to database
             chatRepository.saveMessage(userMessage)
 
@@ -992,7 +1002,48 @@ class EditorViewModel(
         }
     }
 
+    /**
+     * Stop the current AI generation/agent loop
+     * This cancels any ongoing streaming and tool execution
+     */
+    fun stopGeneration() {
+        if (!_isAiProcessing.value) return
+
+        _isGenerationCancelled = true
+        _aiGenerationJob?.cancel()
+        _aiGenerationJob = null
+        _streamingUpdateJob?.cancel()
+
+        // Update the last message to show it was stopped
+        val currentContent = _streamingContent.value
+        if (currentContent.isNotEmpty()) {
+            updateLastAssistantMessage(
+                currentContent + "\n\n⏹️ Generation stopped by user.",
+                MessageStatus.SENT
+            )
+        } else {
+            // Remove empty assistant message if nothing was generated
+            val currentMessages = _messages.value.toMutableList()
+            if (currentMessages.isNotEmpty() && !currentMessages.last().isUser) {
+                currentMessages.removeAt(currentMessages.lastIndex)
+                _messages.value = currentMessages
+            }
+        }
+
+        // Clean up state
+        _isAiProcessing.value = false
+        _taskCompleted = false
+        _agentIterationCount = 0
+        loadFileTree()
+    }
+
     private suspend fun sendAiRequest() {
+        // Check for cancellation at the start of each iteration
+        if (_isGenerationCancelled) {
+            return
+        }
+        currentCoroutineContext().ensureActive()
+
         val model = _currentModel.value
         val isAgentMode = _agentMode.value
 
@@ -1096,6 +1147,12 @@ class EditorViewModel(
                 tools = tools,
                 temperature = 0.7f
             ).collect { event ->
+                // Check for cancellation on each event
+                if (_isGenerationCancelled) {
+                    return@collect
+                }
+                currentCoroutineContext().ensureActive()
+
                 when (event) {
                     is StreamEvent.Started -> {
                         // Streaming started
@@ -1143,19 +1200,27 @@ class EditorViewModel(
                         finishedWithToolCalls = event.reason == "tool_calls"
                     }
                     is StreamEvent.Error -> {
-                        updateLastAssistantMessage(
-                            _streamingContent.value + "\n\n❌ Error: ${event.message}",
-                            MessageStatus.ERROR
-                        )
-                        _isAiProcessing.value = false
+                        // Don't show error if generation was cancelled
+                        if (!_isGenerationCancelled) {
+                            updateLastAssistantMessage(
+                                _streamingContent.value + "\n\n❌ Error: ${event.message}",
+                                MessageStatus.ERROR
+                            )
+                            _isAiProcessing.value = false
+                        }
                     }
                     is StreamEvent.Completed -> {
+                        // Skip completion handling if cancelled
+                        if (_isGenerationCancelled) {
+                            return@collect
+                        }
+
                         // Handle completion based on whether we have tool calls
                         if (hasToolCalls && currentToolCalls.isNotEmpty()) {
                             // Process tool calls and continue the loop
                             val shouldContinue = handleToolCalls(currentToolCalls)
 
-                            if (shouldContinue && _agentMode.value && !_taskCompleted) {
+                            if (shouldContinue && _agentMode.value && !_taskCompleted && !_isGenerationCancelled) {
                                 // Continue the agentic loop
                                 sendAiRequest()
                             } else {
@@ -1185,12 +1250,19 @@ class EditorViewModel(
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            // Cancellation is expected when user stops generation - don't treat as error
+            // State cleanup is handled by stopGeneration()
+            throw e // Re-throw to properly cancel the coroutine
         } catch (e: Exception) {
-            updateLastAssistantMessage(
-                _streamingContent.value + "\n\n❌ Failed to connect to AI: ${e.message}",
-                MessageStatus.ERROR
-            )
-            _isAiProcessing.value = false
+            // Don't show error if generation was cancelled
+            if (!_isGenerationCancelled) {
+                updateLastAssistantMessage(
+                    _streamingContent.value + "\n\n❌ Failed to connect to AI: ${e.message}",
+                    MessageStatus.ERROR
+                )
+                _isAiProcessing.value = false
+            }
         }
     }
 

@@ -10,12 +10,16 @@ import com.codex.stormy.data.git.GitOperationResult
 import com.codex.stormy.data.repository.ProjectRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CancellationException
 
 /**
  * Todo item for task tracking
@@ -77,17 +81,26 @@ class ToolExecutor(
         coerceInputValues = true
     }
 
-    // Coroutine scope for background learning operations
-    private val learningScope = CoroutineScope(Dispatchers.IO)
+    // Coroutine scope for background learning operations with proper supervisor job
+    // This prevents one failed learning job from cancelling others and allows cleanup
+    private val learningJob = SupervisorJob()
+    private val learningScope = CoroutineScope(Dispatchers.IO + learningJob)
+
+    // Timeout for auto-learning operations (prevent hanging)
+    private val LEARNING_TIMEOUT_MS = 30_000L
 
     // Current project path for Git operations
     private var currentProjectPath: File? = null
+
+    // Advanced tool executor for code analysis, batch ops, etc.
+    private val advancedToolExecutor = AdvancedToolExecutor(projectRepository)
 
     /**
      * Set the current project path for Git operations
      */
     fun setProjectPath(path: File) {
         currentProjectPath = path
+        advancedToolExecutor.setProjectPath(path)
     }
 
     // Session-based todo storage
@@ -164,11 +177,15 @@ class ToolExecutor(
                 "git_diff" -> executeGitDiff(arguments)
                 "git_discard" -> executeGitDiscard(arguments)
 
-                else -> ToolResult(
-                    success = false,
-                    output = "",
-                    error = "Unknown tool: ${toolCall.function.name}"
-                )
+                else -> {
+                    // Try advanced tools executor
+                    advancedToolExecutor.execute(projectId, toolCall.function.name, arguments)
+                        ?: ToolResult(
+                            success = false,
+                            output = "",
+                            error = "Unknown tool: ${toolCall.function.name}"
+                        )
+                }
             }
         } catch (e: kotlinx.serialization.SerializationException) {
             ToolResult(
@@ -199,51 +216,11 @@ class ToolExecutor(
 
     /**
      * Robustly parse tool arguments from the AI's JSON string.
-     * Handles various edge cases and malformed JSON gracefully.
+     * Uses production-grade state-machine based parser that properly handles
+     * control characters inside strings without corrupting valid JSON.
      */
     private fun parseToolArguments(arguments: String): JsonObject? {
-        if (arguments.isBlank()) {
-            // Return empty object for tools with no arguments
-            return JsonObject(emptyMap())
-        }
-
-        return try {
-            // Try standard parsing first
-            json.parseToJsonElement(arguments).jsonObject
-        } catch (e: Exception) {
-            // Try to fix common JSON issues
-            try {
-                val fixed = fixMalformedJson(arguments)
-                json.parseToJsonElement(fixed).jsonObject
-            } catch (e2: Exception) {
-                // Log the error for debugging
-                android.util.Log.e("ToolExecutor", "Failed to parse arguments: $arguments", e2)
-                null
-            }
-        }
-    }
-
-    /**
-     * Attempt to fix common JSON malformations from AI responses.
-     */
-    private fun fixMalformedJson(jsonString: String): String {
-        var fixed = jsonString.trim()
-
-        // Remove trailing commas before closing braces/brackets
-        fixed = fixed.replace(Regex(",\\s*}"), "}")
-        fixed = fixed.replace(Regex(",\\s*]"), "]")
-
-        // Fix unescaped newlines in strings (common in content arguments)
-        // This is a simplified fix - proper solution would need a state machine
-        fixed = fixed.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-
-        // Ensure it's wrapped in braces if not already
-        if (!fixed.startsWith("{") && !fixed.startsWith("[")) {
-            // Try to wrap as object
-            fixed = "{$fixed}"
-        }
-
-        return fixed
+        return JsonParserUtils.parseToJsonObject(arguments)
     }
 
     // ==================== File Operations ====================
@@ -310,17 +287,34 @@ class ToolExecutor(
     }
 
     /**
-     * Trigger auto-learning from generated code in background
+     * Trigger auto-learning from generated code in background.
+     * Uses timeout to prevent hanging and proper error handling.
      */
     private fun triggerAutoLearning(projectId: String, path: String, content: String) {
         semanticMemorySystem?.let { memorySystem ->
             learningScope.launch {
                 try {
-                    memorySystem.learnFromGeneratedCode(projectId, path, content)
+                    withTimeout(LEARNING_TIMEOUT_MS) {
+                        memorySystem.learnFromGeneratedCode(projectId, path, content)
+                    }
+                } catch (e: CancellationException) {
+                    // Timeout or cancellation - log but don't propagate
+                    android.util.Log.w("ToolExecutor", "Auto-learning timed out or cancelled for: $path")
                 } catch (e: Exception) {
-                    android.util.Log.e("ToolExecutor", "Auto-learning failed", e)
+                    android.util.Log.e("ToolExecutor", "Auto-learning failed for: $path", e)
                 }
             }
+        }
+    }
+
+    /**
+     * Cleanup resources - call this when the executor is no longer needed
+     */
+    fun destroy() {
+        try {
+            learningScope.cancel("ToolExecutor destroyed")
+        } catch (e: Exception) {
+            android.util.Log.w("ToolExecutor", "Error cancelling learning scope", e)
         }
     }
 

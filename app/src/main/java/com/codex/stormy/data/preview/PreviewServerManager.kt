@@ -152,39 +152,46 @@ class PreviewServerManager {
     }
 
     /**
-     * Check if a project needs HTTP server (framework project)
+     * Check if a project needs HTTP server
+     * Now returns true for ALL projects to avoid CORS issues with ES modules and fetch
      */
     fun needsHttpServer(projectPath: String): Boolean {
         val projectRoot = File(projectPath)
         if (!projectRoot.exists()) return false
 
-        val frameworkType = FrameworkType.detect(projectRoot)
-        return frameworkType != FrameworkType.VANILLA
+        // Always use HTTP server to avoid file:// CORS restrictions
+        // This enables ES modules, fetch API, and proper MIME types for all projects
+        return true
     }
 
     /**
      * Get the appropriate preview URL for a project
-     * Returns HTTP URL for framework projects, file:// URL for vanilla HTML
+     * Always uses HTTP server to avoid CORS issues with file:// protocol
      */
     suspend fun getPreviewUrl(projectPath: String): String {
         val projectRoot = File(projectPath)
-        val frameworkType = FrameworkType.detect(projectRoot)
 
-        // For framework projects, use HTTP server
-        if (frameworkType != FrameworkType.VANILLA) {
-            val serverUrl = startServerForProject(projectPath)
-            if (serverUrl != null) {
-                return serverUrl
-            }
-        }
-
-        // Fallback to file:// URL for vanilla HTML
+        // Verify index.html exists
         val indexFile = File(projectPath, "index.html")
-        return if (indexFile.exists()) {
-            "file://${indexFile.absolutePath}"
-        } else {
-            "about:blank"
+        if (!indexFile.exists()) {
+            Log.w(TAG, "No index.html found in $projectPath")
+            return "about:blank"
         }
+
+        // Always use HTTP server - avoids CORS issues with:
+        // - ES modules (type="module")
+        // - fetch() API calls
+        // - Dynamic imports
+        // - Web Workers
+        // - Service Workers
+        val serverUrl = startServerForProject(projectPath)
+        if (serverUrl != null) {
+            return serverUrl
+        }
+
+        // Fallback only if server fails to start
+        Log.w(TAG, "Server failed to start, falling back to file:// (may have CORS issues)")
+        return "file://${indexFile.absolutePath}"
     }
 
     /**

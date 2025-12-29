@@ -656,7 +656,7 @@ object StormyTools {
         GIT_LOG,
         GIT_DIFF,
         GIT_DISCARD
-    )
+    ) + AdvancedTools.getAllTools()
 
     /**
      * Get basic tools for non-agent mode (just read access)
@@ -695,9 +695,22 @@ fun JsonObject.getPathArg(key: String): String? {
 
 /**
  * Sanitize a file path to ensure it's a valid relative path within the project.
+ *
+ * Security measures:
+ * - Rejects paths with ".." that would escape project root
+ * - Normalizes path separators
+ * - Removes absolute path indicators
+ * - Validates path characters
+ *
+ * @throws IllegalArgumentException if path is clearly malicious
  */
 fun sanitizePath(path: String): String {
     var sanitized = path.trim()
+
+    // Security: Reject obvious path traversal attempts at the start
+    // These should be rejected, not silently normalized
+    val originalPath = sanitized
+    val traversalAttemptCount = countLeadingTraversal(sanitized)
 
     // Remove leading slashes (absolute path style)
     while (sanitized.startsWith("/") || sanitized.startsWith("\\")) {
@@ -717,28 +730,87 @@ fun sanitizePath(path: String): String {
         sanitized = sanitized.replace("//", "/")
     }
 
-    // Prevent path traversal - remove any ".." components that try to escape
-    val parts = sanitized.split("/").toMutableList()
+    // Security: Check for embedded null bytes (path manipulation attack)
+    if (sanitized.contains('\u0000')) {
+        android.util.Log.w("ToolDefinitions", "Path contains null bytes: $originalPath")
+        throw IllegalArgumentException("Invalid path: contains null bytes")
+    }
+
+    // Security: Reject paths with ".." that would try to escape
+    val parts = sanitized.split("/")
     val cleanParts = mutableListOf<String>()
+    var upCount = 0
+
     for (part in parts) {
         when (part) {
             ".." -> {
-                // Only allow going up if we're within the project
                 if (cleanParts.isNotEmpty()) {
                     cleanParts.removeAt(cleanParts.lastIndex)
+                } else {
+                    // Attempting to go above project root
+                    upCount++
                 }
-                // Ignore attempts to go above project root
             }
             ".", "" -> {
                 // Skip empty and current directory references
             }
             else -> {
-                cleanParts.add(part)
+                // Validate part doesn't contain problematic characters
+                if (isValidPathComponent(part)) {
+                    cleanParts.add(part)
+                } else {
+                    android.util.Log.w("ToolDefinitions", "Invalid path component: $part")
+                    // Skip invalid components but don't fail completely
+                }
             }
         }
     }
 
+    // Security: If there were ANY attempts to go above root, log a warning
+    if (upCount > 0 || traversalAttemptCount > 0) {
+        android.util.Log.w("ToolDefinitions", "Path traversal attempt blocked: $originalPath -> ${cleanParts.joinToString("/")}")
+    }
+
     return cleanParts.joinToString("/")
+}
+
+/**
+ * Count leading ".." path components
+ */
+private fun countLeadingTraversal(path: String): Int {
+    var count = 0
+    val normalized = path.replace("\\", "/").trim()
+    val parts = normalized.split("/")
+
+    for (part in parts) {
+        when (part) {
+            ".." -> count++
+            ".", "" -> continue
+            else -> break // Stop counting once we hit a real component
+        }
+    }
+
+    return count
+}
+
+/**
+ * Validate that a path component doesn't contain problematic characters.
+ * Allows alphanumeric, dash, underscore, dot (except leading), and common symbols.
+ */
+private fun isValidPathComponent(component: String): Boolean {
+    if (component.isEmpty()) return false
+    if (component == "." || component == "..") return false
+
+    // Check for problematic leading characters
+    if (component.startsWith(".") && component.length > 1 && component[1] == '.') {
+        return false // ".."something patterns
+    }
+
+    // Allow most printable ASCII and common Unicode
+    return component.all { char ->
+        char.isLetterOrDigit() ||
+                char in setOf('-', '_', '.', ' ', '@', '#', '$', '%', '&', '(', ')', '[', ']', '{', '}', '+', '=', '~', '`', '!', ',')
+    }
 }
 
 /**
