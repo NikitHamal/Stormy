@@ -8,6 +8,15 @@ import java.io.File
 /**
  * Executor for advanced tools.
  * Handles code analysis, batch operations, code quality, and project scaffolding.
+ *
+ * Also delegates to ExtendedToolExecutor for additional advanced tools:
+ * - Diff tools (diff_files, diff_content, semantic_diff)
+ * - Shell/Command tools (shell_exec, validate_command, check_command_available)
+ * - Web tools (web_fetch)
+ * - Code generation tools (generate_boilerplate, refactor_code)
+ * - Testing tools (generate_tests, analyze_test_coverage)
+ * - Security tools (security_scan, find_secrets)
+ * - Performance tools (analyze_bundle, find_dead_code)
  */
 class AdvancedToolExecutor(
     private val projectRepository: ProjectRepository
@@ -15,11 +24,15 @@ class AdvancedToolExecutor(
     // Current project path for file operations
     private var currentProjectPath: File? = null
 
+    // Extended tool executor for additional capabilities
+    private val extendedToolExecutor = ExtendedToolExecutor(projectRepository)
+
     /**
      * Set the current project path
      */
     fun setProjectPath(path: File) {
         currentProjectPath = path
+        extendedToolExecutor.setProjectPath(path)
     }
 
     /**
@@ -30,6 +43,10 @@ class AdvancedToolExecutor(
         toolName: String,
         args: JsonObject
     ): ToolResult? {
+        // First try extended tools
+        extendedToolExecutor.execute(projectId, toolName, args)?.let { return it }
+
+        // Then try original advanced tools
         return when (toolName) {
             // Code Analysis
             "find_references" -> executeFindReferences(projectId, args)

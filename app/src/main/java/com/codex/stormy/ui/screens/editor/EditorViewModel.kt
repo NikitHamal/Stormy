@@ -1034,7 +1034,11 @@ class EditorViewModel(
         _isAiProcessing.value = false
         _taskCompleted = false
         _agentIterationCount = 0
-        loadFileTree()
+
+        // Refresh file tree in a coroutine since loadFileTree is a suspend function
+        viewModelScope.launch {
+            loadFileTree()
+        }
     }
 
     private suspend fun sendAiRequest() {
