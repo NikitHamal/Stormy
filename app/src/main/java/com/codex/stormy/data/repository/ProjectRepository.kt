@@ -2,6 +2,7 @@ package com.codex.stormy.data.repository
 
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import com.codex.stormy.data.local.dao.ProjectDao
 import com.codex.stormy.data.local.entity.ProjectEntity
 import com.codex.stormy.data.local.entity.ProjectTemplate
@@ -19,8 +20,112 @@ class ProjectRepository(
     private val projectDao: ProjectDao,
     private val context: Context
 ) {
+    companion object {
+        private const val EXTERNAL_STORAGE_DIR = "CodeX/Projects"
+    }
+
+    /**
+     * Get the base directory for projects.
+     * Uses external storage at /storage/emulated/0/CodeX/Projects/ when available,
+     * falls back to internal storage if external storage is not accessible.
+     */
     private val projectsBaseDir: File
-        get() = File(context.filesDir, "projects")
+        get() {
+            val externalDir = getExternalProjectsDir()
+            return if (externalDir != null && (externalDir.exists() || externalDir.mkdirs())) {
+                externalDir
+            } else {
+                // Fallback to internal storage if external is not available
+                File(context.filesDir, "projects")
+            }
+        }
+
+    /**
+     * Get the external storage directory for projects.
+     * Returns null if external storage is not available.
+     */
+    private fun getExternalProjectsDir(): File? {
+        return try {
+            if (Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED) {
+                File(Environment.getExternalStorageDirectory(), EXTERNAL_STORAGE_DIR)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Check if we're using external storage for projects.
+     */
+    fun isUsingExternalStorage(): Boolean {
+        val externalDir = getExternalProjectsDir()
+        return externalDir != null && (externalDir.exists() || externalDir.mkdirs())
+    }
+
+    /**
+     * Get the current projects storage location path.
+     */
+    fun getProjectsStoragePath(): String {
+        return projectsBaseDir.absolutePath
+    }
+
+    /**
+     * Migrate existing projects from internal to external storage.
+     * This should be called after storage permissions are granted.
+     */
+    suspend fun migrateProjectsToExternalStorage(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val internalDir = File(context.filesDir, "projects")
+            val externalDir = getExternalProjectsDir()
+
+            if (externalDir == null) {
+                return@withContext Result.failure(
+                    StorageMigrationException("External storage is not available")
+                )
+            }
+
+            if (!externalDir.exists() && !externalDir.mkdirs()) {
+                return@withContext Result.failure(
+                    StorageMigrationException("Failed to create external storage directory")
+                )
+            }
+
+            if (!internalDir.exists() || internalDir.listFiles().isNullOrEmpty()) {
+                return@withContext Result.success(0)
+            }
+
+            var migratedCount = 0
+            val projects = projectDao.getAllProjectsSync()
+
+            for (project in projects) {
+                val projectDir = File(project.rootPath)
+
+                // Only migrate if project is in internal storage
+                if (projectDir.absolutePath.startsWith(internalDir.absolutePath)) {
+                    val newProjectDir = File(externalDir, project.id)
+
+                    // Copy project files to external storage
+                    if (projectDir.exists() && projectDir.isDirectory) {
+                        projectDir.copyRecursively(newProjectDir, overwrite = true)
+
+                        // Update the database with new path
+                        projectDao.updateRootPath(project.id, newProjectDir.absolutePath)
+
+                        // Delete the old directory
+                        projectDir.deleteRecursively()
+
+                        migratedCount++
+                    }
+                }
+            }
+
+            Result.success(migratedCount)
+        } catch (e: Exception) {
+            Result.failure(StorageMigrationException("Migration failed: ${e.message}"))
+        }
+    }
 
     fun getAllProjects(): Flow<List<Project>> {
         return projectDao.getAllProjects().map { entities ->
@@ -709,3 +814,4 @@ class FileDeletionException(path: String) : Exception("Failed to delete: $path")
 class FileRenameException(oldPath: String, newPath: String) : Exception("Failed to rename $oldPath to $newPath")
 class FolderCreationException(path: String) : Exception("Failed to create folder: $path")
 class PatchNotFoundException(path: String, content: String) : Exception("Content not found in $path: ${content.take(50)}...")
+class StorageMigrationException(message: String) : Exception(message)

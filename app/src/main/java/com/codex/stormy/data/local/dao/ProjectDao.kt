@@ -50,4 +50,10 @@ interface ProjectDao {
 
     @Query("UPDATE projects SET lastUsedModelId = :modelId WHERE id = :projectId")
     suspend fun updateLastUsedModelId(projectId: String, modelId: String?)
+
+    @Query("SELECT * FROM projects ORDER BY lastOpenedAt DESC")
+    suspend fun getAllProjectsSync(): List<ProjectEntity>
+
+    @Query("UPDATE projects SET rootPath = :newPath WHERE id = :projectId")
+    suspend fun updateRootPath(projectId: String, newPath: String)
 }

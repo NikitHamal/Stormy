@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.ModelTraining
@@ -183,15 +182,8 @@ fun SettingsScreen(
                 SettingsNavItem(
                     icon = Icons.Outlined.Memory,
                     title = "Memories",
-                    subtitle = "AI conversation memory",
+                    subtitle = "AI agent learnings & context",
                     onClick = onNavigateToMemories
-                )
-
-                // Free API info (DeepInfra doesn't require API key)
-                SettingsInfoItem(
-                    icon = Icons.Outlined.Key,
-                    title = "API",
-                    value = "Free (DeepInfra)"
                 )
             }
 

@@ -274,6 +274,7 @@ class GitRepository(
 
     /**
      * Unstage files
+     * Handles LockFailedException by cleaning up stale lock files and retrying
      */
     suspend fun unstage(paths: List<String>): GitOperationResult<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -281,13 +282,42 @@ class GitRepository(
             paths.forEach { resetCommand.addPath(it) }
             resetCommand.call()
             GitOperationResult.Success(Unit, "Files unstaged")
+        } catch (e: JGitInternalException) {
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                // Retry once after cleaning up lock files
+                try {
+                    val retryCommand = git?.reset() ?: return@withContext GitOperationResult.Error("Repository not opened")
+                    paths.forEach { retryCommand.addPath(it) }
+                    retryCommand.call()
+                    GitOperationResult.Success(Unit, "Files unstaged")
+                } catch (retryError: Exception) {
+                    GitOperationResult.Error("Failed to unstage files after lock cleanup: ${retryError.message}", retryError)
+                }
+            } else {
+                GitOperationResult.Error("Failed to unstage files: ${e.message}", e)
+            }
         } catch (e: GitAPIException) {
-            GitOperationResult.Error("Failed to unstage files: ${e.message}", e)
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                // Retry once after cleaning up lock files
+                try {
+                    val retryCommand = git?.reset() ?: return@withContext GitOperationResult.Error("Repository not opened")
+                    paths.forEach { retryCommand.addPath(it) }
+                    retryCommand.call()
+                    GitOperationResult.Success(Unit, "Files unstaged")
+                } catch (retryError: Exception) {
+                    GitOperationResult.Error("Failed to unstage files after lock cleanup: ${retryError.message}", retryError)
+                }
+            } else {
+                GitOperationResult.Error("Failed to unstage files: ${e.message}", e)
+            }
         }
     }
 
     /**
      * Discard changes to files
+     * Handles LockFailedException by cleaning up stale lock files and retrying
      */
     suspend fun discardChanges(paths: List<String>): GitOperationResult<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -295,63 +325,208 @@ class GitRepository(
             paths.forEach { checkoutCommand.addPath(it) }
             checkoutCommand.call()
             GitOperationResult.Success(Unit, "Changes discarded")
+        } catch (e: JGitInternalException) {
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                try {
+                    val retryCommand = git?.checkout() ?: return@withContext GitOperationResult.Error("Repository not opened")
+                    paths.forEach { retryCommand.addPath(it) }
+                    retryCommand.call()
+                    GitOperationResult.Success(Unit, "Changes discarded")
+                } catch (retryError: Exception) {
+                    GitOperationResult.Error("Failed to discard changes after lock cleanup: ${retryError.message}", retryError)
+                }
+            } else {
+                GitOperationResult.Error("Failed to discard changes: ${e.message}", e)
+            }
         } catch (e: GitAPIException) {
-            GitOperationResult.Error("Failed to discard changes: ${e.message}", e)
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                try {
+                    val retryCommand = git?.checkout() ?: return@withContext GitOperationResult.Error("Repository not opened")
+                    paths.forEach { retryCommand.addPath(it) }
+                    retryCommand.call()
+                    GitOperationResult.Success(Unit, "Changes discarded")
+                } catch (retryError: Exception) {
+                    GitOperationResult.Error("Failed to discard changes after lock cleanup: ${retryError.message}", retryError)
+                }
+            } else {
+                GitOperationResult.Error("Failed to discard changes: ${e.message}", e)
+            }
         }
     }
 
     /**
      * Create a commit
+     * Handles LockFailedException by cleaning up stale lock files and retrying
      */
     suspend fun commit(options: GitCommitOptions): GitOperationResult<GitCommit> = withContext(Dispatchers.IO) {
-        try {
-            val commitCommand = git?.commit()
-                ?.setMessage(options.message)
-                ?.setAmend(options.amend)
-                ?.setAllowEmpty(options.allowEmpty)
-                ?: return@withContext GitOperationResult.Error("Repository not opened")
-
-            options.authorName?.let { name ->
-                options.authorEmail?.let { email ->
-                    commitCommand.setAuthor(name, email)
+        fun createCommitCommand() = git?.commit()
+            ?.setMessage(options.message)
+            ?.setAmend(options.amend)
+            ?.setAllowEmpty(options.allowEmpty)
+            ?.also { cmd ->
+                options.authorName?.let { name ->
+                    options.authorEmail?.let { email ->
+                        cmd.setAuthor(name, email)
+                    }
                 }
             }
+
+        try {
+            val commitCommand = createCommitCommand()
+                ?: return@withContext GitOperationResult.Error("Repository not opened")
 
             val commit = commitCommand.call()
             GitOperationResult.Success(
                 commit.toGitCommit(),
                 "Committed: ${commit.shortMessage}"
             )
+        } catch (e: JGitInternalException) {
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                try {
+                    val retryCommand = createCommitCommand()
+                        ?: return@withContext GitOperationResult.Error("Repository not opened")
+                    val commit = retryCommand.call()
+                    GitOperationResult.Success(
+                        commit.toGitCommit(),
+                        "Committed: ${commit.shortMessage}"
+                    )
+                } catch (retryError: Exception) {
+                    GitOperationResult.Error("Failed to commit after lock cleanup: ${retryError.message}", retryError)
+                }
+            } else {
+                GitOperationResult.Error("Failed to commit: ${e.message}", e)
+            }
         } catch (e: GitAPIException) {
-            GitOperationResult.Error("Failed to commit: ${e.message}", e)
+            if (e.cause is LockFailedException) {
+                handleLockFileError()
+                try {
+                    val retryCommand = createCommitCommand()
+                        ?: return@withContext GitOperationResult.Error("Repository not opened")
+                    val commit = retryCommand.call()
+                    GitOperationResult.Success(
+                        commit.toGitCommit(),
+                        "Committed: ${commit.shortMessage}"
+                    )
+                } catch (retryError: Exception) {
+                    GitOperationResult.Error("Failed to commit after lock cleanup: ${retryError.message}", retryError)
+                }
+            } else {
+                GitOperationResult.Error("Failed to commit: ${e.message}", e)
+            }
         }
     }
 
     /**
      * Push to remote
+     * Validates push results to ensure refs were actually updated
      */
     suspend fun push(
         options: GitPushOptions,
         progressCallback: GitProgressCallback? = null
     ): GitOperationResult<Unit> = withContext(Dispatchers.IO) {
         try {
-            val pushCommand = git?.push()
-                ?.setRemote(options.remote)
-                ?.setForce(options.force)
-                ?: return@withContext GitOperationResult.Error("Repository not opened")
+            val gitInstance = git ?: return@withContext GitOperationResult.Error("Repository not opened")
+            val repo = repository ?: return@withContext GitOperationResult.Error("Repository not opened")
 
-            if (options.setUpstream && options.branch != null) {
+            val pushCommand = gitInstance.push()
+                .setRemote(options.remote)
+                .setForce(options.force)
+
+            // If branch is specified, add it as a refspec
+            if (options.branch != null) {
                 pushCommand.add(options.branch)
+            } else {
+                // Push current branch by default
+                val currentBranch = repo.branch
+                if (currentBranch != null) {
+                    pushCommand.add("refs/heads/$currentBranch:refs/heads/$currentBranch")
+                }
             }
 
+            // Set credentials if provided
             options.credentials?.let {
                 pushCommand.setCredentialsProvider(createCredentialsProvider(it))
             }
 
             pushCommand.setProgressMonitor(JGitProgressMonitor(progressCallback))
-            pushCommand.call()
+
+            val results = pushCommand.call()
+
+            // Validate push results - check if any refs were actually updated
+            var pushedSuccessfully = false
+            var rejectedMessage: String? = null
+
+            for (result in results) {
+                for (update in result.remoteUpdates) {
+                    when (update.status) {
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.OK,
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.UP_TO_DATE -> {
+                            pushedSuccessfully = true
+                        }
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD -> {
+                            rejectedMessage = "Push rejected: remote has changes you don't have locally. Pull first."
+                        }
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_NODELETE -> {
+                            rejectedMessage = "Push rejected: cannot delete remote ref"
+                        }
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED -> {
+                            rejectedMessage = "Push rejected: remote ref was updated by another push"
+                        }
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.REJECTED_OTHER_REASON -> {
+                            rejectedMessage = "Push rejected: ${update.message ?: "unknown reason"}"
+                        }
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.NON_EXISTING -> {
+                            rejectedMessage = "Push failed: remote ref does not exist"
+                        }
+                        org.eclipse.jgit.transport.RemoteRefUpdate.Status.NOT_ATTEMPTED -> {
+                            // This can happen if credentials are missing
+                            if (options.credentials == null) {
+                                rejectedMessage = "Push not attempted: credentials may be required"
+                            }
+                        }
+                        else -> {
+                            // Handle any other status
+                        }
+                    }
+                }
+            }
+
+            if (rejectedMessage != null) {
+                return@withContext GitOperationResult.Error(rejectedMessage)
+            }
+
+            if (!pushedSuccessfully && results.isNotEmpty()) {
+                // Check for authentication issues
+                val firstResult = results.firstOrNull()
+                val messages = firstResult?.messages
+                if (messages != null && messages.contains("authentication", ignoreCase = true)) {
+                    return@withContext GitOperationResult.Error("Push failed: authentication required. Please configure Git credentials in Settings.")
+                }
+                return@withContext GitOperationResult.Error("Push may not have completed. Please verify your remote repository.")
+            }
 
             GitOperationResult.Success(Unit, "Pushed successfully")
+        } catch (e: org.eclipse.jgit.api.errors.TransportException) {
+            // Handle transport/authentication errors specifically
+            val message = when {
+                e.message?.contains("not authorized", ignoreCase = true) == true ||
+                e.message?.contains("authentication", ignoreCase = true) == true ||
+                e.message?.contains("401", ignoreCase = true) == true -> {
+                    "Push failed: authentication required. Please configure Git credentials in Settings."
+                }
+                e.message?.contains("not found", ignoreCase = true) == true ||
+                e.message?.contains("404", ignoreCase = true) == true -> {
+                    "Push failed: remote repository not found. Please verify the remote URL."
+                }
+                e.message?.contains("timeout", ignoreCase = true) == true -> {
+                    "Push failed: connection timed out. Please check your network connection."
+                }
+                else -> "Failed to push: ${e.message}"
+            }
+            GitOperationResult.Error(message, e)
         } catch (e: GitAPIException) {
             GitOperationResult.Error("Failed to push: ${e.message}", e)
         }

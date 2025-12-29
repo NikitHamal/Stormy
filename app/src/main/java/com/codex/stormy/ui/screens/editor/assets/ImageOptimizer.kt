@@ -71,20 +71,35 @@ object ImageOptimizer {
 
     /**
      * Get metadata about an image file without loading the full bitmap
+     * Properly handles cases where the image cannot be decoded (returns null instead of 0x0)
      */
     suspend fun getImageMetadata(context: Context, file: File): ImageMetadata? = withContext(Dispatchers.IO) {
         try {
+            if (!file.exists() || !file.canRead()) {
+                return@withContext null
+            }
+
             val options = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
+
+            // Try to decode the file bounds
             BitmapFactory.decodeFile(file.absolutePath, options)
+
+            // Validate that dimensions were actually retrieved
+            // BitmapFactory returns -1 for width/height when decode fails
+            if (options.outWidth <= 0 || options.outHeight <= 0) {
+                // Try alternative approach using BitmapRegionDecoder for large images
+                // or return null if image cannot be decoded
+                return@withContext tryAlternativeMetadataExtraction(file)
+            }
 
             ImageMetadata(
                 width = options.outWidth,
                 height = options.outHeight,
                 fileSize = file.length(),
-                format = options.outMimeType ?: "unknown",
-                hasAlpha = options.outConfig == Bitmap.Config.ARGB_8888
+                format = options.outMimeType ?: getMimeTypeFromExtension(file.extension),
+                hasAlpha = determineHasAlpha(options.outMimeType, file.extension)
             )
         } catch (e: Exception) {
             null
@@ -92,7 +107,87 @@ object ImageOptimizer {
     }
 
     /**
+     * Try alternative methods to extract image metadata
+     * Useful for large images or formats that BitmapFactory.decodeFile doesn't handle well
+     */
+    private fun tryAlternativeMetadataExtraction(file: File): ImageMetadata? {
+        return try {
+            // Try using ExifInterface for JPEG images
+            if (file.extension.lowercase() in listOf("jpg", "jpeg")) {
+                val exif = android.media.ExifInterface(file.absolutePath)
+                val width = exif.getAttributeInt(android.media.ExifInterface.TAG_IMAGE_WIDTH, 0)
+                val height = exif.getAttributeInt(android.media.ExifInterface.TAG_IMAGE_LENGTH, 0)
+
+                if (width > 0 && height > 0) {
+                    return ImageMetadata(
+                        width = width,
+                        height = height,
+                        fileSize = file.length(),
+                        format = "image/jpeg",
+                        hasAlpha = false
+                    )
+                }
+            }
+
+            // Try using BitmapRegionDecoder for very large images
+            try {
+                val decoder = android.graphics.BitmapRegionDecoder.newInstance(
+                    file.absolutePath,
+                    false
+                )
+                if (decoder != null) {
+                    val width = decoder.width
+                    val height = decoder.height
+                    decoder.recycle()
+
+                    if (width > 0 && height > 0) {
+                        return ImageMetadata(
+                            width = width,
+                            height = height,
+                            fileSize = file.length(),
+                            format = getMimeTypeFromExtension(file.extension),
+                            hasAlpha = determineHasAlpha(null, file.extension)
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                // BitmapRegionDecoder doesn't support all formats
+            }
+
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Get MIME type from file extension as fallback
+     */
+    private fun getMimeTypeFromExtension(extension: String): String {
+        return when (extension.lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "ico" -> "image/x-icon"
+            "svg" -> "image/svg+xml"
+            "heic", "heif" -> "image/heif"
+            else -> "image/unknown"
+        }
+    }
+
+    /**
+     * Determine if image format supports alpha channel
+     */
+    private fun determineHasAlpha(mimeType: String?, extension: String): Boolean {
+        val format = mimeType?.lowercase() ?: getMimeTypeFromExtension(extension).lowercase()
+        return format in listOf("image/png", "image/webp", "image/gif")
+    }
+
+    /**
      * Get metadata about an image from a content URI
+     * Properly validates that dimensions were successfully retrieved
      */
     suspend fun getImageMetadata(context: Context, uri: Uri): ImageMetadata? = withContext(Dispatchers.IO) {
         try {
@@ -102,16 +197,26 @@ object ImageOptimizer {
                 }
                 BitmapFactory.decodeStream(inputStream, null, options)
 
+                // Validate that dimensions were actually retrieved
+                if (options.outWidth <= 0 || options.outHeight <= 0) {
+                    return@withContext null
+                }
+
                 val fileSize = context.contentResolver.openInputStream(uri)?.use {
                     it.available().toLong()
                 } ?: 0L
+
+                // Get MIME type from content resolver as fallback
+                val mimeType = options.outMimeType
+                    ?: context.contentResolver.getType(uri)
+                    ?: "unknown"
 
                 ImageMetadata(
                     width = options.outWidth,
                     height = options.outHeight,
                     fileSize = fileSize,
-                    format = options.outMimeType ?: "unknown",
-                    hasAlpha = options.outConfig == Bitmap.Config.ARGB_8888
+                    format = mimeType,
+                    hasAlpha = determineHasAlpha(mimeType, "")
                 )
             }
         } catch (e: Exception) {
