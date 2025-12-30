@@ -418,51 +418,54 @@ class EmbeddedDevServer(
         // Add necessary runtime scripts based on framework type
         val runtimeScripts = when (frameworkType) {
             FrameworkType.REACT, FrameworkType.NEXTJS -> """
-                |    <!-- React Runtime for Preview -->
-                |    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.development.js"></script>
-                |    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js"></script>
-                |    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-                |    <script>
-                |      // Enable Babel to transform JSX in script tags
-                |      Babel.registerPreset('jsx', {
-                |        presets: [
-                |          [Babel.availablePresets['react'], { runtime: 'classic' }]
-                |        ]
-                |      });
-                |    </script>
+                |    <!-- Babel for JSX -->
+                |    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
             """.trimMargin()
-            FrameworkType.VUE -> """
-                |    <!-- Vue Runtime for Preview -->
-                |    <script crossorigin src="https://unpkg.com/vue@3.4.21/dist/vue.global.js"></script>
-            """.trimMargin()
-            FrameworkType.SVELTE -> """
-                |    <!-- Svelte projects are compiled to vanilla JS by the server -->
-            """.trimMargin()
+            FrameworkType.VUE -> ""
+            FrameworkType.SVELTE -> ""
             else -> ""
         }
 
-        // Insert runtime scripts before </head> (using pre-compiled regex)
-        if (runtimeScripts.isNotEmpty() && result.contains("</head>", ignoreCase = true)) {
-            result = result.replace(HEAD_CLOSE_REGEX, "$runtimeScripts\n</head>")
+        // Add importmap for dependency resolution
+        val importMap = """
+            |    <script type="importmap">
+            |    {
+            |      "imports": {
+            |        "react": "https://esm.sh/react@18.2.0",
+            |        "react-dom": "https://esm.sh/react-dom@18.2.0",
+            |        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            |        "vue": "https://esm.sh/vue@3.4.21",
+            |        "next/head": "https://esm.sh/next@14/head",
+            |        "next/link": "https://esm.sh/next@14/link",
+            |        "next/image": "https://esm.sh/next@14/image",
+            |        "next/router": "https://esm.sh/next@14/router"
+            |      }
+            |    }
+            |    </script>
+        """.trimMargin()
+
+        // Insert runtime scripts and importmap before </head>
+        if (result.contains("</head>", ignoreCase = true)) {
+            result = result.replace(HEAD_CLOSE_REGEX, "$importMap\n$runtimeScripts\n</head>")
         }
 
         // Transform module script tags for JSX files to use Babel (using pre-compiled regex)
         if (frameworkType == FrameworkType.REACT || frameworkType == FrameworkType.NEXTJS) {
-            // Change <script type="module" src="/src/main.jsx"> to <script type="text/babel" data-type="module" src="/src/main.jsx">
+            // Change <script type="module" src="/src/main.jsx"> to <script type="text/babel" data-type="module" data-presets="jsx" src="/src/main.jsx">
             result = result.replace(MODULE_SCRIPT_JSX_REGEX) { match ->
                 val src = match.groupValues[1]
-                """<script type="text/babel" data-presets="jsx" src="$src">"""
+                """<script type="text/babel" data-type="module" data-presets="jsx" src="$src">"""
             }
         }
 
         // For Vue, we need to transform the main.js import to not use ES modules
         // since Vue 3 global build doesn't support ES module imports (using pre-compiled regex)
+        // Ensure Vue main entry point preserves type="module" if it uses Vite-like structure
         if (frameworkType == FrameworkType.VUE) {
-            // Vue global build exposes Vue on window, so we can inline a simple mount script
             if (result.contains("src=\"/src/main.js\"", ignoreCase = true) ||
                 result.contains("src='/src/main.js'", ignoreCase = true)) {
-                // Replace the module script with inline Vue mounting code
-                result = result.replace(MODULE_SCRIPT_VUE_REGEX, """<script src="/src/main.js"></script>""")
+                // Keep it as a module so import statements work
+                result = result.replace(MODULE_SCRIPT_VUE_REGEX, """<script type="module" src="/src/main.js"></script>""")
             }
         }
 
@@ -528,81 +531,15 @@ class EmbeddedDevServer(
     private fun transformVueJs(file: File, content: String): String {
         var transformed = content
 
-        // Check if this is a main entry file that uses createApp
-        val isMainFile = content.contains("createApp") && content.contains("mount")
-
-        if (isMainFile) {
-            // Collect all Vue component imports first
-            val componentImports = mutableListOf<Pair<String, String>>()
-            VUE_COMPONENT_IMPORT_REGEX.findAll(content).forEach { match ->
-                componentImports.add(match.groupValues[1] to match.groupValues[2])
-            }
-
-            // For main.js, convert to use global Vue object
-            // Remove import statements and use global Vue
-            transformed = transformed
-                .replace(VUE_CREATE_APP_REGEX, "const { createApp } = Vue;")
-                .replace(VUE_CREATE_APP_IMPORT_ALT_REGEX, "const { createApp } = Vue;")
-
-            // Remove the Vue component import statements (they'll be loaded via fetch)
-            transformed = transformed.replace(VUE_COMPONENT_IMPORT_REGEX, "")
-
-            // Build component loader code using fetch (works with Vue global build)
-            if (componentImports.isNotEmpty()) {
-                val loaderCode = buildString {
-                    appendLine("// Vue component loader (fetch-based for global build compatibility)")
-                    appendLine("async function __loadVueComponent(url) {")
-                    appendLine("  const response = await fetch(url);")
-                    appendLine("  if (!response.ok) throw new Error('Failed to load: ' + url);")
-                    appendLine("  const code = await response.text();")
-                    appendLine("  const blob = new Blob([code], { type: 'application/javascript' });")
-                    appendLine("  const blobUrl = URL.createObjectURL(blob);")
-                    appendLine("  try {")
-                    appendLine("    const module = await import(blobUrl);")
-                    appendLine("    return module.default;")
-                    appendLine("  } finally {")
-                    appendLine("    URL.revokeObjectURL(blobUrl);")
-                    appendLine("  }")
-                    appendLine("}")
-                    appendLine()
-                    appendLine("(async function() {")
-                    appendLine("  try {")
-
-                    // Load each component
-                    componentImports.forEach { (name, path) ->
-                        appendLine("    const $name = await __loadVueComponent('$path');")
-                    }
-
-                    // Add the rest of the main.js code (indented)
-                    appendLine()
-                    transformed.lines().forEach { line ->
-                        if (line.isNotBlank()) {
-                            appendLine("    $line")
-                        } else {
-                            appendLine()
-                        }
-                    }
-
-                    appendLine("  } catch (e) {")
-                    appendLine("    console.error('Vue app initialization error:', e);")
-                    appendLine("    document.body.innerHTML = '<div style=\"color:red;padding:20px;\">Error: ' + e.message + '</div>';")
-                    appendLine("  }")
-                    appendLine("})();")
-                }
-
-                return loaderCode
-            }
-        } else {
-            // For other JS files, just transform Vue imports to CDN
-            transformed = transformed
-                .replace(VUE_IMPORT_REGEX, """from "https://esm.sh/vue@3.4.0"""")
-
-            // Transform .vue imports - they need to be served as JS
-            transformed = transformed.replace(VUE_FILE_IMPORT_REGEX) { match ->
+        // Just transform bare imports and .vue imports to work with ES modules
+        transformed = transformed
+            .replace(VUE_IMPORT_REGEX, """from "vue"""")
+            .replace(VUE_CREATE_APP_REGEX, """import { createApp } from "vue";""")
+            .replace(VUE_CREATE_APP_IMPORT_ALT_REGEX, """import { createApp } from "vue";""")
+            .replace(VUE_FILE_IMPORT_REGEX) { match ->
                 val path = match.groupValues[1]
                 """from "$path.vue""""
             }
-        }
 
         // Transform CSS imports to dynamic injection
         transformed = transformCssImports(transformed, file)
@@ -685,10 +622,10 @@ class EmbeddedDevServer(
         // Handle: import { useState, useEffect } from 'react'
         // Handle: import React, { useState } from 'react'
         transformed = transformed
-            .replace(REACT_IMPORT_REGEX, """from "https://esm.sh/react@18.2.0"""")
-            .replace(REACT_DOM_IMPORT_REGEX, """from "https://esm.sh/react-dom@18.2.0"""")
-            .replace(REACT_DOM_CLIENT_REGEX, """from "https://esm.sh/react-dom@18.2.0/client"""")
-            .replace(REACT_ROUTER_REGEX, """from "https://esm.sh/react-router-dom@6"""")
+            .replace(REACT_IMPORT_REGEX, """from "react"""")
+            .replace(REACT_DOM_IMPORT_REGEX, """from "react-dom"""")
+            .replace(REACT_DOM_CLIENT_REGEX, """from "react-dom/client"""")
+            .replace(REACT_ROUTER_REGEX, """from "react-router-dom"""")
 
         // Transform relative .jsx/.tsx imports to .js for browser compatibility
         // import App from './App.jsx' -> import App from './App.js'
@@ -777,9 +714,8 @@ class EmbeddedDevServer(
                 result.contains(REACT_NAMED_IMPORT_DETECT_REGEX)
 
         if (!hasReactImport) {
-            // Add React import at the top for JSX runtime
-            result = """import React from "https://esm.sh/react@18.2.0";
-$result"""
+            // Add React import at the top for JSX runtime if needed
+            // But with esm.sh and importmap, it's safer to let the user or Babel handle it
         }
 
         // For browser preview, we'll use a simple approach:
@@ -914,7 +850,7 @@ $result"""
             // For <script setup>, we need to wrap the code in a setup function
             // Extract reactive declarations and transform them (using pre-compiled regex)
             val setupCode = scriptSetup!!
-                .replace(VUE_IMPORT_REGEX, """from "https://esm.sh/vue@3.4.0"""")
+                .replace(VUE_IMPORT_REGEX, """from "vue"""")
                 .replace(VUE_IMPORT_ALL_REGEX, "")
 
             // Extract variable names declared with const/let for return statement (using pre-compiled regex)
@@ -927,6 +863,7 @@ $result"""
 
             """
                 |// Vue SFC compiled for browser preview (script setup)
+                |import * as Vue from 'vue';
                 |const { ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
                 |
                 |${if (escapedStyle.isNotEmpty()) """
@@ -952,11 +889,12 @@ $result"""
         } else {
             // Options API - transform the script directly (using pre-compiled regex)
             val transformedScript = script
-                .replace(VUE_IMPORT_REGEX, """from "https://esm.sh/vue@3.4.0"""")
+                .replace(VUE_IMPORT_REGEX, """from "vue"""")
                 .replace(VUE_EXPORT_DEFAULT_REGEX, "const componentOptions = {")
 
             """
                 |// Vue SFC compiled for browser preview (Options API)
+                |import * as Vue from 'vue';
                 |const { ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
                 |
                 |${if (escapedStyle.isNotEmpty()) """
