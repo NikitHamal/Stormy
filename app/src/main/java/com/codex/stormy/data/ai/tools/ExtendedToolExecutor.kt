@@ -936,27 +936,27 @@ class ExtendedToolExecutor(
         |
         |@router.get("/", response_model=List[${name}Response])
         |async def get_all_${name.lowercase()}s():
-        |    """Get all ${name}s"""
+        |    ${'\"'}${'\"'}${'\"'}Get all ${name}s${'\"'}${'\"'}${'\"'}
         |    return []
         |
         |@router.get("/{item_id}", response_model=${name}Response)
         |async def get_${name.lowercase()}(item_id: str):
-        |    """Get a single $name by ID"""
+        |    ${'\"'}${'\"'}${'\"'}Get a single $name by ID${'\"'}${'\"'}${'\"'}
         |    raise HTTPException(status_code=404, detail="$name not found")
         |
         |@router.post("/", response_model=${name}Response, status_code=201)
         |async def create_${name.lowercase()}(item: ${name}Create):
-        |    """Create a new $name"""
+        |    ${'\"'}${'\"'}${'\"'}Create a new $name${'\"'}${'\"'}${'\"'}
         |    return {"id": "new-id", **item.dict()}
         |
         |@router.put("/{item_id}", response_model=${name}Response)
         |async def update_${name.lowercase()}(item_id: str, item: ${name}Create):
-        |    """Update a $name"""
+        |    ${'\"'}${'\"'}${'\"'}Update a $name${'\"'}${'\"'}${'\"'}
         |    return {"id": item_id, **item.dict()}
         |
         |@router.delete("/{item_id}", status_code=204)
         |async def delete_${name.lowercase()}(item_id: str):
-        |    """Delete a $name"""
+        |    ${'\"'}${'\"'}${'\"'}Delete a $name${'\"'}${'\"'}${'\"'}
         |    return None
     """.trimMargin()
 
