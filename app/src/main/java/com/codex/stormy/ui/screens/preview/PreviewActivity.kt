@@ -2109,8 +2109,14 @@ private fun WebViewPreview(
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
+                    databaseEnabled = true
                     allowFileAccess = true
                     allowContentAccess = true
+                    allowFileAccessFromFileURLs = true
+                    allowUniversalAccessFromFileURLs = true
+                    javaScriptCanOpenWindowsAutomatically = true
+                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    
                     loadWithOverviewMode = false // Mobile mode default
                     useWideViewPort = false // Mobile mode default
                     builtInZoomControls = true
@@ -2120,7 +2126,7 @@ private fun WebViewPreview(
                     // Enable modern web features
                     mediaPlaybackRequiresUserGesture = false
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        safeBrowsingEnabled = true
+                        safeBrowsingEnabled = false
                     }
                 }
 
@@ -2146,6 +2152,13 @@ private fun WebViewPreview(
                 }
 
                 onWebViewCreated(this)
+            }
+        },
+        update = { view ->
+            // Update URL when previewUrl changes
+            // This ensures we switch from file:// fallback to http:// once server starts
+            if (previewUrl != null && view.url != previewUrl) {
+                view.loadUrl(previewUrl)
             }
         },
         modifier = modifier
