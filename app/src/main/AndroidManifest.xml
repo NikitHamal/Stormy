@@ -25,6 +25,7 @@
         android:theme="@style/Theme.CodeX"
         android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="true"
         tools:targetApi="tiramisu">
 
         <activity
