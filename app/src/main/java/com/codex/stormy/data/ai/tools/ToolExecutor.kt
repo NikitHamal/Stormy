@@ -74,6 +74,10 @@ class ToolExecutor(
     private val gitManager: GitManager? = null,
     private val semanticMemorySystem: SemanticMemorySystem? = null
 ) {
+    companion object {
+        private const val TAG = "ToolExecutor"
+    }
+
     // JSON parser with lenient settings for more robust parsing
     private val json = Json {
         ignoreUnknownKeys = true
@@ -94,6 +98,9 @@ class ToolExecutor(
 
     // Advanced tool executor for code analysis, batch ops, etc.
     private val advancedToolExecutor = AdvancedToolExecutor(projectRepository)
+
+    // Flag to enable/disable argument validation (can be toggled for performance)
+    var enableArgumentValidation: Boolean = true
 
     /**
      * Set the current project path for Git operations
@@ -124,6 +131,23 @@ class ToolExecutor(
                     output = "",
                     error = "Failed to parse tool arguments. The AI sent malformed JSON."
                 )
+
+            // Validate arguments if validation is enabled
+            if (enableArgumentValidation) {
+                val validationResult = ToolArgumentValidator.validate(
+                    toolName = toolCall.function.name,
+                    args = arguments,
+                    projectRoot = currentProjectPath
+                )
+                if (!validationResult.isValid) {
+                    android.util.Log.w(TAG, "Tool argument validation failed for ${toolCall.function.name}: ${validationResult.errors}")
+                    return ToolResult(
+                        success = false,
+                        output = "",
+                        error = "Invalid arguments: ${validationResult.errors.joinToString("; ")}"
+                    )
+                }
+            }
 
             when (toolCall.function.name) {
                 // File operations
