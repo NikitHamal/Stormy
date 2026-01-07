@@ -594,11 +594,6 @@ private fun ContextStatsTooltip(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Text(
-            text = "Click to view context",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline
-        )
     }
 }
 
@@ -814,7 +809,8 @@ private fun ChatInput(
                         androidx.compose.ui.window.Popup(
                             alignment = Alignment.TopEnd,
                             offset = androidx.compose.ui.unit.IntOffset(0, -150),
-                            onDismissRequest = { showContextStats = false }
+                            onDismissRequest = { showContextStats = false },
+                            properties = androidx.compose.ui.window.PopupProperties(focusable = true)
                         ) {
                              androidx.compose.animation.AnimatedVisibility(
                                  visible = showContextStats,
@@ -830,26 +826,13 @@ private fun ChatInput(
                         }
                     }
 
-                    // Image Input (Placeholder)
-                    IconButton(
-                        onClick = { /* TODO */ },
-                        modifier = Modifier.size(32.dp),
-                         colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    ) {
-                         Icon(
-                            painter = androidx.compose.ui.res.painterResource(id = android.R.drawable.ic_menu_gallery),
-                            contentDescription = "Image",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+
 
 
                     // Stop/Send Button
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(40.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
                                 if (isProcessing) MaterialTheme.colorScheme.errorContainer 

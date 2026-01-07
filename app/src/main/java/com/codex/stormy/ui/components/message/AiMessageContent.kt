@@ -163,9 +163,10 @@ private data class ContentSegment(
 /**
  * Splits content into TEXT and TOOL_CALL segments.
  *
- * Accepts:
- *  🔧 **Tool Name** ✅ (optional trailing text)
- *  OR
+ * Accepts multiple formats:
+ *  🔧 **Tool Name** ✅ (optional trailing text) - markdown bold
+ *  🔧 Tool Name ✅ (optional trailing text) - plain text
+ *  OR with emoji on newline:
  *  🔧 **Tool Name**
  *  ✅ (optional trailing text)
  */
@@ -245,8 +246,9 @@ private fun extractOutput(content: String, start: Int, end: Int): String {
 }
 
 private val TOOL_HEADER_REGEX = Regex(
-    // Start-of-line: 🔧 **Tool** then whitespace/newline, emoji, optional trailing text, then newline/end.
-    pattern = """(?m)^\s*🔧\s*\*\*([^*]+)\*\*\s*(?:\r?\n|\s+)(✅|❌|⏳)\b[^\r\n]*\r?\n?""",
+    // Start-of-line: 🔧 optionally **Tool** or just Tool, then whitespace/newline, emoji, optional trailing text.
+    // Supports both markdown bold format (🔧 **Tool Name** ✅) and plain text (🔧 Tool Name ✅)
+    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)\b[^\r\n]*\r?\n?""",
     options = setOf(RegexOption.MULTILINE)
 )
 
