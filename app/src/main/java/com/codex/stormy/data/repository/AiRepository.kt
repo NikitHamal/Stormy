@@ -342,6 +342,7 @@ class AiRepository(
             7. **Create todos for complex tasks**: Break down large tasks into manageable steps
             8. **Verify your work**: Read files after changes to confirm they're correct
             9. **Finish explicitly**: Always call `finish_task` when work is complete
+            10. **CRITICAL - File content must be plain text**: When using write_file, append_to_file, prepend_to_file, or patch_file, the 'content' argument MUST be a raw string containing the actual file contents. NEVER structure file content as JSON objects or arrays. For example, CSS files should be written as plain CSS text (":root { --primary: #603813; }"), NOT as JSON like [{"primary": 603813}].
         """.trimIndent()
 
         private val WORKFLOW_INSTRUCTIONS = """

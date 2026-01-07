@@ -75,11 +75,11 @@ object StormyTools {
         type = "function",
         function = FunctionDefinition(
             name = "write_file",
-            description = "Write content to a file. This will create the file if it doesn't exist or overwrite it if it does. Use this to create or update code files.",
+            description = "Write content to a file. This will create the file if it doesn't exist or overwrite it if it does. Use this to create or update code files. IMPORTANT: The 'content' argument must be a plain text string containing the actual file contents - do NOT structure it as JSON objects or arrays.",
             parameters = createParametersJson(
                 properties = mapOf(
                     "path" to Pair("string", "The relative path to the file from the project root"),
-                    "content" to Pair("string", "The full content to write to the file")
+                    "content" to Pair("string", "The full content to write to the file as a plain text string. For CSS files, this should be valid CSS text like ':root { --primary: #603813; }'. Do NOT pass JSON objects or arrays.")
                 ),
                 required = listOf("path", "content")
             )
@@ -674,10 +674,105 @@ object StormyTools {
 }
 
 /**
- * Helper to extract string argument from tool call
+ * Helper to extract string argument from tool call.
+ * 
+ * Handles malformed JSON where some models (like Qwen3 Coder) incorrectly
+ * serialize file content as JSON arrays/objects instead of plain strings.
+ * For example, CSS like ":root { --primary: #603813; }" may be incorrectly
+ * sent as [{"primary": 603813, ...}]. This function detects this and 
+ * attempts to convert it back to a usable string representation.
  */
 fun JsonObject.getStringArg(key: String): String? {
-    return this[key]?.jsonPrimitive?.content
+    val element = this[key] ?: return null
+    
+    return try {
+        // Primary case: it's a simple string primitive
+        if (element is kotlinx.serialization.json.JsonPrimitive && element.isString) {
+            element.content
+        } else if (element is kotlinx.serialization.json.JsonPrimitive) {
+            // Handle non-string primitives (numbers, booleans) - convert to string
+            element.content
+        } else if (element is kotlinx.serialization.json.JsonArray) {
+            // Model incorrectly serialized content as JSON array
+            // Attempt to reconstruct a usable string from the array
+            android.util.Log.w("ToolDefinitions", "Content for '$key' was incorrectly passed as JSON array, attempting to convert")
+            reconstructContentFromJsonArray(element)
+        } else if (element is kotlinx.serialization.json.JsonObject) {
+            // Model incorrectly serialized content as JSON object
+            android.util.Log.w("ToolDefinitions", "Content for '$key' was incorrectly passed as JSON object, attempting to convert")
+            reconstructContentFromJsonObject(element)
+        } else {
+            element.toString()
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("ToolDefinitions", "Failed to extract string arg '$key': ${e.message}")
+        null
+    }
+}
+
+/**
+ * Attempt to reconstruct file content from a malformed JSON array.
+ * Some models serialize CSS/code as an array of property objects.
+ */
+private fun reconstructContentFromJsonArray(array: kotlinx.serialization.json.JsonArray): String {
+    // If it's empty, return empty string
+    if (array.isEmpty()) return ""
+    
+    // Try to build CSS-like content from array of objects
+    val sb = StringBuilder()
+    
+    for (element in array) {
+        when (element) {
+            is kotlinx.serialization.json.JsonPrimitive -> {
+                sb.append(element.content)
+            }
+            is kotlinx.serialization.json.JsonObject -> {
+                // Convert object properties to CSS-like format
+                sb.append(reconstructContentFromJsonObject(element))
+            }
+            else -> {
+                sb.append(element.toString())
+            }
+        }
+        sb.append("\n")
+    }
+    
+    return sb.toString().trim()
+}
+
+/**
+ * Attempt to reconstruct file content from a malformed JSON object.
+ * Converts object properties to CSS variable format.
+ */
+private fun reconstructContentFromJsonObject(obj: kotlinx.serialization.json.JsonObject): String {
+    val sb = StringBuilder()
+    
+    for ((propKey, propValue) in obj.entries) {
+        val valueStr = when (propValue) {
+            is kotlinx.serialization.json.JsonPrimitive -> propValue.content
+            else -> propValue.toString()
+        }
+        
+        // Check if this looks like a CSS property
+        if (propKey.contains("-") || propKey.startsWith("--")) {
+            // Already looks like CSS variable
+            sb.append("  $propKey: $valueStr;\n")
+        } else {
+            // Convert to CSS variable format
+            val cssVar = "--${propKey.replace("_", "-")}"
+            // Check if value looks like a color (number that could be hex)
+            val formattedValue = if (propValue is kotlinx.serialization.json.JsonPrimitive && 
+                                      propValue.content.all { it.isDigit() } &&
+                                      propValue.content.length >= 6) {
+                "#${propValue.content}"
+            } else {
+                valueStr
+            }
+            sb.append("  $cssVar: $formattedValue;\n")
+        }
+    }
+    
+    return sb.toString()
 }
 
 /**
