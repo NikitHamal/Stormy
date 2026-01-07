@@ -758,7 +758,10 @@ private fun ChatInput(
                         Text(
                             text = currentModel?.name ?: "Select Model",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 120.dp)
                         )
                          Icon(
                             imageVector = Icons.Outlined.ExpandMore,
@@ -806,23 +809,19 @@ private fun ChatInput(
                         }
                         
                         // Tooltip
-                        androidx.compose.ui.window.Popup(
-                            alignment = Alignment.TopEnd,
-                            offset = androidx.compose.ui.unit.IntOffset(0, -150),
-                            onDismissRequest = { showContextStats = false },
-                            properties = androidx.compose.ui.window.PopupProperties(focusable = true)
-                        ) {
-                             androidx.compose.animation.AnimatedVisibility(
-                                 visible = showContextStats,
-                                 enter = fadeIn() + scaleIn(),
-                                 exit = fadeOut() + scaleOut()
-                             ) {
-                                 ContextStatsTooltip(
-                                     usedTokens = usedTokens,
-                                     contextLimit = contextLimit,
-                                     modifier = Modifier.width(200.dp)
-                                 )
-                             }
+                        if (showContextStats) {
+                            androidx.compose.ui.window.Popup(
+                                alignment = Alignment.TopEnd,
+                                offset = androidx.compose.ui.unit.IntOffset(0, -150),
+                                onDismissRequest = { showContextStats = false },
+                                properties = androidx.compose.ui.window.PopupProperties(focusable = true)
+                            ) {
+                                ContextStatsTooltip(
+                                    usedTokens = usedTokens,
+                                    contextLimit = contextLimit,
+                                    modifier = Modifier.width(200.dp)
+                                )
+                            }
                         }
                     }
 
