@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Lock
@@ -268,7 +269,7 @@ fun GitSettingsScreen(
                                     modifier = Modifier.size(24.dp)
                                 ) {
                                     Icon(
-                                        imageVector = androidx.compose.material.icons.outlined.Delete,
+                                        imageVector = Icons.Outlined.Delete,
                                         contentDescription = "Remove",
                                         tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(16.dp)
