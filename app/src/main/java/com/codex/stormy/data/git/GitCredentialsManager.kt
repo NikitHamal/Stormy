@@ -308,17 +308,24 @@ class GitCredentialsManager(private val context: Context) {
 
     private fun extractHostFromUrl(url: String): String? {
         return try {
+            val trimmedUrl = url.trim()
             when {
-                url.startsWith("git@") -> {
-                    // SSH format: git@github.com:user/repo.git
-                    url.substringAfter("git@").substringBefore(":")
+                trimmedUrl.startsWith("git@") -> {
+                    // SSH format: git@github.com:user/repo.git or git@github.com:port/user/repo.git
+                    trimmedUrl.substringAfter("git@")
+                        .substringBefore(":")
+                        .substringBefore("/")
+                        .lowercase()
                 }
-                url.startsWith("https://") || url.startsWith("http://") -> {
-                    // HTTPS format: https://github.com/user/repo.git
-                    val withoutProtocol = url.substringAfter("://")
-                    withoutProtocol.substringBefore("/")
+                trimmedUrl.contains("://") -> {
+                    // HTTP/HTTPS or other protocol format
+                    val uri = java.net.URI(trimmedUrl)
+                    uri.host?.lowercase()
                 }
-                else -> null
+                else -> {
+                    // Possibly just a hostname or something else
+                    trimmedUrl.substringBefore("/").substringBefore(":").lowercase().takeIf { it.isNotEmpty() }
+                }
             }
         } catch (e: Exception) {
             null

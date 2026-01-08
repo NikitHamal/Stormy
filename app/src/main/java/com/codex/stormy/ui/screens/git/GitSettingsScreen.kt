@@ -454,10 +454,10 @@ fun GitSettingsScreen(
                                             if (result is com.codex.stormy.data.git.GitOperationResult.Success) {
                                                 // Extract host from URL for saving
                                                 hostToSave = try {
-                                                    val uri = java.net.URI(credHost)
-                                                    uri.host ?: credHost
+                                                    val uri = java.net.URI(credHost.trim())
+                                                    (uri.host ?: credHost.trim()).lowercase()
                                                 } catch (e: Exception) {
-                                                    credHost
+                                                    credHost.trim().lowercase()
                                                 }
                                                 snackbarHostState.showSnackbar("Connection successful!")
                                             } else {
@@ -471,8 +471,9 @@ fun GitSettingsScreen(
                                             credentialsManager.saveDefaultCredentials(credentials)
                                             snackbarHostState.showSnackbar("Default credentials saved")
                                         } else {
-                                            credentialsManager.saveHostCredentials(hostToSave, credentials)
-                                            snackbarHostState.showSnackbar("Credentials saved for $hostToSave")
+                                            val finalHost = hostToSave.trim().lowercase()
+                                            credentialsManager.saveHostCredentials(finalHost, credentials)
+                                            snackbarHostState.showSnackbar("Credentials saved for $finalHost")
                                         }
                                         
                                         credPassword = ""
