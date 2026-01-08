@@ -7,28 +7,40 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
+import com.codex.stormy.utils.Constants
+
 /**
  * Production-grade tool argument validation.
  *
  * Provides comprehensive validation for tool arguments including:
  * - Required argument checking
  * - Type validation
- * - Path security validation
- * - Content length limits
- * - Format validation (URLs, patterns, etc.)
+ * - Path security validation (path traversal, escaping project root)
+ * - Content length limits (prevents memory issues)
+ * - Format validation (URLs, patterns, regex, etc.)
  * - Business logic validation
+ * - Dangerous operation prevention
+ *
+ * All limits are centralized in Constants for consistency.
  */
 object ToolArgumentValidator {
 
     private const val TAG = "ToolArgumentValidator"
 
-    // Maximum sizes for various inputs
-    private const val MAX_PATH_LENGTH = 500
-    private const val MAX_CONTENT_LENGTH = 1_000_000
-    private const val MAX_PATTERN_LENGTH = 1000
+    // Maximum sizes for various inputs - using centralized constants
+    private val MAX_PATH_LENGTH = Constants.Security.MAX_PATH_LENGTH.toInt()
+    private val MAX_CONTENT_LENGTH = Constants.Ai.MAX_MESSAGE_LENGTH
+    private const val MAX_PATTERN_LENGTH = 2000
     private const val MAX_URL_LENGTH = 2000
     private const val MAX_COMMAND_LENGTH = 10_000
     private const val MAX_ARRAY_SIZE = 100
+    private val MAX_FILENAME_LENGTH = Constants.Security.MAX_FILENAME_LENGTH
+
+    // Forbidden characters in paths
+    private val FORBIDDEN_PATH_CHARS = Constants.Security.FORBIDDEN_CHARS
+
+    // Sensitive file patterns that should be handled carefully
+    private val SENSITIVE_PATTERNS = Constants.Security.SENSITIVE_PATTERNS
 
     /**
      * Validation result containing success status and any error messages.
@@ -690,9 +702,30 @@ object ToolArgumentValidator {
             return "Path contains null bytes"
         }
 
+        // Check for forbidden characters
+        FORBIDDEN_PATH_CHARS.forEach { char ->
+            if (path.contains(char)) {
+                return "Path contains forbidden character: $char"
+            }
+        }
+
         val normalized = path.replace("\\", "/")
+
+        // Check for excessive parent directory traversal
         if (normalized.split("/").count { it == ".." } > 3) {
             return "Excessive parent directory references"
+        }
+
+        // Check for path that starts with absolute path indicators
+        if (normalized.startsWith("/") && projectRoot != null) {
+            return "Absolute paths are not allowed"
+        }
+
+        // Validate filename components aren't too long
+        normalized.split("/").forEach { component ->
+            if (component.length > MAX_FILENAME_LENGTH) {
+                return "Path component too long: $component"
+            }
         }
 
         if (projectRoot != null) {
@@ -710,7 +743,47 @@ object ToolArgumentValidator {
             }
         }
 
+        // Warn about sensitive files (but don't block)
+        SENSITIVE_PATTERNS.forEach { pattern ->
+            if (path.lowercase().contains(pattern)) {
+                Log.w(TAG, "Access to potentially sensitive file: $path")
+            }
+        }
+
         return null
+    }
+
+    /**
+     * Sanitize a path by removing dangerous patterns.
+     */
+    private fun sanitizePath(path: String): String {
+        var sanitized = path.trim()
+            .replace("\\", "/")
+            .replace("//", "/")
+
+        // Remove leading slashes
+        while (sanitized.startsWith("/")) {
+            sanitized = sanitized.substring(1)
+        }
+
+        // Resolve . and .. segments
+        val parts = sanitized.split("/").toMutableList()
+        val resolved = mutableListOf<String>()
+
+        for (part in parts) {
+            when (part) {
+                "", "." -> { /* Skip */ }
+                ".." -> {
+                    if (resolved.isNotEmpty()) {
+                        resolved.removeAt(resolved.lastIndex)
+                    }
+                    // Silently drop .. that would escape root
+                }
+                else -> resolved.add(part)
+            }
+        }
+
+        return resolved.joinToString("/")
     }
 
     private fun isValidMemoryKey(key: String): Boolean {

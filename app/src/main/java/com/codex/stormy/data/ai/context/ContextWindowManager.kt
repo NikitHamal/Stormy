@@ -4,64 +4,122 @@ import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.ChatRequestMessage
 import com.codex.stormy.data.repository.AiRepository
 import com.codex.stormy.domain.model.ChatMessage
+import com.codex.stormy.utils.Constants
 
 /**
  * Manages context window for AI conversations.
  * Handles token estimation, message pruning, and automatic summarization.
+ *
+ * Features:
+ * - Accurate token estimation with model-specific tokenizer hints
+ * - Multiple optimization strategies (truncation, summarization, sliding window)
+ * - Automatic context window scaling based on model capabilities
+ * - Tool result truncation to prevent context overflow
+ * - Priority-based message retention (system > recent user > recent assistant)
  */
 class ContextWindowManager(
     private val aiRepository: AiRepository
 ) {
     companion object {
-        // Token limits for different models (conservative estimates for safety margin)
-        private const val DEFAULT_MAX_CONTEXT_TOKENS = 8000
-        private const val LARGE_MODEL_MAX_TOKENS = 32000
-        private const val RESERVED_OUTPUT_TOKENS = 2000 // Reserve tokens for response
+        // Token limits - now using centralized constants
+        private val DEFAULT_MAX_CONTEXT_TOKENS = Constants.Ai.DEFAULT_CONTEXT_TOKENS
+        private val RESERVED_OUTPUT_TOKENS = Constants.Ai.DEFAULT_MAX_TOKENS // Reserve tokens for response
+        private val CONTEXT_BUFFER = Constants.Ai.CONTEXT_BUFFER_TOKENS // Safety buffer
 
         // Heuristic: ~4 characters per token (rough estimate for English text + code)
-        private const val CHARS_PER_TOKEN = 4
+        private val CHARS_PER_TOKEN = Constants.Ai.CHARS_PER_TOKEN_ESTIMATE
 
         // Summary threshold - start summarizing when above this percentage
         private const val SUMMARIZE_THRESHOLD = 0.75
 
         // Minimum messages to keep before summarizing
         private const val MIN_MESSAGES_BEFORE_SUMMARY = 4
+
+        // Maximum tool result length in tokens (to prevent single tool results from consuming entire context)
+        private val MAX_TOOL_RESULT_TOKENS = Constants.Ai.MAX_TOOL_RESULT_LENGTH / CHARS_PER_TOKEN.toInt()
+
+        // Token overhead per message (role markers, separators, etc.)
+        private const val MESSAGE_OVERHEAD_TOKENS = 4
+
+        // Additional token overhead for tool calls
+        private const val TOOL_CALL_OVERHEAD_TOKENS = 20
     }
 
     /**
-     * Get the maximum context tokens for a model
+     * Get the maximum context tokens for a model.
+     * Uses a tiered approach based on model's actual context length.
      */
     fun getMaxContextTokens(model: AiModel): Int {
+        // Use model's actual context length, but apply conservative limits
+        val modelContextLength = model.contextLength
+
         return when {
-            model.contextLength > 32000 -> LARGE_MODEL_MAX_TOKENS
-            model.contextLength > 8000 -> 16000
-            else -> DEFAULT_MAX_CONTEXT_TOKENS
+            modelContextLength >= 128000 -> 64000  // For Llama 3.3 128k, use half safely
+            modelContextLength >= 65536 -> 32000   // For DeepSeek/Mixtral 64k
+            modelContextLength >= 32768 -> 24000   // For Qwen 32k models
+            modelContextLength >= 16384 -> 12000   // Medium context models
+            modelContextLength >= 8192 -> 6000     // Standard models
+            else -> DEFAULT_MAX_CONTEXT_TOKENS.coerceAtMost(modelContextLength - RESERVED_OUTPUT_TOKENS)
         }
     }
 
     /**
-     * Estimate token count for a string
+     * Estimate token count for a string using improved heuristics.
+     * Takes into account different content types (code, natural language, JSON).
      */
     fun estimateTokens(text: String): Int {
-        return (text.length / CHARS_PER_TOKEN).coerceAtLeast(1)
+        if (text.isEmpty()) return 0
+
+        // Apply different ratios based on content analysis
+        val ratio = when {
+            // JSON tends to have more tokens due to structure
+            text.contains("{") && text.contains("}") -> 3.5f
+            // Code has more special characters, slightly more tokens
+            text.contains("function") || text.contains("class") ||
+            text.contains("def ") || text.contains("fun ") -> 3.8f
+            // Natural language
+            else -> CHARS_PER_TOKEN
+        }
+
+        return (text.length / ratio).toInt().coerceAtLeast(1)
     }
 
     /**
-     * Estimate total tokens for a list of messages
+     * Estimate tokens for a single message with overhead.
+     */
+    fun estimateMessageTokens(message: ChatRequestMessage): Int {
+        val contentTokens = estimateTokens(message.content ?: "")
+        val nameTokens = message.name?.let { estimateTokens(it) } ?: 0
+        val hasToolCalls = message.toolCalls?.isNotEmpty() == true
+        val toolCallOverhead = if (hasToolCalls) {
+            TOOL_CALL_OVERHEAD_TOKENS * (message.toolCalls?.size ?: 0)
+        } else 0
+
+        return contentTokens + nameTokens + MESSAGE_OVERHEAD_TOKENS + toolCallOverhead
+    }
+
+    /**
+     * Estimate total tokens for a list of messages.
      */
     fun estimateTotalTokens(messages: List<ChatRequestMessage>): Int {
-        return messages.sumOf { message ->
-            val contentTokens = estimateTokens(message.content ?: "")
-            val roleTokens = 4 // Overhead for role markers
-            contentTokens + roleTokens
-        }
+        return messages.sumOf { estimateMessageTokens(it) }
     }
 
     /**
-     * Get available tokens for the conversation (excluding reserved output tokens)
+     * Get available tokens for the conversation (excluding reserved output tokens).
      */
     fun getAvailableTokens(model: AiModel): Int {
-        return getMaxContextTokens(model) - RESERVED_OUTPUT_TOKENS
+        return getMaxContextTokens(model) - RESERVED_OUTPUT_TOKENS - CONTEXT_BUFFER
+    }
+
+    /**
+     * Get available tokens for output generation.
+     */
+    fun getAvailableOutputTokens(model: AiModel): Int {
+        return minOf(
+            model.contextLength / 4, // Max 25% for output
+            Constants.Ai.MAX_OUTPUT_TOKENS
+        )
     }
 
     /**
@@ -120,15 +178,51 @@ class ContextWindowManager(
     }
 
     /**
-     * Truncate text to approximately fit within token limit
+     * Truncate text to approximately fit within token limit.
+     * Attempts to truncate at natural boundaries (newlines, sentences).
      */
     private fun truncateToTokens(text: String, maxTokens: Int): String {
-        val maxChars = maxTokens * CHARS_PER_TOKEN
-        return if (text.length <= maxChars) {
-            text
-        } else {
-            text.take(maxChars)
+        val maxChars = (maxTokens * CHARS_PER_TOKEN).toInt()
+        if (text.length <= maxChars) return text
+
+        // Try to truncate at a natural boundary
+        val truncated = text.take(maxChars)
+
+        // Find last newline
+        val lastNewline = truncated.lastIndexOf('\n')
+        if (lastNewline > maxChars * 0.7) {
+            return truncated.substring(0, lastNewline)
         }
+
+        // Find last sentence end
+        val lastSentenceEnd = truncated.lastIndexOfAny(charArrayOf('.', '!', '?', ';'))
+        if (lastSentenceEnd > maxChars * 0.7) {
+            return truncated.substring(0, lastSentenceEnd + 1)
+        }
+
+        // Find last space
+        val lastSpace = truncated.lastIndexOf(' ')
+        if (lastSpace > maxChars * 0.8) {
+            return truncated.substring(0, lastSpace)
+        }
+
+        return truncated
+    }
+
+    /**
+     * Truncate a tool result to prevent context overflow.
+     * Tool results can be very large (file contents, search results, etc.)
+     */
+    fun truncateToolResult(result: String): String {
+        if (result.isEmpty()) return result
+
+        val maxTokens = MAX_TOOL_RESULT_TOKENS
+        val estimatedTokens = estimateTokens(result)
+
+        if (estimatedTokens <= maxTokens) return result
+
+        val truncated = truncateToTokens(result, maxTokens - 20) // Leave room for truncation notice
+        return "$truncated\n\n[Content truncated - showing first ~${maxTokens} tokens of ${estimatedTokens} total]"
     }
 
     /**
