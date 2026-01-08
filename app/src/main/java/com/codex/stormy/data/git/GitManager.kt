@@ -551,6 +551,41 @@ class GitManager(
         _branches.value = emptyList()
         _commits.value = emptyList()
     }
+    /**
+     * Test connection to a remote repository
+     * This uses ls-remote to check if credentials are valid
+     */
+    suspend fun testConnection(
+        url: String,
+        credentials: GitCredentials
+    ): GitOperationResult<Boolean> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Use ls-remote to test connection without cloning
+                org.eclipse.jgit.api.Git.lsRemoteRepository()
+                    .setRemote(url)
+                    .setCredentialsProvider(
+                        org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider(
+                            credentials.username,
+                            credentials.password
+                        )
+                    )
+                    .call()
+                
+                GitOperationResult.Success(true)
+            } catch (e: Exception) {
+                // Determine if it's an auth error or something else
+                val message = e.message ?: "Unknown error"
+                if (message.contains("not authorized", ignoreCase = true) || 
+                    message.contains("authentication not supported", ignoreCase = true) ||
+                    message.contains("auth fail", ignoreCase = true)) {
+                    GitOperationResult.Error("Authentication failed: $message")    
+                } else {
+                    GitOperationResult.Error("Connection failed: $message")
+                }
+            }
+        }
+    }
 }
 
 /**

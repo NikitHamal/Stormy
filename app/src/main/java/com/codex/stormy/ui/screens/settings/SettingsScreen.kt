@@ -156,14 +156,7 @@ fun SettingsScreen(
                     onCheckedChange = viewModel::setWordWrap
                 )
 
-                // Auto Save
-                SettingsToggle(
-                    icon = Icons.Outlined.Save,
-                    title = "Auto Save",
-                    description = "Save files automatically",
-                    checked = uiState.autoSave,
-                    onCheckedChange = viewModel::setAutoSave
-                )
+
             }
 
             // AI Section

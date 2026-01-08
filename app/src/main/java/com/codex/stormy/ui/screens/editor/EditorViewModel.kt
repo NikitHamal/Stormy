@@ -279,6 +279,13 @@ class EditorViewModel(
             // Observe enabled models from repository
             aiModelRepository.observeEnabledModels().collect { models ->
                 _availableModels.value = models
+                
+                // Retry resolution if we have a project but no model yet
+                // This handles the race condition where project loads before models
+                val project = _project.value
+                if (project != null && _currentModel.value == null) {
+                    resolveInitialModel(project)
+                }
             }
         }
 
@@ -317,7 +324,15 @@ class EditorViewModel(
             }
         }
 
-        // Priority 3: null (no model selected - user must select one)
+        // Priority 3: First available enabled model
+        val firstModel = _availableModels.value.firstOrNull()
+        if (firstModel != null) {
+            _currentModel.value = firstModel
+            updateContextMaxTokens(firstModel)
+            return
+        }
+
+        // Priority 4: null (no model selected - user must select one)
         _currentModel.value = null
     }
 

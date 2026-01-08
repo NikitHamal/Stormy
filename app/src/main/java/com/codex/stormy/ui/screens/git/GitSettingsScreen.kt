@@ -187,7 +187,8 @@ fun GitSettingsScreen(
                     )
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
                     onClick = {
@@ -215,7 +216,72 @@ fun GitSettingsScreen(
 
             // Repository Credentials Section
             GitSettingsSection(title = "Repository Credentials") {
-                // Expandable credentials section
+                // Saved Credentials List
+                val savedHosts by credentialsManager.savedHosts.collectAsState(initial = emptySet())
+                
+                if (savedHosts.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Saved Credentials",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                        
+                        savedHosts.forEach { host ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Lock,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = host,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontFamily = PoppinsFontFamily,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                
+                                IconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            credentialsManager.removeHostCredentials(host)
+                                            snackbarHostState.showSnackbar("Removed credentials for $host")
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.outlined.Delete,
+                                        contentDescription = "Remove",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                // Add Credentials
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -288,8 +354,8 @@ fun GitSettingsScreen(
                             OutlinedTextField(
                                 value = credHost,
                                 onValueChange = { credHost = it },
-                                label = { Text("Host", fontFamily = PoppinsFontFamily) },
-                                placeholder = { Text("github.com") },
+                                label = { Text("Host or Repository URL", fontFamily = PoppinsFontFamily) },
+                                placeholder = { Text("github.com or https://github.com/user/repo") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp),
@@ -298,6 +364,14 @@ fun GitSettingsScreen(
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                                 )
                             )
+                            
+                            if (credHost.startsWith("http")) {
+                                Text(
+                                    text = "Enter full URL to test connection before saving",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
 
                             OutlinedTextField(
                                 value = credUsername,
@@ -357,6 +431,8 @@ fun GitSettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
 
+                            var isTestingConnection by remember { mutableStateOf(false) }
+
                             Button(
                                 onClick = {
                                     scope.launch {
@@ -364,26 +440,64 @@ fun GitSettingsScreen(
                                             username = credUsername,
                                             password = credPassword
                                         )
-                                        if (credHost.isEmpty()) {
-                                            credentialsManager.saveDefaultCredentials(credentials)
-                                        } else {
-                                            credentialsManager.saveHostCredentials(credHost, credentials)
+                                        
+                                        var hostToSave = credHost
+                                        
+                                        // If URL is provided, test connection
+                                        if (credHost.startsWith("http")) {
+                                            isTestingConnection = true
+                                            val gitManager = app.gitManager
+                                            val result = gitManager.testConnection(credHost, credentials)
+                                            isTestingConnection = false
+                                            
+                                            if (result is com.codex.stormy.data.git.GitOperationResult.Success) {
+                                                // Extract host from URL for saving
+                                                hostToSave = try {
+                                                    val uri = java.net.URI(credHost)
+                                                    uri.host ?: credHost
+                                                } catch (e: Exception) {
+                                                    credHost
+                                                }
+                                                snackbarHostState.showSnackbar("Connection successful!")
+                                            } else {
+                                                val error = (result as com.codex.stormy.data.git.GitOperationResult.Error).message
+                                                snackbarHostState.showSnackbar("Connection failed: $error")
+                                                return@launch
+                                            }
                                         }
-                                        snackbarHostState.showSnackbar("Credentials saved for $credHost")
+
+                                        if (hostToSave.isEmpty()) {
+                                            credentialsManager.saveDefaultCredentials(credentials)
+                                            snackbarHostState.showSnackbar("Default credentials saved")
+                                        } else {
+                                            credentialsManager.saveHostCredentials(hostToSave, credentials)
+                                            snackbarHostState.showSnackbar("Credentials saved for $hostToSave")
+                                        }
+                                        
                                         credPassword = ""
                                         showCredentialsSection = false
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                enabled = credUsername.isNotBlank() && credPassword.isNotBlank()
+                                enabled = credUsername.isNotBlank() && credPassword.isNotBlank() && !isTestingConnection
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Save,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Save Credentials", fontFamily = PoppinsFontFamily)
+                                if (isTestingConnection) {
+                                    androidx.compose.material3.CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Testing...", fontFamily = PoppinsFontFamily)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Save,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(if (credHost.startsWith("http")) "Test & Save" else "Save Credentials", fontFamily = PoppinsFontFamily)
+                                }
                             }
                         }
                     }
@@ -413,6 +527,7 @@ fun GitSettingsScreen(
         }
     }
 }
+
 
 /**
  * Section container with title for Git settings

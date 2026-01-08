@@ -40,6 +40,9 @@ class GitCredentialsManager(private val context: Context) {
         // Default credentials (encrypted)
         val DEFAULT_CREDENTIALS = stringPreferencesKey("default_credentials")
 
+        // Set of hosts that have saved credentials
+        val SAVED_HOSTS = androidx.datastore.preferences.core.stringSetPreferencesKey("saved_hosts")
+
         // Host-specific credentials prefix
         fun hostCredentials(host: String) = stringPreferencesKey("host_${host.hashCode()}")
 
@@ -64,6 +67,11 @@ class GitCredentialsManager(private val context: Context) {
 
     val gitUserEmail: Flow<String> = context.gitCredentialsStore.data.map { preferences ->
         preferences[Keys.GIT_USER_EMAIL] ?: ""
+    }
+
+    // Saved hosts list
+    val savedHosts: Flow<Set<String>> = context.gitCredentialsStore.data.map { preferences ->
+        preferences[Keys.SAVED_HOSTS] ?: emptySet()
     }
 
     // Git settings
@@ -130,6 +138,10 @@ class GitCredentialsManager(private val context: Context) {
         val encrypted = encryptCredentials(credentials)
         context.gitCredentialsStore.edit { preferences ->
             preferences[Keys.hostCredentials(host)] = encrypted
+            
+            // Add to saved hosts set
+            val currentHosts = preferences[Keys.SAVED_HOSTS] ?: emptySet()
+            preferences[Keys.SAVED_HOSTS] = currentHosts + host
         }
     }
 
@@ -166,6 +178,10 @@ class GitCredentialsManager(private val context: Context) {
     suspend fun removeHostCredentials(host: String) {
         context.gitCredentialsStore.edit { preferences ->
             preferences.remove(Keys.hostCredentials(host))
+            
+            // Remove from saved hosts set
+            val currentHosts = preferences[Keys.SAVED_HOSTS] ?: emptySet()
+            preferences[Keys.SAVED_HOSTS] = currentHosts - host
         }
     }
 
