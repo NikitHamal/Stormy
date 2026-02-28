@@ -2,10 +2,10 @@ package com.codex.stormy.data.repository
 
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
+import com.codex.stormy.data.ai.AiModels
 import com.codex.stormy.data.ai.AiProviderManager
 import com.codex.stormy.data.ai.ChatCompletionResponse
 import com.codex.stormy.data.ai.ChatRequestMessage
-import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.ai.StreamEvent
 import com.codex.stormy.data.ai.Tool
 import kotlinx.coroutines.flow.Flow
@@ -14,43 +14,41 @@ import kotlinx.coroutines.flow.flow
 
 /**
  * Repository for AI interactions
- * Uses DeepInfra provider (free, no API key required)
+ * Routes requests to the selected model provider.
  */
 class AiRepository(
     private val preferencesRepository: PreferencesRepository
 ) {
-    private var cachedProviderManager: AiProviderManager? = null
-
     /**
      * Get available models
      */
     fun getAvailableModels(): List<AiModel> {
-        return DeepInfraModels.allModels
+        return AiModels.getAllModels()
     }
 
     /**
      * Get enabled models for display
      */
     fun getEnabledModels(): List<AiModel> {
-        return DeepInfraModels.allModels
+        return AiModels.getAllModels()
     }
 
     /**
      * Get the default model
      */
     fun getDefaultModel(): AiModel {
-        return DeepInfraModels.defaultModel
+        return AiModels.getDefaultModel(AiProvider.DEEPINFRA)
     }
 
     /**
      * Find model by ID
      */
     fun findModelById(modelId: String): AiModel? {
-        return DeepInfraModels.allModels.find { it.id == modelId }
+        return AiModels.findModelById(modelId)
     }
 
     /**
-     * Stream a chat completion using DeepInfra provider
+     * Stream a chat completion with provider routing.
      */
     suspend fun streamChat(
         model: AiModel,
@@ -59,7 +57,7 @@ class AiRepository(
         temperature: Float = 0.7f,
         maxTokens: Int? = null
     ): Flow<StreamEvent> {
-        val providerManager = getOrCreateProviderManager()
+        val providerManager = createProviderManager()
 
         // Get the stream from DeepInfra provider
         val stream = providerManager.streamChatCompletion(
@@ -71,13 +69,12 @@ class AiRepository(
         )
 
         return stream ?: flow {
-            emit(StreamEvent.Error("Failed to connect to DeepInfra. Please check your network connection."))
+            emit(StreamEvent.Error("Failed to connect to ${model.provider.displayName}. Check network and API key settings."))
         }
     }
 
     /**
-     * Non-streaming chat completion using DeepInfra provider
-     * Returns the complete response at once rather than streaming
+     * Non-streaming chat completion with provider routing.
      */
     suspend fun chat(
         model: AiModel,
@@ -86,7 +83,7 @@ class AiRepository(
         temperature: Float = 0.7f,
         maxTokens: Int? = null
     ): Result<ChatCompletionResponse> {
-        val providerManager = getOrCreateProviderManager()
+        val providerManager = createProviderManager()
         return providerManager.chatCompletion(
             model = model,
             messages = messages,
@@ -96,11 +93,10 @@ class AiRepository(
         )
     }
 
-    /**
-     * Check if DeepInfra is available (always true - free API)
-     */
     suspend fun hasApiKey(): Boolean {
-        return true
+        val selectedProvider = AiProvider.fromString(preferencesRepository.aiProvider.first())
+        return !selectedProvider.requiresApiKey ||
+            preferencesRepository.getApiKeyForProvider(selectedProvider.name).isNotBlank()
     }
 
     /**
@@ -110,22 +106,21 @@ class AiRepository(
         return preferencesRepository.aiModel.first()
     }
 
-    /**
-     * Get or create the provider manager
-     * DeepInfra doesn't require API key
-     */
-    private fun getOrCreateProviderManager(): AiProviderManager {
-        if (cachedProviderManager == null) {
-            cachedProviderManager = AiProviderManager()
-        }
-        return cachedProviderManager!!
+    private suspend fun createProviderManager(): AiProviderManager {
+        val keys = mapOf(
+            AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
+            AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
+            AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
+            AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
+        )
+        return AiProviderManager.fromApiKeys(keys)
     }
 
     /**
      * Invalidate the cached provider manager
      */
     fun invalidateProviderCache() {
-        cachedProviderManager = null
+        // Kept for compatibility; managers are now created from latest settings per request.
     }
 
     /**

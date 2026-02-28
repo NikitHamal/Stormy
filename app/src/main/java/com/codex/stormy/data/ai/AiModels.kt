@@ -18,11 +18,18 @@ data class AiModel(
 
 /**
  * Supported AI providers
- * Currently only DeepInfra is supported (free, no API key required)
+ * DeepInfra is available without API key. Other providers require API keys.
  */
 @Serializable
-enum class AiProvider(val displayName: String, val baseUrl: String) {
-    DEEPINFRA("DeepInfra", "https://api.deepinfra.com/v1/openai");
+enum class AiProvider(
+    val displayName: String,
+    val baseUrl: String,
+    val requiresApiKey: Boolean
+) {
+    DEEPINFRA("DeepInfra", "https://api.deepinfra.com/v1/openai", false),
+    GEMINI("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", true),
+    NVIDIA("NVIDIA", "https://integrate.api.nvidia.com/v1", true),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", true);
 
     companion object {
         fun fromString(value: String): AiProvider {
@@ -114,6 +121,31 @@ object DeepInfraModels {
 }
 
 /**
+ * Gemini models are fetched dynamically from the official API.
+ * We do not ship static IDs here to avoid stale model references.
+ */
+object GeminiModels {
+    val allModels: List<AiModel> = emptyList()
+    val defaultModel: AiModel? = null
+}
+
+/**
+ * NVIDIA models are fetched dynamically from the official API.
+ */
+object NvidiaModels {
+    val allModels: List<AiModel> = emptyList()
+    val defaultModel: AiModel? = null
+}
+
+/**
+ * OpenRouter models are fetched dynamically from the official API.
+ */
+object OpenRouterModels {
+    val allModels: List<AiModel> = emptyList()
+    val defaultModel: AiModel? = null
+}
+
+/**
  * Helper object for managing all models
  */
 object AiModels {
@@ -123,6 +155,9 @@ object AiModels {
     fun getModelsForProvider(provider: AiProvider): List<AiModel> {
         return when (provider) {
             AiProvider.DEEPINFRA -> DeepInfraModels.allModels
+            AiProvider.GEMINI -> GeminiModels.allModels
+            AiProvider.NVIDIA -> NvidiaModels.allModels
+            AiProvider.OPENROUTER -> OpenRouterModels.allModels
         }
     }
 
@@ -132,6 +167,9 @@ object AiModels {
     fun getDefaultModel(provider: AiProvider): AiModel {
         return when (provider) {
             AiProvider.DEEPINFRA -> DeepInfraModels.defaultModel
+            AiProvider.GEMINI -> GeminiModels.defaultModel ?: DeepInfraModels.defaultModel
+            AiProvider.NVIDIA -> NvidiaModels.defaultModel ?: DeepInfraModels.defaultModel
+            AiProvider.OPENROUTER -> OpenRouterModels.defaultModel ?: DeepInfraModels.defaultModel
         }
     }
 
@@ -139,7 +177,12 @@ object AiModels {
      * Get all available models across all providers
      */
     fun getAllModels(): List<AiModel> {
-        return DeepInfraModels.allModels
+        return buildList {
+            addAll(DeepInfraModels.allModels)
+            addAll(GeminiModels.allModels)
+            addAll(NvidiaModels.allModels)
+            addAll(OpenRouterModels.allModels)
+        }
     }
 
     /**

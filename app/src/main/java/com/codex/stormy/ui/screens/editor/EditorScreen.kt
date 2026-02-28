@@ -337,7 +337,9 @@ fun EditorScreen(
                                     onSendMessage = viewModel::sendMessage,
                                     onStopGeneration = viewModel::stopGeneration,
                                     onToggleAgentMode = viewModel::toggleAgentMode,
-                                    onModelChange = viewModel::setModel
+                                    onModelChange = viewModel::setModel,
+                                    onRefreshModels = viewModel::refreshModels,
+                                    isRefreshingModels = uiState.isRefreshingModels
                                 )
                                 EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
                                     // File tabs row

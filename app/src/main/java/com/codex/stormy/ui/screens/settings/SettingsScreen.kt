@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.ModelTraining
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.automirrored.outlined.WrapText
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,19 +40,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -72,9 +72,6 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-
-    var showThemeDialog by remember { mutableStateOf(false) }
-    var showFontSizeDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -178,6 +175,30 @@ fun SettingsScreen(
                     subtitle = "AI agent learnings & context",
                     onClick = onNavigateToMemories
                 )
+
+                ApiKeyField(
+                    title = "Gemini API Key",
+                    value = uiState.geminiApiKey,
+                    onValueChange = viewModel::setGeminiApiKey
+                )
+
+                ApiKeyField(
+                    title = "NVIDIA API Key",
+                    value = uiState.nvidiaApiKey,
+                    onValueChange = viewModel::setNvidiaApiKey
+                )
+
+                ApiKeyField(
+                    title = "OpenRouter API Key",
+                    value = uiState.openRouterApiKey,
+                    onValueChange = viewModel::setOpenRouterApiKey
+                )
+
+                ApiKeyField(
+                    title = "DeepInfra API Key (Optional)",
+                    value = uiState.deepInfraApiKey,
+                    onValueChange = viewModel::setDeepInfraApiKey
+                )
             }
 
             // Git Section
@@ -211,6 +232,36 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+@Composable
+private fun ApiKeyField(
+    title: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = PoppinsFontFamily,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = PoppinsFontFamily)
+        )
     }
 }
 

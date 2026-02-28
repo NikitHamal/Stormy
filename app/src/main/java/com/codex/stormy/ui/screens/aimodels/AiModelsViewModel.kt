@@ -5,8 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.codex.stormy.CodeXApplication
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.AiModels
 import com.codex.stormy.data.ai.AiProvider
-import com.codex.stormy.data.ai.DeepInfraModels
 import com.codex.stormy.data.repository.AiModelRepository
 import com.codex.stormy.data.repository.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,7 +39,7 @@ data class AiModelsUiState(
 
 /**
  * ViewModel for the AI Models management screen
- * Handles model management for DeepInfra (free, no API key required)
+ * Handles model management across configured providers.
  */
 class AiModelsViewModel(
     private val modelRepository: AiModelRepository,
@@ -139,7 +139,7 @@ class AiModelsViewModel(
                 val currentModelId = preferencesRepository.aiModel.first()
                 val model = modelRepository.getModelById(currentModelId)
                     ?: modelRepository.getEnabledModels().firstOrNull()
-                    ?: DeepInfraModels.defaultModel
+                    ?: AiModels.getDefaultModel(AiProvider.DEEPINFRA)
 
                 _currentModel.value = model
             } catch (e: Exception) {
@@ -150,16 +150,19 @@ class AiModelsViewModel(
         }
     }
 
-    /**
-     * Refresh models from DeepInfra
-     * DeepInfra is free and doesn't require an API key
-     */
     fun refreshModels() {
         viewModelScope.launch {
             _isRefreshing.value = true
             _error.value = null
 
-            modelRepository.refreshModelsFromDeepInfra().onFailure { error ->
+            val apiKeys = mapOf(
+                AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
+                AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
+                AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
+                AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
+            )
+
+            modelRepository.refreshModelsFromAllConfiguredProviders(apiKeys).onFailure { error ->
                 _error.value = "Failed to refresh: ${error.message}"
             }
 
@@ -173,6 +176,7 @@ class AiModelsViewModel(
     fun selectModel(model: AiModel) {
         viewModelScope.launch {
             preferencesRepository.setAiModel(model.id)
+            preferencesRepository.setAiProvider(model.provider.name)
             modelRepository.recordModelUsage(model.id)
             _currentModel.value = model
         }

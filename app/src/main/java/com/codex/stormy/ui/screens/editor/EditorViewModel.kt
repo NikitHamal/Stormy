@@ -92,6 +92,7 @@ data class EditorUiState(
     // AI Model selection - null means no model selected (show "Select Model")
     val currentModel: AiModel? = null,
     val availableModels: List<AiModel> = emptyList(),
+    val isRefreshingModels: Boolean = false,
     // Context window management
     val contextTokenCount: Int = 0,
     val contextMaxTokens: Int = 8000,
@@ -155,6 +156,7 @@ class EditorViewModel(
     private val _agentMode = MutableStateFlow(true)
     private val _currentModel = MutableStateFlow<AiModel?>(null)
     private val _availableModels = MutableStateFlow<List<AiModel>>(emptyList())
+    private val _isRefreshingModels = MutableStateFlow(false)
     private val _messageHistory = mutableListOf<ChatRequestMessage>()
     private val _streamingContent = MutableStateFlow("")
 
@@ -220,6 +222,8 @@ class EditorViewModel(
         state.copy(currentModel = currentModel)
     }.combine(_availableModels) { state, availableModels ->
         state.copy(availableModels = availableModels)
+    }.combine(_isRefreshingModels) { state, isRefreshingModels ->
+        state.copy(isRefreshingModels = isRefreshingModels)
     }.combine(preferencesRepository.lineNumbers) { state, lineNumbers ->
         state.copy(showLineNumbers = lineNumbers)
     }.combine(preferencesRepository.wordWrap) { state, wordWrap ->
@@ -1660,7 +1664,30 @@ class EditorViewModel(
         // Persist the last used model for this project
         viewModelScope.launch {
             projectRepository.updateLastUsedModelId(projectId, model.id)
+            preferencesRepository.setAiModel(model.id)
+            preferencesRepository.setAiProvider(model.provider.name)
             aiModelRepository.recordModelUsage(model.id)
+        }
+    }
+
+    fun refreshModels() {
+        viewModelScope.launch {
+            _isRefreshingModels.value = true
+            try {
+                val apiKeys = mapOf(
+                    com.codex.stormy.data.ai.AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
+                    com.codex.stormy.data.ai.AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
+                    com.codex.stormy.data.ai.AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
+                    com.codex.stormy.data.ai.AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
+                )
+
+                aiModelRepository.refreshModelsFromAllConfiguredProviders(apiKeys)
+                    .onFailure { error ->
+                        _error.value = "Failed to refresh models: ${error.message}"
+                    }
+            } finally {
+                _isRefreshingModels.value = false
+            }
         }
     }
 

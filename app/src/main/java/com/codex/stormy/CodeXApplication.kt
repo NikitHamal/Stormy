@@ -6,6 +6,8 @@ import coil.ImageLoaderFactory
 import coil.decode.SvgDecoder
 import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
+import com.codex.stormy.data.ai.GeminiModelService
+import com.codex.stormy.data.ai.OpenAiCompatibleModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
 import com.codex.stormy.data.ai.learning.UserPreferencesLearner
 import com.codex.stormy.data.ai.memory.SemanticMemorySystem
@@ -55,11 +57,21 @@ class CodeXApplication : Application(), ImageLoaderFactory {
         DeepInfraModelService()
     }
 
+    val geminiModelService: GeminiModelService by lazy {
+        GeminiModelService()
+    }
+
+    val openAiCompatibleModelService: OpenAiCompatibleModelService by lazy {
+        OpenAiCompatibleModelService()
+    }
+
     // AI Model repository for managing model storage and preferences
     val aiModelRepository: AiModelRepository by lazy {
         AiModelRepository(
             aiModelDao = database.aiModelDao(),
-            deepInfraModelService = deepInfraModelService
+            deepInfraModelService = deepInfraModelService,
+            geminiModelService = geminiModelService,
+            openAiCompatibleModelService = openAiCompatibleModelService
         )
     }
 

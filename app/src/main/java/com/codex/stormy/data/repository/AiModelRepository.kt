@@ -1,9 +1,11 @@
 package com.codex.stormy.data.repository
 
 import com.codex.stormy.data.ai.AiModel
+import com.codex.stormy.data.ai.AiModels
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.DeepInfraModelService
-import com.codex.stormy.data.ai.DeepInfraModels
+import com.codex.stormy.data.ai.GeminiModelService
+import com.codex.stormy.data.ai.OpenAiCompatibleModelService
 import com.codex.stormy.data.local.dao.AiModelDao
 import com.codex.stormy.data.local.entity.AiModelEntity
 import kotlinx.coroutines.Dispatchers
@@ -12,62 +14,80 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
- * Repository for managing AI models
- * Handles:
- * - Local persistence of model preferences
- * - Dynamic model fetching from DeepInfra (free, no API key required)
- * - Model enable/disable state
- * - Custom model management
+ * Repository for managing AI models and provider model discovery.
  */
 class AiModelRepository(
     private val aiModelDao: AiModelDao,
-    private val deepInfraModelService: DeepInfraModelService
+    private val deepInfraModelService: DeepInfraModelService,
+    private val geminiModelService: GeminiModelService,
+    private val openAiCompatibleModelService: OpenAiCompatibleModelService
 ) {
 
-    /**
-     * Observe all models (enabled and disabled)
-     */
     fun observeAllModels(): Flow<List<AiModel>> {
         return aiModelDao.observeAllModels().map { entities ->
             entities.map { it.toAiModel() }
         }
     }
 
-    /**
-     * Observe only enabled models (for model selector)
-     */
     fun observeEnabledModels(): Flow<List<AiModel>> {
         return aiModelDao.observeEnabledModels().map { entities ->
             entities.map { it.toAiModel() }
         }
     }
 
-    /**
-     * Get all enabled models synchronously
-     */
     suspend fun getEnabledModels(): List<AiModel> {
         return aiModelDao.getEnabledModels().map { it.toAiModel() }
     }
 
-    /**
-     * Get model by ID
-     */
     suspend fun getModelById(id: String): AiModel? {
         return aiModelDao.getModelById(id)?.toAiModel()
     }
 
-    /**
-     * Refresh models from DeepInfra API
-     * Merges new models with existing preferences (enabled/disabled state, aliases)
-     */
     suspend fun refreshModelsFromProvider(): Result<Int> = withContext(Dispatchers.IO) {
         refreshModelsFromDeepInfra()
     }
 
-    /**
-     * Refresh models from DeepInfra API
-     * DeepInfra provides free inference without requiring an API key
-     */
+    suspend fun refreshModelsFromProvider(
+        provider: AiProvider,
+        apiKey: String = ""
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val result = fetchModelsForProvider(provider, apiKey)
+            mergeModelsIntoDatabase(result, provider)
+        } catch (e: Exception) {
+            handleRefreshError(e)
+        }
+    }
+
+    suspend fun refreshModelsFromAllConfiguredProviders(
+        apiKeys: Map<AiProvider, String>
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        var totalRefreshed = 0
+        var attemptedProviders = 0
+        val failures = mutableListOf<String>()
+
+        for (provider in AiProvider.entries) {
+            val key = apiKeys[provider].orEmpty()
+            if (provider.requiresApiKey && key.isBlank()) {
+                continue
+            }
+            attemptedProviders += 1
+
+            refreshModelsFromProvider(provider, key)
+                .onSuccess { count -> totalRefreshed += count }
+                .onFailure { error ->
+                    failures.add("${provider.displayName}: ${error.message ?: "unknown error"}")
+                }
+        }
+
+        when {
+            totalRefreshed > 0 -> Result.success(totalRefreshed)
+            failures.isEmpty() && attemptedProviders > 0 -> Result.success(0)
+            failures.isNotEmpty() -> Result.failure(Exception(failures.joinToString("; ")))
+            else -> Result.failure(Exception("No providers configured for model refresh"))
+        }
+    }
+
     suspend fun refreshModelsFromDeepInfra(): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val result = deepInfraModelService.fetchAvailableModels()
@@ -77,20 +97,60 @@ class AiModelRepository(
         }
     }
 
-    /**
-     * Merge fetched models into the database, preserving user preferences
-     */
+    private suspend fun fetchModelsForProvider(
+        provider: AiProvider,
+        apiKey: String
+    ): Result<List<AiModel>> {
+        return when (provider) {
+            AiProvider.DEEPINFRA -> deepInfraModelService.fetchAvailableModels()
+            AiProvider.GEMINI -> {
+                if (apiKey.isBlank()) {
+                    Result.failure(IllegalArgumentException("Gemini API key is required"))
+                } else {
+                    val openAiCompat = openAiCompatibleModelService.fetchAvailableModels(
+                        provider = AiProvider.GEMINI,
+                        apiKey = apiKey
+                    )
+                    openAiCompat.getOrNull()?.takeIf { it.isNotEmpty() }?.let { models ->
+                        Result.success(models)
+                    } ?: geminiModelService.fetchAvailableModels(apiKey)
+                }
+            }
+
+            AiProvider.NVIDIA -> {
+                if (apiKey.isBlank()) {
+                    Result.failure(IllegalArgumentException("NVIDIA API key is required"))
+                } else {
+                    openAiCompatibleModelService.fetchAvailableModels(
+                        provider = AiProvider.NVIDIA,
+                        apiKey = apiKey
+                    )
+                }
+            }
+
+            AiProvider.OPENROUTER -> {
+                if (apiKey.isBlank()) {
+                    Result.failure(IllegalArgumentException("OpenRouter API key is required"))
+                } else {
+                    openAiCompatibleModelService.fetchAvailableModels(
+                        provider = AiProvider.OPENROUTER,
+                        apiKey = apiKey,
+                        extraHeaders = OPENROUTER_HEADERS
+                    )
+                }
+            }
+        }
+    }
+
     private suspend fun mergeModelsIntoDatabase(
         result: Result<List<AiModel>>,
         provider: AiProvider
     ): Result<Int> {
         return result.fold(
             onSuccess = { fetchedModels ->
-                // Get existing models to preserve user preferences
                 val existingModels = aiModelDao.getAllModels()
                 val existingMap = existingModels.associateBy { it.id }
 
-                // Convert fetched models to entities, preserving existing preferences
                 val newEntities = fetchedModels.map { model ->
                     val existing = existingMap[model.id]
                     model.toEntity().copy(
@@ -103,7 +163,6 @@ class AiModelRepository(
                     )
                 }
 
-                // Delete only models from this provider (not custom) and insert fresh
                 aiModelDao.deleteModelsByProvider(provider.name)
                 aiModelDao.insertModels(newEntities)
 
@@ -115,9 +174,6 @@ class AiModelRepository(
         )
     }
 
-    /**
-     * Handle refresh errors and seed defaults if needed
-     */
     private suspend fun handleRefreshError(e: Exception): Result<Int> {
         val count = aiModelDao.getModelCount()
         if (count == 0) {
@@ -126,11 +182,8 @@ class AiModelRepository(
         return Result.failure(e)
     }
 
-    /**
-     * Seed database with default curated models
-     */
     suspend fun seedDefaultModels() {
-        val defaults = DeepInfraModels.allModels.map { model ->
+        val defaults = AiModels.getAllModels().map { model ->
             model.toEntity().copy(
                 isEnabled = true,
                 addedAt = System.currentTimeMillis()
@@ -139,9 +192,6 @@ class AiModelRepository(
         aiModelDao.insertModels(defaults)
     }
 
-    /**
-     * Initialize models if database is empty
-     */
     suspend fun initializeModelsIfEmpty() {
         val count = aiModelDao.getModelCount()
         if (count == 0) {
@@ -149,37 +199,22 @@ class AiModelRepository(
         }
     }
 
-    /**
-     * Enable or disable a model
-     */
     suspend fun setModelEnabled(modelId: String, enabled: Boolean) {
         aiModelDao.setModelEnabled(modelId, enabled)
     }
 
-    /**
-     * Set model as favorite
-     */
     suspend fun setModelFavorite(modelId: String, favorite: Boolean) {
         aiModelDao.setModelFavorite(modelId, favorite)
     }
 
-    /**
-     * Update model alias (user-defined name)
-     */
     suspend fun setModelAlias(modelId: String, alias: String?) {
         aiModelDao.setModelAlias(modelId, alias)
     }
 
-    /**
-     * Record model usage (for sorting by frequency)
-     */
     suspend fun recordModelUsage(modelId: String) {
         aiModelDao.recordModelUsage(modelId)
     }
 
-    /**
-     * Add a custom model manually
-     */
     suspend fun addCustomModel(
         id: String,
         name: String,
@@ -209,9 +244,6 @@ class AiModelRepository(
         }
     }
 
-    /**
-     * Delete a model (only custom models can be deleted)
-     */
     suspend fun deleteModel(modelId: String): Result<Unit> {
         return try {
             val model = aiModelDao.getModelById(modelId)
@@ -226,21 +258,14 @@ class AiModelRepository(
         }
     }
 
-    /**
-     * Get model count
-     */
     suspend fun getModelCount(): Int {
         return aiModelDao.getModelCount()
     }
 
-    /**
-     * Get enabled model count
-     */
     suspend fun getEnabledModelCount(): Int {
         return aiModelDao.getEnabledModelCount()
     }
 
-    // Extension functions for conversion
     private fun AiModelEntity.toAiModel(): AiModel {
         return AiModel(
             id = id,
@@ -264,6 +289,13 @@ class AiModelRepository(
             isThinkingModel = isThinkingModel,
             isEnabled = true,
             isCustom = false
+        )
+    }
+
+    companion object {
+        private val OPENROUTER_HEADERS = mapOf(
+            "HTTP-Referer" to "https://github.com/codex/stormy",
+            "X-Title" to "Stormy"
         )
     }
 }

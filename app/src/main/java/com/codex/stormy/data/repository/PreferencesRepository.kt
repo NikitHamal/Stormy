@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.codex.stormy.data.ai.AiProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -25,9 +26,12 @@ class PreferencesRepository(private val context: Context) {
         val AUTO_SAVE = booleanPreferencesKey("auto_save")
         // CODE_AUTOCOMPLETION removed - feature disabled
 
-        // API Key (DeepInfra - free, no key required, kept for legacy/future use)
+        // API keys
         val API_KEY = stringPreferencesKey("api_key")
         val DEEPINFRA_API_KEY = stringPreferencesKey("deepinfra_api_key")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val NVIDIA_API_KEY = stringPreferencesKey("nvidia_api_key")
+        val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
 
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -79,6 +83,18 @@ class PreferencesRepository(private val context: Context) {
         preferences[PreferenceKeys.DEEPINFRA_API_KEY]
             ?: preferences[PreferenceKeys.API_KEY]
             ?: ""
+    }
+
+    val geminiApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
+    }
+
+    val nvidiaApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.NVIDIA_API_KEY] ?: ""
+    }
+
+    val openRouterApiKey: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
     }
 
     // AI Provider and Model
@@ -150,6 +166,24 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
+    suspend fun setGeminiApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.GEMINI_API_KEY] = key
+        }
+    }
+
+    suspend fun setNvidiaApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.NVIDIA_API_KEY] = key
+        }
+    }
+
+    suspend fun setOpenRouterApiKey(key: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.OPENROUTER_API_KEY] = key
+        }
+    }
+
     suspend fun setAiProvider(provider: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.AI_PROVIDER] = provider
@@ -176,21 +210,27 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    /**
-     * Get the API key for DeepInfra provider
-     * Note: DeepInfra free tier doesn't require an API key
-     */
     suspend fun getApiKeyForProvider(provider: String): String {
         val preferences = context.dataStore.data.map { it }.first()
-        return preferences[PreferenceKeys.DEEPINFRA_API_KEY]
-            ?: preferences[PreferenceKeys.API_KEY] ?: ""
+        return when (AiProvider.fromString(provider)) {
+            AiProvider.DEEPINFRA -> {
+                preferences[PreferenceKeys.DEEPINFRA_API_KEY]
+                    ?: preferences[PreferenceKeys.API_KEY]
+                    ?: ""
+            }
+            AiProvider.GEMINI -> preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
+            AiProvider.NVIDIA -> preferences[PreferenceKeys.NVIDIA_API_KEY] ?: ""
+            AiProvider.OPENROUTER -> preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
+        }
     }
 
-    /**
-     * Set the API key for DeepInfra provider
-     */
     suspend fun setApiKeyForProvider(provider: String, key: String) {
-        setDeepInfraApiKey(key)
+        when (AiProvider.fromString(provider)) {
+            AiProvider.DEEPINFRA -> setDeepInfraApiKey(key)
+            AiProvider.GEMINI -> setGeminiApiKey(key)
+            AiProvider.NVIDIA -> setNvidiaApiKey(key)
+            AiProvider.OPENROUTER -> setOpenRouterApiKey(key)
+        }
     }
 
     suspend fun setOnboardingCompleted(completed: Boolean) {

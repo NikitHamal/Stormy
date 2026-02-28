@@ -297,6 +297,9 @@ private fun CompactModelCard(
 private fun getProviderInitial(provider: AiProvider): String {
     return when (provider) {
         AiProvider.DEEPINFRA -> "D"
+        AiProvider.GEMINI -> "G"
+        AiProvider.NVIDIA -> "N"
+        AiProvider.OPENROUTER -> "O"
     }
 }
 
@@ -307,5 +310,8 @@ private fun getProviderInitial(provider: AiProvider): String {
 private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics.Color {
     return when (provider) {
         AiProvider.DEEPINFRA -> MaterialTheme.colorScheme.primary
+        AiProvider.GEMINI -> MaterialTheme.colorScheme.tertiary
+        AiProvider.NVIDIA -> MaterialTheme.colorScheme.secondary
+        AiProvider.OPENROUTER -> MaterialTheme.colorScheme.error
     }
 }
