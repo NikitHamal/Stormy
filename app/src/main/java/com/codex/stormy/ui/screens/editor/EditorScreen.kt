@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.ui.components.agent.ApprovalSheet
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.components.agent.PlanTimeline
 import com.codex.stormy.ui.components.expressive.ToggleOption
@@ -167,6 +168,15 @@ fun EditorScreen(
             )
         }
     }
+
+    // Approval sheet sits outside the drawer stack so it overlays whatever is
+    // on screen -- the question blocks the agent, so it must not be hidden
+    // behind an open drawer.
+    val pendingApproval by viewModel.pendingApproval.collectAsStateWithLifecycle()
+    ApprovalSheet(
+        approval = pendingApproval,
+        onDecision = viewModel::resolveApproval
+    )
 
     // File Tree drawer (start-side drawer - outer for proper gesture handling)
     ModalNavigationDrawer(

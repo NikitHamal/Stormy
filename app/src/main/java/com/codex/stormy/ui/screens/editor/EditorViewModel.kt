@@ -1,5 +1,8 @@
 package com.codex.stormy.ui.screens.editor
 
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CompletableDeferred
+import com.codex.stormy.ui.components.agent.PendingApproval
 import kotlinx.serialization.json.jsonPrimitive
 import com.codex.stormy.ui.components.agent.ToolPresentations
 import com.codex.stormy.data.ai.tools.ToolResult
@@ -175,6 +178,19 @@ class EditorViewModel(
      * drives a subagent -- it lives here because the model loop does.
      */
     private val subagentOrchestrator = SubagentOrchestrator(viewModelScope)
+
+    /**
+     * Approval the main conversation is blocked on, or null.
+     *
+     * Held as a CompletableDeferred rather than a callback so the tool call can
+     * simply *suspend* until the user answers. The agent loop then needs no
+     * resume path or saved continuation -- it is still sitting inside the tool
+     * call where it asked.
+     */
+    private val _pendingApproval = MutableStateFlow<PendingApproval?>(null)
+    val pendingApproval: StateFlow<PendingApproval?> = _pendingApproval.asStateFlow()
+
+    private var approvalAnswer: CompletableDeferred<Boolean>? = null
 
     private val delegationHandler = DelegationHandler(
         orchestrator = subagentOrchestrator,
@@ -1486,7 +1502,27 @@ class EditorViewModel(
             // Delegation tools are handled here rather than in ToolExecutor:
             // they mutate this session's orchestrator and plan, which the
             // executor has no business knowing about.
-            val result = if (delegationHandler.handles(toolName)) {
+            val result = if (toolName == "request_approval") {
+                // Handled here rather than in DelegationHandler: only the view
+                // model can suspend the loop on a UI answer.
+                val args = DelegationHandler.parseArgs(toolCall.function.arguments)
+                val action = args?.get("action")?.jsonPrimitive?.content
+                if (action.isNullOrBlank()) {
+                    ToolResult(false, "", "action is required")
+                } else {
+                    val detail = args["detail"]?.jsonPrimitive?.content
+                    if (awaitApproval(action, detail)) {
+                        ToolResult(true, "The user approved: $action")
+                    } else {
+                        ToolResult(
+                            true,
+                            "The user declined: $action. Do not attempt it, and " +
+                                "do not ask again for the same action. Continue " +
+                                "with what you can do, or explain what you cannot."
+                        )
+                    }
+                }
+            } else if (delegationHandler.handles(toolName)) {
                 val args = DelegationHandler.parseArgs(toolCall.function.arguments)
                 if (args == null) {
                     ToolResult(false, "", "Could not parse arguments for $toolName")
@@ -2226,5 +2262,47 @@ class EditorViewModel(
 
     /** Drop finished agent cards from the transcript. */
     fun clearFinishedSubagents() = subagentOrchestrator.clearCompleted()
+
+    /**
+     * Answer the conversation-level approval.
+     *
+     * Dismissing the sheet calls this with false; there is no third state,
+     * because the agent is suspended inside the tool call until it has an
+     * answer and leaving it unanswered would hang the turn.
+     */
+    fun resolveApproval(approved: Boolean) {
+        _pendingApproval.value = null
+        approvalAnswer?.complete(approved)
+        approvalAnswer = null
+    }
+
+    /**
+     * Ask the user, and suspend until they answer.
+     *
+     * Not timed and not auto-dismissing: an approval that expires into a
+     * default is worse than no gate, because afterwards the user cannot tell
+     * whether they agreed or simply looked away.
+     */
+    private suspend fun awaitApproval(action: String, detail: String?): Boolean {
+        // A second request while one is open would orphan the first agent.
+        approvalAnswer?.let { return false }
+
+        val deferred = CompletableDeferred<Boolean>()
+        approvalAnswer = deferred
+        _pendingApproval.value = PendingApproval(
+            action = action,
+            detail = detail,
+            detailIsCode = detail?.contains('\n') == true
+        )
+        return try {
+            deferred.await()
+        } catch (cancellation: CancellationException) {
+            // Generation was stopped while the sheet was open: clear it so the
+            // next turn does not inherit a stale question.
+            _pendingApproval.value = null
+            approvalAnswer = null
+            throw cancellation
+        }
+    }
 
 }

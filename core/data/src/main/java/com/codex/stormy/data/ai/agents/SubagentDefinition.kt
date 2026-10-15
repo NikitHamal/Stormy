@@ -126,6 +126,11 @@ object Subagents {
         capabilities = setOf(
             ToolCapability.READ,
             ToolCapability.WRITE,
+            // A builder needs to run the build and the tests it just changed;
+            // an implementation agent that cannot verify its own work is of
+            // limited use. The shell allowlist is what bounds this, not the
+            // capability set.
+            ToolCapability.EXECUTE,
             ToolCapability.MEMORY
         ),
         accentIndex = 2,
@@ -173,6 +178,7 @@ object Subagents {
             ToolCapability.READ,
             ToolCapability.WRITE,
             ToolCapability.GIT,
+            ToolCapability.EXECUTE,
             ToolCapability.MEMORY,
             // The general worker is the one type that may delegate further.
             // Depth, not capability, is what bounds the recursion -- see

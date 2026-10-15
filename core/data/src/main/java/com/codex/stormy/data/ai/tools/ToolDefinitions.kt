@@ -612,6 +612,8 @@ object StormyTools {
      * Get all tools for agent mode
      */
     fun getAllTools(): List<Tool> = listOf(
+        // Shell
+        ShellTools.RUN_COMMAND,
         // File operations
         READ_FILE,
         WRITE_FILE,
