@@ -1,9 +1,11 @@
 package com.codex.stormy
 
 import android.app.Application
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.decode.SvgDecoder
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.PlatformContext
+import coil3.request.crossfade
+import coil3.svg.SvgDecoder
 import com.codex.stormy.crash.CrashHandler
 import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.GeminiModelService
@@ -28,7 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class CodeXApplication : Application(), ImageLoaderFactory {
+class CodeXApplication : Application(), SingletonImageLoader.Factory {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -123,12 +125,17 @@ class CodeXApplication : Application(), ImageLoaderFactory {
         }
     }
 
-    // ImageLoaderFactory implementation for SVG support
-    override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
+    /**
+     * Coil 3 singleton loader. SVG decoding is registered explicitly; network
+     * fetching comes from coil-network-okhttp, which reuses the shared OkHttp
+     * client instead of standing up a second connection pool.
+     */
+    override fun newImageLoader(context: PlatformContext): ImageLoader {
+        return ImageLoader.Builder(context)
             .components {
                 add(SvgDecoder.Factory())
             }
+            .crossfade(true)
             .build()
     }
 
