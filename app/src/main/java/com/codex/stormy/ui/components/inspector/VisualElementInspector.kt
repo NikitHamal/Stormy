@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.components.inspector
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -276,7 +276,7 @@ private fun InspectorHeader(
                 ) {
                     // Tag badge
                     Surface(
-                        shape = CodeXCorners.tiny,
+                        shape = RoundedCornerShape(4.dp),
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         Text(
@@ -400,7 +400,7 @@ private fun NoModelWarning() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.errorContainer
     ) {
         Row(
@@ -456,7 +456,7 @@ private fun AiPromptInput(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .clip(CodeXCorners.small)
+                .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {

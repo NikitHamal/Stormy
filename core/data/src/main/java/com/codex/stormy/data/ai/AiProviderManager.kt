@@ -48,11 +48,12 @@ class AiProviderManager(
         messages: List<ChatRequestMessage>,
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
-        maxTokens: Int? = null
+        maxTokens: Int? = null,
+        reasoningEffort: ReasoningEffort? = null
     ): Flow<StreamEvent> {
         configurationError(model.provider)?.let { return flowOf(StreamEvent.Error(it)) }
         return clientFor(model.provider)
-            .streamChatCompletion(model, messages, tools, temperature, maxTokens)
+            .streamChatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort)
     }
 
     suspend fun chatCompletion(
@@ -60,13 +61,14 @@ class AiProviderManager(
         messages: List<ChatRequestMessage>,
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
-        maxTokens: Int? = null
+        maxTokens: Int? = null,
+        reasoningEffort: ReasoningEffort? = null
     ): Result<ChatCompletionResponse> {
         configurationError(model.provider)?.let {
             return Result.failure(IllegalStateException(it))
         }
         return clientFor(model.provider)
-            .chatCompletion(model, messages, tools, temperature, maxTokens)
+            .chatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort)
     }
 
     /**

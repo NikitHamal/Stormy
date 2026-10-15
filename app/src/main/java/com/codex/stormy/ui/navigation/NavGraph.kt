@@ -1,5 +1,10 @@
 package com.codex.stormy.ui.navigation
 
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.codex.stormy.ui.screens.settings.SettingsViewModel
+import com.codex.stormy.ui.screens.providers.ProvidersScreen
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -30,6 +35,7 @@ sealed class Screen(val route: String) {
     data object AiModels : Screen("ai_models")
     data object Memories : Screen("memories")
     data object GitSettings : Screen("git_settings")
+    data object Providers : Screen("providers")
 }
 
 @Composable
@@ -123,6 +129,18 @@ fun CodeXNavGraph(
             )
         }
 
+        composable(Screen.Providers.route) {
+            val viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            ProvidersScreen(
+                apiKeys = uiState.apiKeys,
+                customBaseUrl = uiState.customBaseUrl,
+                onKeyChange = viewModel::setApiKey,
+                onCustomBaseUrlChange = viewModel::setCustomBaseUrl,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
         composable(Screen.Settings.route) {
             SettingsScreen(
                 onBackClick = {
@@ -136,6 +154,9 @@ fun CodeXNavGraph(
                 },
                 onNavigateToGitSettings = {
                     navController.navigate(Screen.GitSettings.route)
+                },
+                onNavigateToProviders = {
+                    navController.navigate(Screen.Providers.route)
                 }
             )
         }

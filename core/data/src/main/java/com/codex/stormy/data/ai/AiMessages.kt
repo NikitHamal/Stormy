@@ -17,7 +17,15 @@ data class ChatCompletionRequest(
     val maxTokens: Int? = null,
     val tools: List<Tool>? = null,
     @SerialName("tool_choice")
-    val toolChoice: String? = null
+    val toolChoice: String? = null,
+    /**
+     * OpenAI-compatible reasoning budget. Null for models that do not expose
+     * one -- `explicitNulls = false` on the shared Json means a null is omitted
+     * from the body entirely rather than sent as `"reasoning_effort": null`,
+     * which several providers reject outright.
+     */
+    @SerialName("reasoning_effort")
+    val reasoningEffort: String? = null
 )
 
 @Serializable

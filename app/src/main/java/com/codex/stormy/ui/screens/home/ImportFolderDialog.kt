@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.home
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Error
@@ -120,7 +120,7 @@ fun ImportFolderDialog(
                     singleLine = true,
                     enabled = !isImporting,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = CodeXCorners.medium
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 // Description input
@@ -132,7 +132,7 @@ fun ImportFolderDialog(
                     maxLines = 2,
                     enabled = !isImporting,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = CodeXCorners.medium
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 // Progress indicator
@@ -178,7 +178,7 @@ fun ImportFolderDialog(
                     }
                 },
                 enabled = !isImporting,
-                shape = CodeXCorners.medium
+                shape = RoundedCornerShape(12.dp)
             ) {
                 if (isImporting) {
                     ExpressiveLoadingIndicator(
@@ -197,7 +197,7 @@ fun ImportFolderDialog(
                 }
             }
         },
-        shape = CodeXCorners.xLarge
+        shape = RoundedCornerShape(24.dp)
     )
 }
 
@@ -209,7 +209,7 @@ private fun FolderSelector(
     OutlinedButton(
         onClick = onSelectFolder,
         modifier = Modifier.fillMaxWidth(),
-        shape = CodeXCorners.medium,
+        shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (selectedFolderName != null) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
@@ -227,7 +227,7 @@ private fun FolderSelector(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CodeXCorners.small)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         if (selectedFolderName != null) {
                             MaterialTheme.colorScheme.primary
@@ -302,7 +302,7 @@ private fun ImportProgressIndicator(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.medium)
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -340,7 +340,7 @@ private fun ErrorDisplay(error: String?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.medium)
+            .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.errorContainer)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically

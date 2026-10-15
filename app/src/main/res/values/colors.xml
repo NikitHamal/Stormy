@@ -1,29 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Primary Brand Colors -->
-    <color name="codex_primary">#6366F1</color>
-    <color name="codex_primary_variant">#4F46E5</color>
-    <color name="codex_secondary">#8B5CF6</color>
+    <!--
+      XML colours are only used by things Compose cannot theme: the splash
+      screen and the launcher icon background. Everything else reads from the
+      Compose colour scheme in Color.kt, which is the single source of truth.
 
-    <!-- Splash Screen Colors -->
-    <color name="splash_background_light">#FFFFFF</color>
-    <color name="splash_background_dark">#0F0F14</color>
+      Warm neutrals, matching the Compose palette exactly so the splash does
+      not flash a different white before the app draws.
+    -->
+    <color name="codex_ink">#1C1917</color>
+    <color name="codex_chalk">#FCFCFB</color>
 
-    <!-- Accent Colors -->
-    <color name="accent_blue">#3B82F6</color>
-    <color name="accent_purple">#8B5CF6</color>
-    <color name="accent_pink">#EC4899</color>
-    <color name="accent_green">#10B981</color>
-    <color name="accent_orange">#F97316</color>
-    <color name="accent_red">#EF4444</color>
-
-    <!-- Syntax Highlighting Colors -->
-    <color name="syntax_keyword">#C678DD</color>
-    <color name="syntax_string">#98C379</color>
-    <color name="syntax_number">#D19A66</color>
-    <color name="syntax_comment">#5C6370</color>
-    <color name="syntax_function">#61AFEF</color>
-    <color name="syntax_tag">#E06C75</color>
-    <color name="syntax_attribute">#D19A66</color>
-    <color name="syntax_operator">#56B6C2</color>
+    <color name="splash_background_light">#FCFCFB</color>
+    <color name="splash_background_dark">#0C0B0A</color>
 </resources>

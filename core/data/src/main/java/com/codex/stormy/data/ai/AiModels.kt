@@ -5,6 +5,33 @@ import kotlinx.serialization.Serializable
 /**
  * Represents an AI model available for use
  */
+/**
+ * How much the model should think before answering.
+ *
+ * Only meaningful on models that expose a reasoning budget; the request layer
+ * omits the field entirely for the rest rather than sending something they will
+ * reject. Three steps, not five: the difference between adjacent levels has to
+ * be noticeable or the control is just a dial the user fiddles with.
+ */
+@Serializable
+enum class ReasoningEffort(val label: String, val wireValue: String) {
+    /** Answer quickly. Good for edits whose shape is already decided. */
+    LOW("Low", "low"),
+
+    /** The default trade-off. */
+    BALANCED("Balanced", "medium"),
+
+    /** Think longer. Worth it for debugging and design questions. */
+    DEEP("Deep", "high");
+
+    companion object {
+        val DEFAULT = BALANCED
+
+        fun fromName(value: String?): ReasoningEffort =
+            entries.find { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
+    }
+}
+
 @Serializable
 data class AiModel(
     val id: String,
@@ -13,7 +40,16 @@ data class AiModel(
     val contextLength: Int = 4096,
     val supportsStreaming: Boolean = true,
     val supportsToolCalls: Boolean = true,
-    val isThinkingModel: Boolean = false
+    val isThinkingModel: Boolean = false,
+    /**
+     * Whether this model accepts a reasoning-effort setting.
+     *
+     * Separate from [isThinkingModel]: a model can reason internally without
+     * letting the caller size that budget, and sending the parameter to one
+     * that does not accept it is a 400 rather than a graceful ignore on several
+     * providers.
+     */
+    val supportsReasoningEffort: Boolean = false
 )
 
 /** How a provider treats credentials. */
@@ -37,13 +73,15 @@ enum class ApiKeyRequirement {
  * providers that want attribution or browser-ish headers.
  *
  * On key requirements, verified against the live endpoints in October 2026:
- * only Pollinations currently answers with no credentials. DeepInfra's
- * anonymous inference endpoint, which this app was built around, now returns
- * `missing API key`, and OpenCode Zen's free tier is gated to the OpenCode
- * client itself ("can only be used from within OpenCode"), so neither is a
- * keyless option any more. The rest are free to sign up for without billing
- * details, which is a different thing from keyless and is labelled as such in
- * the UI.
+ * only Pollinations currently answers with no credentials. OpenCode Zen's free
+ * tier is gated to the OpenCode client itself ("can only be used from within
+ * OpenCode"), so it is not a keyless option either. The rest are free to sign
+ * up for without billing details, which is a different thing from keyless and
+ * is labelled as such in the UI.
+ *
+ * DeepInfra was removed outright: its anonymous endpoint was retired, which
+ * left it as one more key to manage for models every other provider here also
+ * serves.
  */
 @Serializable
 enum class AiProvider(
@@ -61,17 +99,6 @@ enum class AiProvider(
         baseUrl = "https://text.pollinations.ai/openai",
         apiKeyRequirement = ApiKeyRequirement.NONE,
         keyNote = "No account needed. Anonymous tier, tool calling supported."
-    ),
-    DEEPINFRA(
-        displayName = "DeepInfra",
-        baseUrl = "https://api.deepinfra.com/v1/openai",
-        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
-        apiKeyUrl = "https://deepinfra.com/dash/api_keys",
-        keyNote = "The anonymous endpoint was retired; a key is now required.",
-        extraHeaders = mapOf(
-            "Origin" to "https://deepinfra.com",
-            "Referer" to "https://deepinfra.com/"
-        )
     ),
     GEMINI(
         displayName = "Google Gemini",
@@ -209,12 +236,6 @@ object SeedModels {
         model("openai-fast", "GPT-OSS 20B (free, no key)", AiProvider.POLLINATIONS, 32_768)
     )
 
-    val deepInfra = listOf(
-        model("Qwen/Qwen3-Coder-480B-A35B-Instruct", "Qwen3 Coder 480B", AiProvider.DEEPINFRA, 262_144),
-        model("deepseek-ai/DeepSeek-V3.1", "DeepSeek V3.1", AiProvider.DEEPINFRA, 163_840),
-        model("Qwen/Qwen3-32B", "Qwen3 32B", AiProvider.DEEPINFRA, 40_960)
-    )
-
     val nvidia = listOf(
         model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 131_072),
         model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 131_072),
@@ -259,7 +280,6 @@ object SeedModels {
 
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
         AiProvider.POLLINATIONS to pollinations,
-        AiProvider.DEEPINFRA to deepInfra,
         AiProvider.GEMINI to fetchedOnly,
         AiProvider.NVIDIA to nvidia,
         AiProvider.OPENROUTER to fetchedOnly,

@@ -30,6 +30,41 @@ private data class OpenAiModelInfo(
 )
 
 /**
+ * Which model families accept a reasoning-effort parameter.
+ *
+ * Matched on the id rather than asked for, because the OpenAI-compatible
+ * `/models` response carries no capability field -- it returns ids and little
+ * else. Being wrong in the permissive direction costs a 400 on every request,
+ * so the list is deliberately restricted to families known to accept it.
+ */
+internal object ReasoningEffortSupport {
+
+    private val patterns = listOf(
+        Regex("""^o[1-9]"""),                 // OpenAI o-series
+        Regex("""gpt-5"""),
+        Regex("""gpt-6"""),
+        Regex("""codex"""),
+        Regex("""gemini-[3-9]"""),            // Gemini 3+ exposes a budget
+        Regex("""gemini-2\.5"""),
+        Regex("""claude-(opus|sonnet)-[4-9]"""),
+        Regex("""grok-[4-9]"""),
+        Regex("""deepseek-(r|v[4-9])"""),
+        Regex("""qwen3"""),
+        Regex("""nemotron"""),
+        Regex("""glm-[5-9]"""),
+        Regex("""minimax-m""")
+    )
+
+    fun supports(modelId: String): Boolean {
+        val id = modelId.lowercase()
+        // Lite/mini/flash-lite tiers in these families generally drop the
+        // budget even though the family name matches.
+        if (id.contains("flash-lite") || id.contains("-nano")) return false
+        return patterns.any { it.containsMatchIn(id) }
+    }
+}
+
+/**
  * Generic model discovery for providers exposing OpenAI-compatible `/models`.
  */
 class OpenAiCompatibleModelService {
@@ -124,6 +159,7 @@ class OpenAiCompatibleModelService {
             contextLength = contextLength,
             supportsStreaming = true,
             supportsToolCalls = supportsToolCalls,
+            supportsReasoningEffort = ReasoningEffortSupport.supports(info.id),
             isThinkingModel = isThinkingModel
         )
     }

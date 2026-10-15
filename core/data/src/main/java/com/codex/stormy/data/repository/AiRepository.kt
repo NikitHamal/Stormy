@@ -65,7 +65,11 @@ class AiRepository(
             messages = messages,
             tools = tools,
             temperature = temperature,
-            maxTokens = maxTokens
+            maxTokens = maxTokens,
+            // Read from preferences here rather than threaded through every
+            // caller: the setting is global, and the provider drops it for
+            // models that do not advertise support.
+            reasoningEffort = preferencesRepository.reasoningEffort.first()
         )
 
         return stream ?: flow {
@@ -89,7 +93,8 @@ class AiRepository(
             messages = messages,
             tools = tools,
             temperature = temperature,
-            maxTokens = maxTokens
+            maxTokens = maxTokens,
+            reasoningEffort = preferencesRepository.reasoningEffort.first()
         )
     }
 

@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.components.chat
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
@@ -95,7 +95,7 @@ fun FileMentionPopup(
         modifier = modifier
     ) {
         Surface(
-            shape = CodeXCorners.medium,
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             shadowElevation = 8.dp,
             tonalElevation = 2.dp,
@@ -166,7 +166,7 @@ private fun MentionItemRow(
         Box(
             modifier = Modifier
                 .size(28.dp)
-                .clip(CodeXCorners.small)
+                .clip(RoundedCornerShape(6.dp))
                 .background(getFileIconBackground(item)),
             contentAlignment = Alignment.Center
         ) {
@@ -207,7 +207,7 @@ private fun MentionItemRow(
         if (!item.isFolder && item.extension.isNotEmpty()) {
             Box(
                 modifier = Modifier
-                    .clip(CodeXCorners.tiny)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerLow)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
@@ -321,7 +321,7 @@ fun MentionChip(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
         modifier = modifier
     ) {

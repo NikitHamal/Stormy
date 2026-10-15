@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.editor.assets
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -30,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
@@ -109,7 +109,7 @@ data class AssetFile(
  */
 @Composable
 fun AssetManagerDrawer(
-    projectPath: String,
+    projectPath: String?,
     onClose: () -> Unit,
     onAssetClick: (AssetFile) -> Unit,
     onAssetDelete: (AssetFile) -> Unit,
@@ -134,9 +134,10 @@ fun AssetManagerDrawer(
 
     // Load assets
     fun loadAssets() {
+        val root = projectPath ?: return
         scope.launch {
             assets = withContext(Dispatchers.IO) {
-                scanAssetsFolder(projectPath)
+                scanAssetsFolder(root)
             }
         }
     }
@@ -152,7 +153,7 @@ fun AssetManagerDrawer(
     ) { uri ->
         uri?.let {
             scope.launch {
-                copyAssetToProject(context, uri, projectPath, "images")
+                copyAssetToProject(context, uri, projectPath ?: return@launch, "images")
                 loadAssets()
                 onAssetAdded()
             }
@@ -165,7 +166,7 @@ fun AssetManagerDrawer(
     ) { uri ->
         uri?.let {
             scope.launch {
-                copyAssetToProject(context, uri, projectPath, "assets")
+                copyAssetToProject(context, uri, projectPath ?: return@launch, "assets")
                 loadAssets()
                 onAssetAdded()
             }
@@ -183,7 +184,10 @@ fun AssetManagerDrawer(
         modifier = Modifier.width(300.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
-        if (!contentVisible) return@ModalDrawerSheet
+        // Also gated on the path: the sheet is composed before the
+        // project loads so its width stays stable, but the body has
+        // nothing to show until there is a project.
+        if (!contentVisible || projectPath == null) return@ModalDrawerSheet
 
         Column(
             modifier = Modifier
@@ -505,10 +509,11 @@ fun AssetManagerDrawer(
     }
 
     // Image detail dialog with optimization
-    showImageDetail?.let { asset ->
+    val detailProjectPath = projectPath
+    showImageDetail?.takeIf { detailProjectPath != null }?.let { asset ->
         ImageDetailDialog(
             asset = asset,
-            projectPath = projectPath,
+            projectPath = detailProjectPath!!,
             onDismiss = { showImageDetail = null },
             onImageOptimized = { optimizedFile ->
                 // Refresh assets to show the new optimized image
@@ -584,7 +589,7 @@ private fun EmptyAssetsState(
 
         Surface(
             onClick = onAddImage,
-            shape = CodeXCorners.medium,
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Row(
@@ -657,7 +662,7 @@ private fun AssetSectionHeader(
         )
 
         Surface(
-            shape = CodeXCorners.medium,
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Text(
@@ -715,13 +720,13 @@ private fun AssetGridItem(
         Surface(
             modifier = Modifier
                 .aspectRatio(1f)
-                .clip(CodeXCorners.small)
+                .clip(RoundedCornerShape(8.dp))
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = { showMenu = true }
                 ),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = CodeXCorners.small
+            shape = RoundedCornerShape(8.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -819,7 +824,7 @@ private fun AssetListItem(
         // Thumbnail or icon
         Surface(
             modifier = Modifier.size(40.dp),
-            shape = CodeXCorners.small,
+            shape = RoundedCornerShape(6.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             if (asset.type == AssetType.IMAGE) {
@@ -934,7 +939,7 @@ private fun CreateFolderDialog(
                 placeholder = { Text("images") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = CodeXCorners.medium
+                shape = RoundedCornerShape(12.dp)
             )
         },
         confirmButton = {

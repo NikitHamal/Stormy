@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.data.ai.ReasoningEffort
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import com.codex.stormy.ui.components.agent.PendingApproval
@@ -135,7 +136,8 @@ data class EditorUiState(
      */
     val agentPlan: com.codex.stormy.data.ai.agents.AgentPlan? = null,
     /** Delegated work, live and recently finished. */
-    val agentSessions: List<com.codex.stormy.data.ai.agents.AgentSession> = emptyList()
+    val agentSessions: List<com.codex.stormy.data.ai.agents.AgentSession> = emptyList(),
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT
 )
 
 /**
@@ -300,6 +302,8 @@ class EditorViewModel(
         state.copy(agentPlan = plan.takeIf { !it.isEmpty })
     }.combine(subagentOrchestrator.sessions) { state, sessions ->
         state.copy(agentSessions = sessions)
+    }.combine(preferencesRepository.reasoningEffort) { state, effort ->
+        state.copy(reasoningEffort = effort)
     }.combine(undoRedoManager.state) { state, undoRedoState ->
         state.copy(undoRedoState = undoRedoState)
     }.combine(_taskList) { state, taskList ->
@@ -2303,6 +2307,10 @@ class EditorViewModel(
             approvalAnswer = null
             throw cancellation
         }
+    }
+
+    fun setReasoningEffort(effort: ReasoningEffort) {
+        viewModelScope.launch { preferencesRepository.setReasoningEffort(effort) }
     }
 
 }

@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.editor.assets
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessAlarm
 import androidx.compose.material.icons.outlined.AccessTime
@@ -379,7 +379,7 @@ fun IconLibraryDialog(
                     }
                 },
                 singleLine = true,
-                shape = CodeXCorners.medium
+                shape = RoundedCornerShape(12.dp)
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -475,14 +475,14 @@ private fun IconGridItem(
     Surface(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        shape = CodeXCorners.small
+        shape = RoundedCornerShape(8.dp)
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -518,7 +518,7 @@ private fun IconDetailSection(
         ) {
             Surface(
                 modifier = Modifier.size(48.dp),
-                shape = CodeXCorners.medium,
+                shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Box(
@@ -600,7 +600,7 @@ private fun CopyCodeChip(
 ) {
     Surface(
         onClick = { onClick(code) },
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
     ) {

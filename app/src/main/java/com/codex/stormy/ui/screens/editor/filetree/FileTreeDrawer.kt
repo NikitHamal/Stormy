@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.editor.filetree
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
@@ -588,7 +588,7 @@ private fun CreateItemDialog(
                 placeholder = { Text(hint) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = CodeXCorners.medium
+                shape = RoundedCornerShape(12.dp)
             )
         },
         confirmButton = {

@@ -218,15 +218,22 @@ fun EditorScreen(
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                uiState.project?.let { project ->
-                    GitDrawer(
-                        contentVisible = gitDrawerState.isOpen ||
-                            gitDrawerState.isAnimationRunning,
-                        projectPath = project.rootPath,
-                        onClose = { scope.launch { gitDrawerState.close() } },
-                        onNavigateToGitSettings = onGitSettingsClick
-                    )
-                }
+                // Composed unconditionally, including while `project` is still
+                // null. Wrapping this in `project?.let` gave the sheet zero
+                // width for the first frames after opening a project; when the
+                // project then loaded, the sheet gained real width, the
+                // drawer's open/closed anchors recomputed, and the swipeable
+                // state settled to Open -- which is why Source Control and
+                // Assets (the two drawers behind that null check) appeared
+                // open by themselves while the File drawer, composed
+                // unconditionally, never did.
+                GitDrawer(
+                    contentVisible = gitDrawerState.isOpen ||
+                        gitDrawerState.isAnimationRunning,
+                    projectPath = uiState.project?.rootPath,
+                    onClose = { scope.launch { gitDrawerState.close() } },
+                    onNavigateToGitSettings = onGitSettingsClick
+                )
             },
             gesturesEnabled = gitDrawerState.isOpen,
             scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)
@@ -236,31 +243,31 @@ fun EditorScreen(
                 drawerState = assetDrawerState,
                 scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f),
                 drawerContent = {
-                    uiState.project?.let { project ->
-                        AssetManagerDrawer(
-                            contentVisible = assetDrawerState.isOpen ||
-                                assetDrawerState.isAnimationRunning,
-                            projectPath = project.rootPath,
-                            onClose = { scope.launch { assetDrawerState.close() } },
-                            onAssetClick = { asset ->
-                                // Open asset file in code editor if it's a text-based file
-                                val textExtensions = listOf("svg", "json", "xml", "txt", "md")
-                                if (asset.extension.lowercase() in textExtensions) {
-                                    viewModel.openFile(asset.path)
-                                    scope.launch { assetDrawerState.close() }
-                                }
-                            },
-                            onAssetDelete = { viewModel.refreshFileTree() },
-                            onAssetAdded = { viewModel.refreshFileTree() },
-                            onCopyPath = {
-                                Toast.makeText(
-                                    context,
-                                    context.getString(R.string.assets_path_copied),
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                    // See the note on the Git drawer above: the sheet must be
+                    // composed even before the project loads, or it settles
+                    // open on its own.
+                    AssetManagerDrawer(
+                        contentVisible = assetDrawerState.isOpen ||
+                            assetDrawerState.isAnimationRunning,
+                        projectPath = uiState.project?.rootPath,
+                        onClose = { scope.launch { assetDrawerState.close() } },
+                        onAssetClick = { asset ->
+                            val textExtensions = listOf("svg", "json", "xml", "txt", "md")
+                            if (asset.extension.lowercase() in textExtensions) {
+                                viewModel.openFile(asset.path)
+                                scope.launch { assetDrawerState.close() }
                             }
-                        )
-                    }
+                        },
+                        onAssetDelete = { viewModel.refreshFileTree() },
+                        onAssetAdded = { viewModel.refreshFileTree() },
+                        onCopyPath = {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.assets_path_copied),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
                 },
                 gesturesEnabled = assetDrawerState.isOpen
             ) {
@@ -355,6 +362,8 @@ fun EditorScreen(
                             when (tab) {
                                 EditorTab.CHAT -> ChatTab(
                                     agentSessions = uiState.agentSessions,
+                                    reasoningEffort = uiState.reasoningEffort,
+                                    onReasoningEffortChange = viewModel::setReasoningEffort,
                                     onStopAgent = viewModel::stopSubagent,
                                     onResolveAgentApproval = viewModel::resolveSubagentApproval,
                                     messages = uiState.messages,

@@ -151,11 +151,7 @@ fun OnboardingScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    // extraLarge, not a literal 16dp: the primary action on
-                    // the first screen should sit at the top of the shape
-                    // scale, and reading it from the theme means it follows the
-                    // scale if that changes.
-                    shape = MaterialTheme.shapes.extraLarge,
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     )

@@ -28,9 +28,8 @@ class OpenAiCompatibleProvider(
 ) {
     /**
      * Headers the provider always wants (attribution, origin), merged with
-     * anything the caller adds. DeepInfra needs Origin/Referer, OpenRouter and
-     * Kilo Code want attribution headers -- all of which now live on the enum,
-     * which is why this class can serve every provider.
+     * anything the caller adds. OpenRouter and Kilo Code want attribution
+     * headers -- which live on the enum, so this class serves every provider.
      */
     private val extraHeaders: Map<String, String> = provider.extraHeaders + extraHeaders
 
@@ -51,7 +50,8 @@ class OpenAiCompatibleProvider(
         messages: List<ChatRequestMessage>,
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
-        maxTokens: Int? = null
+        maxTokens: Int? = null,
+        reasoningEffort: ReasoningEffort? = null
     ): Flow<StreamEvent> {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return flowOf(StreamEvent.Error(missingKeyMessage()))
@@ -65,7 +65,12 @@ class OpenAiCompatibleProvider(
                 temperature = temperature,
                 maxTokens = maxTokens,
                 tools = if (model.supportsToolCalls && tools != null) tools else null,
-                toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null
+                toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null,
+                // Sent only when the model advertises support: providers that
+                // do not accept the field answer 400 rather than ignoring it.
+                reasoningEffort = reasoningEffort
+                    ?.takeIf { model.supportsReasoningEffort }
+                    ?.wireValue
             )
 
             val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
@@ -200,7 +205,8 @@ class OpenAiCompatibleProvider(
         messages: List<ChatRequestMessage>,
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
-        maxTokens: Int? = null
+        maxTokens: Int? = null,
+        reasoningEffort: ReasoningEffort? = null
     ): Result<ChatCompletionResponse> = withContext(Dispatchers.IO) {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return@withContext Result.failure(IOException(missingKeyMessage()))
@@ -214,7 +220,12 @@ class OpenAiCompatibleProvider(
                 temperature = temperature,
                 maxTokens = maxTokens,
                 tools = if (model.supportsToolCalls && tools != null) tools else null,
-                toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null
+                toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null,
+                // Sent only when the model advertises support: providers that
+                // do not accept the field answer 400 rather than ignoring it.
+                reasoningEffort = reasoningEffort
+                    ?.takeIf { model.supportsReasoningEffort }
+                    ?.wireValue
             )
 
             val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)

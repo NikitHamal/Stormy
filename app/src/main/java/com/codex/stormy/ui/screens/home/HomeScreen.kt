@@ -1,15 +1,10 @@
 package com.codex.stormy.ui.screens.home
 
-import com.codex.stormy.ui.theme.CodeXCorners
-import androidx.compose.material3.Surface
-import com.codex.stormy.ui.theme.Space
-import com.codex.stormy.ui.theme.Sizes
-import com.codex.stormy.ui.theme.Elevation
-import com.codex.stormy.ui.theme.ExpressiveShapes
-import com.codex.stormy.ui.components.expressive.expressivePress
-import com.codex.stormy.ui.components.agent.AgentVisuals
-import androidx.compose.material3.ripple
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.codex.stormy.ui.components.expressive.SpeedDialScrim
+import com.codex.stormy.ui.components.expressive.SpeedDialFab
+import com.codex.stormy.ui.components.expressive.SpeedDialAction
+import androidx.compose.material.icons.outlined.DriveFolderUpload
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -39,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -189,67 +185,35 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            Box {
-                ExtendedFloatingActionButton(
-                    onClick = { showFabMenu = !showFabMenu },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ) {
-                    Icon(
-                        imageVector = if (showFabMenu) Icons.Outlined.Close else Icons.Outlined.Add,
-                        contentDescription = null
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (showFabMenu) "Close" else context.getString(R.string.home_create_project))
-                }
-
-                DropdownMenu(
-                    expanded = showFabMenu,
-                    onDismissRequest = { showFabMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("New Project") },
-                        onClick = {
-                            showFabMenu = false
-                            showCreateDialog = true
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Add,
-                                contentDescription = null
-                            )
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Clone from Git") },
-                        onClick = {
-                            showFabMenu = false
-                            showCloneDialog = true
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Code,
-                                contentDescription = null
-                            )
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Import Folder") },
-                        onClick = {
-                            showFabMenu = false
-                            showImportDialog = true
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Upload,
-                                contentDescription = null
-                            )
-                        }
-                    )
-                }
-            }
+            // A speed dial rather than an extended FAB plus a dropdown. The old
+            // control showed one action and hid the other two behind a menu, so
+            // cloning a repository -- the way a lot of real work starts -- was
+            // two taps and invisible until the first one.
+            SpeedDialFab(
+                expanded = showFabMenu,
+                onExpandedChange = { showFabMenu = it },
+                collapsedDescription = context.getString(R.string.home_create_project),
+                actions = listOf(
+                    SpeedDialAction(
+                        label = "New project",
+                        icon = Icons.Outlined.Add
+                    ) { showCreateDialog = true },
+                    SpeedDialAction(
+                        label = "Clone repository",
+                        icon = Icons.Outlined.CloudDownload
+                    ) { showCloneDialog = true },
+                    SpeedDialAction(
+                        label = "Import folder",
+                        icon = Icons.Outlined.DriveFolderUpload
+                    ) { showImportDialog = true }
+                )
+            )
         }
     ) { innerPadding ->
+        // Dismiss layer for the expanded speed dial. Inside the Scaffold body
+        // so it covers the list but never the FAB itself.
+        SpeedDialScrim(expanded = showFabMenu, onDismiss = { showFabMenu = false })
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -399,7 +363,7 @@ private fun SearchBar(
             }
         },
         singleLine = true,
-        shape = CodeXCorners.large,
+        shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -421,32 +385,26 @@ private fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // A circle here is the one shape that says nothing. This is the first
-        // screen on a fresh install, so it is also the app's first chance to
-        // show that shape carries meaning in this UI -- the same cookie
-        // silhouette that marks an Explore agent and a project later on.
-        Surface(
-            modifier = Modifier.size(88.dp),
-            shape = ExpressiveShapes.cookie9(),
-            color = MaterialTheme.colorScheme.primaryContainer
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Outlined.Code,
-                    contentDescription = null,
-                    modifier = Modifier.size(Sizes.iconLarge * 1.5f),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
+            Icon(
+                imageVector = Icons.Outlined.Code,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
 
-        Spacer(modifier = Modifier.height(Space.xl))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text(
             text = context.getString(R.string.home_empty_title),
-            // Emphasized headline: an empty state has nothing competing with
-            // it, so this is where the type scale should be most confident.
-            style = MaterialTheme.typography.headlineSmallEmphasized,
+            style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground
         )
 
@@ -563,7 +521,7 @@ private fun SwipeableProjectCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(CodeXCorners.large)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(
                         brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
                             colors = listOf(
@@ -594,68 +552,48 @@ private fun SwipeableProjectCard(
             }
         },
         content = {
-            val interaction = remember { MutableInteractionSource() }
             Card(
-                modifier = Modifier
-                    .expressivePress(interaction)
-                    .clickable(
-                        interactionSource = interaction,
-                        indication = ripple(),
-                        onClick = onClick
-                    ),
-                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.clickable(onClick = onClick),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 ),
-                // Flat. M3 separates surfaces by tonal level, not shadow, and a
-                // list of shadowed cards is the fastest way to make an M3 app
-                // look like Material 1.
-                elevation = CardDefaults.cardElevation(defaultElevation = Elevation.flat)
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(Space.lg),
+                        .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Every project used to get the same folder glyph in the
-                    // same rounded square, so a list of them had nothing to
-                    // scan by -- only the name differed, and names in a list
-                    // all read as one texture. A silhouette derived from the
-                    // project id gives each one a stable, recognisable mark
-                    // that survives reordering and relaunching.
-                    val accentSlot = remember(project.id) {
-                        (project.id.hashCode().mod(ProjectAccentCount))
-                    }
-                    val accent = AgentVisuals.accent(accentSlot)
-                    Surface(
-                        modifier = Modifier.size(Sizes.avatarLarge),
-                        shape = ExpressiveShapes.forIndex(accentSlot),
-                        color = accent.container
+                    // Project icon
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = project.name.firstOrNull()?.uppercase() ?: "?",
-                                style = MaterialTheme.typography.titleMediumEmphasized,
-                                color = accent.onContainer
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Outlined.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
 
-                    Spacer(modifier = Modifier.width(Space.lg))
+                    Spacer(modifier = Modifier.width(16.dp))
 
                     // Project info
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = project.name,
-                            // Emphasized: the name is the only thing the user
-                            // is looking for in this row.
-                            style = MaterialTheme.typography.titleMediumEmphasized,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (project.description.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = project.description,
                                 style = MaterialTheme.typography.bodySmall,
@@ -664,7 +602,7 @@ private fun SwipeableProjectCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Spacer(modifier = Modifier.height(Space.xxs))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = project.formattedLastOpened,
                             style = MaterialTheme.typography.labelSmall,
@@ -726,8 +664,3 @@ private fun SwipeableProjectCard(
     )
 }
 
-/**
- * Number of distinct project marks. Matches the palette and shape lists in
- * AgentVisuals/ExpressiveShapes so colour and silhouette stay paired.
- */
-private const val ProjectAccentCount = 5

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.codex.stormy.data.ai.AiProvider
+import com.codex.stormy.data.ai.ReasoningEffort
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -36,6 +37,7 @@ class PreferencesRepository(private val context: Context) {
             stringPreferencesKey("${provider.name.lowercase()}_api_key")
 
         val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
+        val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -84,9 +86,7 @@ class PreferencesRepository(private val context: Context) {
 
     /** Key for a single provider; see [apiKeys] for all of them at once. */
     fun apiKeyFor(provider: AiProvider): Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.apiKey(provider)]
-            ?: preferences[PreferenceKeys.API_KEY].takeIf { provider == AiProvider.DEEPINFRA }
-            ?: ""
+        preferences[PreferenceKeys.apiKey(provider)] ?: ""
     }
 
     // AI Provider and Model
@@ -196,16 +196,26 @@ class PreferencesRepository(private val context: Context) {
     /** Keys for every provider at once, for building an AiProviderManager. */
     val apiKeys: Flow<Map<AiProvider, String>> = context.dataStore.data.map { preferences ->
         AiProvider.entries.associateWith { provider ->
-            preferences[PreferenceKeys.apiKey(provider)]
-                // The original build stored DeepInfra's key under a bare
-                // "api_key" before per-provider keys existed.
-                ?: preferences[PreferenceKeys.API_KEY].takeIf { provider == AiProvider.DEEPINFRA }
-                ?: ""
+            // The pre-per-provider "api_key" belonged to DeepInfra, which has
+            // been removed; there is no provider left to migrate it to, and
+            // handing one provider's key to another would silently 401.
+            preferences[PreferenceKeys.apiKey(provider)] ?: ""
         }
     }
 
     val customBaseUrl: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferenceKeys.CUSTOM_BASE_URL] ?: ""
+    }
+
+    /** Reasoning budget, for models that expose one. */
+    val reasoningEffort: Flow<ReasoningEffort> = context.dataStore.data.map { preferences ->
+        ReasoningEffort.fromName(preferences[PreferenceKeys.REASONING_EFFORT])
+    }
+
+    suspend fun setReasoningEffort(effort: ReasoningEffort) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.REASONING_EFFORT] = effort.name
+        }
     }
 
     suspend fun getApiKeyForProvider(provider: AiProvider): String = apiKeys.first()[provider] ?: ""

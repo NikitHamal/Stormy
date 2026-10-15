@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.editor.assets
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
@@ -300,9 +300,9 @@ private fun ColorPickerTab(
             Surface(
                 modifier = Modifier
                     .size(80.dp)
-                    .clip(CodeXCorners.large),
+                    .clip(RoundedCornerShape(16.dp)),
                 color = selectedColor,
-                shape = CodeXCorners.large,
+                shape = RoundedCornerShape(16.dp),
                 shadowElevation = 4.dp
             ) {
                 Box(modifier = Modifier.fillMaxSize())
@@ -317,7 +317,7 @@ private fun ColorPickerTab(
                     label = { Text("HEX Color") },
                     placeholder = { Text("#RRGGBB") },
                     singleLine = true,
-                    shape = CodeXCorners.medium,
+                    shape = RoundedCornerShape(12.dp),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                         fontFamily = FontFamily.Monospace
                     ),
@@ -430,7 +430,7 @@ private fun ColorPickerTab(
         val formattedColor = formatColor(selectedColor, selectedFormat)
         Surface(
             onClick = { onCopyCode(formattedColor) },
-            shape = CodeXCorners.medium,
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Row(
@@ -491,7 +491,7 @@ private fun ColorSliderRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(32.dp)
-                .clip(CodeXCorners.large)
+                .clip(RoundedCornerShape(16.dp))
                 .background(
                     brush = androidx.compose.ui.graphics.Brush.horizontalGradient(sliderColors)
                 )
@@ -605,7 +605,7 @@ private fun ColorHarmonyTab(
 
         Surface(
             onClick = { onCopyCode(cssVariables) },
-            shape = CodeXCorners.medium,
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Column(
@@ -700,19 +700,19 @@ private fun ColorSwatch(
     Surface(
         modifier = modifier
             .aspectRatio(1f)
-            .clip(CodeXCorners.medium)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .then(
                 if (isSelected) {
                     Modifier.border(
                         width = 2.dp,
                         color = MaterialTheme.colorScheme.primary,
-                        shape = CodeXCorners.medium
+                        shape = RoundedCornerShape(12.dp)
                     )
                 } else Modifier
             ),
         color = color,
-        shape = CodeXCorners.medium,
+        shape = RoundedCornerShape(12.dp),
         shadowElevation = 2.dp
     ) {
         if (isSelected) {
@@ -739,10 +739,10 @@ private fun ColorGridItem(
     Surface(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
         color = color,
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         shadowElevation = 1.dp
     ) {
         Box(modifier = Modifier.fillMaxSize())

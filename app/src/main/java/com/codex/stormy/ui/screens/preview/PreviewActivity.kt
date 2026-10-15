@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.preview
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -53,6 +52,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -1124,7 +1124,7 @@ private fun SelectionModeIndicator(
     Box(
         modifier = modifier
             .padding(8.dp)
-            .clip(CodeXCorners.large)
+            .clip(RoundedCornerShape(16.dp))
             .background(containerColor)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
@@ -1194,7 +1194,7 @@ private fun AgentPromptBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 12.dp),
-                    shape = CodeXCorners.small,
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.errorContainer
                 ) {
                     Row(
@@ -1286,7 +1286,7 @@ private fun AgentPromptBar(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(CodeXCorners.xLarge)
+                        .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.surface)
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
@@ -1394,13 +1394,13 @@ private fun SelectedElementChip(
     onRemove: () -> Unit
 ) {
     Surface(
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = Modifier
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                shape = CodeXCorners.small
+                shape = RoundedCornerShape(8.dp)
             )
     ) {
         Row(
@@ -1438,7 +1438,7 @@ private fun QuickSuggestionChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = CodeXCorners.large,
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Text(
@@ -1712,7 +1712,7 @@ private fun ElementTab(element: InspectedElement) {
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .clip(CodeXCorners.tiny)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(8.dp)
             )
@@ -1803,7 +1803,7 @@ private fun StyleProperty(name: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.tiny)
+            .clip(RoundedCornerShape(4.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween

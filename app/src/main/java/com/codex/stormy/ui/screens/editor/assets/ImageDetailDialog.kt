@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.editor.assets
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -24,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AspectRatio
@@ -132,7 +132,7 @@ fun ImageDetailDialog(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .padding(vertical = 32.dp),
-            shape = CodeXCorners.xLarge,
+            shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
@@ -184,7 +184,7 @@ fun ImageDetailDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f),
-                        shape = CodeXCorners.medium,
+                        shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         AsyncImage(
@@ -231,7 +231,7 @@ fun ImageDetailDialog(
                     // Optimization section toggle
                     Surface(
                         onClick = { showOptimizePanel = !showOptimizePanel },
-                        shape = CodeXCorners.medium,
+                        shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                     ) {
                         Row(
@@ -540,7 +540,7 @@ private fun ImageMetadataSection(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = CodeXCorners.medium
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -631,7 +631,7 @@ private fun OptimizationResultCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         ),
-        shape = CodeXCorners.medium
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -710,7 +710,7 @@ private fun OptimizationResultCard(
 
             // Savings indicator
             Surface(
-                shape = CodeXCorners.small,
+                shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             ) {
                 Row(

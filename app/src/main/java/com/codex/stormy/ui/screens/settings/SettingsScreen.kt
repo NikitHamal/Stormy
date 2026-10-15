@@ -1,6 +1,6 @@
 package com.codex.stormy.ui.screens.settings
 
-import com.codex.stormy.ui.theme.CodeXCorners
+import androidx.compose.material.icons.outlined.Key
 import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -72,7 +73,8 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     onNavigateToAiModels: () -> Unit = {},
     onNavigateToMemories: () -> Unit = {},
-    onNavigateToGitSettings: () -> Unit = {},
+    onNavigateToGitSettings: () -> Unit,
+    onNavigateToProviders: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -180,33 +182,16 @@ fun SettingsScreen(
                     onClick = onNavigateToMemories
                 )
 
-                // Rendered from AiProvider.entries, so a new provider shows up
-                // here automatically. Providers that need no key are listed
-                // without a field, which is also how the user can tell which
-                // ones work with no setup.
-                AiProvider.entries
-                    .filter { it.apiKeyRequirement != ApiKeyRequirement.NONE }
-                    .forEach { provider ->
-                        ApiKeyField(
-                            title = provider.displayName,
-                            value = uiState.apiKeys[provider].orEmpty(),
-                            note = provider.keyNote,
-                            signupUrl = provider.apiKeyUrl,
-                            onValueChange = { key -> viewModel.setApiKey(provider, key) }
-                        )
-                    }
-
-                if (uiState.apiKeys[AiProvider.CUSTOM].orEmpty().isNotEmpty() ||
-                    uiState.customBaseUrl.isNotEmpty()
-                ) {
-                    ApiKeyField(
-                        title = "Custom base URL",
-                        value = uiState.customBaseUrl,
-                        note = "e.g. http://192.168.1.10:11434/v1 for a local Ollama",
-                        masked = false,
-                        onValueChange = viewModel::setCustomBaseUrl
-                    )
-                }
+                // The key fields moved to their own screen. Stacked password
+                // inputs gave no sense of which providers were usable, which
+                // needed a key, or where a key came from -- the user had to
+                // already know.
+                SettingsNavItem(
+                    icon = Icons.Outlined.Key,
+                    title = "AI providers",
+                    subtitle = providerSummary(uiState.apiKeys),
+                    onClick = onNavigateToProviders
+                )
             }
 
             // Git Section
@@ -327,7 +312,7 @@ private fun SettingsSection(
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = CodeXCorners.large,
+            shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 0.dp
         ) {
@@ -406,7 +391,7 @@ private fun ThemeChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = CodeXCorners.medium,
+        shape = RoundedCornerShape(10.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
@@ -710,4 +695,12 @@ private fun GitSettingsNavItem(
             modifier = Modifier.size(20.dp)
         )
     }
+}
+
+/** "3 of 11 ready" -- answers the only question this row needs to answer. */
+private fun providerSummary(apiKeys: Map<AiProvider, String>): String {
+    val ready = AiProvider.entries.count { provider ->
+        !provider.requiresApiKey || apiKeys[provider].orEmpty().isNotBlank()
+    }
+    return "$ready of ${AiProvider.entries.size} ready"
 }

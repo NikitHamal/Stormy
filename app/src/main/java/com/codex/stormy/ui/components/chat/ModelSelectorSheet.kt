@@ -1,6 +1,9 @@
 package com.codex.stormy.ui.components.chat
 
-import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.PickerOption
+import com.codex.stormy.ui.components.expressive.SegmentedPicker
+import com.codex.stormy.data.ai.ReasoningEffort
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +62,8 @@ fun ModelSelectorSheet(
     onManageModels: () -> Unit = {},
     onRefresh: () -> Unit = {},
     isRefreshing: Boolean = false,
+    reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    onReasoningEffortChange: (ReasoningEffort) -> Unit = {},
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier
 ) {
@@ -80,7 +85,7 @@ fun ModelSelectorSheet(
                     .padding(vertical = 12.dp)
                     .width(40.dp)
                     .height(4.dp)
-                    .clip(CodeXCorners.tiny)
+                    .clip(RoundedCornerShape(2.dp))
                     .background(MaterialTheme.colorScheme.outlineVariant)
             )
         },
@@ -182,6 +187,22 @@ fun ModelSelectorSheet(
                     }
                 }
             } else {
+                // Shown only for models that expose a reasoning budget. A disabled
+                // control on every other model would be a permanent dead element,
+                // and the absence is itself informative.
+                if (selectedModel?.supportsReasoningEffort == true) {
+                    SegmentedPicker(
+                        label = "Reasoning effort",
+                        options = ReasoningEffort.entries.map { PickerOption(it, it.label) },
+                        selected = reasoningEffort,
+                        onSelect = onReasoningEffortChange,
+                        modifier = Modifier.padding(
+                            horizontal = Space.lg,
+                            vertical = Space.md
+                        )
+                    )
+                }
+
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -214,7 +235,7 @@ private fun CompactModelCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = CodeXCorners.medium,
+        shape = RoundedCornerShape(10.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         } else {

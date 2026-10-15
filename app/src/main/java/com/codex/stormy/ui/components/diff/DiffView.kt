@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.components.diff
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -20,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -175,7 +175,7 @@ fun CollapsibleDiffView(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = CodeXCorners.medium,
+        shape = RoundedCornerShape(10.dp),
         color = backgroundColor,
         tonalElevation = 0.dp
     ) {
@@ -269,7 +269,7 @@ fun DiffContent(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         color = if (isDarkTheme) DiffColors.contextBackground else DiffColors.contextBackgroundLight,
         tonalElevation = 0.dp
     ) {
@@ -440,7 +440,7 @@ fun InlineDiffBadge(
 ) {
     Row(
         modifier = modifier
-            .clip(CodeXCorners.tiny)
+            .clip(RoundedCornerShape(4.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 6.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -501,7 +501,7 @@ fun FileChangeSummary(
             fontSize = 9.sp,
             color = opColor,
             modifier = Modifier
-                .clip(CodeXCorners.tiny)
+                .clip(RoundedCornerShape(2.dp))
                 .background(opColor.copy(alpha = 0.15f))
                 .padding(horizontal = 4.dp, vertical = 1.dp)
         )

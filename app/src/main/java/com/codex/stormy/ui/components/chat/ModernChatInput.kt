@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.components.chat
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -136,7 +136,7 @@ fun ModernChatInput(
             modifier = Modifier
                 .fillMaxWidth()
                 .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
-            shape = CodeXCorners.xLarge,
+            shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 1.dp,
             shadowElevation = 2.dp
@@ -336,7 +336,7 @@ private fun ModelChip(
 
     Surface(
         onClick = onClick,
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
         modifier = modifier
     ) {
@@ -429,7 +429,7 @@ private fun ContextActionChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = CodeXCorners.small,
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
     ) {

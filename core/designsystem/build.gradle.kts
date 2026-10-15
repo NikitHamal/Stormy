@@ -35,6 +35,9 @@ dependencies {
     api(libs.androidx.foundation)
     api(libs.androidx.material3)
     api(libs.androidx.graphics.shapes)
+    // api: design-system components expose ImageVector in their signatures and
+    // use the icon set themselves, so consumers need it on the compile path.
+    api(libs.androidx.material.icons.extended)
     implementation(libs.androidx.ui.tooling.preview)
 
     debugImplementation(libs.androidx.ui.tooling)

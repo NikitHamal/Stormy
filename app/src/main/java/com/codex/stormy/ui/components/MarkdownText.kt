@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.components
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import android.graphics.Typeface
 import android.widget.TextView
 import androidx.compose.foundation.background
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Icon
@@ -166,7 +166,7 @@ private fun CodeBlockView(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .background(codeBackgroundColor)
     ) {
         // Header with language label and copy button
@@ -238,7 +238,7 @@ private fun InlineCodeView(
 
     Box(
         modifier = Modifier
-            .clip(CodeXCorners.tiny)
+            .clip(RoundedCornerShape(4.dp))
             .background(bgColor)
             .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {

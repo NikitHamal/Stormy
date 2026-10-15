@@ -25,7 +25,7 @@ import java.io.File
  */
 @Composable
 fun GitDrawer(
-    projectPath: String,
+    projectPath: String?,
     onClose: () -> Unit,
     onNavigateToGitSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -79,7 +79,10 @@ fun GitDrawer(
             .width(320.dp)
             .fillMaxHeight()
     ) {
-        if (!contentVisible) return@ModalDrawerSheet
+        // Also gated on the path: the sheet is composed before the
+        // project loads so its width stays stable, but the body has
+        // nothing to show until there is a project.
+        if (!contentVisible || projectPath == null) return@ModalDrawerSheet
 
         GitPanel(
             uiState = uiState,

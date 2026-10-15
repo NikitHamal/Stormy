@@ -1,6 +1,5 @@
 package com.codex.stormy.ui.screens.git
 
-import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -27,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallMerge
 import androidx.compose.material.icons.outlined.Add
@@ -101,7 +101,7 @@ fun GitStatusBadge(
 
     Surface(
         onClick = onClick,
-        shape = CodeXCorners.large,
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
     ) {
@@ -439,7 +439,7 @@ private fun GitProgressBar(progress: GitOperationProgress) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(4.dp)
-                .clip(CodeXCorners.tiny),
+                .clip(RoundedCornerShape(2.dp)),
         )
         if (progress.message.isNotEmpty()) {
             Spacer(modifier = Modifier.height(4.dp))
@@ -594,7 +594,7 @@ private fun GitChangesSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         // Header
@@ -627,7 +627,7 @@ private fun GitChangesSection(
             // File count badge
             Box(
                 modifier = Modifier
-                    .clip(CodeXCorners.medium)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
@@ -747,7 +747,7 @@ private fun GitFileStatusIcon(status: GitFileStatus) {
     Box(
         modifier = Modifier
             .size(18.dp)
-            .clip(CodeXCorners.tiny)
+            .clip(RoundedCornerShape(4.dp))
             .background(color.copy(alpha = 0.2f)),
         contentAlignment = Alignment.Center
     ) {
@@ -771,7 +771,7 @@ private fun CommitInput(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -828,7 +828,7 @@ private fun BranchesSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         // Header
@@ -1102,7 +1102,7 @@ private fun BranchItem(
                                     showContextMenu = false
                                     onCheckout()
                                 },
-                                shape = CodeXCorners.small,
+                                shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -1132,7 +1132,7 @@ private fun BranchItem(
                                     showContextMenu = false
                                     onDelete()
                                 },
-                                shape = CodeXCorners.small,
+                                shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -1190,7 +1190,7 @@ private fun CommitsSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(CodeXCorners.small)
+            .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         // Header
@@ -1315,7 +1315,7 @@ private fun CommitItem(
                     Column {
                         Text(
                             text = "Reset to Commit",
-                            style = MaterialTheme.typography.titleMediumEmphasized,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
@@ -1346,7 +1346,7 @@ private fun CommitItem(
                                 showContextMenu = false
                                 onSoftReset()
                             },
-                            shape = CodeXCorners.small,
+                            shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh
                         ) {
                             Row(
@@ -1383,7 +1383,7 @@ private fun CommitItem(
                                 showContextMenu = false
                                 onHardReset()
                             },
-                            shape = CodeXCorners.small,
+                            shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
                         ) {
                             Row(
