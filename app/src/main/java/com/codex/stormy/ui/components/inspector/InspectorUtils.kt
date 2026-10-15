@@ -1,6 +1,7 @@
 package com.codex.stormy.ui.components.inspector
 
 import androidx.compose.ui.graphics.Color
+import com.codex.stormy.utils.SelectorBuilder
 
 /**
  * Utility functions for the Visual Element Inspector.
@@ -9,43 +10,25 @@ import androidx.compose.ui.graphics.Color
 object InspectorUtils {
 
     /**
-     * Build a CSS selector from element data
-     * Prioritizes ID, then classes (max 2), with tag name prefix
+     * Build a CSS selector from element data.
+     *
+     * Delegates to [SelectorBuilder] -- this was a third hand-rolled copy of
+     * the same logic, and it carried the same bug: `div.card.shadow` matches
+     * every card on the page, so an edit made through it restyled all of them.
+     * Prefer [InspectorElementData.selector], which the page computed and
+     * verified; this is only the fallback.
      */
-    fun buildSelector(element: InspectorElementData): String {
-        val sb = StringBuilder(element.tagName.lowercase())
-        if (element.id.isNotEmpty()) {
-            sb.append("#${element.id}")
+    fun buildSelector(element: InspectorElementData): String =
+        element.selector.ifBlank {
+            SelectorBuilder.buildSelector(
+                tagName = element.tagName,
+                id = element.id,
+                className = element.className
+            )
         }
-        if (element.className.isNotEmpty()) {
-            element.className.split(" ")
-                .filter { it.isNotBlank() }
-                .take(2)
-                .forEach { className ->
-                    sb.append(".$className")
-                }
-        }
-        return sb.toString()
-    }
 
-    /**
-     * Build a CSS selector from basic element properties
-     */
-    fun buildSelector(tagName: String, id: String, className: String): String {
-        val sb = StringBuilder(tagName.lowercase())
-        if (id.isNotEmpty()) {
-            sb.append("#$id")
-        }
-        if (className.isNotEmpty()) {
-            className.split(" ")
-                .filter { it.isNotBlank() }
-                .take(2)
-                .forEach { cn ->
-                    sb.append(".$cn")
-                }
-        }
-        return sb.toString()
-    }
+    fun buildSelector(tagName: String, id: String, className: String): String =
+        SelectorBuilder.buildSelector(tagName, id, className)
 
     /**
      * Parse a CSS pixel value to Float

@@ -138,6 +138,7 @@ import com.codex.stormy.data.preview.FrameworkType
 import com.codex.stormy.data.preview.PreviewServerManager
 import com.codex.stormy.data.preview.PreviewServerState
 import com.codex.stormy.ui.theme.CodeXTheme
+import com.codex.stormy.utils.SelectorBuilder
 import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -207,14 +208,31 @@ data class InspectedElement(
     val outerHTML: String,
     val computedStyles: Map<String, String>,
     val attributes: Map<String, String>,
-    val boundingRect: ElementRect
+    val boundingRect: ElementRect,
+    /**
+     * Selector computed inside the page and checked against the document, so
+     * it is known to address this element and no other. Empty only if the
+     * injected helper failed.
+     */
+    val selector: String = "",
+    /**
+     * False when the page could not produce a selector matching exactly one
+     * node. Editing through a non-unique selector would hit every match, so
+     * the UI must refuse to write rather than guess.
+     */
+    val selectorIsUnique: Boolean = false,
+    val textContent: String = "",
+    val childElementCount: Int = 0
 )
 
 data class ElementRect(
     val x: Float,
     val y: Float,
     val width: Float,
-    val height: Float
+    val height: Float,
+    /** Document-relative position; [x]/[y] are viewport-relative. */
+    val pageX: Float = x,
+    val pageY: Float = y
 )
 
 /**
@@ -294,7 +312,9 @@ class InspectorJsInterface(
             x = rectJson.optDouble("x", 0.0).toFloat(),
             y = rectJson.optDouble("y", 0.0).toFloat(),
             width = rectJson.optDouble("width", 0.0).toFloat(),
-            height = rectJson.optDouble("height", 0.0).toFloat()
+            height = rectJson.optDouble("height", 0.0).toFloat(),
+            pageX = rectJson.optDouble("pageX", rectJson.optDouble("x", 0.0)).toFloat(),
+            pageY = rectJson.optDouble("pageY", rectJson.optDouble("y", 0.0)).toFloat()
         )
 
         return InspectedElement(
@@ -305,7 +325,11 @@ class InspectorJsInterface(
             outerHTML = json.optString("outerHTML", ""),
             computedStyles = styles,
             attributes = attributes,
-            boundingRect = rect
+            boundingRect = rect,
+            selector = json.optString("selector", ""),
+            selectorIsUnique = json.optBoolean("selectorIsUnique", false),
+            textContent = json.optString("textContent", ""),
+            childElementCount = json.optInt("childElementCount", 0)
         )
     }
 }
@@ -1812,20 +1836,23 @@ private fun StyleProperty(name: String, value: String) {
     }
 }
 
-private fun buildElementSelector(element: InspectedElement): String {
-    val sb = StringBuilder(element.tagName.lowercase())
-    if (element.id.isNotEmpty()) {
-        sb.append("#${element.id}")
+/**
+ * Selector for an inspected element.
+ *
+ * Prefers the selector the page computed and verified against the document.
+ * The local fallback can only ever be a guess -- it has no DOM to check
+ * against -- so it exists for the case where script injection failed, and
+ * callers that intend to *write* must gate on
+ * [InspectedElement.selectorIsUnique] rather than on this being non-empty.
+ */
+private fun buildElementSelector(element: InspectedElement): String =
+    element.selector.ifBlank {
+        SelectorBuilder.buildSelector(
+            tagName = element.tagName,
+            id = element.id,
+            className = element.className
+        )
     }
-    if (element.className.isNotEmpty()) {
-        element.className.split(" ").take(2).forEach { className ->
-            if (className.isNotBlank()) {
-                sb.append(".$className")
-            }
-        }
-    }
-    return sb.toString()
-}
 
 /**
  * Extension function to apply viewport mode (mobile or desktop) to WebView
@@ -1868,6 +1895,8 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                 window.__stormyInspector.disable();
             }
 
+            ${SelectorBuilder.BUILD_UNIQUE_SELECTOR_JS}
+
             // Create highlight overlay
             var overlay = document.createElement('div');
             overlay.id = '__stormy_inspector_overlay';
@@ -1884,41 +1913,90 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                 lastElement: null,
 
                 getElementData: function(el) {
-                    // Get computed styles
+                    // Longhand properties only. getPropertyValue('margin') or
+                    // 'border' returns "" in Chromium whenever the four sides
+                    // differ, which is why the inspector used to show blank
+                    // spacing on most real elements. The longhands always
+                    // resolve, and the UI recombines them.
                     var computedStyles = {};
                     var style = window.getComputedStyle(el);
-                    var importantProps = ['display', 'position', 'width', 'height', 'margin', 'padding',
-                        'color', 'background-color', 'font-size', 'font-family', 'font-weight',
-                        'border', 'border-radius', 'flex', 'flex-direction', 'justify-content',
-                        'align-items', 'gap', 'grid-template-columns'];
-                    importantProps.forEach(function(prop) {
-                        var val = style.getPropertyValue(prop);
-                        if (val) computedStyles[prop] = val;
-                    });
+                    var props = [
+                        'display', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+                        'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+                        'box-sizing', 'overflow', 'overflow-x', 'overflow-y',
+                        'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+                        'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+                        'color', 'background-color', 'background-image', 'opacity',
+                        'font-family', 'font-size', 'font-weight', 'font-style',
+                        'line-height', 'letter-spacing', 'text-align', 'text-decoration-line',
+                        'text-transform', 'white-space', 'word-break',
+                        'border-top-width', 'border-right-width', 'border-bottom-width',
+                        'border-left-width', 'border-style', 'border-color',
+                        'border-top-left-radius', 'border-top-right-radius',
+                        'border-bottom-right-radius', 'border-bottom-left-radius',
+                        'box-shadow', 'outline',
+                        'flex-direction', 'flex-wrap', 'justify-content', 'align-items',
+                        'align-content', 'align-self', 'flex-grow', 'flex-shrink', 'flex-basis',
+                        'order', 'gap', 'row-gap', 'column-gap',
+                        'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row',
+                        'transform', 'transition', 'cursor', 'visibility', 'object-fit'
+                    ];
+                    for (var p = 0; p < props.length; p++) {
+                        var val = style.getPropertyValue(props[p]);
+                        if (val !== null && val !== '') computedStyles[props[p]] = val;
+                    }
 
-                    // Get attributes
                     var attributes = {};
                     for (var i = 0; i < el.attributes.length; i++) {
                         var attr = el.attributes[i];
                         attributes[attr.name] = attr.value;
                     }
 
-                    // Get bounding rect
+                    // getBoundingClientRect is viewport-relative. Reporting it
+                    // raw meant the inspector's coordinates drifted by the
+                    // scroll offset on any scrolled page.
                     var rect = el.getBoundingClientRect();
+                    var scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+                    var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+                    var selector = '';
+                    var selectorIsUnique = false;
+                    try {
+                        selector = __codexUniqueSelector(el);
+                        selectorIsUnique = !!selector &&
+                            document.querySelectorAll(selector).length === 1;
+                    } catch (e) { }
+
+                    // On SVG elements className is an SVGAnimatedString, not a
+                    // string, so `el.className || ''` yielded "[object
+                    // SVGAnimatedString]" and poisoned every selector built
+                    // from it.
+                    var cls = '';
+                    if (typeof el.className === 'string') {
+                        cls = el.className;
+                    } else if (el.getAttribute) {
+                        cls = el.getAttribute('class') || '';
+                    }
 
                     return {
                         tagName: el.tagName,
                         id: el.id || '',
-                        className: el.className || '',
+                        className: cls,
+                        selector: selector,
+                        selectorIsUnique: selectorIsUnique,
                         innerHTML: el.innerHTML.substring(0, 500),
                         outerHTML: el.outerHTML.substring(0, 1000),
+                        textContent: (el.textContent || '').substring(0, 500),
+                        childElementCount: el.childElementCount,
                         computedStyles: computedStyles,
                         attributes: attributes,
                         boundingRect: {
                             x: rect.x,
                             y: rect.y,
                             width: rect.width,
-                            height: rect.height
+                            height: rect.height,
+                            pageX: rect.x + scrollX,
+                            pageY: rect.y + scrollY
                         }
                     };
                 },

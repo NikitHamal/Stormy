@@ -13,7 +13,15 @@ data class StyleChangeRequest(
     val property: String,
     val oldValue: String?,
     val newValue: String,
-    val elementHtml: String
+    val elementHtml: String,
+    /**
+     * Whether [selector] was verified to match exactly one node.
+     *
+     * A write through a non-unique selector restyles every match, which for a
+     * visual editor is silent, off-screen damage. The edit services refuse to
+     * persist when this is false.
+     */
+    val selectorIsUnique: Boolean = true
 )
 
 /**
@@ -23,7 +31,8 @@ data class TextChangeRequest(
     val selector: String,
     val oldText: String,
     val newText: String,
-    val elementHtml: String
+    val elementHtml: String,
+    val selectorIsUnique: Boolean = true
 )
 
 /**
@@ -33,7 +42,8 @@ data class ImageChangeRequest(
     val selector: String,
     val oldSrc: String?,
     val newSrc: String,
-    val elementHtml: String
+    val elementHtml: String,
+    val selectorIsUnique: Boolean = true
 )
 
 /**
@@ -47,7 +57,11 @@ data class InspectorElementData(
     val outerHTML: String,
     val computedStyles: Map<String, String>,
     val attributes: Map<String, String>,
-    val boundingRect: InspectorRect
+    val boundingRect: InspectorRect,
+    /** Page-computed, document-verified selector. See [SelectorBuilder]. */
+    val selector: String = "",
+    /** False when no selector matching exactly one node could be produced. */
+    val selectorIsUnique: Boolean = false
 )
 
 /**

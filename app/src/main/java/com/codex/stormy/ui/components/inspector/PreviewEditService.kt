@@ -508,28 +508,7 @@ START IMMEDIATELY with tool calls. Do not ask for confirmation."""
         property: String,
         value: String
     ) {
-        withContext(Dispatchers.Main) {
-            val escapedSelector = selector.replace("'", "\\'")
-            val escapedProperty = property.replace("'", "\\'")
-            val escapedValue = value.replace("'", "\\'")
-
-            val script = """
-                (function() {
-                    try {
-                        var elements = document.querySelectorAll('$escapedSelector');
-                        elements.forEach(function(el) {
-                            el.style['$escapedProperty'] = '$escapedValue';
-                        });
-                        return elements.length;
-                    } catch (e) {
-                        console.error('Live style update error:', e);
-                        return 0;
-                    }
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
+        LivePreviewEditor.applyStyle(webView, selector, property, value)
     }
 
     /**
@@ -540,43 +519,7 @@ START IMMEDIATELY with tool calls. Do not ask for confirmation."""
         selector: String,
         newText: String
     ) {
-        withContext(Dispatchers.Main) {
-            val escapedSelector = selector.replace("'", "\\'")
-            val escapedText = newText
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-
-            val script = """
-                (function() {
-                    try {
-                        var elements = document.querySelectorAll('$escapedSelector');
-                        if (elements.length > 0) {
-                            var el = elements[0];
-                            var textNode = null;
-                            for (var i = 0; i < el.childNodes.length; i++) {
-                                if (el.childNodes[i].nodeType === Node.TEXT_NODE && el.childNodes[i].textContent.trim()) {
-                                    textNode = el.childNodes[i];
-                                    break;
-                                }
-                            }
-                            if (textNode) {
-                                textNode.textContent = '$escapedText';
-                            } else if (!el.children.length) {
-                                el.textContent = '$escapedText';
-                            }
-                        }
-                        return elements.length;
-                    } catch (e) {
-                        console.error('Live text update error:', e);
-                        return 0;
-                    }
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
+        LivePreviewEditor.applyText(webView, selector, newText)
     }
 
     /**
@@ -587,31 +530,7 @@ START IMMEDIATELY with tool calls. Do not ask for confirmation."""
         selector: String,
         newSrc: String
     ) {
-        withContext(Dispatchers.Main) {
-            val escapedSelector = selector.replace("'", "\\'")
-            val escapedSrc = newSrc
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-
-            val script = """
-                (function() {
-                    try {
-                        var elements = document.querySelectorAll('$escapedSelector');
-                        elements.forEach(function(el) {
-                            if (el.tagName === 'IMG') {
-                                el.src = '$escapedSrc';
-                            }
-                        });
-                        return elements.length;
-                    } catch (e) {
-                        console.error('Live image update error:', e);
-                        return 0;
-                    }
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
+        LivePreviewEditor.applyImageSrc(webView, selector, newSrc)
     }
 
     /**
