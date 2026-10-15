@@ -6,8 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +40,13 @@ import com.codex.stormy.ui.theme.CodeXCorners
 import com.codex.stormy.ui.theme.ExpressiveShapes
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.Space
+
+/**
+ * Scale origin for the expanding rows: the bottom-right corner, where the
+ * trigger sits. Anchoring the scale there makes every row grow out of the
+ * button and shrink back into it, instead of pulsing about its own centre.
+ */
+private val TriggerOrigin = TransformOrigin(1f, 1f)
 
 /** One action in a [SpeedDialFab]. */
 data class SpeedDialAction(
@@ -91,26 +98,48 @@ fun SpeedDialFab(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(Space.md)
     ) {
+        // Declared order is preserved top-to-bottom; the stagger keys off each
+        // row's *distance from the trigger* instead. The nearest row therefore
+        // travels least and the far rows fan out, which is what makes the
+        // column read as unfolding from the button rather than as a list
+        // appearing all at once.
         actions.forEachIndexed { index, action ->
+            val indexFromTrigger = actions.lastIndex - index
             AnimatedVisibility(
                 visible = expanded,
-                // Staggered from the trigger outwards, so the column unfolds
-                // from the button the user just touched rather than appearing
-                // all at once with no origin.
-                enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()) +
-                    slideInHorizontally(MaterialTheme.motionScheme.defaultSpatialSpec()) { it / 3 } +
-                    scaleIn(
-                        MaterialTheme.motionScheme.defaultSpatialSpec(),
-                        initialScale = 0.8f,
-                        transformOrigin = TransformOrigin(1f, 0.5f)
-                    ),
-                exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
-                    scaleOut(
-                        MaterialTheme.motionScheme.fastSpatialSpec(),
-                        targetScale = 0.8f,
-                        transformOrigin = TransformOrigin(1f, 0.5f)
-                    ) +
-                    slideOutHorizontally(MaterialTheme.motionScheme.fastSpatialSpec()) { it / 3 }
+                // Vertical, not horizontal. The previous version slid in from
+                // the right, which pointed at the screen edge rather than at
+                // the control the user had just touched -- the motion has to
+                // originate where the gesture did.
+                //
+                // Expanding: each row rises into place from the trigger.
+                // Collapsing: each row drops back down into it. Scaling about
+                // the bottom-right corner anchors both to the trigger rather
+                // than to the row's own centre.
+                enter = fadeIn(
+                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
+                ) + slideInVertically(
+                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+                ) { height ->
+                    // Offset grows with distance from the trigger, so the far
+                    // rows travel further and the column fans open.
+                    height * (indexFromTrigger + 1)
+                } + scaleIn(
+                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    initialScale = 0.7f,
+                    transformOrigin = TriggerOrigin
+                ),
+                exit = fadeOut(
+                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
+                ) + slideOutVertically(
+                    animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()
+                ) { height ->
+                    height * (indexFromTrigger + 1)
+                } + scaleOut(
+                    animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+                    targetScale = 0.7f,
+                    transformOrigin = TriggerOrigin
+                )
             ) {
                 SpeedDialRow(
                     action = action,

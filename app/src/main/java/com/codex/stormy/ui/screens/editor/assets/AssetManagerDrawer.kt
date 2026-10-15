@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,7 +30,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
@@ -589,7 +589,7 @@ private fun EmptyAssetsState(
 
         Surface(
             onClick = onAddImage,
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Row(
@@ -662,7 +662,7 @@ private fun AssetSectionHeader(
         )
 
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Text(
@@ -720,13 +720,13 @@ private fun AssetGridItem(
         Surface(
             modifier = Modifier
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CodeXCorners.small)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = { showMenu = true }
                 ),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(8.dp)
+            shape = CodeXCorners.small
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -824,7 +824,7 @@ private fun AssetListItem(
         // Thumbnail or icon
         Surface(
             modifier = Modifier.size(40.dp),
-            shape = RoundedCornerShape(6.dp),
+            shape = CodeXCorners.small,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             if (asset.type == AssetType.IMAGE) {
@@ -939,7 +939,7 @@ private fun CreateFolderDialog(
                 placeholder = { Text("images") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = CodeXCorners.medium
             )
         },
         confirmButton = {

@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.git
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Close
@@ -66,7 +66,7 @@ fun ConnectRemoteSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
     ) {
         Row(
@@ -237,7 +237,7 @@ fun CIStatusSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         // Header

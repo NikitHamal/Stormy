@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Android
@@ -150,7 +150,7 @@ fun CreateProjectDialog(
                     supportingText = nameError?.let { { Text(it) } },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = CodeXCorners.medium
                 )
 
                 OutlinedTextField(
@@ -160,7 +160,7 @@ fun CreateProjectDialog(
                     placeholder = { Text(context.getString(R.string.create_project_description_hint)) },
                     maxLines = 2,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = CodeXCorners.medium
                 )
 
                 Column {
@@ -225,7 +225,7 @@ fun CreateProjectDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(CodeXCorners.small)
                             .background(MaterialTheme.colorScheme.surfaceContainerLow)
                             .padding(12.dp)
                     ) {
@@ -266,7 +266,7 @@ fun CreateProjectDialog(
                         onConfirm(name.trim(), description.trim(), selectedTemplate)
                     }
                 },
-                shape = RoundedCornerShape(12.dp)
+                shape = CodeXCorners.medium
             ) {
                 Text(context.getString(R.string.action_create))
             }
@@ -276,7 +276,7 @@ fun CreateProjectDialog(
                 Text(context.getString(R.string.action_cancel))
             }
         },
-        shape = RoundedCornerShape(24.dp)
+        shape = CodeXCorners.xLarge
     )
 }
 
@@ -311,12 +311,12 @@ private fun TemplateCard(
     Column(
         modifier = Modifier
             .width(90.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(CodeXCorners.large)
             .background(backgroundColor)
             .border(
                 width = if (isSelected) 2.dp else 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(16.dp)
+                shape = CodeXCorners.large
             )
             .clickable(onClick = onClick)
             .padding(12.dp),

@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -756,7 +755,7 @@ private fun CollapsibleInsightSection(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = CodeXCorners.large,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -817,7 +816,7 @@ private fun CodeSection(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = CodeXCorners.large,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(Modifier.fillMaxWidth()) {

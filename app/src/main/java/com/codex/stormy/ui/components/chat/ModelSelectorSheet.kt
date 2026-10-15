@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.chat
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.components.expressive.PickerOption
 import com.codex.stormy.ui.components.expressive.SegmentedPicker
@@ -85,7 +86,7 @@ fun ModelSelectorSheet(
                     .padding(vertical = 12.dp)
                     .width(40.dp)
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(CodeXCorners.tiny)
                     .background(MaterialTheme.colorScheme.outlineVariant)
             )
         },
@@ -235,7 +236,7 @@ private fun CompactModelCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = CodeXCorners.medium,
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         } else {

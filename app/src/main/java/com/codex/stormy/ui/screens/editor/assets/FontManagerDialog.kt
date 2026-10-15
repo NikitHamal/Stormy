@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -207,7 +207,7 @@ fun FontManagerDialog(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+                shape = CodeXCorners.medium
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -331,7 +331,7 @@ private fun FontListItem(
                         fontWeight = FontWeight.Medium
                     )
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = CodeXCorners.tiny,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
@@ -417,7 +417,7 @@ private fun FontDetailSection(
         ) {
             items(font.weights) { weight ->
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = CodeXCorners.small,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Text(
@@ -478,7 +478,7 @@ private fun CopyCodeCard(
 ) {
     Surface(
         onClick = { onCopy(code) },
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Row(
