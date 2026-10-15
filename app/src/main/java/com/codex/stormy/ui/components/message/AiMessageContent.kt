@@ -1,5 +1,9 @@
 package com.codex.stormy.ui.components.message
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.components.agent.ToolPresentations
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
@@ -915,89 +919,105 @@ private fun ToolCallSection(
 
     val canExpand = !output.isNullOrBlank() || showDiffView
 
+    val isRunning = isActive && status == ToolStatus.RUNNING
+    val presentation = ToolPresentations[toolName]
+    val subject = filePath?.takeIf { it.isNotBlank() }?.let { raw ->
+        if (presentation.subjectIsPath) ToolPresentations.shortenPath(raw) else raw
+    }
+    // One prose line instead of an identifier plus a path chip. Those two used
+    // to compete for the same row, and on a phone both ended up ellipsized.
+    val headline = ToolPresentations.describe(toolName, subject, isRunning)
+
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = CodeXCorners.medium,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = canExpand) { isExpanded = !isExpanded }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .clickable(
+                        enabled = canExpand,
+                        // Names the consequence. The row is a disclosure, not a
+                        // button called "expand".
+                        onClickLabel = if (isExpanded) "Hide output" else "Show output"
+                    ) { isExpanded = !isExpanded }
+                    .padding(horizontal = Space.md, vertical = Space.sm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val infinite = rememberInfiniteTransition(label = "tool_pulse")
                 val pulse by infinite.animateFloat(
                     initialValue = 1f,
-                    targetValue = 1.2f,
+                    targetValue = 1.18f,
+                    // Infinite, so it cannot come from the motion scheme --
+                    // those specs are finite by type.
                     animationSpec = infiniteRepeatable(tween(550), repeatMode = RepeatMode.Reverse),
                     label = "tool_pulse_scale"
                 )
 
                 Icon(
                     imageVector = statusIcon,
+                    // Status is already carried by the headline's tense and the
+                    // icon's colour; labelling it here would make every row
+                    // announce its status twice.
                     contentDescription = null,
                     tint = statusTint,
                     modifier = Modifier
-                        .size(18.dp)
+                        .size(Sizes.icon)
                         .graphicsLayer {
-                            if (isActive && status == ToolStatus.RUNNING) {
+                            if (isRunning) {
                                 scaleX = pulse
                                 scaleY = pulse
                             }
                         }
                 )
 
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(Space.sm))
 
                 Text(
-                    text = toolName,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    text = headline,
+                    // Emphasized while running, so the live row stands out in a
+                    // stack of finished ones without changing size -- the list
+                    // would otherwise reflow as each call completes.
+                    style = if (isRunning) MaterialTheme.typography.labelLargeEmphasized
+                    else MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
 
-                if (!filePath.isNullOrBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.clickable { clipboard.setText(AnnotatedString(filePath)) }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Outlined.FolderOpen, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = filePath,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
                 if (showDiffView || displayAdditions > 0 || displayDeletions > 0) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Space.sm))
                     DiffSummaryBadge(additions = displayAdditions, deletions = displayDeletions)
                 }
 
                 if (canExpand) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Space.xs))
                     Icon(
-                        imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                        imageVector = if (isExpanded) Icons.Outlined.ExpandLess
+                        else Icons.Outlined.ExpandMore,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(Sizes.icon)
                     )
                 }
+            }
+
+            // The full path gets its own line when the headline shortened it,
+            // so the headline stays readable and the path is still copyable.
+            filePath?.takeIf { presentation.subjectIsPath && it != subject }?.let { full ->
+                Text(
+                    text = full,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clickable { clipboard.setText(AnnotatedString(full)) }
+                        .padding(start = 42.dp, end = Space.md, bottom = Space.sm)
+                )
             }
 
             AnimatedVisibility(

@@ -173,7 +173,13 @@ object Subagents {
             ToolCapability.READ,
             ToolCapability.WRITE,
             ToolCapability.GIT,
-            ToolCapability.MEMORY
+            ToolCapability.MEMORY,
+            // The general worker is the one type that may delegate further.
+            // Depth, not capability, is what bounds the recursion -- see
+            // Subagents.MAX_DEPTH. The specialists deliberately cannot: an
+            // explorer spawning a builder would escape its own read-only
+            // guarantee.
+            ToolCapability.DELEGATE
         ),
         accentIndex = 4,
         maxTurns = 32,

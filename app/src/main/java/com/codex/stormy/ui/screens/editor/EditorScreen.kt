@@ -343,6 +343,9 @@ fun EditorScreen(
                         ) { tab ->
                             when (tab) {
                                 EditorTab.CHAT -> ChatTab(
+                                    agentSessions = uiState.agentSessions,
+                                    onStopAgent = viewModel::stopSubagent,
+                                    onResolveAgentApproval = viewModel::resolveSubagentApproval,
                                     messages = uiState.messages,
                                     inputText = uiState.chatInput,
                                     isLoading = uiState.isAiProcessing,

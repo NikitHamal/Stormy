@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.screens.editor.chat
 
+import com.codex.stormy.ui.components.agent.AgentActivityCard
+import com.codex.stormy.data.ai.agents.AgentSession
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
@@ -108,6 +110,9 @@ fun ChatTab(
     currentModel: AiModel? = null,
     availableModels: List<AiModel> = emptyList(),
     fileTree: List<FileTreeNode> = emptyList(),
+    agentSessions: List<AgentSession> = emptyList(),
+    onStopAgent: (String) -> Unit = {},
+    onResolveAgentApproval: (String, Boolean) -> Unit = { _, _ -> },
     onInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
     onStopGeneration: (() -> Unit)? = null,
@@ -122,9 +127,10 @@ fun ChatTab(
     var showModelSelector by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, agentSessions.size) {
+        val lastIndex = messages.size + agentSessions.size - 1
+        if (lastIndex >= 0) {
+            listState.animateScrollToItem(lastIndex)
         }
     }
 
@@ -168,6 +174,26 @@ fun ChatTab(
                         isStreaming = isLoading && message == messages.lastOrNull() && !message.isUser,
                         modifier = Modifier.animateItem()
                     )
+                }
+
+                // Delegated work is appended after the transcript rather than
+                // interleaved by timestamp. A subagent outlives the turn that
+                // started it, so a card placed inline would scroll away while
+                // still running -- exactly when the user most wants to see it.
+                if (agentSessions.isNotEmpty()) {
+                    items(
+                        items = agentSessions,
+                        key = { it.id }
+                    ) { session ->
+                        AgentActivityCard(
+                            session = session,
+                            onStop = { onStopAgent(session.id) },
+                            onApprove = { approved ->
+                                onResolveAgentApproval(session.id, approved)
+                            },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
                 }
 
                 if (isLoading && messages.lastOrNull()?.isUser == true) {
