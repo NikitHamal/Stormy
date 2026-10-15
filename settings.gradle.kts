@@ -15,4 +15,8 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "CodeX"
+
 include(":app")
+include(":core:common")
+include(":core:designsystem")
+include(":core:data")

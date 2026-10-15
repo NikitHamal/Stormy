@@ -900,8 +900,9 @@ private fun PreviewScreen(
                 var resolvedModel: com.codex.stormy.data.ai.AiModel? = null
 
                 // Priority 1: Project's last used model
-                if (project != null && !project.lastUsedModelId.isNullOrEmpty()) {
-                    resolvedModel = app.aiModelRepository.getModelById(project.lastUsedModelId)
+                val lastUsedModelId = project?.lastUsedModelId
+                if (!lastUsedModelId.isNullOrEmpty()) {
+                    resolvedModel = app.aiModelRepository.getModelById(lastUsedModelId)
                 }
 
                 // Priority 2: User's global default model

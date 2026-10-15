@@ -308,8 +308,9 @@ class EditorViewModel(
      */
     private suspend fun resolveInitialModel(project: Project) {
         // Priority 1: Project's last used model
-        if (!project.lastUsedModelId.isNullOrEmpty()) {
-            val projectModel = aiModelRepository.getModelById(project.lastUsedModelId)
+        val lastUsedModelId = project.lastUsedModelId
+        if (!lastUsedModelId.isNullOrEmpty()) {
+            val projectModel = aiModelRepository.getModelById(lastUsedModelId)
             if (projectModel != null) {
                 _currentModel.value = projectModel
                 updateContextMaxTokens(projectModel)

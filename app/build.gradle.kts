@@ -2,8 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.room)
 }
 
 android {
@@ -113,23 +111,6 @@ android {
     }
 }
 
-kotlin {
-    compilerOptions {
-        freeCompilerArgs.addAll(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
-            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
-        )
-    }
-}
-
-room {
-    schemaDirectory("$projectDir/schemas")
-}
 
 composeCompiler {
     // Emits a report of which composables are skippable/restartable so that
@@ -139,6 +120,11 @@ composeCompiler {
 
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+
+    implementation(project(":core:common"))
+    implementation(project(":core:data"))
+    // api-exposed Material/Compose types come through the design system.
+    implementation(project(":core:designsystem"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
@@ -150,15 +136,10 @@ dependencies {
     implementation(libs.androidx.activity.compose)
 
     implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.foundation)
-    implementation(libs.androidx.material3)
     implementation(libs.androidx.material3.window.sizeclass)
     implementation(libs.androidx.material3.adaptive.navigation.suite)
     implementation(libs.androidx.material.icons.extended)
-    implementation(libs.androidx.graphics.shapes)
 
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
@@ -166,19 +147,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(platform(libs.okhttp.bom))
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.sse)
-
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
     implementation(libs.coil.network.okhttp)
-
-    implementation(libs.jgit)
-
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
 
     implementation(libs.sora.editor)
     implementation(libs.sora.editor.language.textmate)
@@ -192,13 +163,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
-    testImplementation(libs.turbine)
-    testImplementation(libs.mockk)
-    testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.androidx.test.core)
-    testImplementation(platform(libs.okhttp.bom))
-    testImplementation(libs.okhttp.mockwebserver)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
