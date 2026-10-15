@@ -75,7 +75,8 @@ fun FileTreeDrawer(
     onRenameFile: (oldPath: String, newName: String) -> Unit,
     onImportFile: (parentPath: String) -> Unit,
     onImportFolder: (parentPath: String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    contentVisible: Boolean = true
 ) {
     val context = LocalContext.current
     var showCreateFileDialog by remember { mutableStateOf<String?>(null) }
@@ -83,10 +84,19 @@ fun FileTreeDrawer(
     var showRenameDialog by remember { mutableStateOf<FileTreeNode?>(null) }
     var showDeleteDialog by remember { mutableStateOf<FileTreeNode?>(null) }
 
+    // The sheet is composed unconditionally, even when closed.
+    //
+    // ModalNavigationDrawer measures drawerContent to place its open/closed
+    // anchors. Returning nothing while closed gives the sheet zero width, which
+    // collapses both anchors onto the same offset -- the drawer then re-settles
+    // to Open the moment the close animation ends, which is why it could be
+    // opened but never closed. Only the body below is gated.
     ModalDrawerSheet(
         modifier = Modifier.width(280.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
+        if (!contentVisible) return@ModalDrawerSheet
+
         Column(
             modifier = Modifier
                 .fillMaxHeight()

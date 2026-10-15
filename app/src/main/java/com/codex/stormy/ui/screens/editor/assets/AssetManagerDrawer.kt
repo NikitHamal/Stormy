@@ -115,7 +115,8 @@ fun AssetManagerDrawer(
     onAssetClick: (AssetFile) -> Unit,
     onAssetDelete: (AssetFile) -> Unit,
     onAssetAdded: () -> Unit,
-    onCopyPath: (String) -> Unit
+    onCopyPath: (String) -> Unit,
+    contentVisible: Boolean = true
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -172,10 +173,19 @@ fun AssetManagerDrawer(
         }
     }
 
+    // The sheet is composed unconditionally, even when closed.
+    //
+    // ModalNavigationDrawer measures drawerContent to place its open/closed
+    // anchors. Returning nothing while closed gives the sheet zero width, which
+    // collapses both anchors onto the same offset -- the drawer then re-settles
+    // to Open the moment the close animation ends, which is why it could be
+    // opened but never closed. Only the body below is gated.
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
+        if (!contentVisible) return@ModalDrawerSheet
+
         Column(
             modifier = Modifier
                 .fillMaxHeight()

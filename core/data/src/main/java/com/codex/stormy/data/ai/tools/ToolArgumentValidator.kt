@@ -695,20 +695,9 @@ object ToolArgumentValidator {
             return "Excessive parent directory references"
         }
 
-        if (projectRoot != null) {
-            try {
-                val targetFile = File(projectRoot, sanitizePath(path))
-                val canonicalTarget = targetFile.canonicalPath
-                val canonicalRoot = projectRoot.canonicalPath
-
-                if (!canonicalTarget.startsWith(canonicalRoot)) {
-                    return "Path escapes project root"
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Path validation error: ${e.message}")
-                return "Invalid path format"
-            }
-        }
+        // Containment and reserved-directory rules live in AgentPathPolicy so
+        // that every tool entry point enforces the same set.
+        AgentPathPolicy.check(sanitizePath(path), projectRoot)?.let { return it.message }
 
         return null
     }

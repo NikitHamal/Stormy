@@ -239,29 +239,9 @@ object JsonParserUtils {
      */
     fun validatePathSecurity(path: String, projectRoot: java.io.File): Boolean {
         if (path.isEmpty()) return true
-
-        try {
-            val targetFile = java.io.File(projectRoot, path)
-            val canonicalTarget = targetFile.canonicalPath
-            val canonicalRoot = projectRoot.canonicalPath
-
-            // Ensure the target is within the project root
-            if (!canonicalTarget.startsWith(canonicalRoot)) {
-                Log.w(TAG, "Path traversal attempt detected: $path")
-                return false
-            }
-
-            // Additional check: ensure no ".." in the canonical path after root
-            val relativePart = canonicalTarget.removePrefix(canonicalRoot)
-            if (relativePart.contains("..")) {
-                Log.w(TAG, "Path contains ..: $path")
-                return false
-            }
-
-            return true
-        } catch (e: Exception) {
-            Log.e(TAG, "Path validation error: ${e.message}")
-            return false
-        }
+        // Delegates to AgentPathPolicy: this used to be a second, independent
+        // copy of the containment check, so rules added to the validator never
+        // reached callers of this one.
+        return AgentPathPolicy.isAllowed(path, projectRoot)
     }
 }

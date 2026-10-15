@@ -162,32 +162,34 @@ fun EditorScreen(
     ModalNavigationDrawer(
         drawerState = fileDrawerState,
         drawerContent = {
-            // Only render drawer content when drawer is being shown to prevent unnecessary composition
-            if (fileDrawerState.isOpen || fileDrawerState.isAnimationRunning) {
-                FileTreeDrawer(
-                    fileTree = uiState.fileTree,
-                    expandedFolders = uiState.expandedFolders,
-                    selectedFilePath = uiState.currentFile?.path,
-                    onFileClick = { file ->
-                        viewModel.openFile(file.path)
-                        scope.launch { fileDrawerState.close() }
-                    },
-                    onFolderToggle = viewModel::toggleFolder,
-                    onCreateFile = viewModel::createFile,
-                    onCreateFolder = viewModel::createFolder,
-                    onDeleteFile = viewModel::deleteFile,
-                    onRenameFile = viewModel::renameFile,
-                    onImportFile = { parentPath ->
-                        importTargetPath = parentPath
-                        filePickerLauncher.launch("*/*")
-                    },
-                    onImportFolder = { parentPath ->
-                        importTargetPath = parentPath
-                        folderPickerLauncher.launch(null)
-                    },
-                    onClose = { scope.launch { fileDrawerState.close() } }
-                )
-            }
+            // The drawer is always composed; only its body is skipped while
+            // closed. Gating the whole sheet here gave it zero width, which
+            // collapsed the open/closed anchors and left the drawer
+            // permanently reopening itself.
+            FileTreeDrawer(
+                contentVisible = fileDrawerState.isOpen || fileDrawerState.isAnimationRunning,
+                fileTree = uiState.fileTree,
+                expandedFolders = uiState.expandedFolders,
+                selectedFilePath = uiState.currentFile?.path,
+                onFileClick = { file ->
+                    viewModel.openFile(file.path)
+                    scope.launch { fileDrawerState.close() }
+                },
+                onFolderToggle = viewModel::toggleFolder,
+                onCreateFile = viewModel::createFile,
+                onCreateFolder = viewModel::createFolder,
+                onDeleteFile = viewModel::deleteFile,
+                onRenameFile = viewModel::renameFile,
+                onImportFile = { parentPath ->
+                    importTargetPath = parentPath
+                    filePickerLauncher.launch("*/*")
+                },
+                onImportFolder = { parentPath ->
+                    importTargetPath = parentPath
+                    folderPickerLauncher.launch(null)
+                },
+                onClose = { scope.launch { fileDrawerState.close() } }
+            )
         },
         gesturesEnabled = fileDrawerState.isOpen // Only enable gestures when drawer is open
     ) {
@@ -195,15 +197,14 @@ fun EditorScreen(
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                // Only render when drawer is being shown
-                if (gitDrawerState.isOpen || gitDrawerState.isAnimationRunning) {
-                    uiState.project?.let { project ->
-                        GitDrawer(
-                            projectPath = project.rootPath,
-                            onClose = { scope.launch { gitDrawerState.close() } },
-                            onNavigateToGitSettings = onGitSettingsClick
-                        )
-                    }
+                uiState.project?.let { project ->
+                    GitDrawer(
+                        contentVisible = gitDrawerState.isOpen ||
+                            gitDrawerState.isAnimationRunning,
+                        projectPath = project.rootPath,
+                        onClose = { scope.launch { gitDrawerState.close() } },
+                        onNavigateToGitSettings = onGitSettingsClick
+                    )
                 }
             },
             gesturesEnabled = gitDrawerState.isOpen,
@@ -214,37 +215,30 @@ fun EditorScreen(
                 drawerState = assetDrawerState,
                 scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f),
                 drawerContent = {
-                    // Only render when drawer is being shown
-                    if (assetDrawerState.isOpen || assetDrawerState.isAnimationRunning) {
-                        uiState.project?.let { project ->
-                            AssetManagerDrawer(
-                                projectPath = project.rootPath,
-                                onClose = { scope.launch { assetDrawerState.close() } },
-                                onAssetClick = { asset ->
-                                    // Open asset file in code editor if it's a text-based file
-                                    val textExtensions = listOf("svg", "json", "xml", "txt", "md")
-                                    if (asset.extension.lowercase() in textExtensions) {
-                                        viewModel.openFile(asset.path)
-                                        scope.launch { assetDrawerState.close() }
-                                    }
-                                },
-                                onAssetDelete = { asset ->
-                                    // Refresh file tree after deletion
-                                    viewModel.refreshFileTree()
-                                },
-                                onAssetAdded = {
-                                    // Refresh file tree after adding asset
-                                    viewModel.refreshFileTree()
-                                },
-                                onCopyPath = { path ->
-                                    Toast.makeText(
-                                        context,
-                                        context.getString(R.string.assets_path_copied),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                    uiState.project?.let { project ->
+                        AssetManagerDrawer(
+                            contentVisible = assetDrawerState.isOpen ||
+                                assetDrawerState.isAnimationRunning,
+                            projectPath = project.rootPath,
+                            onClose = { scope.launch { assetDrawerState.close() } },
+                            onAssetClick = { asset ->
+                                // Open asset file in code editor if it's a text-based file
+                                val textExtensions = listOf("svg", "json", "xml", "txt", "md")
+                                if (asset.extension.lowercase() in textExtensions) {
+                                    viewModel.openFile(asset.path)
+                                    scope.launch { assetDrawerState.close() }
                                 }
-                            )
-                        }
+                            },
+                            onAssetDelete = { viewModel.refreshFileTree() },
+                            onAssetAdded = { viewModel.refreshFileTree() },
+                            onCopyPath = {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.assets_path_copied),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
                     }
                 },
                 gesturesEnabled = assetDrawerState.isOpen

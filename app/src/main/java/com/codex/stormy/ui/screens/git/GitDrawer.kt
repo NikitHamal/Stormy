@@ -28,7 +28,8 @@ fun GitDrawer(
     projectPath: String,
     onClose: () -> Unit,
     onNavigateToGitSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentVisible: Boolean = true
 ) {
     val context = LocalContext.current
     val app = remember { CodeXApplication.getInstance() }
@@ -66,11 +67,20 @@ fun GitDrawer(
         }
     }
 
+    // The sheet is composed unconditionally, even when closed.
+    //
+    // ModalNavigationDrawer measures drawerContent to place its open/closed
+    // anchors. Returning nothing while closed gives the sheet zero width, which
+    // collapses both anchors onto the same offset -- the drawer then re-settles
+    // to Open the moment the close animation ends, which is why it could be
+    // opened but never closed. Only the body below is gated.
     ModalDrawerSheet(
         modifier = modifier
             .width(320.dp)
             .fillMaxHeight()
     ) {
+        if (!contentVisible) return@ModalDrawerSheet
+
         GitPanel(
             uiState = uiState,
             onStageFile = { path -> viewModel.stageFiles(listOf(path)) },

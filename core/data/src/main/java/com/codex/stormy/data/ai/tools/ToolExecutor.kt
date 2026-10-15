@@ -138,6 +138,15 @@ class ToolExecutor(
                     error = "Failed to parse tool arguments. The AI sent malformed JSON."
                 )
 
+            // Path containment and the reserved-directory rule are enforced
+            // before anything else and are NOT behind enableArgumentValidation.
+            // That flag exists to trade strictness for permissiveness on
+            // argument shapes; a security boundary must not be switchable.
+            AgentPathPolicy.denyIfAnyPathBlocked(arguments, currentProjectPath)?.let { reason ->
+                android.util.Log.w(TAG, "Blocked ${toolCall.function.name}: $reason")
+                return ToolResult(success = false, output = "", error = reason)
+            }
+
             // Validate arguments if validation is enabled
             if (enableArgumentValidation) {
                 val validationResult = ToolArgumentValidator.validate(
@@ -368,6 +377,12 @@ class ToolExecutor(
         val sb = StringBuilder()
 
         for (node in nodes) {
+            // Reserved directories are omitted from the listing as well as
+            // being unreadable. An agent that can see ".codex/raw_sse.log" in
+            // a tree will ask to read it, and then spend a turn reasoning
+            // about the refusal.
+            if (!AgentPathPolicy.isVisible(node.name)) continue
+
             when (node) {
                 is com.codex.stormy.domain.model.FileTreeNode.FileNode -> {
                     sb.appendLine("$indent📄 ${node.name}")
