@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.aimodels
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -25,7 +26,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -374,7 +374,7 @@ private fun MinimalModelItem(
 
     Box {
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = backgroundColor,
             modifier = Modifier
                 .combinedClickable(

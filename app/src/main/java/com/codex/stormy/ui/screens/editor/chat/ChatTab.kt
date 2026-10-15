@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.chat
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import com.codex.stormy.ui.components.agent.AgentActivityCard
 import com.codex.stormy.data.ai.agents.AgentSession
 import androidx.compose.animation.AnimatedVisibility
@@ -309,11 +310,11 @@ private fun AgentModeToggle(
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(CodeXCorners.xLarge)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(24.dp)
+                shape = CodeXCorners.xLarge
             )
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(4.dp),
@@ -322,7 +323,7 @@ private fun AgentModeToggle(
         // Chat mode button
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
+                .clip(CodeXCorners.xLarge)
                 .background(
                     if (!agentMode) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceContainerLow
@@ -354,7 +355,7 @@ private fun AgentModeToggle(
         // Agent mode button
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
+                .clip(CodeXCorners.xLarge)
                 .background(
                     if (agentMode) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceContainerLow
@@ -522,7 +523,7 @@ private fun TypingIndicator() {
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(CodeXCorners.large)
             .background(CodeXTheme.extendedColors.chatAssistantBubble)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -564,12 +565,12 @@ private fun ContextStatsTooltip(
         modifier = modifier
             .background(
                 color = MaterialTheme.colorScheme.surfaceContainer,
-                shape = RoundedCornerShape(8.dp)
+                shape = CodeXCorners.small
             )
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(8.dp)
+                shape = CodeXCorners.small
             )
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -689,11 +690,11 @@ private fun ChatInput(
                 .border(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = CodeXCorners.large
                 )
                 .background(
                     color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = CodeXCorners.large
                 )
                 .padding(12.dp)
         ) {
@@ -752,7 +753,7 @@ private fun ChatInput(
                     // Mode Selector (Agent/Chat)
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(CodeXCorners.small)
                             .clickable(onClick = onToggleAgentMode)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -775,7 +776,7 @@ private fun ChatInput(
                     // Model Name (Clickable)
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(CodeXCorners.small)
                             .clickable(onClick = onModelClick)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -858,7 +859,7 @@ private fun ChatInput(
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(CodeXCorners.small)
                             .background(
                                 if (isProcessing) MaterialTheme.colorScheme.errorContainer 
                                 else MaterialTheme.colorScheme.onSurface

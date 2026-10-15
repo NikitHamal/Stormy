@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import com.codex.stormy.ui.components.agent.ApprovalSheet
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.components.agent.PlanTimeline
@@ -770,7 +771,7 @@ private fun FileTypeIcon(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(2.dp))
+            .clip(CodeXCorners.tiny)
             .background(iconColor.copy(alpha = 0.15f)),
         contentAlignment = Alignment.Center
     ) {
@@ -807,7 +808,7 @@ private fun LargeFileWarningDialog(
         title = {
             Text(
                 text = "Large File Warning",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLargeEmphasized,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -818,7 +819,7 @@ private fun LargeFileWarningDialog(
             ) {
                 // File info
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = CodeXCorners.medium,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Row(
@@ -938,7 +939,7 @@ private fun FileLoadingProgressDialog(
         title = {
             Text(
                 text = "Loading File",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMediumEmphasized,
                 fontWeight = FontWeight.SemiBold
             )
         },
