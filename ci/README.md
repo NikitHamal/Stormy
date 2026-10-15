@@ -34,5 +34,8 @@ Against the eleven annotations reported on the original run:
   `assembleRelease` at `lintVitalAnalyzeRelease`. This is not optional.
 - Runs `testDebugUnitTest` before the APK builds.
 - `core/**` added to the path filter, so changes to the new modules trigger CI.
-- Added `concurrency` cancellation, a separate lint job, debug APK artifacts,
-  wrapper validation and `if-no-files-found: error` on uploads.
+- `concurrency` cancellation, wrapper validation and `if-no-files-found: error`
+  on uploads.
+- Triggers on branch pushes only (no `pull_request` trigger, so PRs from a
+  branch in this repo no longer run the build twice); release APK only — the
+  debug APK build and the separate lint job were removed.
