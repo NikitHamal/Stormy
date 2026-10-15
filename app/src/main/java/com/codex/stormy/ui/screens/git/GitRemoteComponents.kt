@@ -44,9 +44,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.data.git.CIStatusSummary
 import com.codex.stormy.data.git.WorkflowRunInfo
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Connect to remote section - shown when no remote is configured
@@ -99,7 +99,6 @@ fun ConnectRemoteSection(
             Text(
                 text = "Connect to Remote",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
@@ -118,7 +117,6 @@ fun ConnectRemoteSection(
                 Text(
                     text = "No remote repository configured. Connect to GitHub or another Git hosting service to push and pull changes.",
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
@@ -133,7 +131,7 @@ fun ConnectRemoteSection(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Add Remote Repository", fontFamily = PoppinsFontFamily)
+                    Text("Add Remote Repository")
                 }
             }
         }
@@ -166,7 +164,6 @@ fun AddRemoteDialog(
         title = {
             Text(
                 text = "Add Remote Repository",
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -181,7 +178,7 @@ fun AddRemoteDialog(
                 OutlinedTextField(
                     value = remoteName,
                     onValueChange = { remoteName = it.replace(" ", "") },
-                    label = { Text("Remote name", fontFamily = PoppinsFontFamily) },
+                    label = { Text("Remote name") },
                     placeholder = { Text("origin") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -190,7 +187,7 @@ fun AddRemoteDialog(
                 OutlinedTextField(
                     value = remoteUrl,
                     onValueChange = { remoteUrl = it },
-                    label = { Text("Repository URL", fontFamily = PoppinsFontFamily) },
+                    label = { Text("Repository URL") },
                     placeholder = { Text("https://github.com/user/repo.git") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -208,12 +205,12 @@ fun AddRemoteDialog(
                 onClick = { onAddRemote(remoteName, remoteUrl) },
                 enabled = remoteName.isNotBlank() && remoteUrl.isNotBlank()
             ) {
-                Text("Add Remote", fontFamily = PoppinsFontFamily)
+                Text("Add Remote")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel", fontFamily = PoppinsFontFamily)
+                Text("Cancel")
             }
         }
     )
@@ -271,16 +268,14 @@ fun CIStatusSection(
             Text(
                 text = "CI/CD",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
 
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
+                ExpressiveLoadingIndicator(
+                    modifier = Modifier.size(16.dp)
                 )
             } else {
                 IconButton(
@@ -309,7 +304,6 @@ fun CIStatusSection(
                         text = "No workflow runs found",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontFamily = PoppinsFontFamily,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 } else {
@@ -351,7 +345,6 @@ private fun WorkflowRunItem(
             Text(
                 text = run.name,
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis

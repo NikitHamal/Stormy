@@ -35,7 +35,6 @@ import com.codex.stormy.ui.components.inspector.StyleChangeRequest
 import com.codex.stormy.ui.components.inspector.TextChangeRequest
 import com.codex.stormy.ui.components.inspector.TextContentEditor
 import com.codex.stormy.ui.components.inspector.TextInputProperty
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Text tab for the Visual Element Inspector.
@@ -255,7 +254,6 @@ private fun FontWeightSection(
             Text(
                 text = "Font Weight",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -300,7 +298,6 @@ private fun FontWeightSection(
             Text(
                 text = "Font Style",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -340,7 +337,6 @@ private fun FontWeightSection(
             Text(
                 text = "Text Decoration",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -382,7 +378,6 @@ private fun FontWeightSection(
             Text(
                 text = "Text Transform",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -441,7 +436,6 @@ private fun AlignmentSection(
             Text(
                 text = "Horizontal Align",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -481,7 +475,6 @@ private fun AlignmentSection(
             Text(
                 text = "Vertical Align",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -523,7 +516,6 @@ private fun AlignmentSection(
             Text(
                 text = "White Space",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

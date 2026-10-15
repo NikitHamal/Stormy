@@ -76,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.data.git.GitBranch
 import com.codex.stormy.data.git.GitChangedFile
 import com.codex.stormy.data.git.GitCommit
@@ -128,7 +129,6 @@ fun GitStatusBadge(
             Text(
                 text = status.currentBranch.ifEmpty { "detached" },
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -369,16 +369,14 @@ private fun GitPanelHeader(
         Text(
             text = "Source Control",
             style = MaterialTheme.typography.titleSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
 
         if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp
+            ExpressiveLoadingIndicator(
+                modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
@@ -427,13 +425,11 @@ private fun GitProgressBar(progress: GitOperationProgress) {
             Text(
                 text = progress.operation,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "${(progress.percentage * 100).toInt()}%",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -479,7 +475,6 @@ private fun GitInitPrompt(onInit: () -> Unit) {
             Text(
                 text = "Not a Git repository",
                 style = MaterialTheme.typography.bodyMedium,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Button(onClick = onInit) {
@@ -489,7 +484,7 @@ private fun GitInitPrompt(onInit: () -> Unit) {
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Initialize Repository", fontFamily = PoppinsFontFamily)
+                Text("Initialize Repository")
             }
         }
     }
@@ -558,8 +553,7 @@ private fun GitActionButton(
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily
+            style = MaterialTheme.typography.labelSmall
         )
         if (badge != null) {
             Spacer(modifier = Modifier.width(4.dp))
@@ -625,7 +619,6 @@ private fun GitChangesSection(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
@@ -789,8 +782,7 @@ private fun CommitInput(
             placeholder = {
                 Text(
                     "Commit message...",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = PoppinsFontFamily
+                    style = MaterialTheme.typography.bodySmall
                 )
             },
             modifier = Modifier.fillMaxWidth(),
@@ -812,7 +804,7 @@ private fun CommitInput(
                 modifier = Modifier.size(16.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Commit", fontFamily = PoppinsFontFamily)
+            Text("Commit")
         }
     }
 }
@@ -870,7 +862,6 @@ private fun BranchesSection(
             Text(
                 text = "Branches",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
@@ -915,7 +906,6 @@ private fun BranchesSection(
             title = {
                 Text(
                     text = "Delete Branch",
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold
                 )
             },
@@ -942,12 +932,12 @@ private fun BranchesSection(
                         containerColor = MaterialTheme.colorScheme.error
                     )
                 ) {
-                    Text("Delete", fontFamily = PoppinsFontFamily)
+                    Text("Delete")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { branchToDelete = null }) {
-                    Text("Cancel", fontFamily = PoppinsFontFamily)
+                    Text("Cancel")
                 }
             }
         )
@@ -963,7 +953,6 @@ private fun BranchesSection(
             title = {
                 Text(
                     text = "Create Branch",
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold
                 )
             },
@@ -978,7 +967,7 @@ private fun BranchesSection(
                     OutlinedTextField(
                         value = branchName,
                         onValueChange = { branchName = it.replace(" ", "-") },
-                        label = { Text("Branch name", fontFamily = PoppinsFontFamily) },
+                        label = { Text("Branch name") },
                         placeholder = { Text("feature/my-feature") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -994,8 +983,7 @@ private fun BranchesSection(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Switch to branch after creating",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = PoppinsFontFamily
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
@@ -1008,12 +996,12 @@ private fun BranchesSection(
                     },
                     enabled = branchName.isNotBlank()
                 ) {
-                    Text("Create", fontFamily = PoppinsFontFamily)
+                    Text("Create")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", fontFamily = PoppinsFontFamily)
+                    Text("Cancel")
                 }
             }
         )
@@ -1131,8 +1119,7 @@ private fun BranchItem(
                                     )
                                     Text(
                                         text = "Switch to this branch",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontFamily = PoppinsFontFamily
+                                        style = MaterialTheme.typography.bodyMedium
                                     )
                                 }
                             }
@@ -1163,7 +1150,6 @@ private fun BranchItem(
                                     Text(
                                         text = "Delete branch",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontFamily = PoppinsFontFamily,
                                         color = MaterialTheme.colorScheme.error
                                     )
                                 }
@@ -1182,7 +1168,7 @@ private fun BranchItem(
                 },
                 confirmButton = {
                     TextButton(onClick = { showContextMenu = false }) {
-                        Text("Close", fontFamily = PoppinsFontFamily)
+                        Text("Close")
                     }
                 }
             )
@@ -1238,7 +1224,6 @@ private fun CommitsSection(
             Text(
                 text = "Recent Commits",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
@@ -1299,7 +1284,6 @@ private fun CommitItem(
                 Text(
                     text = commit.message,
                     style = MaterialTheme.typography.bodySmall,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1332,7 +1316,6 @@ private fun CommitItem(
                         Text(
                             text = "Reset to Commit",
                             style = MaterialTheme.typography.titleMedium,
-                            fontFamily = PoppinsFontFamily,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
@@ -1383,7 +1366,6 @@ private fun CommitItem(
                                     Text(
                                         text = "Soft Reset",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontFamily = PoppinsFontFamily,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
@@ -1421,7 +1403,6 @@ private fun CommitItem(
                                     Text(
                                         text = "Hard Reset",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontFamily = PoppinsFontFamily,
                                         fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.error
                                     )
@@ -1437,7 +1418,7 @@ private fun CommitItem(
                 },
                 confirmButton = {
                     TextButton(onClick = { showContextMenu = false }) {
-                        Text("Cancel", fontFamily = PoppinsFontFamily)
+                        Text("Cancel")
                     }
                 }
             )

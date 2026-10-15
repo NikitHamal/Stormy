@@ -33,7 +33,6 @@ import com.codex.stormy.ui.components.inspector.InspectorUtils
 import com.codex.stormy.ui.components.inspector.OptionChip
 import com.codex.stormy.ui.components.inspector.SliderPropertyEditor
 import com.codex.stormy.ui.components.inspector.StyleChangeRequest
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Design tab for the Visual Element Inspector.
@@ -199,7 +198,6 @@ private fun BackgroundSection(
             Text(
                 text = "Background Size",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -239,7 +237,6 @@ private fun BackgroundSection(
             Text(
                 text = "Background Position",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -280,7 +277,6 @@ private fun BackgroundSection(
             Text(
                 text = "Background Repeat",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -322,7 +318,6 @@ private fun BackgroundSection(
             Text(
                 text = "Background Attachment",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -434,7 +429,6 @@ private fun BorderSection(
             Text(
                 text = "Border Style",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -473,7 +467,6 @@ private fun BorderSection(
         Text(
             text = "Outline",
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -574,7 +567,6 @@ private fun EffectsSection(
         Text(
             text = "Box Shadow",
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -604,7 +596,6 @@ private fun EffectsSection(
             Text(
                 text = "Cursor",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

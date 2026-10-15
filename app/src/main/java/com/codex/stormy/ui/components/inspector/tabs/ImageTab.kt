@@ -41,7 +41,6 @@ import com.codex.stormy.ui.components.inspector.ImageChangeRequest
 import com.codex.stormy.ui.components.inspector.InspectorElementData
 import com.codex.stormy.ui.components.inspector.InspectorSection
 import com.codex.stormy.ui.components.inspector.InspectorUtils
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Image tab for the Visual Element Inspector.
@@ -198,7 +197,6 @@ private fun ImageSourceEditor(
                     Text(
                         text = "Apply URL",
                         style = MaterialTheme.typography.labelSmall,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -232,7 +230,6 @@ private fun PickFromDeviceButton(onPickImage: (() -> Unit)?) {
             Text(
                 text = "Choose from Gallery",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -263,8 +260,7 @@ private fun AltTextEditor(
         onValueChange = onEditedAltChange,
         textStyle = TextStyle(
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
-            fontFamily = PoppinsFontFamily
+            fontSize = 12.sp
         ),
         singleLine = false,
         maxLines = 3,

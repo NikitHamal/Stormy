@@ -53,7 +53,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Property editor composables for the Visual Element Inspector.
@@ -86,7 +85,6 @@ fun ColorPropertyEditor(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -189,7 +187,6 @@ fun SliderPropertyEditor(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -269,7 +266,6 @@ fun TextInputProperty(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -345,7 +341,6 @@ fun SpacingBoxEditor(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface
         )
@@ -523,7 +518,6 @@ fun TextContentEditor(
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 13.sp,
-                    fontFamily = PoppinsFontFamily,
                     lineHeight = 20.sp
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -551,7 +545,6 @@ fun TextContentEditor(
                 Text(
                     text = "Apply",
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -589,7 +582,6 @@ fun TogglePropertyEditor(
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            fontFamily = PoppinsFontFamily,
             color = if (isEnabled) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -637,7 +629,6 @@ fun DualValueEditor(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

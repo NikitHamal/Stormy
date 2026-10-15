@@ -47,8 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.R
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.FileUtils
 
 /**
@@ -90,7 +90,6 @@ fun ImportFolderDialog(
             Text(
                 text = "Import Folder",
                 style = MaterialTheme.typography.headlineSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -182,9 +181,8 @@ fun ImportFolderDialog(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 if (isImporting) {
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
@@ -261,7 +259,6 @@ private fun FolderSelector(
                     Text(
                         text = selectedFolderName,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
@@ -276,7 +273,6 @@ private fun FolderSelector(
                     Text(
                         text = "Select a folder",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
@@ -331,7 +327,6 @@ private fun ImportProgressIndicator(
         Text(
             text = message ?: "Importing...",
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
@@ -362,7 +357,6 @@ private fun ErrorDisplay(error: String?) {
         Text(
             text = error,
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onErrorContainer
         )
     }

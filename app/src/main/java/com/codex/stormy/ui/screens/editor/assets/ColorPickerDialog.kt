@@ -63,7 +63,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -172,7 +171,6 @@ fun ColorPickerDialog(
                 Text(
                     text = "Color Picker",
                     style = MaterialTheme.typography.titleLarge,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -417,7 +415,7 @@ private fun ColorPickerTab(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(ColorFormat.entries) { format ->
+            items(ColorFormat.entries, key = { it.name }) { format ->
                 FilterChip(
                     selected = selectedFormat == format,
                     onClick = { onFormatChange(format) },
@@ -563,7 +561,7 @@ private fun ColorHarmonyTab(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(ColorHarmony.entries) { harmony ->
+            items(ColorHarmony.entries, key = { it.name }) { harmony ->
                 FilterChip(
                     selected = selectedHarmony == harmony,
                     onClick = { onHarmonyChange(harmony) },
@@ -578,7 +576,6 @@ private fun ColorHarmonyTab(
         Text(
             text = "Generated Palette:",
             style = MaterialTheme.typography.titleSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium
         )
 
@@ -660,7 +657,7 @@ private fun ColorPalettesTab(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(PaletteCategory.entries) { category ->
+            items(PaletteCategory.entries, key = { it.name }) { category ->
                 FilterChip(
                     selected = selectedCategory == category,
                     onClick = { onCategoryChange(category) },

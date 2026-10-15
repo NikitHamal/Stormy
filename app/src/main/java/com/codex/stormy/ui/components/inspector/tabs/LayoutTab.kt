@@ -32,7 +32,6 @@ import com.codex.stormy.ui.components.inspector.SliderPropertyEditor
 import com.codex.stormy.ui.components.inspector.SpacingBoxEditor
 import com.codex.stormy.ui.components.inspector.StyleChangeRequest
 import com.codex.stormy.ui.components.inspector.TextInputProperty
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Layout tab for the Visual Element Inspector.
@@ -275,7 +274,6 @@ private fun SizeSection(
             Text(
                 text = "Box Sizing",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -394,7 +392,6 @@ private fun DisplaySection(
             Text(
                 text = "Display Type",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -435,7 +432,6 @@ private fun DisplaySection(
             Text(
                 text = "Flexbox",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -451,7 +447,6 @@ private fun DisplaySection(
                 Text(
                     text = "Direction",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -493,7 +488,6 @@ private fun DisplaySection(
                 Text(
                     text = "Wrap",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -533,7 +527,6 @@ private fun DisplaySection(
                 Text(
                     text = "Justify Content",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -574,7 +567,6 @@ private fun DisplaySection(
                 Text(
                     text = "Align Items",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -634,7 +626,6 @@ private fun DisplaySection(
             Text(
                 text = "Grid",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -721,7 +712,6 @@ private fun PositionSection(
             Text(
                 text = "Position Type",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -761,7 +751,6 @@ private fun PositionSection(
             Text(
                 text = "Offsets",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -879,7 +868,6 @@ private fun PositionSection(
             Text(
                 text = "Float",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -935,7 +923,6 @@ private fun OverflowSection(
             Text(
                 text = "Overflow",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -974,7 +961,6 @@ private fun OverflowSection(
             Text(
                 text = "Overflow X",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1013,7 +999,6 @@ private fun OverflowSection(
             Text(
                 text = "Overflow Y",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1053,7 +1038,6 @@ private fun OverflowSection(
             Text(
                 text = "Object Fit",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

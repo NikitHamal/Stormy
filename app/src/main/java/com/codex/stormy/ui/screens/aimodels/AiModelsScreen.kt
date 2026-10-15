@@ -66,11 +66,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.launch
 
 /**
@@ -152,7 +152,6 @@ private fun MinimalTopBar(
         title = {
             Text(
                 text = "AI Models",
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -170,9 +169,8 @@ private fun MinimalTopBar(
                 enabled = !isLoading
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp
+                    ExpressiveLoadingIndicator(
+                        modifier = Modifier.size(20.dp)
                     )
                 } else {
                     Icon(
@@ -209,7 +207,7 @@ private fun ProviderTabs(
             )
         }
 
-        items(AiProvider.entries.toList()) { provider ->
+        items(AiProvider.entries.toList(), key = { it.name }) { provider ->
             ProviderChip(
                 label = provider.displayName,
                 isSelected = selectedProvider == provider,
@@ -234,7 +232,6 @@ private fun ProviderChip(
         label = {
             Text(
                 text = label,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
             )
         },
@@ -339,14 +336,12 @@ private fun ProviderSectionHeader(
         Text(
             text = provider.displayName,
             style = MaterialTheme.typography.labelLarge,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary
         )
         Text(
             text = "• $modelCount",
             style = MaterialTheme.typography.labelMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
@@ -429,7 +424,6 @@ private fun MinimalModelItem(
                         Text(
                             text = model.name,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = PoppinsFontFamily,
                             fontWeight = if (isSelected || isDefault) FontWeight.SemiBold else FontWeight.Normal,
                             color = when {
                                 isSelected -> MaterialTheme.colorScheme.primary
@@ -458,7 +452,6 @@ private fun MinimalModelItem(
                         Text(
                             text = "Default",
                             style = MaterialTheme.typography.labelSmall,
-                            fontFamily = PoppinsFontFamily,
                             color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
                         )
                     }
@@ -497,8 +490,7 @@ private fun MinimalModelItem(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            text = "Remove as default",
-                            fontFamily = PoppinsFontFamily
+                            text = "Remove as default"
                         )
                     },
                     leadingIcon = {
@@ -516,8 +508,7 @@ private fun MinimalModelItem(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            text = "Set as default",
-                            fontFamily = PoppinsFontFamily
+                            text = "Set as default"
                         )
                     },
                     leadingIcon = {
@@ -560,14 +551,12 @@ private fun LoadingState(modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(32.dp),
-                strokeWidth = 3.dp
+            ExpressiveLoadingIndicator(
+                modifier = Modifier.size(32.dp)
             )
             Text(
                 text = "Loading models...",
                 style = MaterialTheme.typography.bodyMedium,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -596,14 +585,12 @@ private fun EmptyState(modifier: Modifier = Modifier) {
             Text(
                 text = "No models found",
                 style = MaterialTheme.typography.bodyLarge,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "Check your API keys in settings",
                 style = MaterialTheme.typography.bodySmall,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

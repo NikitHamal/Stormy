@@ -304,7 +304,7 @@ class GitHubActionsService(
         }
     }
 
-    private fun buildRequest(url: String): Request {
+    private suspend fun buildRequest(url: String): Request {
         return Request.Builder()
             .url(url)
             .get()
@@ -318,14 +318,15 @@ class GitHubActionsService(
             .build()
     }
 
-    private fun getAuthToken(): String? {
-        // Try to get GitHub credentials
+    /**
+     * Suspending rather than blocking: every caller is already inside a
+     * coroutine, and runBlocking there parked an IO dispatcher thread for the
+     * duration of a DataStore read on each API call.
+     */
+    private suspend fun getAuthToken(): String? {
         return try {
-            val credentials = kotlinx.coroutines.runBlocking {
-                credentialsManager.getCredentialsForUrl("https://github.com")
-            }
-            // For GitHub, the password field typically contains the personal access token
-            credentials?.password
+            // For GitHub, the password field holds the personal access token.
+            credentialsManager.getCredentialsForUrl("https://github.com")?.password
         } catch (e: Exception) {
             null
         }

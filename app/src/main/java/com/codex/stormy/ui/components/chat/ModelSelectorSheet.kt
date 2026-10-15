@@ -1,7 +1,6 @@
 package com.codex.stormy.ui.components.chat
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,9 +40,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Minimal model selector bottom sheet
@@ -103,14 +102,12 @@ fun ModelSelectorSheet(
                     Text(
                         text = "Select Model",
                         style = MaterialTheme.typography.titleMedium,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "${sortedModels.size} models available",
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -121,9 +118,8 @@ fun ModelSelectorSheet(
                         enabled = !isRefreshing
                     ) {
                         if (isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
+                            ExpressiveLoadingIndicator(
+                                modifier = Modifier.size(18.dp)
                             )
                         } else {
                             Icon(
@@ -175,13 +171,11 @@ fun ModelSelectorSheet(
                         Text(
                             text = "No models available",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = PoppinsFontFamily,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = "Tap refresh to load models",
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = PoppinsFontFamily,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
@@ -227,7 +221,7 @@ private fun CompactModelCard(
         },
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(200))
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
     ) {
         Row(
             modifier = Modifier
@@ -247,7 +241,6 @@ private fun CompactModelCard(
                 Text(
                     text = getProviderInitial(model.provider),
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Bold,
                     color = getProviderColor(model.provider)
                 )
@@ -258,7 +251,6 @@ private fun CompactModelCard(
                 Text(
                     text = model.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.primary

@@ -501,7 +501,7 @@ class SemanticMemorySystem(private val context: Context) {
 
     // ==================== Private Helper Methods ====================
 
-    private fun extractFrameworkPreferences(projectId: String, message: String) {
+    private suspend fun extractFrameworkPreferences(projectId: String, message: String) {
         val frameworkKeywords = mapOf(
             "react" to "React",
             "vue" to "Vue.js",
@@ -516,41 +516,37 @@ class SemanticMemorySystem(private val context: Context) {
         val lowerMessage = message.lowercase()
         for ((keyword, framework) in frameworkKeywords) {
             if (keyword in lowerMessage) {
-                kotlinx.coroutines.runBlocking {
-                    saveMemory(
-                        projectId = projectId,
-                        category = MemoryCategory.FRAMEWORK_CONFIG,
-                        key = "framework_preference",
-                        value = "User mentioned $framework - may prefer this framework",
-                        importance = MemoryImportance.MEDIUM,
-                        source = MemorySource.AUTO_LEARNED,
-                        tags = listOf("framework", keyword)
-                    )
-                }
-            }
-        }
-    }
-
-    private fun extractStylingPreferences(projectId: String, message: String) {
-        val colorPatterns = Regex("#[0-9A-Fa-f]{3,8}|rgb\\([^)]+\\)|hsl\\([^)]+\\)")
-        val colors = colorPatterns.findAll(message).map { it.value }.toList()
-
-        if (colors.isNotEmpty()) {
-            kotlinx.coroutines.runBlocking {
                 saveMemory(
                     projectId = projectId,
-                    category = MemoryCategory.STYLING_PATTERNS,
-                    key = "mentioned_colors",
-                    value = "User mentioned colors: ${colors.joinToString(", ")}",
-                    importance = MemoryImportance.LOW,
+                    category = MemoryCategory.FRAMEWORK_CONFIG,
+                    key = "framework_preference",
+                    value = "User mentioned $framework - may prefer this framework",
+                    importance = MemoryImportance.MEDIUM,
                     source = MemorySource.AUTO_LEARNED,
-                    tags = listOf("colors", "styling")
+                    tags = listOf("framework", keyword)
                 )
             }
         }
     }
 
-    private fun extractExplicitPreferences(projectId: String, message: String) {
+    private suspend fun extractStylingPreferences(projectId: String, message: String) {
+        val colorPatterns = Regex("#[0-9A-Fa-f]{3,8}|rgb\\([^)]+\\)|hsl\\([^)]+\\)")
+        val colors = colorPatterns.findAll(message).map { it.value }.toList()
+
+        if (colors.isNotEmpty()) {
+            saveMemory(
+                projectId = projectId,
+                category = MemoryCategory.STYLING_PATTERNS,
+                key = "mentioned_colors",
+                value = "User mentioned colors: ${colors.joinToString(", ")}",
+                importance = MemoryImportance.LOW,
+                source = MemorySource.AUTO_LEARNED,
+                tags = listOf("colors", "styling")
+            )
+        }
+    }
+
+    private suspend fun extractExplicitPreferences(projectId: String, message: String) {
         val preferencePatterns = listOf(
             Regex("(?:i prefer|always use|i like|i want|please use)\\s+([^.!?]+)", RegexOption.IGNORE_CASE),
             Regex("(?:don't|do not|never)\\s+(?:use|add|include)\\s+([^.!?]+)", RegexOption.IGNORE_CASE)
@@ -560,44 +556,40 @@ class SemanticMemorySystem(private val context: Context) {
             val match = pattern.find(message)
             if (match != null) {
                 val preference = match.groupValues[1].trim()
-                kotlinx.coroutines.runBlocking {
-                    saveMemory(
-                        projectId = projectId,
-                        category = MemoryCategory.USER_PREFERENCES,
-                        key = "stated_preference_${System.currentTimeMillis() % 10000}",
-                        value = "User preference: ${match.value}",
-                        importance = MemoryImportance.HIGH,
-                        source = MemorySource.USER_EXPLICIT,
-                        tags = listOf("preference", "explicit")
-                    )
-                }
+                saveMemory(
+                    projectId = projectId,
+                    category = MemoryCategory.USER_PREFERENCES,
+                    key = "stated_preference_${System.currentTimeMillis() % 10000}",
+                    value = "User preference: ${match.value}",
+                    importance = MemoryImportance.HIGH,
+                    source = MemorySource.USER_EXPLICIT,
+                    tags = listOf("preference", "explicit")
+                )
             }
         }
     }
 
-    private fun extractErrorContext(projectId: String, message: String, currentFile: String?) {
+    private suspend fun extractErrorContext(projectId: String, message: String, currentFile: String?) {
         val errorPatterns = listOf(
             "error", "bug", "issue", "problem", "not working", "broken", "crash", "failed"
         )
 
         val lowerMessage = message.lowercase()
         if (errorPatterns.any { it in lowerMessage }) {
-            kotlinx.coroutines.runBlocking {
-                saveMemory(
-                    projectId = projectId,
-                    category = MemoryCategory.ERROR_SOLUTIONS,
-                    key = "reported_issue_${System.currentTimeMillis() % 10000}",
-                    value = "User reported issue: ${message.take(200)}",
-                    importance = MemoryImportance.MEDIUM,
-                    source = MemorySource.AUTO_LEARNED,
-                    tags = listOf("error", "issue"),
-                    relatedFiles = currentFile?.let { listOf(it) } ?: emptyList()
-                )
-            }
+            saveMemory(
+                projectId = projectId,
+                category = MemoryCategory.ERROR_SOLUTIONS,
+                key = "reported_issue_${System.currentTimeMillis() % 10000}",
+                value = "User reported issue: ${message.take(200)}",
+                importance = MemoryImportance.MEDIUM,
+                source = MemorySource.AUTO_LEARNED,
+                tags = listOf("error", "issue"),
+                relatedFiles = currentFile?.let { listOf(it) } ?: emptyList()
+            )
         }
     }
 
-    private fun detectNamingConventions(projectId: String, code: String, filePath: String) {
+    private suspend fun detectNamingConventions(projectId: String, code: String, filePath: String) {
         val camelCasePattern = Regex("[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*")
         val snakeCasePattern = Regex("[a-z][a-z0-9]*_[a-z][a-z0-9_]*")
         val kebabCasePattern = Regex("[a-z][a-z0-9]*-[a-z][a-z0-9-]*")
@@ -614,22 +606,20 @@ class SemanticMemorySystem(private val context: Context) {
         }
 
         if (dominant != null) {
-            kotlinx.coroutines.runBlocking {
-                saveMemory(
-                    projectId = projectId,
-                    category = MemoryCategory.CODING_PATTERNS,
-                    key = "naming_convention_${filePath.substringAfterLast('.').take(5)}",
-                    value = "Detected $dominant naming convention in ${filePath.substringAfterLast('/')}",
-                    importance = MemoryImportance.MEDIUM,
-                    source = MemorySource.AUTO_LEARNED,
-                    tags = listOf("naming", dominant),
-                    relatedFiles = listOf(filePath)
-                )
-            }
+            saveMemory(
+                projectId = projectId,
+                category = MemoryCategory.CODING_PATTERNS,
+                key = "naming_convention_${filePath.substringAfterLast('.').take(5)}",
+                value = "Detected $dominant naming convention in ${filePath.substringAfterLast('/')}",
+                importance = MemoryImportance.MEDIUM,
+                source = MemorySource.AUTO_LEARNED,
+                tags = listOf("naming", dominant),
+                relatedFiles = listOf(filePath)
+            )
         }
     }
 
-    private fun detectFrameworkUsage(projectId: String, code: String, filePath: String) {
+    private suspend fun detectFrameworkUsage(projectId: String, code: String, filePath: String) {
         val frameworkSignatures = mapOf(
             "import React" to "React",
             "from 'react'" to "React",
@@ -644,68 +634,60 @@ class SemanticMemorySystem(private val context: Context) {
 
         for ((signature, framework) in frameworkSignatures) {
             if (signature in code) {
-                kotlinx.coroutines.runBlocking {
-                    saveMemory(
-                        projectId = projectId,
-                        category = MemoryCategory.FRAMEWORK_CONFIG,
-                        key = "detected_framework_${framework.lowercase().replace(" ", "_")}",
-                        value = "$framework detected in project (found in ${filePath.substringAfterLast('/')})",
-                        importance = MemoryImportance.HIGH,
-                        source = MemorySource.AUTO_LEARNED,
-                        tags = listOf("framework", framework.lowercase()),
-                        relatedFiles = listOf(filePath)
-                    )
-                }
+                saveMemory(
+                    projectId = projectId,
+                    category = MemoryCategory.FRAMEWORK_CONFIG,
+                    key = "detected_framework_${framework.lowercase().replace(" ", "_")}",
+                    value = "$framework detected in project (found in ${filePath.substringAfterLast('/')})",
+                    importance = MemoryImportance.HIGH,
+                    source = MemorySource.AUTO_LEARNED,
+                    tags = listOf("framework", framework.lowercase()),
+                    relatedFiles = listOf(filePath)
+                )
                 break
             }
         }
     }
 
-    private fun detectStylingPatterns(projectId: String, code: String, filePath: String) {
+    private suspend fun detectStylingPatterns(projectId: String, code: String, filePath: String) {
         if (filePath.endsWith(".css") || filePath.endsWith(".scss") || filePath.endsWith(".less")) {
             // Detect CSS variable usage
             if ("--" in code && "var(" in code) {
-                kotlinx.coroutines.runBlocking {
-                    saveMemory(
-                        projectId = projectId,
-                        category = MemoryCategory.STYLING_PATTERNS,
-                        key = "css_variables",
-                        value = "Project uses CSS custom properties (variables)",
-                        importance = MemoryImportance.MEDIUM,
-                        source = MemorySource.AUTO_LEARNED,
-                        tags = listOf("css", "variables", "styling"),
-                        relatedFiles = listOf(filePath)
-                    )
-                }
+                saveMemory(
+                    projectId = projectId,
+                    category = MemoryCategory.STYLING_PATTERNS,
+                    key = "css_variables",
+                    value = "Project uses CSS custom properties (variables)",
+                    importance = MemoryImportance.MEDIUM,
+                    source = MemorySource.AUTO_LEARNED,
+                    tags = listOf("css", "variables", "styling"),
+                    relatedFiles = listOf(filePath)
+                )
             }
 
             // Detect flexbox or grid usage
             if ("display: flex" in code || "display:flex" in code) {
-                kotlinx.coroutines.runBlocking {
-                    saveMemory(
-                        projectId = projectId,
-                        category = MemoryCategory.STYLING_PATTERNS,
-                        key = "layout_method",
-                        value = "Project uses Flexbox for layouts",
-                        importance = MemoryImportance.MEDIUM,
-                        source = MemorySource.AUTO_LEARNED,
-                        tags = listOf("flexbox", "layout", "css")
-                    )
-                }
+                saveMemory(
+                    projectId = projectId,
+                    category = MemoryCategory.STYLING_PATTERNS,
+                    key = "layout_method",
+                    value = "Project uses Flexbox for layouts",
+                    importance = MemoryImportance.MEDIUM,
+                    source = MemorySource.AUTO_LEARNED,
+                    tags = listOf("flexbox", "layout", "css")
+                )
             }
 
             if ("display: grid" in code || "display:grid" in code) {
-                kotlinx.coroutines.runBlocking {
-                    saveMemory(
-                        projectId = projectId,
-                        category = MemoryCategory.STYLING_PATTERNS,
-                        key = "layout_method_grid",
-                        value = "Project uses CSS Grid for layouts",
-                        importance = MemoryImportance.MEDIUM,
-                        source = MemorySource.AUTO_LEARNED,
-                        tags = listOf("grid", "layout", "css")
-                    )
-                }
+                saveMemory(
+                    projectId = projectId,
+                    category = MemoryCategory.STYLING_PATTERNS,
+                    key = "layout_method_grid",
+                    value = "Project uses CSS Grid for layouts",
+                    importance = MemoryImportance.MEDIUM,
+                    source = MemorySource.AUTO_LEARNED,
+                    tags = listOf("grid", "layout", "css")
+                )
             }
         }
     }

@@ -48,7 +48,6 @@ import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.ui.screens.editor.assets.ImageMetadata
 import com.codex.stormy.ui.screens.editor.assets.ImageOptimizer
 import com.codex.stormy.ui.theme.CodeXTheme
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.FileUtils
 import java.io.File
 
@@ -193,7 +192,6 @@ private fun ImagePreviewContent(
                 Text(
                     text = file.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -267,7 +265,6 @@ private fun ImageMetadataCard(
                 Text(
                     text = "Image Details",
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -329,7 +326,6 @@ private fun ImageMetadataItem(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium
         )
     }

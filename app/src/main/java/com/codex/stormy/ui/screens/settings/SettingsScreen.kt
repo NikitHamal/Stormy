@@ -66,7 +66,6 @@ import com.codex.stormy.R
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.ApiKeyRequirement
 import com.codex.stormy.data.repository.ThemeMode
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 @Composable
 fun SettingsScreen(
@@ -85,7 +84,6 @@ fun SettingsScreen(
                 title = {
                     Text(
                         text = context.getString(R.string.settings_title),
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -322,7 +320,6 @@ private fun SettingsSection(
         Text(
             text = title,
             style = MaterialTheme.typography.labelLarge,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 4.dp)
@@ -371,7 +368,6 @@ private fun ThemeSelector(
             Text(
                 text = "Theme",
                 style = MaterialTheme.typography.bodyLarge,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -468,14 +464,12 @@ private fun FontSizeSetting(
                 Text(
                     text = "Font Size",
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
             Text(
                 text = "${currentSize.toInt()}sp",
                 style = MaterialTheme.typography.labelLarge,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -547,14 +541,12 @@ private fun SettingsToggle(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (description != null) {
                     Text(
                         text = description,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -605,14 +597,12 @@ private fun SettingsNavItem(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -657,7 +647,6 @@ private fun SettingsInfoItem(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -665,7 +654,6 @@ private fun SettingsInfoItem(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -703,14 +691,12 @@ private fun GitSettingsNavItem(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

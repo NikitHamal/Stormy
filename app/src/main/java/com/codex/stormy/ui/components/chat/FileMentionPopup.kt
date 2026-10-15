@@ -115,7 +115,6 @@ fun FileMentionPopup(
                     Text(
                         text = "Mention file or folder",
                         style = MaterialTheme.typography.labelSmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
                     )

@@ -60,7 +60,6 @@ import androidx.compose.ui.unit.dp
 import com.codex.stormy.R
 import com.codex.stormy.data.local.entity.ProjectTemplate
 import com.codex.stormy.data.local.entity.TemplateCategory
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Template option with icon for display
@@ -129,7 +128,6 @@ fun CreateProjectDialog(
             Text(
                 text = context.getString(R.string.create_project_title),
                 style = MaterialTheme.typography.headlineSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -169,7 +167,6 @@ fun CreateProjectDialog(
                     Text(
                         text = context.getString(R.string.create_project_template_label),
                         style = MaterialTheme.typography.labelLarge,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -236,7 +233,6 @@ fun CreateProjectDialog(
                             Text(
                                 text = selectedTemplate.displayName,
                                 style = MaterialTheme.typography.labelLarge,
-                                fontFamily = PoppinsFontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -253,7 +249,6 @@ fun CreateProjectDialog(
                                 Text(
                                     text = "Note: Includes GitHub Actions workflow for APK builds",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = PoppinsFontFamily,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -339,7 +334,6 @@ private fun TemplateCard(
         Text(
             text = template.displayName,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
             color = contentColor,
             maxLines = 1,

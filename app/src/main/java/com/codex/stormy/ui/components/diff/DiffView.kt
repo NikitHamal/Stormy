@@ -50,7 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.DiffUtils
 
 /**
@@ -142,7 +141,6 @@ fun DiffSummaryBadge(
             Text(
                 text = "No changes",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 fontSize = 10.sp
             )
@@ -294,7 +292,6 @@ fun DiffContent(
                 Text(
                     text = "Changes",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Medium
                 )

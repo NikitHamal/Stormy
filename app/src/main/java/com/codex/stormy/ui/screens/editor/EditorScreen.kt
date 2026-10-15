@@ -83,7 +83,6 @@ import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
 import com.codex.stormy.ui.screens.git.GitDrawer
 import com.codex.stormy.ui.screens.preview.PreviewActivity
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -747,7 +746,6 @@ private fun LargeFileWarningDialog(
             Text(
                 text = "Large File Warning",
                 style = MaterialTheme.typography.titleLarge,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -777,7 +775,6 @@ private fun LargeFileWarningDialog(
                             Text(
                                 text = warning.fileName,
                                 style = MaterialTheme.typography.titleSmall,
-                                fontFamily = PoppinsFontFamily,
                                 fontWeight = FontWeight.Medium
                             )
                             Text(
@@ -880,7 +877,6 @@ private fun FileLoadingProgressDialog(
             Text(
                 text = "Loading File",
                 style = MaterialTheme.typography.titleMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
         },

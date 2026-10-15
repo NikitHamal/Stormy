@@ -52,11 +52,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.data.git.CIStatus
 import com.codex.stormy.data.git.CIStatusSummary
 import com.codex.stormy.data.git.JobInfo
 import com.codex.stormy.data.git.WorkflowRunInfo
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * CI Status badge that shows current workflow status
@@ -111,8 +111,7 @@ fun CIStatusBadge(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = color,
-                fontFamily = PoppinsFontFamily
+                color = color
             )
         }
     }
@@ -138,22 +137,19 @@ fun CIStatusIndicator(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (isLoading) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp
+            ExpressiveLoadingIndicator(
+                modifier = Modifier.size(16.dp)
             )
             Text(
                 text = "Checking CI...",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontFamily = PoppinsFontFamily
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else if (summary == null || !summary.isGitHubRepo) {
             Text(
                 text = "CI/CD",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontFamily = PoppinsFontFamily
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
             val status = summary.currentBranchStatus ?: summary.latestRun?.displayStatus
@@ -163,8 +159,7 @@ fun CIStatusIndicator(
                 Text(
                     text = "No runs",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = PoppinsFontFamily
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -213,14 +208,12 @@ fun CIPanelContent(
             Text(
                 text = "CI/CD Status",
                 style = MaterialTheme.typography.titleSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold
             )
 
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
+                ExpressiveLoadingIndicator(
+                    modifier = Modifier.size(20.dp)
                 )
             } else {
                 IconButton(onClick = onRefresh, modifier = Modifier.size(24.dp)) {
@@ -308,7 +301,6 @@ fun WorkflowRunCard(
                 Text(
                     text = run.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -330,23 +322,20 @@ fun WorkflowRunCard(
                     Text(
                         text = branch,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontFamily = PoppinsFontFamily
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
                 Text(
                     text = run.commitSha.take(7),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = PoppinsFontFamily
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Text(
                     text = "#${run.runNumber}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = PoppinsFontFamily
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -436,7 +425,6 @@ fun JobDetailsView(
             Text(
                 text = job.name,
                 style = MaterialTheme.typography.titleSmall,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium
             )
 
@@ -500,7 +488,6 @@ private fun StepRow(
         Text(
             text = name,
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = PoppinsFontFamily,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -531,8 +518,7 @@ private fun EmptyState(
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = PoppinsFontFamily
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

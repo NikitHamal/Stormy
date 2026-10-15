@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.home
 
+import androidx.compose.runtime.Immutable
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -22,6 +23,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
+/**
+ * Marked @Immutable because it holds List fields. Compose cannot prove a
+ * kotlin.collections.List is immutable -- the interface permits a mutable
+ * implementation -- so without this the whole state object counts as unstable
+ * and every composable reading it recomposes on each emission, even when the
+ * value it reads is unchanged. These lists are only ever replaced wholesale,
+ * never mutated, so the annotation is true.
+ */
+@Immutable
 data class HomeUiState(
     val projects: List<Project> = emptyList(),
     val searchQuery: String = "",

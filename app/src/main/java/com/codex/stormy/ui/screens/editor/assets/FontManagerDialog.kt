@@ -57,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Font category for filtering
@@ -153,7 +152,6 @@ fun FontManagerDialog(
                 Text(
                     text = "Font Manager",
                     style = MaterialTheme.typography.titleLarge,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -219,7 +217,7 @@ fun FontManagerDialog(
                 contentPadding = PaddingValues(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(FontCategory.entries) { category ->
+                items(FontCategory.entries, key = { it.name }) { category ->
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
@@ -330,7 +328,6 @@ private fun FontListItem(
                     Text(
                         text = font.name,
                         style = MaterialTheme.typography.titleSmall,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium
                     )
                     Surface(
@@ -393,7 +390,6 @@ private fun FontDetailSection(
         Text(
             text = font.name,
             style = MaterialTheme.typography.titleMedium,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold
         )
 

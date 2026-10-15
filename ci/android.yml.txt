@@ -1,0 +1,136 @@
+name: Android CI
+
+on:
+  push:
+    paths:
+      - '.github/workflows/android.yml'
+      - 'app/**'
+      - 'core/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'settings.gradle.kts'
+      - 'keystore/**'
+    branches-ignore:
+      - 'wip/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref instead of burning runners on stale commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep the toolchain in one place so the matrix below and local builds agree.
+  JAVA_VERSION: '21'
+  GRADLE_OPTS: '-Dorg.gradle.daemon=false'
+
+jobs:
+  build:
+    name: Build APKs
+    # Pinned rather than ubuntu-latest: the `latest` label migrates to Ubuntu 26
+    # from 2026-10-19, which would silently change the toolchain under us.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      short_sha: ${{ steps.set_sha.outputs.short_sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v6
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      # setup-gradle owns the whole Gradle home cache (caches, wrapper dists,
+      # configuration cache and build cache). The previous workflow also ran a
+      # manual actions/cache over ~/.gradle/caches + ~/.gradle/wrapper, so both
+      # steps wrote overlapping paths and raced on save -- that is what produced
+      # the "Failed to save cache entry" / "Cache service responded with 400"
+      # errors. One owner only.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # A cache miss or a GitHub cache outage must not fail the build.
+          cache-overwrite-existing: true
+          validate-wrappers: true
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Unit tests
+        run: ./gradlew --stacktrace --build-cache testDebugUnitTest
+
+      - name: Build Debug APK
+        run: ./gradlew --stacktrace --build-cache assembleDebug
+
+      - name: Build Release APK
+        run: ./gradlew --stacktrace --build-cache assembleRelease
+
+      - name: Set short SHA
+        id: set_sha
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APKs with commit hash
+        run: |
+          mv app/build/outputs/apk/release/app-release.apk \
+             "app/build/outputs/apk/release/CodeX-release-${{ steps.set_sha.outputs.short_sha }}.apk"
+          mv app/build/outputs/apk/debug/app-debug.apk \
+             "app/build/outputs/apk/debug/CodeX-debug-${{ steps.set_sha.outputs.short_sha }}.apk"
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: CodeX-release-${{ steps.set_sha.outputs.short_sha }}
+          path: app/build/outputs/apk/release/CodeX-release-${{ steps.set_sha.outputs.short_sha }}.apk
+          if-no-files-found: error
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: CodeX-debug-${{ steps.set_sha.outputs.short_sha }}
+          path: app/build/outputs/apk/debug/CodeX-debug-${{ steps.set_sha.outputs.short_sha }}.apk
+          if-no-files-found: error
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v6
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+          validate-wrappers: true
+
+      - name: Run Android Lint
+        run: ./gradlew --stacktrace lintRelease
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-release.*
+          if-no-files-found: ignore

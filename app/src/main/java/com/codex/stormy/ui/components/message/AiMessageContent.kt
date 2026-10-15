@@ -68,7 +68,6 @@ import androidx.compose.ui.unit.sp
 import com.codex.stormy.ui.components.MarkdownText
 import com.codex.stormy.ui.components.diff.CollapsibleDiffView
 import com.codex.stormy.ui.components.diff.DiffSummaryBadge
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.DiffUtils
 import java.util.Locale
 
@@ -509,7 +508,7 @@ fun AiMessageContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(150)),
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Show minimal generating indicator only when streaming with no substantial content
@@ -555,8 +554,7 @@ fun AiMessageContent(
         Text(
             text = timestamp,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = PoppinsFontFamily
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -627,8 +625,7 @@ private fun MinimalGeneratingIndicator(modifier: Modifier = Modifier) {
         Text(
             text = "Generating",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = PoppinsFontFamily
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         GeneratingDots()
     }
@@ -749,7 +746,7 @@ private fun CollapsibleInsightSection(
     var expanded by remember { mutableStateOf(false) }
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = tween(180),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "expand_rotation"
     )
 
@@ -771,7 +768,6 @@ private fun CollapsibleInsightSection(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
@@ -959,7 +955,6 @@ private fun ToolCallSection(
                 Text(
                     text = toolName,
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,

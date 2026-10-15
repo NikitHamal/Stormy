@@ -122,6 +122,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.CodeXApplication
 import com.codex.stormy.ui.components.inspector.AgentSelectedElement
 import com.codex.stormy.ui.components.inspector.DirectEditService
@@ -139,7 +140,6 @@ import com.codex.stormy.data.preview.PreviewServerManager
 import com.codex.stormy.data.preview.PreviewServerState
 import com.codex.stormy.ui.theme.CodeXTheme
 import com.codex.stormy.utils.SelectorBuilder
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -576,9 +576,8 @@ private fun PreviewScreen(
                         when (editStatus) {
                             is PreviewEditStatus.Analyzing,
                             is PreviewEditStatus.Editing -> {
-                                CircularProgressIndicator(
+                                ExpressiveLoadingIndicator(
                                     modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1142,7 +1141,6 @@ private fun SelectionModeIndicator(
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 color = contentColor
             )
         }
@@ -1214,7 +1212,6 @@ private fun AgentPromptBar(
                             Text(
                                 text = "No AI Model Selected",
                                 style = MaterialTheme.typography.labelMedium,
-                                fontFamily = PoppinsFontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -1237,16 +1234,14 @@ private fun AgentPromptBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "AI is applying changes...",
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -1257,7 +1252,7 @@ private fun AgentPromptBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 8.dp)
             ) {
-                items(selectedElements) { element ->
+                items(selectedElements, key = { it.selector }) { element ->
                     SelectedElementChip(
                         element = element,
                         onRemove = {
@@ -1305,8 +1300,7 @@ private fun AgentPromptBar(
                         textStyle = TextStyle(
                             color = if (isProcessing) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                            fontFamily = PoppinsFontFamily
+                            fontSize = 14.sp
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         singleLine = false,
@@ -1318,8 +1312,7 @@ private fun AgentPromptBar(
                                         text = "Describe what to change...",
                                         style = TextStyle(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 14.sp,
-                                            fontFamily = PoppinsFontFamily
+                                            fontSize = 14.sp
                                         )
                                     )
                                 }
@@ -1351,9 +1344,8 @@ private fun AgentPromptBar(
                         )
                 ) {
                     if (isProcessing) {
-                        CircularProgressIndicator(
+                        ExpressiveLoadingIndicator(
                             modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {

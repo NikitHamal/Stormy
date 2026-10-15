@@ -76,10 +76,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.FileUtils
 import kotlinx.coroutines.launch
 import java.io.File
@@ -150,7 +150,6 @@ fun ImageDetailDialog(
                         Text(
                             text = asset.name,
                             style = MaterialTheme.typography.titleMedium,
-                            fontFamily = PoppinsFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -208,9 +207,8 @@ fun ImageDetailDialog(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
+                            ExpressiveLoadingIndicator(
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
@@ -252,7 +250,6 @@ fun ImageDetailDialog(
                                 Text(
                                     text = "Optimize Image",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontFamily = PoppinsFontFamily,
                                     fontWeight = FontWeight.Medium
                                 )
                                 Text(
@@ -509,9 +506,8 @@ fun ImageDetailDialog(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 if (isOptimizing) {
-                                    CircularProgressIndicator(
+                                    ExpressiveLoadingIndicator(
                                         modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
                                         color = MaterialTheme.colorScheme.onPrimary
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -563,7 +559,6 @@ private fun ImageMetadataSection(
                 Text(
                     text = "Image Details",
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -622,7 +617,6 @@ private fun MetadataItem(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium
         )
     }
@@ -663,7 +657,6 @@ private fun OptimizationResultCard(
                 Text(
                     text = "Optimization Complete",
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
             }

@@ -3,7 +3,6 @@ package com.codex.stormy.ui.screens.memories
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -77,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -345,14 +345,14 @@ private fun ProjectMemoryCard(
 ) {
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = tween(300),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "rotation"
     )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(300)),
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
@@ -734,7 +734,7 @@ private fun LoadingState(modifier: Modifier = Modifier) {
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator()
+        ExpressiveLoadingIndicator()
     }
 }
 

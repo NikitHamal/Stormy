@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.aimodels
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,15 @@ import kotlinx.coroutines.launch
 /**
  * UI state for the AI Models management screen
  */
+/**
+ * Marked @Immutable because it holds List fields. Compose cannot prove a
+ * kotlin.collections.List is immutable -- the interface permits a mutable
+ * implementation -- so without this the whole state object counts as unstable
+ * and every composable reading it recomposes on each emission, even when the
+ * value it reads is unchanged. These lists are only ever replaced wholesale,
+ * never mutated, so the annotation is true.
+ */
+@Immutable
 data class AiModelsUiState(
     val allModels: List<AiModel> = emptyList(),
     val filteredModels: List<AiModel> = emptyList(),

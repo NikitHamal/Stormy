@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.navigation
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -35,35 +37,47 @@ fun CodeXNavGraph(
     navController: NavHostController,
     startDestination: String
 ) {
+    // NavHost's transition lambdas are not @Composable, so the scheme is read
+    // here, in composable scope, and captured. Reading it per transition would
+    // not compile -- and would be wasteful even if it did.
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+    val enterFade = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val exitFade = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+
     NavHost(
         navController = navController,
         startDestination = startDestination,
+        // Screen transitions read from the Expressive motion scheme rather
+        // than a hard-coded tween(300). Spatial springs move the content,
+        // effects specs handle the cross-fade -- that split is the whole point
+        // of the scheme, and it means these transitions match every other
+        // animation in the app and follow the user's motion-style preference.
         enterTransition = {
-            fadeIn(animationSpec = tween(300)) +
+            fadeIn(animationSpec = enterFade) +
                 slideIntoContainer(
                     towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(300)
+                    animationSpec = spatial
                 )
         },
         exitTransition = {
-            fadeOut(animationSpec = tween(300)) +
+            fadeOut(animationSpec = exitFade) +
                 slideOutOfContainer(
                     towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(300)
+                    animationSpec = spatial
                 )
         },
         popEnterTransition = {
-            fadeIn(animationSpec = tween(300)) +
+            fadeIn(animationSpec = enterFade) +
                 slideIntoContainer(
                     towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(300)
+                    animationSpec = spatial
                 )
         },
         popExitTransition = {
-            fadeOut(animationSpec = tween(300)) +
+            fadeOut(animationSpec = exitFade) +
                 slideOutOfContainer(
                     towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(300)
+                    animationSpec = spatial
                 )
         }
     ) {

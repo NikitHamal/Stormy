@@ -253,7 +253,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Icon category for grouping icons
@@ -341,7 +340,6 @@ fun IconLibraryDialog(
                 Text(
                     text = "Material Icons",
                     style = MaterialTheme.typography.titleLarge,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -542,7 +540,6 @@ private fun IconDetailSection(
                 Text(
                     text = icon.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
                 Text(

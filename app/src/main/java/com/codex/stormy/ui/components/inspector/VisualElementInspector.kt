@@ -66,7 +66,6 @@ import com.codex.stormy.ui.components.inspector.tabs.DesignTab
 import com.codex.stormy.ui.components.inspector.tabs.ImageTab
 import com.codex.stormy.ui.components.inspector.tabs.LayoutTab
 import com.codex.stormy.ui.components.inspector.tabs.TextTab
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Production-grade visual element inspector/editor.
@@ -163,7 +162,6 @@ fun VisualElementInspector(
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.labelSmall,
-                                fontFamily = PoppinsFontFamily,
                                 fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
                             )
                         }
@@ -420,7 +418,6 @@ private fun NoModelWarning() {
                 Text(
                     text = "No AI Model Selected",
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -471,8 +468,7 @@ private fun AiPromptInput(
                     .focusRequester(focusRequester),
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                    fontFamily = PoppinsFontFamily
+                    fontSize = 13.sp
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 singleLine = true,
@@ -488,8 +484,7 @@ private fun AiPromptInput(
                                 text = "Describe changes (e.g., 'make text blue')...",
                                 style = TextStyle(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 13.sp,
-                                    fontFamily = PoppinsFontFamily
+                                    fontSize = 13.sp
                                 )
                             )
                         }

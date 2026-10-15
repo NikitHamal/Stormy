@@ -79,7 +79,6 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.codex.stormy.R
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -202,7 +201,6 @@ fun AssetManagerDrawer(
                 Text(
                     text = context.getString(R.string.assets_title),
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold
                 )
 
@@ -360,7 +358,7 @@ fun AssetManagerDrawer(
                                     )
                                 }
                             } else {
-                                items(images) { asset ->
+                                items(images, key = { it.path }) { asset ->
                                     AssetListItem(
                                         asset = asset,
                                         projectPath = projectPath,
@@ -399,7 +397,7 @@ fun AssetManagerDrawer(
                         }
 
                         if (AssetType.FONT in expandedSections) {
-                            items(fonts) { asset ->
+                            items(fonts, key = { it.path }) { asset ->
                                 AssetListItem(
                                     asset = asset,
                                     projectPath = projectPath,
@@ -434,7 +432,7 @@ fun AssetManagerDrawer(
                         }
 
                         if (AssetType.OTHER in expandedSections) {
-                            items(other) { asset ->
+                            items(other, key = { it.path }) { asset ->
                                 AssetListItem(
                                     asset = asset,
                                     projectPath = projectPath,
@@ -570,7 +568,6 @@ private fun EmptyAssetsState(
         Text(
             text = context.getString(R.string.assets_empty),
             style = MaterialTheme.typography.titleMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -579,7 +576,6 @@ private fun EmptyAssetsState(
         Text(
             text = context.getString(R.string.assets_empty_subtitle),
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
@@ -605,7 +601,6 @@ private fun EmptyAssetsState(
                 Text(
                     text = context.getString(R.string.assets_add_image),
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -657,7 +652,6 @@ private fun AssetSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f)
         )
@@ -669,7 +663,6 @@ private fun AssetSectionHeader(
             Text(
                 text = count.toString(),
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
             )
         }
@@ -694,7 +687,7 @@ private fun AssetGridSection(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         userScrollEnabled = false
     ) {
-        items(assets) { asset ->
+        items(assets, key = { it.path }) { asset ->
             AssetGridItem(
                 asset = asset,
                 projectPath = projectPath,
@@ -860,7 +853,6 @@ private fun AssetListItem(
             Text(
                 text = asset.name,
                 style = MaterialTheme.typography.bodyMedium,
-                fontFamily = PoppinsFontFamily,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

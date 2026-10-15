@@ -276,7 +276,7 @@ class CodeDiffTools(
         val changes = mutableListOf<FileChange>()
         val fileTree = projectRepository.getFileTree(projectId)
 
-        fun traverse(nodes: List<FileTreeNode>, currentPath: String) {
+        suspend fun traverse(nodes: List<FileTreeNode>, currentPath: String) {
             for (node in nodes) {
                 when (node) {
                     is FileTreeNode.FileNode -> {
@@ -284,10 +284,11 @@ class CodeDiffTools(
 
                         if (basePath.isEmpty() || fullPath.startsWith(basePath)) {
                             val previousContent = previousState[fullPath]
+                            // Was runBlocking inside a suspend function: it
+                            // parked the calling thread once per file, so a
+                            // project with 200 files blocked 200 times in a row.
                             val currentContent = runCatching {
-                                kotlinx.coroutines.runBlocking {
-                                    projectRepository.readFile(projectId, fullPath).getOrNull()
-                                }
+                                projectRepository.readFile(projectId, fullPath).getOrNull()
                             }.getOrNull()
 
                             when {
