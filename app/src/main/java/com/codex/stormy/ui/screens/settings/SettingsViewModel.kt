@@ -3,6 +3,7 @@ package com.codex.stormy.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.CodeXApplication
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.repository.AiModelRepository
@@ -24,10 +25,13 @@ data class SettingsUiState(
     val debugLogsEnabled: Boolean = false,
     val aiModel: String = "",
     val availableModels: List<AiModel> = emptyList(),
-    val deepInfraApiKey: String = "",
-    val geminiApiKey: String = "",
-    val nvidiaApiKey: String = "",
-    val openRouterApiKey: String = ""
+    /**
+     * Key per provider. A map rather than one field each, so the settings
+     * screen can render the provider list from AiProvider.entries and adding a
+     * provider needs no change to this state class or the combine() below.
+     */
+    val apiKeys: Map<AiProvider, String> = emptyMap(),
+    val customBaseUrl: String = ""
 )
 
 class SettingsViewModel(
@@ -44,12 +48,14 @@ class SettingsViewModel(
         preferencesRepository.autoSave,
         preferencesRepository.debugLogsEnabled,
         preferencesRepository.aiModel,
-        preferencesRepository.deepInfraApiKey,
-        preferencesRepository.geminiApiKey,
-        preferencesRepository.nvidiaApiKey,
-        preferencesRepository.openRouterApiKey,
+        preferencesRepository.apiKeys,
+        preferencesRepository.customBaseUrl,
         aiModelRepository.observeEnabledModels()
     ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        val keys = values[8] as Map<AiProvider, String>
+        @Suppress("UNCHECKED_CAST")
+        val models = values[10] as List<AiModel>
         SettingsUiState(
             themeMode = values[0] as ThemeMode,
             dynamicColors = values[1] as Boolean,
@@ -59,11 +65,9 @@ class SettingsViewModel(
             autoSave = values[5] as Boolean,
             debugLogsEnabled = values[6] as Boolean,
             aiModel = values[7] as String,
-            deepInfraApiKey = values[8] as String,
-            geminiApiKey = values[9] as String,
-            nvidiaApiKey = values[10] as String,
-            openRouterApiKey = values[11] as String,
-            availableModels = values[12] as List<AiModel>
+            apiKeys = keys,
+            customBaseUrl = values[9] as String,
+            availableModels = models
         )
     }.stateIn(
         scope = viewModelScope,
@@ -119,27 +123,16 @@ class SettingsViewModel(
         }
     }
 
-    fun setDeepInfraApiKey(key: String) {
+    /** One setter for every provider, keyed off the enum. */
+    fun setApiKey(provider: AiProvider, key: String) {
         viewModelScope.launch {
-            preferencesRepository.setDeepInfraApiKey(key)
+            preferencesRepository.setApiKeyForProvider(provider, key)
         }
     }
 
-    fun setGeminiApiKey(key: String) {
+    fun setCustomBaseUrl(url: String) {
         viewModelScope.launch {
-            preferencesRepository.setGeminiApiKey(key)
-        }
-    }
-
-    fun setNvidiaApiKey(key: String) {
-        viewModelScope.launch {
-            preferencesRepository.setNvidiaApiKey(key)
-        }
-    }
-
-    fun setOpenRouterApiKey(key: String) {
-        viewModelScope.launch {
-            preferencesRepository.setOpenRouterApiKey(key)
+            preferencesRepository.setCustomBaseUrl(url)
         }
     }
 

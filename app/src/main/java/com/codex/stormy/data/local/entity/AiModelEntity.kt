@@ -12,7 +12,7 @@ data class AiModelEntity(
     val id: String,
     val name: String,
     val alias: String? = null, // User-defined alias
-    val provider: String, // DEEPINFRA, GEMINI, NVIDIA, OPENROUTER, ...
+    val provider: String, // AiProvider.name
     val contextLength: Int = 4096,
     val supportsStreaming: Boolean = true,
     val supportsToolCalls: Boolean = true,

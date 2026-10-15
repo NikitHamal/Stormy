@@ -7,7 +7,6 @@ import coil3.PlatformContext
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.codex.stormy.crash.CrashHandler
-import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.GeminiModelService
 import com.codex.stormy.data.ai.OpenAiCompatibleModelService
 import com.codex.stormy.data.ai.context.ContextWindowManager
@@ -54,11 +53,6 @@ class CodeXApplication : Application(), SingletonImageLoader.Factory {
         ChatRepository(database.chatMessageDao(), this)
     }
 
-    // Model service for fetching available models from DeepInfra (free, no API key required)
-    val deepInfraModelService: DeepInfraModelService by lazy {
-        DeepInfraModelService()
-    }
-
     val geminiModelService: GeminiModelService by lazy {
         GeminiModelService()
     }
@@ -71,7 +65,6 @@ class CodeXApplication : Application(), SingletonImageLoader.Factory {
     val aiModelRepository: AiModelRepository by lazy {
         AiModelRepository(
             aiModelDao = database.aiModelDao(),
-            deepInfraModelService = deepInfraModelService,
             geminiModelService = geminiModelService,
             openAiCompatibleModelService = openAiCompatibleModelService
         )

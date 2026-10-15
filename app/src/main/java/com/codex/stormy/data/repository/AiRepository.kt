@@ -37,7 +37,7 @@ class AiRepository(
      * Get the default model
      */
     fun getDefaultModel(): AiModel {
-        return AiModels.getDefaultModel(AiProvider.DEEPINFRA)
+        return AiModels.getDefaultModel(AiProvider.DEFAULT)
     }
 
     /**
@@ -59,7 +59,7 @@ class AiRepository(
     ): Flow<StreamEvent> {
         val providerManager = createProviderManager()
 
-        // Get the stream from DeepInfra provider
+        // Get the stream from the selected provider
         val stream = providerManager.streamChatCompletion(
             model = model,
             messages = messages,
@@ -96,7 +96,7 @@ class AiRepository(
     suspend fun hasApiKey(): Boolean {
         val selectedProvider = AiProvider.fromString(preferencesRepository.aiProvider.first())
         return !selectedProvider.requiresApiKey ||
-            preferencesRepository.getApiKeyForProvider(selectedProvider.name).isNotBlank()
+            preferencesRepository.getApiKeyForProvider(selectedProvider).isNotBlank()
     }
 
     /**
@@ -107,13 +107,10 @@ class AiRepository(
     }
 
     private suspend fun createProviderManager(): AiProviderManager {
-        val keys = mapOf(
-            AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
-            AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
-            AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
-            AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
+        return AiProviderManager.fromApiKeys(
+            apiKeys = preferencesRepository.apiKeys.first(),
+            customBaseUrl = preferencesRepository.customBaseUrl.first()
         )
-        return AiProviderManager.fromApiKeys(keys)
     }
 
     /**

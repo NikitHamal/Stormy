@@ -292,26 +292,26 @@ private fun CompactModelCard(
 }
 
 /**
- * Get display initial for AI provider
+ * Badge letter for a provider. Derived rather than mapped, so a new provider
+ * does not need a branch here -- an exhaustive `when` over the enum made this a
+ * compile error every time the provider list grew.
  */
-private fun getProviderInitial(provider: AiProvider): String {
-    return when (provider) {
-        AiProvider.DEEPINFRA -> "D"
-        AiProvider.GEMINI -> "G"
-        AiProvider.NVIDIA -> "N"
-        AiProvider.OPENROUTER -> "O"
-    }
-}
+private fun getProviderInitial(provider: AiProvider): String =
+    provider.displayName.firstOrNull()?.uppercase() ?: "?"
 
 /**
- * Get color for AI provider
+ * Badge colour for a provider, picked deterministically from its ordinal so the
+ * same provider always gets the same colour across launches.
  */
 @Composable
 private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics.Color {
-    return when (provider) {
-        AiProvider.DEEPINFRA -> MaterialTheme.colorScheme.primary
-        AiProvider.GEMINI -> MaterialTheme.colorScheme.tertiary
-        AiProvider.NVIDIA -> MaterialTheme.colorScheme.secondary
-        AiProvider.OPENROUTER -> MaterialTheme.colorScheme.error
-    }
+    val palette = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.primaryContainer,
+        MaterialTheme.colorScheme.tertiaryContainer,
+        MaterialTheme.colorScheme.secondaryContainer
+    )
+    return palette[provider.ordinal % palette.size]
 }

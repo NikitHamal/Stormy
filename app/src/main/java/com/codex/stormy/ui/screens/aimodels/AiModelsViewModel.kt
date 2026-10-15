@@ -139,7 +139,7 @@ class AiModelsViewModel(
                 val currentModelId = preferencesRepository.aiModel.first()
                 val model = modelRepository.getModelById(currentModelId)
                     ?: modelRepository.getEnabledModels().firstOrNull()
-                    ?: AiModels.getDefaultModel(AiProvider.DEEPINFRA)
+                    ?: AiModels.getDefaultModel(AiProvider.DEFAULT)
 
                 _currentModel.value = model
             } catch (e: Exception) {
@@ -155,12 +155,7 @@ class AiModelsViewModel(
             _isRefreshing.value = true
             _error.value = null
 
-            val apiKeys = mapOf(
-                AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
-                AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
-                AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
-                AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
-            )
+            val apiKeys = preferencesRepository.apiKeys.first()
 
             modelRepository.refreshModelsFromAllConfiguredProviders(apiKeys).onFailure { error ->
                 _error.value = "Failed to refresh: ${error.message}"

@@ -1674,12 +1674,7 @@ class EditorViewModel(
         viewModelScope.launch {
             _isRefreshingModels.value = true
             try {
-                val apiKeys = mapOf(
-                    com.codex.stormy.data.ai.AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
-                    com.codex.stormy.data.ai.AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
-                    com.codex.stormy.data.ai.AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
-                    com.codex.stormy.data.ai.AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
-                )
+                val apiKeys = preferencesRepository.apiKeys.first()
 
                 aiModelRepository.refreshModelsFromAllConfiguredProviders(apiKeys)
                     .onFailure { error ->

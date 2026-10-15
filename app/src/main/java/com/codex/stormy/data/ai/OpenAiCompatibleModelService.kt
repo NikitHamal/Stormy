@@ -4,10 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 @Serializable
 private data class OpenAiModelsResponse(
@@ -36,20 +33,14 @@ private data class OpenAiModelInfo(
  * Generic model discovery for providers exposing OpenAI-compatible `/models`.
  */
 class OpenAiCompatibleModelService {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val json get() = AiHttp.json
 
     suspend fun fetchAvailableModels(
         provider: AiProvider,
         apiKey: String,
-        extraHeaders: Map<String, String> = emptyMap()
+        extraHeaders: Map<String, String> = emptyMap(),
+        /** Only used by [AiProvider.CUSTOM]. */
+        baseUrlOverride: String = ""
     ): Result<List<AiModel>> = withContext(Dispatchers.IO) {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return@withContext Result.failure(
@@ -59,17 +50,20 @@ class OpenAiCompatibleModelService {
 
         try {
             val requestBuilder = Request.Builder()
-                .url("${provider.baseUrl.trimEnd('/')}/models")
+                .url(
+                    "${(baseUrlOverride.takeIf { it.isNotBlank() } ?: provider.baseUrl)
+                        .trimEnd('/')}/models"
+                )
                 .get()
 
             if (apiKey.isNotBlank()) {
                 requestBuilder.addHeader("Authorization", "Bearer $apiKey")
             }
-            for ((header, value) in extraHeaders) {
+            for ((header, value) in provider.extraHeaders + extraHeaders) {
                 requestBuilder.addHeader(header, value)
             }
 
-            client.newCall(requestBuilder.build()).execute().use { response ->
+            AiHttp.client.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(
                         Exception(

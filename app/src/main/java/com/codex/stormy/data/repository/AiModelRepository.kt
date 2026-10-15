@@ -3,7 +3,6 @@ package com.codex.stormy.data.repository
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiModels
 import com.codex.stormy.data.ai.AiProvider
-import com.codex.stormy.data.ai.DeepInfraModelService
 import com.codex.stormy.data.ai.GeminiModelService
 import com.codex.stormy.data.ai.OpenAiCompatibleModelService
 import com.codex.stormy.data.local.dao.AiModelDao
@@ -18,7 +17,6 @@ import kotlinx.coroutines.withContext
  */
 class AiModelRepository(
     private val aiModelDao: AiModelDao,
-    private val deepInfraModelService: DeepInfraModelService,
     private val geminiModelService: GeminiModelService,
     private val openAiCompatibleModelService: OpenAiCompatibleModelService
 ) {
@@ -43,9 +41,9 @@ class AiModelRepository(
         return aiModelDao.getModelById(id)?.toAiModel()
     }
 
-    suspend fun refreshModelsFromProvider(): Result<Int> = withContext(Dispatchers.IO) {
-        refreshModelsFromDeepInfra()
-    }
+    /** Refresh from the provider that works without configuration. */
+    suspend fun refreshModelsFromProvider(): Result<Int> =
+        refreshModelsFromProvider(AiProvider.DEFAULT)
 
     suspend fun refreshModelsFromProvider(
         provider: AiProvider,
@@ -88,60 +86,37 @@ class AiModelRepository(
         }
     }
 
-    suspend fun refreshModelsFromDeepInfra(): Result<Int> = withContext(Dispatchers.IO) {
-        try {
-            val result = deepInfraModelService.fetchAvailableModels()
-            mergeModelsIntoDatabase(result, AiProvider.DEEPINFRA)
-        } catch (e: Exception) {
-            handleRefreshError(e)
-        }
-    }
-
+    /**
+     * Fetch a provider's live catalogue.
+     *
+     * Previously one `when` branch per provider, all of which did the same two
+     * things (check the key, call the OpenAI-compatible /models endpoint) with
+     * slightly different wording. Only Gemini genuinely differs: its
+     * OpenAI-compatibility layer does not implement /models, so it needs the
+     * native endpoint as a fallback.
+     */
     private suspend fun fetchModelsForProvider(
         provider: AiProvider,
         apiKey: String
     ): Result<List<AiModel>> {
-        return when (provider) {
-            AiProvider.DEEPINFRA -> deepInfraModelService.fetchAvailableModels()
-            AiProvider.GEMINI -> {
-                if (apiKey.isBlank()) {
-                    Result.failure(IllegalArgumentException("Gemini API key is required"))
-                } else {
-                    val openAiCompat = openAiCompatibleModelService.fetchAvailableModels(
-                        provider = AiProvider.GEMINI,
-                        apiKey = apiKey
-                    )
-                    openAiCompat.getOrNull()?.takeIf { it.isNotEmpty() }?.let { models ->
-                        Result.success(models)
-                    } ?: geminiModelService.fetchAvailableModels(apiKey)
-                }
-            }
+        if (provider.requiresApiKey && apiKey.isBlank()) {
+            return Result.failure(
+                IllegalArgumentException("${provider.displayName} API key is required")
+            )
+        }
 
-            AiProvider.NVIDIA -> {
-                if (apiKey.isBlank()) {
-                    Result.failure(IllegalArgumentException("NVIDIA API key is required"))
-                } else {
-                    openAiCompatibleModelService.fetchAvailableModels(
-                        provider = AiProvider.NVIDIA,
-                        apiKey = apiKey
-                    )
-                }
-            }
+        val result = openAiCompatibleModelService.fetchAvailableModels(
+            provider = provider,
+            apiKey = apiKey
+        )
+        if (result.getOrNull()?.isNotEmpty() == true) return result
 
-            AiProvider.OPENROUTER -> {
-                if (apiKey.isBlank()) {
-                    Result.failure(IllegalArgumentException("OpenRouter API key is required"))
-                } else {
-                    openAiCompatibleModelService.fetchAvailableModels(
-                        provider = AiProvider.OPENROUTER,
-                        apiKey = apiKey,
-                        extraHeaders = OPENROUTER_HEADERS
-                    )
-                }
-            }
+        return if (provider == AiProvider.GEMINI) {
+            geminiModelService.fetchAvailableModels(apiKey)
+        } else {
+            result
         }
     }
-
     private suspend fun mergeModelsIntoDatabase(
         result: Result<List<AiModel>>,
         provider: AiProvider
@@ -218,7 +193,7 @@ class AiModelRepository(
     suspend fun addCustomModel(
         id: String,
         name: String,
-        provider: AiProvider = AiProvider.DEEPINFRA,
+        provider: AiProvider = AiProvider.DEFAULT,
         contextLength: Int = 8192,
         supportsStreaming: Boolean = true,
         supportsToolCalls: Boolean = true,

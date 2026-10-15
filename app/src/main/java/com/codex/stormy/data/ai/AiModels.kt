@@ -16,190 +16,293 @@ data class AiModel(
     val isThinkingModel: Boolean = false
 )
 
+/** How a provider treats credentials. */
+enum class ApiKeyRequirement {
+    /** Works with no credentials at all. */
+    NONE,
+
+    /** Works anonymously, but a key raises limits or unlocks more models. */
+    OPTIONAL,
+
+    /** Will not answer without a key. */
+    REQUIRED
+}
+
 /**
- * Supported AI providers
- * DeepInfra is available without API key. Other providers require API keys.
+ * Supported AI providers.
+ *
+ * Every field a provider needs lives on the enum constant, so adding one is a
+ * single line here rather than an edit in the manager, the builder, four
+ * exhaustive `when` blocks and the settings screen. [extraHeaders] covers the
+ * providers that want attribution or browser-ish headers.
+ *
+ * On key requirements, verified against the live endpoints in October 2026:
+ * only Pollinations currently answers with no credentials. DeepInfra's
+ * anonymous inference endpoint, which this app was built around, now returns
+ * `missing API key`, and OpenCode Zen's free tier is gated to the OpenCode
+ * client itself ("can only be used from within OpenCode"), so neither is a
+ * keyless option any more. The rest are free to sign up for without billing
+ * details, which is a different thing from keyless and is labelled as such in
+ * the UI.
  */
 @Serializable
 enum class AiProvider(
     val displayName: String,
     val baseUrl: String,
-    val requiresApiKey: Boolean
+    val apiKeyRequirement: ApiKeyRequirement,
+    /** Where the user goes to get a key. Empty when none is needed. */
+    val apiKeyUrl: String = "",
+    /** Short note shown under the key field in Settings. */
+    val keyNote: String = "",
+    val extraHeaders: Map<String, String> = emptyMap()
 ) {
-    DEEPINFRA("DeepInfra", "https://api.deepinfra.com/v1/openai", false),
-    GEMINI("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", true),
-    NVIDIA("NVIDIA", "https://integrate.api.nvidia.com/v1", true),
-    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", true);
+    POLLINATIONS(
+        displayName = "Pollinations",
+        baseUrl = "https://text.pollinations.ai/openai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "No account needed. Anonymous tier, tool calling supported."
+    ),
+    DEEPINFRA(
+        displayName = "DeepInfra",
+        baseUrl = "https://api.deepinfra.com/v1/openai",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://deepinfra.com/dash/api_keys",
+        keyNote = "The anonymous endpoint was retired; a key is now required.",
+        extraHeaders = mapOf(
+            "Origin" to "https://deepinfra.com",
+            "Referer" to "https://deepinfra.com/"
+        )
+    ),
+    GEMINI(
+        displayName = "Google Gemini",
+        baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://aistudio.google.com/apikey",
+        keyNote = "Free tier, no billing details required."
+    ),
+    NVIDIA(
+        displayName = "NVIDIA NIM",
+        baseUrl = "https://integrate.api.nvidia.com/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://build.nvidia.com",
+        keyNote = "Free credits on signup. Hosts Nemotron, Qwen, DeepSeek, gpt-oss."
+    ),
+    OPENROUTER(
+        displayName = "OpenRouter",
+        baseUrl = "https://openrouter.ai/api/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://openrouter.ai/keys",
+        keyNote = "Has a catalogue of :free models usable on a free key.",
+        extraHeaders = mapOf(
+            "HTTP-Referer" to "https://github.com/NikitHamal/Stormy",
+            "X-Title" to "CodeX Stormy"
+        )
+    ),
+    OPENCODE_ZEN(
+        displayName = "OpenCode Zen",
+        baseUrl = "https://opencode.ai/zen/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://opencode.ai/auth",
+        keyNote = "Signup needs no billing details. The *-free models are " +
+            "restricted to the OpenCode client and will be rejected here."
+    ),
+    AGNES(
+        displayName = "Agnes AI",
+        baseUrl = "https://apihub.agnes-ai.com/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://platform.agnes-ai.com",
+        keyNote = "Free tier with no stated end date, rate limited to ~20 RPM."
+    ),
+    KILOCODE(
+        displayName = "Kilo Code",
+        baseUrl = "https://kilocode.ai/api/openrouter",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://app.kilocode.ai/api/profile",
+        keyNote = "Routes to OpenRouter behind a Kilo account key.",
+        extraHeaders = mapOf(
+            "HTTP-Referer" to "https://github.com/NikitHamal/Stormy",
+            "X-Title" to "CodeX Stormy",
+            "X-KiloCode-Version" to "1.0.0"
+        )
+    ),
+    GROQ(
+        displayName = "Groq",
+        baseUrl = "https://api.groq.com/openai/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://console.groq.com/keys",
+        keyNote = "Free tier, no billing details. Fastest tokens/sec of the set."
+    ),
+    CEREBRAS(
+        displayName = "Cerebras",
+        baseUrl = "https://api.cerebras.ai/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://cloud.cerebras.ai",
+        keyNote = "Free tier with a generous daily token allowance."
+    ),
+    MISTRAL(
+        displayName = "Mistral",
+        baseUrl = "https://api.mistral.ai/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://console.mistral.ai/api-keys",
+        keyNote = "Free experiment tier on signup."
+    ),
+    CUSTOM(
+        displayName = "Custom (OpenAI-compatible)",
+        baseUrl = "",
+        apiKeyRequirement = ApiKeyRequirement.OPTIONAL,
+        keyNote = "Point at any OpenAI-compatible server, e.g. a local Ollama."
+    );
+
+    /** True when the provider will not work until the user supplies a key. */
+    val requiresApiKey: Boolean get() = apiKeyRequirement == ApiKeyRequirement.REQUIRED
+
+    /** True when the provider can be used right now with no setup. */
+    val worksWithoutKey: Boolean get() = apiKeyRequirement != ApiKeyRequirement.REQUIRED
 
     companion object {
-        fun fromString(value: String): AiProvider {
-            return entries.find { it.name.equals(value, ignoreCase = true) } ?: DEEPINFRA
-        }
+        fun fromString(value: String): AiProvider =
+            entries.find { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
+
+        /**
+         * Provider used before the user configures anything. Must be one that
+         * works with no key, otherwise a fresh install cannot send a message.
+         */
+        val DEFAULT = POLLINATIONS
     }
 }
 
 /**
- * Predefined models for DeepInfra
- * DeepInfra provides free inference without requiring an API key
+ * Seed catalogue.
+ *
+ * Providers that expose `GET /models` are queried at runtime and those results
+ * win; the entries here exist so the model picker is not empty before the first
+ * successful fetch, and so an offline user still has something selectable.
+ * Keeping the list short is deliberate -- a long hand-maintained catalogue goes
+ * stale, which is how the previous version ended up offering Llama 3.1 models
+ * that the upstream host had already end-of-lifed.
  */
-object DeepInfraModels {
-    val QWEN_2_5_72B_INSTRUCT = AiModel(
-        id = "Qwen/Qwen2.5-72B-Instruct",
-        name = "Qwen 2.5 72B Instruct",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 32768,
+object SeedModels {
+
+    private fun model(
+        id: String,
+        name: String,
+        provider: AiProvider,
+        context: Int,
+        tools: Boolean = true,
+        thinking: Boolean = false
+    ) = AiModel(
+        id = id,
+        name = name,
+        provider = provider,
+        contextLength = context,
         supportsStreaming = true,
-        supportsToolCalls = true
+        supportsToolCalls = tools,
+        isThinkingModel = thinking
     )
 
-    val QWEN_2_5_CODER_32B = AiModel(
-        id = "Qwen/Qwen2.5-Coder-32B-Instruct",
-        name = "Qwen 2.5 Coder 32B",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 32768,
-        supportsStreaming = true,
-        supportsToolCalls = true
+    /**
+     * Pollinations serves one model on the anonymous tier. Verified October
+     * 2026: `openai-fast` (GPT-OSS 20B) and it does support tool calls, which
+     * is what makes it viable as the no-setup default for an agentic editor.
+     */
+    val pollinations = listOf(
+        model("openai-fast", "GPT-OSS 20B (free, no key)", AiProvider.POLLINATIONS, 32_768)
     )
 
-    val DEEPSEEK_V3 = AiModel(
-        id = "deepseek-ai/DeepSeek-V3",
-        name = "DeepSeek V3",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 65536,
-        supportsStreaming = true,
-        supportsToolCalls = true
+    val deepInfra = listOf(
+        model("Qwen/Qwen3-Coder-480B-A35B-Instruct", "Qwen3 Coder 480B", AiProvider.DEEPINFRA, 262_144),
+        model("deepseek-ai/DeepSeek-V3.1", "DeepSeek V3.1", AiProvider.DEEPINFRA, 163_840),
+        model("Qwen/Qwen3-32B", "Qwen3 32B", AiProvider.DEEPINFRA, 40_960)
     )
 
-    val LLAMA_3_3_70B = AiModel(
-        id = "meta-llama/Llama-3.3-70B-Instruct",
-        name = "Llama 3.3 70B",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 131072,
-        supportsStreaming = true,
-        supportsToolCalls = true
+    val nvidia = listOf(
+        model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 131_072),
+        model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 131_072),
+        model("openai/gpt-oss-120b", "GPT-OSS 120B", AiProvider.NVIDIA, 131_072),
+        model("deepseek-ai/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", AiProvider.NVIDIA, 163_840)
     )
 
-    val LLAMA_3_1_405B = AiModel(
-        id = "meta-llama/Meta-Llama-3.1-405B-Instruct",
-        name = "Llama 3.1 405B",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 32768,
-        supportsStreaming = true,
-        supportsToolCalls = true
+    val agnes = listOf(
+        model("agnes-2.5-flash", "Agnes 2.5 Flash", AiProvider.AGNES, 524_288),
+        model("agnes-2.0-flash", "Agnes 2.0 Flash", AiProvider.AGNES, 131_072)
     )
 
-    val MIXTRAL_8X22B = AiModel(
-        id = "mistralai/Mixtral-8x22B-Instruct-v0.1",
-        name = "Mixtral 8x22B",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 65536,
-        supportsStreaming = true,
-        supportsToolCalls = true
+    val groq = listOf(
+        model("moonshotai/kimi-k2-instruct", "Kimi K2 Instruct", AiProvider.GROQ, 131_072),
+        model("openai/gpt-oss-120b", "GPT-OSS 120B", AiProvider.GROQ, 131_072),
+        model("qwen/qwen3-32b", "Qwen3 32B", AiProvider.GROQ, 131_072)
     )
 
-    val DEEPSEEK_R1 = AiModel(
-        id = "deepseek-ai/DeepSeek-R1",
-        name = "DeepSeek R1 (Thinking)",
-        provider = AiProvider.DEEPINFRA,
-        contextLength = 65536,
-        supportsStreaming = true,
-        supportsToolCalls = false,
-        isThinkingModel = true
+    val cerebras = listOf(
+        model("qwen-3-coder-480b", "Qwen3 Coder 480B", AiProvider.CEREBRAS, 131_072),
+        model("gpt-oss-120b", "GPT-OSS 120B", AiProvider.CEREBRAS, 131_072)
     )
 
-    val allModels = listOf(
-        QWEN_2_5_CODER_32B,
-        QWEN_2_5_72B_INSTRUCT,
-        DEEPSEEK_V3,
-        LLAMA_3_3_70B,
-        LLAMA_3_1_405B,
-        MIXTRAL_8X22B,
-        DEEPSEEK_R1
+    val mistral = listOf(
+        model("devstral-medium-latest", "Devstral Medium", AiProvider.MISTRAL, 131_072),
+        model("mistral-large-latest", "Mistral Large", AiProvider.MISTRAL, 131_072)
     )
 
-    val defaultModel = QWEN_2_5_CODER_32B
+    val openCodeZen = listOf(
+        model("claude-sonnet-5-5", "Claude Sonnet 5.5", AiProvider.OPENCODE_ZEN, 200_000),
+        model("gpt-5.4", "GPT-5.4", AiProvider.OPENCODE_ZEN, 400_000),
+        model("qwen3.8-max", "Qwen3.8 Max", AiProvider.OPENCODE_ZEN, 262_144)
+    )
+
+    /**
+     * Providers whose catalogue is fetched and which have no useful seed. An
+     * empty list here is correct, not a gap: OpenRouter and Kilo Code both
+     * front hundreds of models that change weekly, and Gemini's ids move fast
+     * enough that shipping them guarantees stale entries.
+     */
+    private val fetchedOnly = emptyList<AiModel>()
+
+    private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
+        AiProvider.POLLINATIONS to pollinations,
+        AiProvider.DEEPINFRA to deepInfra,
+        AiProvider.GEMINI to fetchedOnly,
+        AiProvider.NVIDIA to nvidia,
+        AiProvider.OPENROUTER to fetchedOnly,
+        AiProvider.OPENCODE_ZEN to openCodeZen,
+        AiProvider.AGNES to agnes,
+        AiProvider.KILOCODE to fetchedOnly,
+        AiProvider.GROQ to groq,
+        AiProvider.CEREBRAS to cerebras,
+        AiProvider.MISTRAL to mistral,
+        AiProvider.CUSTOM to fetchedOnly
+    )
+
+    operator fun get(provider: AiProvider): List<AiModel> = byProvider[provider].orEmpty()
+
+    val all: List<AiModel> = byProvider.values.flatten()
+
+    /** The model a fresh install starts on: free, keyless, tool-capable. */
+    val default: AiModel = pollinations.first()
 }
 
 /**
- * Gemini models are fetched dynamically from the official API.
- * We do not ship static IDs here to avoid stale model references.
- */
-object GeminiModels {
-    val allModels: List<AiModel> = emptyList()
-    val defaultModel: AiModel? = null
-}
-
-/**
- * NVIDIA models are fetched dynamically from the official API.
- */
-object NvidiaModels {
-    val allModels: List<AiModel> = emptyList()
-    val defaultModel: AiModel? = null
-}
-
-/**
- * OpenRouter models are fetched dynamically from the official API.
- */
-object OpenRouterModels {
-    val allModels: List<AiModel> = emptyList()
-    val defaultModel: AiModel? = null
-}
-
-/**
- * Helper object for managing all models
+ * Lookup helpers over the seed catalogue.
  */
 object AiModels {
-    /**
-     * Get all available models from a specific provider
-     */
-    fun getModelsForProvider(provider: AiProvider): List<AiModel> {
-        return when (provider) {
-            AiProvider.DEEPINFRA -> DeepInfraModels.allModels
-            AiProvider.GEMINI -> GeminiModels.allModels
-            AiProvider.NVIDIA -> NvidiaModels.allModels
-            AiProvider.OPENROUTER -> OpenRouterModels.allModels
-        }
-    }
+
+    fun getModelsForProvider(provider: AiProvider): List<AiModel> = SeedModels[provider]
 
     /**
-     * Get default model for a specific provider
+     * Seed default for a provider, falling back to the keyless default so a
+     * caller always gets something sendable.
      */
-    fun getDefaultModel(provider: AiProvider): AiModel {
-        return when (provider) {
-            AiProvider.DEEPINFRA -> DeepInfraModels.defaultModel
-            AiProvider.GEMINI -> GeminiModels.defaultModel ?: DeepInfraModels.defaultModel
-            AiProvider.NVIDIA -> NvidiaModels.defaultModel ?: DeepInfraModels.defaultModel
-            AiProvider.OPENROUTER -> OpenRouterModels.defaultModel ?: DeepInfraModels.defaultModel
-        }
-    }
+    fun getDefaultModel(provider: AiProvider): AiModel =
+        SeedModels[provider].firstOrNull() ?: SeedModels.default
 
-    /**
-     * Get all available models across all providers
-     */
-    fun getAllModels(): List<AiModel> {
-        return buildList {
-            addAll(DeepInfraModels.allModels)
-            addAll(GeminiModels.allModels)
-            addAll(NvidiaModels.allModels)
-            addAll(OpenRouterModels.allModels)
-        }
-    }
+    fun getAllModels(): List<AiModel> = SeedModels.all
 
-    /**
-     * Find a model by its ID across all providers
-     */
-    fun findModelById(modelId: String): AiModel? {
-        return getAllModels().find { it.id == modelId }
-    }
+    fun findModelById(modelId: String): AiModel? = SeedModels.all.find { it.id == modelId }
 
-    /**
-     * Get recommended models for code generation
-     */
-    fun getRecommendedModels(): List<AiModel> {
-        return listOf(
-            DeepInfraModels.QWEN_2_5_CODER_32B,
-            DeepInfraModels.DEEPSEEK_V3,
-            DeepInfraModels.LLAMA_3_3_70B
-        )
-    }
+    /** Models worth suggesting for code work, best-first. */
+    fun getRecommendedModels(): List<AiModel> = listOf(
+        SeedModels.default,
+        SeedModels.cerebras.first(),
+        SeedModels.groq.first(),
+        SeedModels.nvidia.first()
+    )
 }

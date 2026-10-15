@@ -6,9 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -16,7 +14,6 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /**
  * Generic OpenAI-compatible provider client used for providers that expose
@@ -25,21 +22,22 @@ import java.util.concurrent.TimeUnit
 class OpenAiCompatibleProvider(
     private val provider: AiProvider,
     private val apiKey: String,
-    private val extraHeaders: Map<String, String> = emptyMap()
+    /** Only used by [AiProvider.CUSTOM], where the URL is user-supplied. */
+    baseUrlOverride: String = "",
+    extraHeaders: Map<String, String> = emptyMap()
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        isLenient = true
-    }
+    /**
+     * Headers the provider always wants (attribution, origin), merged with
+     * anything the caller adds. DeepInfra needs Origin/Referer, OpenRouter and
+     * Kilo Code want attribution headers -- all of which now live on the enum,
+     * which is why this class can serve every provider.
+     */
+    private val extraHeaders: Map<String, String> = provider.extraHeaders + extraHeaders
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    private val json get() = AiHttp.json
 
-    private val baseUrl = provider.baseUrl.trimEnd('/')
+    private val baseUrl =
+        (baseUrlOverride.takeIf { it.isNotBlank() } ?: provider.baseUrl).trimEnd('/')
 
     private fun missingKeyMessage(): String {
         return "${provider.displayName} API key is required. Add it in Settings > AI."
@@ -185,7 +183,7 @@ class OpenAiCompatibleProvider(
                 }
             }
 
-            val eventSource = EventSources.createFactory(client)
+            val eventSource = EventSources.createFactory(AiHttp.streaming)
                 .newEventSource(httpRequest, eventSourceListener)
 
             awaitClose {
@@ -235,7 +233,7 @@ class OpenAiCompatibleProvider(
                 httpRequestBuilder.addHeader("Authorization", "Bearer $apiKey")
             }
 
-            val response = client.newCall(httpRequestBuilder.build()).execute()
+            val response = AiHttp.client.newCall(httpRequestBuilder.build()).execute()
 
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string()

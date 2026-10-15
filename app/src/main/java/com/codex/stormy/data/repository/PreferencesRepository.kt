@@ -26,12 +26,16 @@ class PreferencesRepository(private val context: Context) {
         val AUTO_SAVE = booleanPreferencesKey("auto_save")
         // CODE_AUTOCOMPLETION removed - feature disabled
 
-        // API keys
+        // API keys. One preference per provider, derived from the enum name so
+        // that adding a provider needs no change here. The derived names match
+        // the previously hard-coded ones ("deepinfra_api_key", "gemini_api_key",
+        // "nvidia_api_key", "openrouter_api_key"), so existing installs keep
+        // their saved keys.
         val API_KEY = stringPreferencesKey("api_key")
-        val DEEPINFRA_API_KEY = stringPreferencesKey("deepinfra_api_key")
-        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
-        val NVIDIA_API_KEY = stringPreferencesKey("nvidia_api_key")
-        val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
+        fun apiKey(provider: AiProvider) =
+            stringPreferencesKey("${provider.name.lowercase()}_api_key")
+
+        val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
 
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -73,33 +77,23 @@ class PreferencesRepository(private val context: Context) {
         preferences[PreferenceKeys.AUTO_SAVE] ?: true
     }
 
-    // Legacy API key (DeepInfra)
+    /** Pre-per-provider key, kept only so existing installs can be migrated. */
     val apiKey: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferenceKeys.API_KEY] ?: ""
     }
 
-    // DeepInfra API key (optional - free tier doesn't require key)
-    val deepInfraApiKey: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.DEEPINFRA_API_KEY]
-            ?: preferences[PreferenceKeys.API_KEY]
+    /** Key for a single provider; see [apiKeys] for all of them at once. */
+    fun apiKeyFor(provider: AiProvider): Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.apiKey(provider)]
+            ?: preferences[PreferenceKeys.API_KEY].takeIf { provider == AiProvider.DEEPINFRA }
             ?: ""
-    }
-
-    val geminiApiKey: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
-    }
-
-    val nvidiaApiKey: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.NVIDIA_API_KEY] ?: ""
-    }
-
-    val openRouterApiKey: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
     }
 
     // AI Provider and Model
     val aiProvider: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.AI_PROVIDER] ?: "DEEPINFRA"
+        // Falls back to the provider that needs no key, so a fresh install can
+        // send its first message without visiting Settings.
+        preferences[PreferenceKeys.AI_PROVIDER] ?: AiProvider.DEFAULT.name
     }
 
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
@@ -160,29 +154,18 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun setDeepInfraApiKey(key: String) {
+    suspend fun setApiKeyForProvider(provider: AiProvider, key: String) {
         context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.DEEPINFRA_API_KEY] = key
+            preferences[PreferenceKeys.apiKey(provider)] = key.trim()
         }
     }
 
-    suspend fun setGeminiApiKey(key: String) {
+    suspend fun setCustomBaseUrl(url: String) {
         context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.GEMINI_API_KEY] = key
+            preferences[PreferenceKeys.CUSTOM_BASE_URL] = url.trim()
         }
     }
 
-    suspend fun setNvidiaApiKey(key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.NVIDIA_API_KEY] = key
-        }
-    }
-
-    suspend fun setOpenRouterApiKey(key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.OPENROUTER_API_KEY] = key
-        }
-    }
 
     suspend fun setAiProvider(provider: String) {
         context.dataStore.edit { preferences ->
@@ -210,28 +193,22 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun getApiKeyForProvider(provider: String): String {
-        val preferences = context.dataStore.data.map { it }.first()
-        return when (AiProvider.fromString(provider)) {
-            AiProvider.DEEPINFRA -> {
-                preferences[PreferenceKeys.DEEPINFRA_API_KEY]
-                    ?: preferences[PreferenceKeys.API_KEY]
-                    ?: ""
-            }
-            AiProvider.GEMINI -> preferences[PreferenceKeys.GEMINI_API_KEY] ?: ""
-            AiProvider.NVIDIA -> preferences[PreferenceKeys.NVIDIA_API_KEY] ?: ""
-            AiProvider.OPENROUTER -> preferences[PreferenceKeys.OPENROUTER_API_KEY] ?: ""
+    /** Keys for every provider at once, for building an AiProviderManager. */
+    val apiKeys: Flow<Map<AiProvider, String>> = context.dataStore.data.map { preferences ->
+        AiProvider.entries.associateWith { provider ->
+            preferences[PreferenceKeys.apiKey(provider)]
+                // The original build stored DeepInfra's key under a bare
+                // "api_key" before per-provider keys existed.
+                ?: preferences[PreferenceKeys.API_KEY].takeIf { provider == AiProvider.DEEPINFRA }
+                ?: ""
         }
     }
 
-    suspend fun setApiKeyForProvider(provider: String, key: String) {
-        when (AiProvider.fromString(provider)) {
-            AiProvider.DEEPINFRA -> setDeepInfraApiKey(key)
-            AiProvider.GEMINI -> setGeminiApiKey(key)
-            AiProvider.NVIDIA -> setNvidiaApiKey(key)
-            AiProvider.OPENROUTER -> setOpenRouterApiKey(key)
-        }
+    val customBaseUrl: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[PreferenceKeys.CUSTOM_BASE_URL] ?: ""
     }
+
+    suspend fun getApiKeyForProvider(provider: AiProvider): String = apiKeys.first()[provider] ?: ""
 
     suspend fun setOnboardingCompleted(completed: Boolean) {
         context.dataStore.edit { preferences ->

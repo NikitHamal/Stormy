@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.FormatSize
@@ -54,11 +55,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.BuildConfig
 import com.codex.stormy.R
+import com.codex.stormy.data.ai.AiProvider
+import com.codex.stormy.data.ai.ApiKeyRequirement
 import com.codex.stormy.data.repository.ThemeMode
 import com.codex.stormy.ui.theme.PoppinsFontFamily
 
@@ -176,29 +182,33 @@ fun SettingsScreen(
                     onClick = onNavigateToMemories
                 )
 
-                ApiKeyField(
-                    title = "Gemini API Key",
-                    value = uiState.geminiApiKey,
-                    onValueChange = viewModel::setGeminiApiKey
-                )
+                // Rendered from AiProvider.entries, so a new provider shows up
+                // here automatically. Providers that need no key are listed
+                // without a field, which is also how the user can tell which
+                // ones work with no setup.
+                AiProvider.entries
+                    .filter { it.apiKeyRequirement != ApiKeyRequirement.NONE }
+                    .forEach { provider ->
+                        ApiKeyField(
+                            title = provider.displayName,
+                            value = uiState.apiKeys[provider].orEmpty(),
+                            note = provider.keyNote,
+                            signupUrl = provider.apiKeyUrl,
+                            onValueChange = { key -> viewModel.setApiKey(provider, key) }
+                        )
+                    }
 
-                ApiKeyField(
-                    title = "NVIDIA API Key",
-                    value = uiState.nvidiaApiKey,
-                    onValueChange = viewModel::setNvidiaApiKey
-                )
-
-                ApiKeyField(
-                    title = "OpenRouter API Key",
-                    value = uiState.openRouterApiKey,
-                    onValueChange = viewModel::setOpenRouterApiKey
-                )
-
-                ApiKeyField(
-                    title = "DeepInfra API Key (Optional)",
-                    value = uiState.deepInfraApiKey,
-                    onValueChange = viewModel::setDeepInfraApiKey
-                )
+                if (uiState.apiKeys[AiProvider.CUSTOM].orEmpty().isNotEmpty() ||
+                    uiState.customBaseUrl.isNotEmpty()
+                ) {
+                    ApiKeyField(
+                        title = "Custom base URL",
+                        value = uiState.customBaseUrl,
+                        note = "e.g. http://192.168.1.10:11434/v1 for a local Ollama",
+                        masked = false,
+                        onValueChange = viewModel::setCustomBaseUrl
+                    )
+                }
             }
 
             // Git Section
@@ -239,29 +249,61 @@ fun SettingsScreen(
 private fun ApiKeyField(
     title: String,
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    note: String = "",
+    signupUrl: String = "",
+    masked: Boolean = true
 ) {
+    val uriHandler = LocalUriHandler.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                // Emphasized role: stresses the provider name against the note
+                // below it without changing its size.
+                style = MaterialTheme.typography.bodyMediumEmphasized,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (value.isNotBlank()) {
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = "Key saved",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        if (note.isNotBlank()) {
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = PoppinsFontFamily)
+            shape = MaterialTheme.shapes.large,
+            visualTransformation =
+                if (masked) PasswordVisualTransformation() else VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (masked) KeyboardType.Password else KeyboardType.Uri
+            ),
+            textStyle = MaterialTheme.typography.bodySmall
         )
+        if (signupUrl.isNotBlank()) {
+            TextButton(onClick = { uriHandler.openUri(signupUrl) }) {
+                Text("Get a key", style = MaterialTheme.typography.labelMedium)
+            }
+        }
     }
 }
 

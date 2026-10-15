@@ -1,49 +1,47 @@
 package com.codex.stormy.data.ai
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.withContext
 
 /**
- * Unified manager for all AI providers.
+ * Entry point for every AI call in the app.
+ *
+ * This used to carry one constructor parameter, one lazy field, one builder
+ * setter and one branch in each of five exhaustive `when` blocks per provider.
+ * Adding a provider meant eight coordinated edits, and the `when` blocks drifted
+ * out of sync (model fetching special-cased three providers differently for no
+ * reason). Everything is keyed off [AiProvider] now, so a new provider is one
+ * enum constant and nothing here changes at all.
  */
 class AiProviderManager(
-    private val deepInfraApiKey: String = "",
-    private val geminiApiKey: String = "",
-    private val nvidiaApiKey: String = "",
-    private val openRouterApiKey: String = ""
+    private val apiKeys: Map<AiProvider, String> = emptyMap(),
+    /** Base URL for [AiProvider.CUSTOM]; ignored for the rest. */
+    private val customBaseUrl: String = ""
 ) {
-    private val deepInfraProvider by lazy { DeepInfraProvider(deepInfraApiKey) }
-    private val geminiProvider by lazy {
-        OpenAiCompatibleProvider(
-            provider = AiProvider.GEMINI,
-            apiKey = geminiApiKey
-        )
-    }
-    private val nvidiaProvider by lazy {
-        OpenAiCompatibleProvider(
-            provider = AiProvider.NVIDIA,
-            apiKey = nvidiaApiKey
-        )
-    }
-    private val openRouterProvider by lazy {
-        OpenAiCompatibleProvider(
-            provider = AiProvider.OPENROUTER,
-            apiKey = openRouterApiKey,
-            extraHeaders = OPENROUTER_HEADERS
-        )
-    }
 
-    private val deepInfraModelService = DeepInfraModelService()
-    private val geminiModelService = GeminiModelService()
-    private val openAiCompatibleModelService = OpenAiCompatibleModelService()
+    private val clients = mutableMapOf<AiProvider, OpenAiCompatibleProvider>()
 
-    fun getProvider(model: AiModel): Any? {
-        return when (model.provider) {
-            AiProvider.DEEPINFRA -> deepInfraProvider
-            AiProvider.GEMINI -> geminiProvider
-            AiProvider.NVIDIA -> nvidiaProvider
-            AiProvider.OPENROUTER -> openRouterProvider
+    private fun clientFor(provider: AiProvider): OpenAiCompatibleProvider =
+        synchronized(clients) {
+            clients.getOrPut(provider) {
+                OpenAiCompatibleProvider(
+                    provider = provider,
+                    apiKey = keyFor(provider),
+                    baseUrlOverride = if (provider == AiProvider.CUSTOM) customBaseUrl else ""
+                )
+            }
         }
-    }
+
+    private fun keyFor(provider: AiProvider): String = apiKeys[provider]?.trim().orEmpty()
+
+    private val modelService = OpenAiCompatibleModelService()
+    private val geminiModelService = GeminiModelService()
+
+    fun getProvider(model: AiModel): OpenAiCompatibleProvider = clientFor(model.provider)
 
     fun streamChatCompletion(
         model: AiModel,
@@ -51,24 +49,10 @@ class AiProviderManager(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null
-    ): Flow<StreamEvent>? {
-        return when (model.provider) {
-            AiProvider.DEEPINFRA -> {
-                deepInfraProvider.streamChatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-
-            AiProvider.GEMINI -> {
-                geminiProvider.streamChatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-
-            AiProvider.NVIDIA -> {
-                nvidiaProvider.streamChatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-
-            AiProvider.OPENROUTER -> {
-                openRouterProvider.streamChatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-        }
+    ): Flow<StreamEvent> {
+        configurationError(model.provider)?.let { return flowOf(StreamEvent.Error(it)) }
+        return clientFor(model.provider)
+            .streamChatCompletion(model, messages, tools, temperature, maxTokens)
     }
 
     suspend fun chatCompletion(
@@ -78,145 +62,92 @@ class AiProviderManager(
         temperature: Float = 0.7f,
         maxTokens: Int? = null
     ): Result<ChatCompletionResponse> {
-        return when (model.provider) {
-            AiProvider.DEEPINFRA -> {
-                deepInfraProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-
-            AiProvider.GEMINI -> {
-                geminiProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-
-            AiProvider.NVIDIA -> {
-                nvidiaProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
-            }
-
-            AiProvider.OPENROUTER -> {
-                openRouterProvider.chatCompletion(model, messages, tools, temperature, maxTokens)
-            }
+        configurationError(model.provider)?.let {
+            return Result.failure(IllegalStateException(it))
         }
+        return clientFor(model.provider)
+            .chatCompletion(model, messages, tools, temperature, maxTokens)
+    }
+
+    /**
+     * Human-readable reason this provider cannot be used right now, or null if
+     * it can. Centralised so the stream and non-stream paths cannot disagree,
+     * which they previously did.
+     */
+    fun configurationError(provider: AiProvider): String? = when {
+        provider.requiresApiKey && keyFor(provider).isBlank() ->
+            "${provider.displayName} needs an API key. Add one in Settings > AI Providers."
+        provider == AiProvider.CUSTOM && customBaseUrl.isBlank() ->
+            "Set a base URL for the custom provider in Settings > AI Providers."
+        else -> null
     }
 
     suspend fun fetchModelsForProvider(provider: AiProvider): Result<List<AiModel>> {
-        return when (provider) {
-            AiProvider.DEEPINFRA -> deepInfraModelService.fetchAvailableModels()
-            AiProvider.GEMINI -> {
-                if (geminiApiKey.isBlank()) {
-                    Result.failure(IllegalStateException("Gemini API key is not configured"))
-                } else {
-                    val openAiCompat = openAiCompatibleModelService.fetchAvailableModels(
-                        provider = AiProvider.GEMINI,
-                        apiKey = geminiApiKey
-                    )
-                    openAiCompat.getOrNull()?.takeIf { it.isNotEmpty() }?.let { models ->
-                        Result.success(models)
-                    } ?: geminiModelService.fetchAvailableModels(geminiApiKey)
-                }
-            }
+        configurationError(provider)?.let { return Result.failure(IllegalStateException(it)) }
 
-            AiProvider.NVIDIA -> {
-                if (nvidiaApiKey.isBlank()) {
-                    Result.failure(IllegalStateException("NVIDIA API key is not configured"))
-                } else {
-                    openAiCompatibleModelService.fetchAvailableModels(
-                        provider = AiProvider.NVIDIA,
-                        apiKey = nvidiaApiKey
-                    )
-                }
-            }
+        val viaOpenAi = modelService.fetchAvailableModels(
+            provider = provider,
+            apiKey = keyFor(provider),
+            extraHeaders = provider.extraHeaders,
+            baseUrlOverride = if (provider == AiProvider.CUSTOM) customBaseUrl else ""
+        )
 
-            AiProvider.OPENROUTER -> {
-                if (openRouterApiKey.isBlank()) {
-                    Result.failure(IllegalStateException("OpenRouter API key is not configured"))
-                } else {
-                    openAiCompatibleModelService.fetchAvailableModels(
-                        provider = AiProvider.OPENROUTER,
-                        apiKey = openRouterApiKey,
-                        extraHeaders = OPENROUTER_HEADERS
-                    )
-                }
-            }
+        val models = viaOpenAi.getOrNull()
+        if (!models.isNullOrEmpty()) return Result.success(models)
+
+        // Gemini's OpenAI-compatibility layer does not list models, so fall back
+        // to its native endpoint. Only Gemini needs this.
+        if (provider == AiProvider.GEMINI) {
+            return geminiModelService.fetchAvailableModels(keyFor(provider))
         }
+        return viaOpenAi
     }
 
-    suspend fun getAllAvailableModels(): Result<List<AiModel>> {
-        val allModels = mutableListOf<AiModel>()
-        allModels.addAll(AiModels.getAllModels())
-
-        AiProvider.entries.forEach { provider ->
-            if (isProviderConfigured(provider)) {
-                fetchModelsForProvider(provider)
-                    .onSuccess { models -> allModels.addAll(models) }
-            }
+    /**
+     * Every model the user can actually reach, seeds plus live catalogues.
+     *
+     * Providers are queried concurrently. Serially this was one round trip per
+     * configured provider before the picker could open -- with ten providers
+     * that is ten sequential network waits on a phone.
+     */
+    suspend fun getAllAvailableModels(): Result<List<AiModel>> = withContext(Dispatchers.IO) {
+        val configured = getConfiguredProviders()
+        val fetched = coroutineScope {
+            configured
+                .map { provider -> async { fetchModelsForProvider(provider).getOrNull().orEmpty() } }
+                .flatMap { it.await() }
         }
 
-        val uniqueModels = allModels.distinctBy { it.id }
-        return if (uniqueModels.isNotEmpty()) {
-            Result.success(uniqueModels)
+        // Seeds first so a live entry with the same id replaces the seed rather
+        // than the other way round.
+        val merged = (AiModels.getAllModels() + fetched)
+            .filter { it.provider in configured || !it.provider.requiresApiKey }
+            .associateBy { it.provider to it.id }
+            .values
+            .toList()
+
+        if (merged.isEmpty()) {
+            Result.failure(IllegalStateException("No models available from the configured providers"))
         } else {
-            Result.failure(Exception("Failed to fetch models from configured providers"))
+            Result.success(merged)
         }
     }
 
-    fun isProviderConfigured(provider: AiProvider): Boolean {
-        return when (provider) {
-            AiProvider.DEEPINFRA -> true
-            AiProvider.GEMINI -> geminiApiKey.isNotBlank()
-            AiProvider.NVIDIA -> nvidiaApiKey.isNotBlank()
-            AiProvider.OPENROUTER -> openRouterApiKey.isNotBlank()
-        }
-    }
+    fun isProviderConfigured(provider: AiProvider): Boolean = configurationError(provider) == null
 
-    fun getConfiguredProviders(): List<AiProvider> {
-        return AiProvider.entries.filter { isProviderConfigured(it) }
-    }
+    fun getConfiguredProviders(): List<AiProvider> =
+        AiProvider.entries.filter(::isProviderConfigured)
 
-    fun getRecommendedModelForProvider(provider: AiProvider): AiModel? {
-        if (!isProviderConfigured(provider)) return null
-        return AiModels.getModelsForProvider(provider).firstOrNull()
-    }
+    fun getRecommendedModelForProvider(provider: AiProvider): AiModel? =
+        if (isProviderConfigured(provider)) AiModels.getModelsForProvider(provider).firstOrNull()
+        else null
 
     companion object {
-        private val OPENROUTER_HEADERS = mapOf(
-            "HTTP-Referer" to "https://github.com/codex/stormy",
-            "X-Title" to "Stormy"
-        )
+        fun fromApiKeys(
+            apiKeys: Map<AiProvider, String>,
+            customBaseUrl: String = ""
+        ): AiProviderManager = AiProviderManager(apiKeys, customBaseUrl)
 
-        fun fromApiKeys(apiKeys: Map<AiProvider, String>): AiProviderManager {
-            return AiProviderManager(
-                deepInfraApiKey = apiKeys[AiProvider.DEEPINFRA] ?: "",
-                geminiApiKey = apiKeys[AiProvider.GEMINI] ?: "",
-                nvidiaApiKey = apiKeys[AiProvider.NVIDIA] ?: "",
-                openRouterApiKey = apiKeys[AiProvider.OPENROUTER] ?: ""
-            )
-        }
-
-        fun getFallbackModels(): List<AiModel> {
-            return AiModels.getRecommendedModels()
-        }
-    }
-}
-
-/**
- * Builder class for AiProviderManager.
- */
-class AiProviderManagerBuilder {
-    private var deepInfraApiKey: String = ""
-    private var geminiApiKey: String = ""
-    private var nvidiaApiKey: String = ""
-    private var openRouterApiKey: String = ""
-
-    fun setDeepInfraApiKey(key: String) = apply { this.deepInfraApiKey = key }
-    fun setGeminiApiKey(key: String) = apply { this.geminiApiKey = key }
-    fun setNvidiaApiKey(key: String) = apply { this.nvidiaApiKey = key }
-    fun setOpenRouterApiKey(key: String) = apply { this.openRouterApiKey = key }
-
-    fun build(): AiProviderManager {
-        return AiProviderManager(
-            deepInfraApiKey = deepInfraApiKey,
-            geminiApiKey = geminiApiKey,
-            nvidiaApiKey = nvidiaApiKey,
-            openRouterApiKey = openRouterApiKey
-        )
+        fun getFallbackModels(): List<AiModel> = AiModels.getRecommendedModels()
     }
 }

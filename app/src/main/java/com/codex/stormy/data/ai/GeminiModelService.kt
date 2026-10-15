@@ -3,11 +3,8 @@ package com.codex.stormy.data.ai
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 
 @Serializable
 private data class GeminiModelsResponse(
@@ -28,15 +25,8 @@ private data class GeminiModelInfo(
  * Dynamic model discovery for the official Gemini API.
  */
 class GeminiModelService {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+    private val json get() = AiHttp.json
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     suspend fun fetchAvailableModels(apiKey: String): Result<List<AiModel>> = withContext(Dispatchers.IO) {
         if (apiKey.isBlank()) {
@@ -57,7 +47,7 @@ class GeminiModelService {
                 .get()
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            AiHttp.client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     return@withContext Result.failure(
                         Exception("Failed to fetch Gemini models: ${response.code} ${response.message}")

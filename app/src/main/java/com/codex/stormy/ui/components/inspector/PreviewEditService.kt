@@ -300,7 +300,7 @@ class PreviewEditService(
      * 3. Feeding results back to AI
      * 4. Continuing until AI completes or max turns reached
      *
-     * Note: We attempt tool calls for all models as DeepInfra and other providers
+     * Note: We attempt tool calls for all models as the supported providers
      * can handle tool calls at the API level even for models not specifically
      * optimized for them. If a model truly doesn't support tools, the API will
      * simply return a regular response without tool calls.
