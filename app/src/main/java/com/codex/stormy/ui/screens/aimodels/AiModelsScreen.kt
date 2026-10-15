@@ -1,5 +1,11 @@
 package com.codex.stormy.ui.screens.aimodels
 
+import androidx.compose.material3.TextButton
+import com.codex.stormy.ui.theme.Space
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.draw.alpha
+import androidx.compose.material3.Switch
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -130,6 +136,8 @@ fun AiModelsScreen(
                         onModelSelect = viewModel::selectModel,
                         onSetAsDefault = viewModel::setAsDefaultModel,
                         onClearDefault = viewModel::clearDefaultModel,
+                        onModelEnabledChange = viewModel::setModelEnabled,
+                        onProviderEnabledChange = viewModel::setProviderEnabled,
                         snackbarHostState = snackbarHostState,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -259,6 +267,8 @@ private fun ModelsList(
     onModelSelect: (AiModel) -> Unit,
     onSetAsDefault: (AiModel) -> Unit,
     onClearDefault: () -> Unit,
+    onModelEnabledChange: (AiModel, Boolean) -> Unit,
+    onProviderEnabledChange: (AiProvider, Boolean) -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
@@ -275,7 +285,11 @@ private fun ModelsList(
             item(key = "header_${provider.name}") {
                 ProviderSectionHeader(
                     provider = provider,
-                    modelCount = providerModels.size
+                    modelCount = providerModels.size,
+                    enabledCount = providerModels.count { it.isEnabled },
+                    onEnabledChange = { enabled ->
+                        onProviderEnabledChange(provider, enabled)
+                    }
                 )
             }
 
@@ -288,6 +302,7 @@ private fun ModelsList(
                     model = model,
                     isSelected = model.id == currentModelId,
                     isDefault = model.id == defaultModelId,
+                    onEnabledChange = { enabled -> onModelEnabledChange(model, enabled) },
                     onClick = { onModelSelect(model) },
                     onSetAsDefault = {
                         onSetAsDefault(model)
@@ -318,32 +333,50 @@ private fun ModelsList(
 @Composable
 private fun ProviderSectionHeader(
     provider: AiProvider,
-    modelCount: Int
+    modelCount: Int,
+    enabledCount: Int,
+    onEnabledChange: (Boolean) -> Unit
 ) {
+    val allEnabled = enabledCount == modelCount && modelCount > 0
+    val noneEnabled = enabledCount == 0
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(top = Space.md, bottom = Space.xs),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(Space.sm)
     ) {
-        Icon(
-            imageVector = Icons.Outlined.Cloud,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
         Text(
             text = provider.displayName,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary
+            style = MaterialTheme.typography.labelLargeEmphasized,
+            color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "• $modelCount",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            // The count is the state: "4 / 37 on" answers what a tri-state
+            // checkbox only hints at, and it stays readable when a provider
+            // returns hundreds of models.
+            text = "$enabledCount / $modelCount on",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
         )
+
+        // One action, labelled for what it will do rather than for the current
+        // state -- a toggle here would be ambiguous when the set is partly on.
+        TextButton(
+            onClick = { onEnabledChange(!allEnabled) },
+            enabled = modelCount > 0
+        ) {
+            Text(
+                text = when {
+                    allEnabled -> "Turn all off"
+                    noneEnabled -> "Turn all on"
+                    else -> "Turn all on"
+                },
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
     }
 }
 
@@ -357,6 +390,7 @@ private fun MinimalModelItem(
     model: AiModel,
     isSelected: Boolean,
     isDefault: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
     onClick: () -> Unit,
     onSetAsDefault: () -> Unit,
     onClearDefault: () -> Unit
@@ -385,9 +419,12 @@ private fun MinimalModelItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    // Disabled rows fade rather than disappear: the user needs
+                    // to find them again to switch them back on.
+                    .alpha(if (model.isEnabled) 1f else 0.45f)
+                    .padding(horizontal = Space.md, vertical = Space.md),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(Space.md)
             ) {
                 // Type indicator
                 Box(
@@ -456,6 +493,21 @@ private fun MinimalModelItem(
                         )
                     }
                 }
+
+                // On/off. A Switch rather than a checkbox because this is a
+                // setting that takes effect immediately, not a selection being
+                // accumulated for a later action.
+                Switch(
+                    checked = model.isEnabled,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (model.isEnabled) {
+                            "${model.name} is on. Turn off to hide it from the model picker."
+                        } else {
+                            "${model.name} is off. Turn on to show it in the model picker."
+                        }
+                    }
+                )
 
                 // Selection indicator
                 AnimatedVisibility(

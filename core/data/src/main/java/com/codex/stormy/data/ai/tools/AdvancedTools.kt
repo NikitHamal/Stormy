@@ -1,5 +1,6 @@
 package com.codex.stormy.data.ai.tools
 
+import com.codex.stormy.data.ai.AiHttp
 import com.codex.stormy.data.ai.FunctionDefinition
 import com.codex.stormy.data.ai.Tool
 import kotlinx.serialization.Serializable
@@ -19,7 +20,24 @@ import kotlinx.serialization.json.JsonElement
  */
 object AdvancedTools {
 
-    private val json = Json { encodeDefaults = true }
+    /**
+     * The shared codec, which sets `explicitNulls = false`.
+     *
+     * This object used to build its own `Json { encodeDefaults = true }`.
+     * Combined with [ParameterProperty.enum] being nullable, that emitted
+     * `"enum": null` for every parameter that has no enum -- and JSON Schema
+     * requires `enum` to be an array, so strict providers rejected the whole
+     * request:
+     *
+     *     Tool 38 function has invalid 'parameters' schema:
+     *     None is not of type 'array' ... on schema['properties']
+     *     ['file_pattern']['enum'] (HTTP 400)
+     *
+     * One malformed tool invalidates the entire tools array, so this failed
+     * every agent-mode message on any provider that validates schemas rather
+     * than one tool call. Omitting nulls is the fix.
+     */
+    private val json get() = AiHttp.json
 
     @Serializable
     private data class ParameterProperty(

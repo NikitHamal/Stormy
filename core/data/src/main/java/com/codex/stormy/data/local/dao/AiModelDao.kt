@@ -45,6 +45,20 @@ interface AiModelDao {
     @Query("DELETE FROM ai_models WHERE id = :id")
     suspend fun deleteModelById(id: String)
 
+    /**
+     * Bulk enable/disable. One statement rather than reading every row,
+     * mapping it and writing it back -- with a few hundred models from a
+     * gateway provider that round trip is visible on a phone.
+     */
+    @Query("UPDATE ai_models SET isEnabled = :enabled")
+    suspend fun setAllEnabled(enabled: Boolean)
+
+    @Query("UPDATE ai_models SET isEnabled = :enabled WHERE provider = :provider")
+    suspend fun setProviderEnabled(provider: String, enabled: Boolean)
+
+    @Query("SELECT COUNT(*) FROM ai_models WHERE provider = :provider AND isEnabled = 1")
+    suspend fun countEnabledForProvider(provider: String): Int
+
     @Query("DELETE FROM ai_models WHERE isCustom = 0")
     suspend fun deleteNonCustomModels()
 

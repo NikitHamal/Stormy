@@ -274,4 +274,19 @@ class AiModelsViewModel(
             }
         }
     }
+    /** Show or hide one model in the project model picker. */
+    fun setModelEnabled(model: AiModel, enabled: Boolean) {
+        viewModelScope.launch { modelRepository.setModelEnabled(model.id, enabled) }
+    }
+
+    /** Show or hide every model from one provider. */
+    fun setProviderEnabled(provider: AiProvider, enabled: Boolean) {
+        viewModelScope.launch { modelRepository.setProviderEnabled(provider, enabled) }
+    }
+
+    /** Show or hide every model. */
+    fun setAllModelsEnabled(enabled: Boolean) {
+        viewModelScope.launch { modelRepository.setAllModelsEnabled(enabled) }
+    }
+
 }

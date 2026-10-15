@@ -49,7 +49,16 @@ data class AiModel(
      * that does not accept it is a 400 rather than a graceful ignore on several
      * providers.
      */
-    val supportsReasoningEffort: Boolean = false
+    val supportsReasoningEffort: Boolean = false,
+    /**
+     * Whether the user has this model switched on.
+     *
+     * Only the model picker and the management screen read it; the request
+     * path never does, because a disabled model should not reach it. Carried
+     * on the domain model rather than looked up separately so a list of models
+     * and their state cannot drift apart between two queries.
+     */
+    val isEnabled: Boolean = true
 )
 
 /** How a provider treats credentials. */

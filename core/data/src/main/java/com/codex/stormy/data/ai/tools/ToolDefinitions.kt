@@ -1,5 +1,6 @@
 package com.codex.stormy.data.ai.tools
 
+import com.codex.stormy.data.ai.AiHttp
 import com.codex.stormy.data.ai.FunctionDefinition
 import com.codex.stormy.data.ai.Tool
 import kotlinx.serialization.Serializable
@@ -40,7 +41,10 @@ private data class ParametersSchema(
  */
 object StormyTools {
 
-    private val json = Json { encodeDefaults = true }
+    // Shared codec, so every tool schema is produced by the same encoder.
+    // See the note in AdvancedTools: a per-object Json that emits nulls
+    // produces schemas strict providers reject outright.
+    private val json get() = AiHttp.json
 
     private fun createParametersJson(
         properties: Map<String, Pair<String, String>>,

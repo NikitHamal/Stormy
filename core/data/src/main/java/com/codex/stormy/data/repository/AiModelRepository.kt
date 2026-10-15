@@ -3,6 +3,7 @@ package com.codex.stormy.data.repository
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiModels
 import com.codex.stormy.data.ai.AiProvider
+import com.codex.stormy.data.ai.ReasoningEffortSupport
 import com.codex.stormy.data.ai.GeminiModelService
 import com.codex.stormy.data.ai.OpenAiCompatibleModelService
 import com.codex.stormy.data.local.dao.AiModelDao
@@ -174,6 +175,16 @@ class AiModelRepository(
         }
     }
 
+    /** Enable or disable every model from one provider. */
+    suspend fun setProviderEnabled(provider: AiProvider, enabled: Boolean) {
+        aiModelDao.setProviderEnabled(provider.name, enabled)
+    }
+
+    /** Enable or disable every model. */
+    suspend fun setAllModelsEnabled(enabled: Boolean) {
+        aiModelDao.setAllEnabled(enabled)
+    }
+
     suspend fun setModelEnabled(modelId: String, enabled: Boolean) {
         aiModelDao.setModelEnabled(modelId, enabled)
     }
@@ -249,7 +260,12 @@ class AiModelRepository(
             contextLength = contextLength,
             supportsStreaming = supportsStreaming,
             supportsToolCalls = supportsToolCalls,
-            isThinkingModel = isThinkingModel
+            isThinkingModel = isThinkingModel,
+            // Derived rather than stored: capability comes from the model id,
+            // so persisting it would just be a column that can go stale
+            // against the detection table.
+            supportsReasoningEffort = ReasoningEffortSupport.supports(id),
+            isEnabled = isEnabled
         )
     }
 

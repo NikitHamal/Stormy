@@ -37,7 +37,7 @@ private data class OpenAiModelInfo(
  * else. Being wrong in the permissive direction costs a 400 on every request,
  * so the list is deliberately restricted to families known to accept it.
  */
-internal object ReasoningEffortSupport {
+object ReasoningEffortSupport {
 
     private val patterns = listOf(
         Regex("""^o[1-9]"""),                 // OpenAI o-series
