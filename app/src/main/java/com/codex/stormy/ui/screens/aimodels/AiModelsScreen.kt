@@ -1,5 +1,10 @@
 package com.codex.stormy.ui.screens.aimodels
 
+import com.codex.stormy.ui.components.expressive.FilterChipItem
+import com.codex.stormy.ui.components.expressive.FilterChipStrip
+import com.codex.stormy.ui.components.expressive.FlowerIconButton
+import com.codex.stormy.ui.components.expressive.ExpressiveSearchTopBar
+import androidx.compose.material.icons.outlined.Search
 import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.material3.TextButton
 import com.codex.stormy.ui.theme.Space
@@ -98,13 +103,44 @@ fun AiModelsScreen(
         }
     }
 
+    var searchActive by remember { mutableStateOf(false) }
+    val providerChips = remember(uiState.allModels) {
+        buildList {
+            add(FilterChipItem(ProviderChipAll, "All"))
+            uiState.allModels.map { it.provider }.distinct().forEach { provider ->
+                add(FilterChipItem(provider.name, provider.displayName))
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
-            MinimalTopBar(
-                onBackClick = onBackClick,
-                onRefresh = viewModel::refreshModels,
-                isLoading = uiState.isLoading || uiState.isRefreshing
-            )
+            Column {
+                ModelsTopBar(
+                    enabledCount = uiState.enabledCount,
+                    totalCount = uiState.totalCount,
+                    searchActive = searchActive,
+                    onSearchActiveChange = { searchActive = it },
+                    query = uiState.searchQuery,
+                    onQueryChange = viewModel::updateSearchQuery,
+                    onBackClick = onBackClick,
+                    onRefresh = viewModel::refreshModels,
+                    isLoading = uiState.isLoading || uiState.isRefreshing
+                )
+
+                // Provider filter, in the same strip idiom as Home. Always
+                // visible here: filtering by provider is how you navigate a
+                // catalogue of several hundred models, not an occasional act.
+                FilterChipStrip(
+                    items = providerChips,
+                    selectedId = uiState.selectedProvider?.name ?: ProviderChipAll,
+                    onSelect = { id ->
+                        viewModel.selectProvider(
+                            if (id == ProviderChipAll) null else AiProvider.valueOf(id)
+                        )
+                    }
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
@@ -148,49 +184,69 @@ fun AiModelsScreen(
 }
 
 /**
- * Minimal top bar with just back and refresh
+ * Same cross-fading bar as Home.
+ *
+ * Deliberately the identical component: a second search that behaved
+ * differently on a second screen is how an app stops feeling like one app.
+ * The subtitle carries the enabled count, which is the number the user is
+ * here to change.
  */
 @Composable
-private fun MinimalTopBar(
+private fun ModelsTopBar(
+    enabledCount: Int,
+    totalCount: Int,
+    searchActive: Boolean,
+    onSearchActiveChange: (Boolean) -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
     onBackClick: () -> Unit,
     onRefresh: () -> Unit,
     isLoading: Boolean
 ) {
-    TopAppBar(
+    ExpressiveSearchTopBar(
+        searchActive = searchActive,
+        onSearchActiveChange = onSearchActiveChange,
+        query = query,
+        onQueryChange = onQueryChange,
+        placeholder = "Search models",
         title = {
-            Text(
-                text = "AI Models",
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-        navigationIcon = {
-            IconButton(onClick = onBackClick) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "Back"
-                )
-            }
-        },
-        actions = {
-            IconButton(
-                onClick = onRefresh,
-                enabled = !isLoading
-            ) {
-                if (isLoading) {
-                    ExpressiveLoadingIndicator(
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBackClick) {
                     Icon(
-                        imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "Refresh"
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
+                Spacer(Modifier.width(Space.sm))
+                Column {
+                    Text(
+                        text = "AI Models",
+                        style = MaterialTheme.typography.titleLargeEmphasized,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "$enabledCount of $totalCount enabled",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        actions = {
+            FlowerIconButton(
+                icon = Icons.Outlined.Search,
+                contentDescription = "Search models",
+                onClick = { onSearchActiveChange(true) },
+                size = 44.dp
+            )
+            FlowerIconButton(
+                icon = Icons.Outlined.Refresh,
+                contentDescription = "Refresh models",
+                onClick = { if (!isLoading) onRefresh() },
+                alternate = true,
+                size = 44.dp
+            )
+        }
     )
 }
 
@@ -648,3 +704,6 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Sentinel id for the "All providers" chip. */
+private const val ProviderChipAll = "__all__"

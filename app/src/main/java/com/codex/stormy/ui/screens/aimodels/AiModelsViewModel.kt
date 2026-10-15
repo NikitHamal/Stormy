@@ -68,7 +68,14 @@ class AiModelsViewModel(
     private val _defaultModelId = MutableStateFlow("")
 
     val uiState: StateFlow<AiModelsUiState> = combine(
-        modelRepository.observeEnabledModels(),
+        // Every model, not just the enabled ones.
+        //
+        // This screen is where enabling and disabling happens, so filtering it
+        // by isEnabled made a model vanish the moment it was switched off --
+        // with no way to switch it back on. Only the in-project model picker
+        // filters on enabled; this one shows the whole catalogue with its
+        // switch state.
+        modelRepository.observeAllModels(),
         _isLoading,
         _isRefreshing,
         _error,
@@ -123,7 +130,10 @@ class AiModelsViewModel(
             isRefreshing = isRefreshing,
             error = error,
             totalCount = models.size,
-            enabledCount = models.size
+            // Now that the list is the full catalogue, these are genuinely
+            // different numbers -- previously both were the enabled count, so
+            // the header always read "N of N".
+            enabledCount = models.count { it.isEnabled }
         )
     }.stateIn(
         scope = viewModelScope,

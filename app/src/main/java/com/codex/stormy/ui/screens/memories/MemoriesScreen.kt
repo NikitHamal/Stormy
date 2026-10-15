@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.memories
 
+import com.codex.stormy.ui.components.expressive.SearchPill
 import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -218,7 +219,10 @@ fun MemoriesScreen(
 }
 
 /**
- * Search bar for filtering memories
+ * Search for filtering memories.
+ *
+ * Delegates to the shared pill rather than hand-rolling a third variant of
+ * the same control.
  */
 @Composable
 private fun SearchBar(
@@ -226,63 +230,13 @@ private fun SearchBar(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    SearchPill(
+        query = query,
+        onQueryChange = onQueryChange,
+        onClose = { onQueryChange("") },
+        placeholder = "Search memories",
         modifier = modifier
-            .clip(CodeXCorners.medium)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                textStyle = TextStyle(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp
-                ),
-                singleLine = true,
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (query.isEmpty()) {
-                            Text(
-                                text = "Search memories...",
-                                style = TextStyle(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 14.sp
-                                )
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-            if (query.isNotEmpty()) {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Clear",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 /**

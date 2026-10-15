@@ -45,9 +45,15 @@ fun GitDrawer(
 
     val uiState by viewModel.uiState.collectAsState()
 
-    // Open repository when drawer opens
+    // Open the repository once there is a project to open.
+    //
+    // projectPath is null for the first frames after the editor launches --
+    // the sheet is composed before the project loads so that its width stays
+    // stable (see the note on ModalDrawerSheet below). File(null) throws an
+    // NPE inside java.io.File's constructor, which is what crashed here.
     LaunchedEffect(projectPath) {
-        viewModel.openRepository(File(projectPath))
+        val root = projectPath ?: return@LaunchedEffect
+        viewModel.openRepository(File(root))
     }
 
     // Handle events

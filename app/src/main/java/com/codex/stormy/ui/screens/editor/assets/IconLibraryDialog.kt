@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.SearchPill
 import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -354,32 +356,15 @@ fun IconLibraryDialog(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Search bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                placeholder = { Text("Search icons...", fontSize = 14.sp) },
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = "Clear"
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = CodeXCorners.medium
+            // One search affordance across the app; a dialog with its own
+            // differently-shaped field is how an app stops feeling like one
+            // app.
+            SearchPill(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onClose = { searchQuery = "" },
+                placeholder = "Search icons",
+                modifier = Modifier.padding(horizontal = Space.xl)
             )
 
             Spacer(modifier = Modifier.height(12.dp))

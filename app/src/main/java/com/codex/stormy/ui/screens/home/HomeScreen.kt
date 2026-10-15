@@ -1,5 +1,12 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.components.expressive.FilterChipItem
+import com.codex.stormy.ui.components.expressive.FilterChipStrip
+import com.codex.stormy.ui.components.expressive.FlowerIconButton
+import com.codex.stormy.ui.components.expressive.ExpressiveSearchTopBar
+import androidx.compose.material.icons.outlined.Commit
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Today
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.Elevation
@@ -10,7 +17,6 @@ import androidx.compose.material3.ripple
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Surface
 import com.codex.stormy.ui.theme.CodeXCorners
-import com.codex.stormy.ui.components.expressive.ExpandingSearchField
 import com.codex.stormy.ui.components.expressive.SheetAction
 import com.codex.stormy.ui.components.expressive.ActionSheet
 import com.codex.stormy.ui.components.expressive.SpeedDialScrim
@@ -132,6 +138,7 @@ fun HomeScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
     var searchExpanded by remember { mutableStateOf(false) }
+    var selectedFilter by remember { mutableStateOf(ProjectFilterAll) }
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var projectToEdit by remember { mutableStateOf<Project?>(null) }
 
@@ -175,59 +182,46 @@ fun HomeScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = context.getString(R.string.home_title),
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                },
-                actions = {
-                    ExpandingSearchField(
-                        expanded = searchExpanded,
-                        onExpandedChange = { searchExpanded = it },
-                        query = uiState.searchQuery,
-                        onQueryChange = viewModel::updateSearchQuery,
-                        placeholder = "Search projects",
-                        modifier = Modifier.padding(end = Space.sm)
-                    )
-
-                    // Hidden while searching: the field needs the width, and a
-                    // settings button is not what the user is reaching for
-                    // mid-search.
-                    AnimatedVisibility(
-                        visible = !searchExpanded,
-                        enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
-                            scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()),
-                        exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
-                            scaleOut(MaterialTheme.motionScheme.fastSpatialSpec())
-                    ) {
-                        Surface(
+            Column {
+                ExpressiveSearchTopBar(
+                    searchActive = searchExpanded,
+                    onSearchActiveChange = { searchExpanded = it },
+                    query = uiState.searchQuery,
+                    onQueryChange = viewModel::updateSearchQuery,
+                    placeholder = "Search projects",
+                    title = {
+                        Text(
+                            text = context.getString(R.string.home_title),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    actions = {
+                        FlowerIconButton(
+                            icon = Icons.Outlined.Search,
+                            contentDescription = "Search projects",
+                            onClick = { searchExpanded = true }
+                        )
+                        FlowerIconButton(
+                            icon = Icons.Outlined.Settings,
+                            contentDescription = context.getString(R.string.action_settings),
                             onClick = onSettingsClick,
-                            modifier = Modifier
-                                .padding(end = Space.sm)
-                                .size(Sizes.minTouchTarget - Space.sm),
-                            // Same silhouette treatment as search, so the two
-                            // read as a pair rather than as a shaped button
-                            // beside a bare glyph.
-                            shape = ExpressiveShapes.clover4(),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Settings,
-                                    contentDescription =
-                                        context.getString(R.string.action_settings),
-                                    modifier = Modifier.size(Sizes.icon)
-                                )
-                            }
-                        }
+                            // The alternate lean, so two adjacent blobs read as
+                            // deliberate rather than as a rendering artefact.
+                            alternate = true
+                        )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
                 )
-            )
+
+                // The chip strip belongs to search: it filters what search is
+                // showing, so it arrives with the pill and leaves with it.
+                FilterChipStrip(
+                    items = ProjectFilters,
+                    selectedId = selectedFilter,
+                    onSelect = { selectedFilter = it },
+                    visible = searchExpanded
+                )
+            }
         },
         floatingActionButton = {
             // A speed dial rather than an extended FAB plus a dropdown. The old
@@ -716,3 +710,13 @@ private fun SwipeableProjectCard(
  * AgentVisuals/ExpressiveShapes so colour and silhouette stay paired.
  */
 private const val ProjectAccentCount = 5
+
+/** Quick filters offered beside the project search. */
+private const val ProjectFilterAll = "all"
+
+private val ProjectFilters = listOf(
+    FilterChipItem(ProjectFilterAll, "All"),
+    FilterChipItem("today", "Today", Icons.Outlined.Today),
+    FilterChipItem("week", "This week", Icons.Outlined.DateRange),
+    FilterChipItem("git", "Has Git", Icons.Outlined.Commit)
+)
