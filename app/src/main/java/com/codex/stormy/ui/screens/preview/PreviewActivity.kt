@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.preview
 
+import androidx.activity.SystemBarStyle
 import com.codex.stormy.ui.theme.CodeXCorners
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -153,7 +154,20 @@ class PreviewActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Styled from the system's own dark-mode setting here, unlike
+        // MainActivity: these two have no in-app theme toggle to follow.
+        val nightMode = resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val barStyle = if (nightMode) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        }
+        enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
 
         projectId = intent.getStringExtra(EXTRA_PROJECT_ID) ?: ""
         projectPath = intent.getStringExtra(EXTRA_PROJECT_PATH) ?: ""

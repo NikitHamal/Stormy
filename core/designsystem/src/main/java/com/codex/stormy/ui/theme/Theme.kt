@@ -1,20 +1,16 @@
 package com.codex.stormy.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
 private val LightColorScheme = lightColorScheme(
     primary = LightPrimary,
@@ -189,18 +185,20 @@ enum class MotionStyle { Expressive, Standard }
 @Composable
 fun CodeXTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+
     motionStyle: MotionStyle = MotionStyle.Expressive,
     content: @Composable () -> Unit
 ) {
-    val colorScheme: ColorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    // Dynamic colour is deliberately not offered.
+    //
+    // Material You derives a scheme from the wallpaper, which means an
+    // arbitrary hue is injected over every surface -- and this app's whole
+    // visual direction is monochrome, with emphasis carried tonally and the one
+    // remaining hue reserved for error. With dynamic colour on, a blue
+    // wallpaper turned the primary blue and silently undid that, which is
+    // exactly what happened in practice. A single intentional palette beats a
+    // theming switch that fights the design.
+    val colorScheme: ColorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     val extendedColors = if (darkTheme) DarkExtendedColors else LightExtendedColors
 

@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.expressive
 
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.AnimatedVisibility
@@ -101,6 +102,14 @@ fun ExpressiveSearchTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            // The inset lives here rather than at each call site.
+            //
+            // This component replaced TopAppBar, which consumes the status bar
+            // inset for you -- dropping in a plain Box instead put every title
+            // underneath the clock. Handling it inside the component means no
+            // screen can forget, which is the only way a global rule like this
+            // actually holds.
+            .statusBarsPadding()
             .height(height)
     ) {
         // --- Default layer: title + actions -------------------------------

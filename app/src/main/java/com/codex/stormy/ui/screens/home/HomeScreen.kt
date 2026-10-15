@@ -1,5 +1,12 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.components.expressive.SortOption
+import com.codex.stormy.ui.components.expressive.FilterTuneButton
+import com.codex.stormy.ui.components.expressive.AdvancedFilterPanel
+import androidx.compose.material.icons.outlined.Tune
+import com.codex.stormy.ui.components.expressive.EmptyStateShape
+import com.codex.stormy.ui.components.expressive.ExpressiveNoResults
+import com.codex.stormy.ui.components.expressive.ExpressiveEmptyState
 import com.codex.stormy.ui.components.expressive.FilterChipItem
 import com.codex.stormy.ui.components.expressive.FilterChipStrip
 import com.codex.stormy.ui.components.expressive.FlowerIconButton
@@ -139,6 +146,34 @@ fun HomeScreen(
     var showFabMenu by remember { mutableStateOf(false) }
     var searchExpanded by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf(ProjectFilterAll) }
+    var selectedSort by remember { mutableStateOf(ProjectSortRecent) }
+    var filterPanelOpen by remember { mutableStateOf(false) }
+
+    // Quick filter and sort applied here rather than in the view model: both
+    // are view concerns that do not survive leaving the screen, and routing
+    // them through state would mean a round trip for every chip tap.
+    val visibleProjects = remember(uiState.projects, selectedFilter, selectedSort) {
+        val now = System.currentTimeMillis()
+        uiState.projects
+            .filter { project ->
+                when (selectedFilter) {
+                    "today" -> now - project.lastOpenedAt < DAY_MS
+                    "week" -> now - project.lastOpenedAt < 7 * DAY_MS
+                    // Detected from the working tree: Project carries no git
+                    // flag, and adding one would mean a schema migration for a
+                    // value that can go stale the moment the user runs init.
+                    "git" -> java.io.File(project.rootPath, ".git").exists()
+                    else -> true
+                }
+            }
+            .let { filtered ->
+                when (selectedSort) {
+                    "name" -> filtered.sortedBy { it.name.lowercase() }
+                    "template" -> filtered.sortedBy { it.template.name }
+                    else -> filtered.sortedByDescending { it.lastOpenedAt }
+                }
+            }
+    }
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var projectToEdit by remember { mutableStateOf<Project?>(null) }
 
@@ -189,6 +224,14 @@ fun HomeScreen(
                     query = uiState.searchQuery,
                     onQueryChange = viewModel::updateSearchQuery,
                     placeholder = "Search projects",
+                    searchTrailing = {
+                        FilterTuneButton(
+                            active = filterPanelOpen,
+                            activeCount = if (selectedFilter != ProjectFilterAll) 1 else 0,
+                            icon = Icons.Outlined.Tune,
+                            onClick = { filterPanelOpen = !filterPanelOpen }
+                        )
+                    },
                     title = {
                         Text(
                             text = context.getString(R.string.home_title),
@@ -220,6 +263,18 @@ fun HomeScreen(
                     selectedId = selectedFilter,
                     onSelect = { selectedFilter = it },
                     visible = searchExpanded
+                )
+
+                AdvancedFilterPanel(
+                    visible = searchExpanded && filterPanelOpen,
+                    sortOptions = ProjectSorts,
+                    selectedSortId = selectedSort,
+                    onSortSelected = { selectedSort = it },
+                    onReset = {
+                        selectedFilter = ProjectFilterAll
+                        selectedSort = ProjectSortRecent
+                    },
+                    activeFilterCount = if (selectedFilter != ProjectFilterAll) 1 else 0
                 )
             }
         },
@@ -269,12 +324,13 @@ fun HomeScreen(
                 uiState.projects.isEmpty() && uiState.searchQuery.isNotEmpty() -> {
                     EmptySearchState(
                         query = uiState.searchQuery,
+                        onClear = { viewModel.updateSearchQuery("") },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
                 else -> {
                     ProjectsList(
-                        projects = uiState.projects,
+                        projects = visibleProjects,
                         onProjectClick = { project ->
                             viewModel.openProject(project.id)
                             onProjectClick(project.id)
@@ -411,77 +467,29 @@ private fun EmptyState(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-
-    Column(
-        modifier = modifier.padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        // A circle here is the one shape that says nothing. This is the first
-        // screen on a fresh install, so it is also the app's first chance to
-        // show that shape carries meaning in this UI -- the same cookie
-        // silhouette that marks an Explore agent and a project later on.
-        Surface(
-            modifier = Modifier.size(88.dp),
-            shape = ExpressiveShapes.cookie9(),
-            color = MaterialTheme.colorScheme.primaryContainer
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Outlined.Code,
-                    contentDescription = null,
-                    modifier = Modifier.size(Sizes.iconLarge * 1.5f),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(Space.xl))
-
-        Text(
-            text = context.getString(R.string.home_empty_title),
-            // Emphasized headline: an empty state has nothing competing with
-            // it, so this is where the type scale should be most confident.
-            style = MaterialTheme.typography.headlineSmallEmphasized,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = context.getString(R.string.home_empty_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
-    }
+    ExpressiveEmptyState(
+        icon = Icons.Outlined.Code,
+        title = context.getString(R.string.home_empty_title),
+        description = context.getString(R.string.home_empty_subtitle),
+        shape = EmptyStateShape.Cookie,
+        actionLabel = context.getString(R.string.home_create_project),
+        onAction = onCreateClick,
+        modifier = modifier
+    )
 }
 
 @Composable
 private fun EmptySearchState(
     query: String,
+    onClear: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Search,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.outlineVariant
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = "No projects found for \"$query\"",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+    ExpressiveNoResults(
+        query = query,
+        onClear = onClear,
+        noun = "projects",
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -719,4 +727,15 @@ private val ProjectFilters = listOf(
     FilterChipItem("today", "Today", Icons.Outlined.Today),
     FilterChipItem("week", "This week", Icons.Outlined.DateRange),
     FilterChipItem("git", "Has Git", Icons.Outlined.Commit)
+)
+
+private const val DAY_MS = 24L * 60 * 60 * 1000
+
+/** Sort options offered in the advanced filter panel. */
+private const val ProjectSortRecent = "recent"
+
+private val ProjectSorts = listOf(
+    SortOption(ProjectSortRecent, "Recent"),
+    SortOption("name", "Name A-Z"),
+    SortOption("template", "Template")
 )

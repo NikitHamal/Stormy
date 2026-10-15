@@ -1,5 +1,8 @@
 package com.codex.stormy.ui.components.message
 
+import com.codex.stormy.ui.components.agent.ToolCallStatus
+import com.codex.stormy.ui.components.agent.ToolCallEntry
+import com.codex.stormy.ui.components.agent.ToolCallGroup
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.CodeXCorners
@@ -96,6 +99,11 @@ sealed class MessageContentBlock {
     data class ThinkingBlock(val content: String, val isActive: Boolean = false) : MessageContentBlock()
     data class ReasoningBlock(val content: String, val isActive: Boolean = false) : MessageContentBlock()
 
+    /** Two or more adjacent tool calls, shown as one collapsible group. */
+    data class ToolRunBlock(
+        val calls: List<ToolCallBlock>
+    ) : MessageContentBlock()
+
     data class ToolCallBlock(
         val toolName: String,
         val status: ToolStatus,
@@ -110,6 +118,38 @@ sealed class MessageContentBlock {
 }
 
 enum class ToolStatus { RUNNING, SUCCESS, ERROR }
+
+/**
+ * Fold runs of two or more adjacent tool calls into a single block.
+ *
+ * A lone call stays a card: grouping one thing adds a disclosure the user has
+ * to open to see a single row, which is strictly worse than just showing it.
+ */
+private fun groupConsecutiveToolCalls(
+    blocks: List<MessageContentBlock>
+): List<MessageContentBlock> {
+    val out = mutableListOf<MessageContentBlock>()
+    var run = mutableListOf<MessageContentBlock.ToolCallBlock>()
+
+    fun flush() {
+        when {
+            run.size >= 2 -> out += MessageContentBlock.ToolRunBlock(run.toList())
+            run.size == 1 -> out += run.first()
+        }
+        run = mutableListOf()
+    }
+
+    blocks.forEach { block ->
+        if (block is MessageContentBlock.ToolCallBlock) {
+            run += block
+        } else {
+            flush()
+            out += block
+        }
+    }
+    flush()
+    return out
+}
 
 /** Public entry point used by the UI. */
 fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<MessageContentBlock> {
@@ -250,7 +290,14 @@ private fun extractOutput(content: String, start: Int, end: Int): String {
 private val TOOL_HEADER_REGEX = Regex(
     // Start-of-line: 🔧 optionally **Tool** or just Tool, then whitespace/newline, emoji, optional trailing text.
     // Supports both markdown bold format (🔧 **Tool Name** ✅) and plain text (🔧 Tool Name ✅)
-    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)\b[^\r\n]*\r?\n?""",
+    // No \b after the status emoji.
+    //
+    // \b asserts a word boundary, which needs a word character on one side.
+    // An emoji is not a word character and the next character is a space, so
+    // the assertion could never hold -- the pattern matched nothing, every
+    // tool call fell through to the markdown renderer, and the transcript read
+    // as "🔧 **List Files** ✅ Directory is empty" in plain text.
+    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)[^\r\n]*\r?\n?""",
     options = setOf(RegexOption.MULTILINE)
 )
 
@@ -494,7 +541,14 @@ fun AiMessageContent(
 ) {
     // During streaming, use simpler parsing to reduce lag
     // Full parsing is only done when content length changes significantly or streaming stops
-    val shouldDoFullParsing = !isStreaming || content.length < 500
+    // Always parse fully.
+    //
+    // The old guard fell back to a lighter parser once a streaming message
+    // passed 500 characters -- which is most of them -- so tool calls rendered
+    // as raw text for the entire length of any real agent run and only
+    // snapped into cards once streaming stopped. The parse is memoised on
+    // content, so it runs once per emitted chunk rather than per frame.
+    val shouldDoFullParsing = true
 
     val parsedBlocks = remember(content, isStreaming, shouldDoFullParsing) {
         if (shouldDoFullParsing) {
@@ -519,8 +573,40 @@ fun AiMessageContent(
             MinimalGeneratingIndicator()
         }
 
-        parsedBlocks.forEach { block ->
+        // Consecutive tool calls collapse into one group.
+        //
+        // Rendered individually, a dozen calls from one agent turn dominate the
+        // transcript and push the assistant's actual answer off screen. Runs
+        // are detected here rather than in the parser so the parser stays a
+        // pure text-to-blocks function.
+        val grouped = remember(parsedBlocks) { groupConsecutiveToolCalls(parsedBlocks) }
+
+        grouped.forEach { block ->
             when (block) {
+                is MessageContentBlock.ToolRunBlock -> {
+                    ToolCallGroup(
+                        entries = block.calls.map { call ->
+                            ToolCallEntry(
+                                toolName = call.toolName,
+                                subject = call.filePath,
+                                status = when (call.status) {
+                                    ToolStatus.SUCCESS -> ToolCallStatus.Success
+                                    ToolStatus.ERROR -> ToolCallStatus.Error
+                                    ToolStatus.RUNNING -> ToolCallStatus.Running
+                                },
+                                additions = call.additions,
+                                deletions = call.deletions
+                            )
+                        },
+                        // Expanded while anything is still running, so the user
+                        // can watch; collapsed once the run finishes, so the
+                        // answer is what remains on screen.
+                        initiallyExpanded = block.calls.any {
+                            it.status == ToolStatus.RUNNING
+                        }
+                    )
+                }
+
                 is MessageContentBlock.TextBlock ->
                     ResponseSection(markdown = block.content)
 

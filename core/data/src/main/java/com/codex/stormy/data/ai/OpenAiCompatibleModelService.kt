@@ -68,6 +68,12 @@ object ReasoningEffortSupport {
  * Generic model discovery for providers exposing OpenAI-compatible `/models`.
  */
 class OpenAiCompatibleModelService {
+
+    private companion object {
+        /** Below this a reported figure is an output cap, not a window. */
+        const val MIN_PLAUSIBLE_CONTEXT = 8_192
+    }
+
     private val json get() = AiHttp.json
 
     suspend fun fetchAvailableModels(
@@ -147,10 +153,13 @@ class OpenAiCompatibleModelService {
 
         val supportsToolCalls = !isThinkingModel || lowerId.contains("gemini")
 
-        val contextLength = info.maxContextLength
-            ?: info.contextLength
-            ?: info.maxTokens
-            ?: estimateContextLength(info.id)
+        // A provider figure is preferred, but only when it is plausible.
+        // Several gateways report max_tokens (the *output* cap, often 4096) in
+        // the context field, which would shrink a 1M model to nothing.
+        val reported = listOfNotNull(info.maxContextLength, info.contextLength, info.maxTokens)
+            .filter { it >= MIN_PLAUSIBLE_CONTEXT }
+            .maxOrNull()
+        val contextLength = reported ?: estimateContextLength(info.id)
 
         return AiModel(
             id = info.id,
@@ -164,19 +173,15 @@ class OpenAiCompatibleModelService {
         )
     }
 
-    private fun estimateContextLength(modelId: String): Int {
-        val lowerId = modelId.lowercase()
-        return when {
-            lowerId.contains("1m") || lowerId.contains("1000k") -> 1_000_000
-            lowerId.contains("256k") -> 262_144
-            lowerId.contains("200k") -> 200_000
-            lowerId.contains("131k") || lowerId.contains("128k") -> 131_072
-            lowerId.contains("64k") -> 65_536
-            lowerId.contains("32k") -> 32_768
-            lowerId.contains("16k") -> 16_384
-            else -> 8_192
-        }
-    }
+    /**
+     * Falls back to the capability table rather than to 8192.
+     *
+     * The old version only matched ids literally containing a size, which
+     * almost none do -- so nearly every discovered model was treated as having
+     * an 8k window regardless of its real size.
+     */
+    private fun estimateContextLength(modelId: String): Int =
+        ModelCapabilities.contextWindowFor(modelId)
 
     private fun generateDisplayName(modelId: String): String {
         val cleaned = modelId

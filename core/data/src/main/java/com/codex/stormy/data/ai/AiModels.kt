@@ -223,6 +223,11 @@ object SeedModels {
         id: String,
         name: String,
         provider: AiProvider,
+        /**
+         * Only used when the capability table has nothing for this id. Keeping
+         * one source of truth stops a seed entry from disagreeing with the
+         * same model once it is discovered live.
+         */
         context: Int,
         tools: Boolean = true,
         thinking: Boolean = false
@@ -230,7 +235,8 @@ object SeedModels {
         id = id,
         name = name,
         provider = provider,
-        contextLength = context,
+        contextLength = ModelCapabilities.contextWindowFor(id)
+            .takeIf { it != ModelCapabilities.DEFAULT_CONTEXT } ?: context,
         supportsStreaming = true,
         supportsToolCalls = tools,
         isThinkingModel = thinking

@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.debug
 
+import androidx.activity.SystemBarStyle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -49,7 +50,20 @@ class CrashActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Styled from the system's own dark-mode setting here, unlike
+        // MainActivity: these two have no in-app theme toggle to follow.
+        val nightMode = resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val barStyle = if (nightMode) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        }
+        enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
 
         crashLog = intent.getStringExtra(EXTRA_CRASH_LOG) ?: "No crash log available"
 

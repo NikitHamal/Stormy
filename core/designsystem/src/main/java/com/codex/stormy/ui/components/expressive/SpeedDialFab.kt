@@ -1,5 +1,8 @@
 package com.codex.stormy.ui.components.expressive
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
@@ -47,6 +50,17 @@ import com.codex.stormy.ui.theme.Space
  * button and shrink back into it, instead of pulsing about its own centre.
  */
 private val TriggerOrigin = TransformOrigin(1f, 1f)
+
+/**
+ * The FAB's silhouette: a squircle with slightly unequal corners, so it reads
+ * as hand-drawn rather than as a rounded rectangle.
+ */
+private val FabSquircle = BlobShape(
+    topStart = 0.40f to 0.44f,
+    topEnd = 0.44f to 0.40f,
+    bottomEnd = 0.40f to 0.44f,
+    bottomStart = 0.44f to 0.40f
+)
 
 /** One action in a [SpeedDialFab]. */
 data class SpeedDialAction(
@@ -153,15 +167,37 @@ fun SpeedDialFab(
         }
 
         val triggerInteraction = remember { MutableInteractionSource() }
+        val glow = MaterialTheme.colorScheme.primary
+
         Surface(
             onClick = { onExpandedChange(!expanded) },
             modifier = Modifier
                 .size(size)
+                // A soft halo in the FAB's own colour.
+                //
+                // Material's elevation shadow is a neutral drop shadow, which
+                // on a near-black surface reads as a smudge rather than as
+                // lift. A coloured ambient glow is what separates the control
+                // from the background here, and it is the effect in the
+                // reference. Alpha is low on purpose: visible as a presence,
+                // never as a ring.
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(glow.copy(alpha = 0.34f), Color.Transparent),
+                            radius = this.size.minDimension * 0.85f
+                        ),
+                        radius = this.size.minDimension * 0.85f
+                    )
+                }
                 .expressivePress(triggerInteraction)
                 .semantics {
                     contentDescription = if (expanded) "Close actions" else collapsedDescription
                 },
-            shape = ExpressiveShapes.clover4(),
+            // A rounded squircle rather than the clover: at FAB size the
+            // clover's four lobes fight the plus glyph in the middle, and the
+            // reference uses the softer form.
+            shape = FabSquircle,
             color = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
             interactionSource = triggerInteraction

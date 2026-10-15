@@ -149,12 +149,6 @@ fun AiModelsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Provider tabs
-            ProviderTabs(
-                selectedProvider = uiState.selectedProvider,
-                onProviderSelected = viewModel::selectProvider,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
 
             // Content
             when {
@@ -247,68 +241,6 @@ private fun ModelsTopBar(
                 size = 44.dp
             )
         }
-    )
-}
-
-/**
- * Provider filter tabs - minimal style
- */
-@Composable
-private fun ProviderTabs(
-    selectedProvider: AiProvider?,
-    onProviderSelected: (AiProvider?) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            ProviderChip(
-                label = "All",
-                isSelected = selectedProvider == null,
-                onClick = { onProviderSelected(null) }
-            )
-        }
-
-        items(AiProvider.entries.toList(), key = { it.name }) { provider ->
-            ProviderChip(
-                label = provider.displayName,
-                isSelected = selectedProvider == provider,
-                onClick = { onProviderSelected(provider) }
-            )
-        }
-    }
-}
-
-/**
- * Provider selection chip
- */
-@Composable
-private fun ProviderChip(
-    label: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    FilterChip(
-        selected = isSelected,
-        onClick = onClick,
-        label = {
-            Text(
-                text = label,
-                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-            )
-        },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = isSelected,
-            borderColor = MaterialTheme.colorScheme.outlineVariant,
-            selectedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-        )
     )
 }
 

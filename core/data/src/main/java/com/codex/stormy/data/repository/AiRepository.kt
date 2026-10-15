@@ -1,5 +1,6 @@
 package com.codex.stormy.data.repository
 
+import com.codex.stormy.data.ai.ProviderRateLimiter
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
 import com.codex.stormy.data.ai.AiModels
@@ -16,6 +17,23 @@ import kotlinx.coroutines.flow.flow
  * Repository for AI interactions
  * Routes requests to the selected model provider.
  */
+/**
+ * Shared across the app so pacing is per-provider, not per-call-site: two
+ * screens sending at once must share one budget, since the provider counts
+ * them together.
+ */
+private val rateLimiter = ProviderRateLimiter()
+
+/**
+ * Same 4-chars-per-token heuristic the rest of the app uses.
+ *
+ * Deliberately not routed through ContextWindowManager: that class depends on
+ * AiRepository, so using it here would be circular. The constant is shared so
+ * the reservation and the context meter cannot disagree.
+ */
+private fun List<ChatRequestMessage>.estimateTokens(): Int =
+    sumOf { ((it.content?.length ?: 0) / 4) + 4 }
+
 class AiRepository(
     private val preferencesRepository: PreferencesRepository
 ) {
@@ -59,6 +77,24 @@ class AiRepository(
     ): Flow<StreamEvent> {
         val providerManager = createProviderManager()
 
+        // Pace against the free tier before sending. A 429 arrives part-way
+        // through an agent run, after files are already written, and reads as
+        // the app breaking rather than as a quota.
+        if (rateLimiter.isDailyBudgetSpent(model.provider)) {
+            return flow {
+                emit(
+                    StreamEvent.Error(
+                        "${model.provider.displayName}'s free daily limit is used up. " +
+                            "Switch provider in the model picker, or try again tomorrow."
+                    )
+                )
+            }
+        }
+        rateLimiter.acquire(
+            provider = model.provider,
+            estimatedTokens = messages.estimateTokens()
+        )
+
         // Get the stream from the selected provider
         val stream = providerManager.streamChatCompletion(
             model = model,
@@ -88,6 +124,10 @@ class AiRepository(
         maxTokens: Int? = null
     ): Result<ChatCompletionResponse> {
         val providerManager = createProviderManager()
+        rateLimiter.acquire(
+            provider = model.provider,
+            estimatedTokens = messages.estimateTokens()
+        )
         return providerManager.chatCompletion(
             model = model,
             messages = messages,

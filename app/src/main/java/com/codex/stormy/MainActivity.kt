@@ -1,5 +1,8 @@
 package com.codex.stormy
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.SystemBarStyle
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -44,14 +47,9 @@ class MainActivity : ComponentActivity() {
                 if (onboardingCompleted) Screen.Home.route else Screen.Onboarding.route
         }
 
-        enableEdgeToEdge()
-
         setContent {
             val themeMode by preferencesRepository.themeMode.collectAsStateWithLifecycle(
                 initialValue = ThemeMode.SYSTEM
-            )
-            val dynamicColors by preferencesRepository.dynamicColors.collectAsStateWithLifecycle(
-                initialValue = false
             )
 
             val darkTheme = when (themeMode) {
@@ -60,10 +58,23 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
 
-            CodeXTheme(
-                darkTheme = darkTheme,
-                dynamicColor = dynamicColors
-            ) {
+            // System bar icons have to follow the *app's* theme, not the
+            // system's. enableEdgeToEdge() with no arguments picks its style
+            // from the system dark-mode setting, so an app set to Light on a
+            // phone in Dark mode got white icons on a near-white bar -- the
+            // status bar simply vanished. Re-applied whenever the theme
+            // changes, because the user can flip it from Settings without the
+            // activity being recreated.
+            LaunchedEffect(darkTheme) {
+                val style = if (darkTheme) {
+                    SystemBarStyle.dark(Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+
+            CodeXTheme(darkTheme = darkTheme) {
                 // Null only while the splash screen is still covering us.
                 startDestination.value?.let { MainContent(startDestination = it) }
             }

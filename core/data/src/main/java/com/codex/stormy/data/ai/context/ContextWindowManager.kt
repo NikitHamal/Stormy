@@ -26,17 +26,29 @@ class ContextWindowManager(
 
         // Minimum messages to keep before summarizing
         private const val MIN_MESSAGES_BEFORE_SUMMARY = 4
+
+        /** Below this a reported context length is assumed to be missing. */
+        private const val MIN_SENSIBLE_CONTEXT = 2_048
+
+        /** Upper bound on reply headroom. */
+        private const val MAX_RESERVED_OUTPUT_TOKENS = 32_000
     }
 
     /**
      * Get the maximum context tokens for a model
      */
     fun getMaxContextTokens(model: AiModel): Int {
-        return when {
-            model.contextLength > 32000 -> LARGE_MODEL_MAX_TOKENS
-            model.contextLength > 8000 -> 16000
-            else -> DEFAULT_MAX_CONTEXT_TOKENS
-        }
+        // The model's own figure, not a bucket.
+        //
+        // This used to clamp everything above 32k down to 32k, so a model with
+        // a 1M window was treated as having 32k -- the meter read 49% when the
+        // real figure was under 2%, and compaction fired on conversations that
+        // had used a fraction of what was available. Current models span 32k to
+        // 1M; bucketing throws that away.
+        //
+        // The floor exists only for a model that reports nothing usable.
+        return model.contextLength.takeIf { it >= MIN_SENSIBLE_CONTEXT }
+            ?: DEFAULT_MAX_CONTEXT_TOKENS
     }
 
     /**
@@ -61,7 +73,12 @@ class ContextWindowManager(
      * Get available tokens for the conversation (excluding reserved output tokens)
      */
     fun getAvailableTokens(model: AiModel): Int {
-        return getMaxContextTokens(model) - RESERVED_OUTPUT_TOKENS
+        val total = getMaxContextTokens(model)
+        // Reserve room for the reply, proportional rather than a flat 2k: on a
+        // 1M window 2k is nothing, and on an 8k window a flat 2k is a quarter
+        // of it. Capped, because no answer needs 100k of headroom.
+        val reserve = (total / 8).coerceIn(RESERVED_OUTPUT_TOKENS, MAX_RESERVED_OUTPUT_TOKENS)
+        return (total - reserve).coerceAtLeast(MIN_SENSIBLE_CONTEXT)
     }
 
     /**

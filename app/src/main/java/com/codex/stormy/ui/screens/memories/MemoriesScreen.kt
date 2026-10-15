@@ -1,5 +1,11 @@
 package com.codex.stormy.ui.screens.memories
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.FlowerIconButton
+import com.codex.stormy.ui.components.expressive.ExpressiveSearchTopBar
+import com.codex.stormy.ui.components.expressive.EmptyStateShape
+import com.codex.stormy.ui.components.expressive.ExpressiveNoResults
+import com.codex.stormy.ui.components.expressive.ExpressiveEmptyState
 import com.codex.stormy.ui.components.expressive.SearchPill
 import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
@@ -28,7 +34,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -96,34 +101,50 @@ fun MemoriesScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf<MemoryItemState?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    var searchActive by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // The same cross-fading bar as Home and AI Models. Memories had an
+            // always-mounted search field below a TopAppBar, which cost a row
+            // on every visit and was a third different-looking search.
+            ExpressiveSearchTopBar(
+                searchActive = searchActive,
+                onSearchActiveChange = { searchActive = it },
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                placeholder = "Search memories",
                 title = {
-                    Column {
-                        Text(
-                            text = "Memories",
-                            style = MaterialTheme.typography.titleLargeEmphasized
-                        )
-                        Text(
-                            text = "AI learned information",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                        Spacer(Modifier.width(Space.sm))
+                        Column {
+                            Text(
+                                text = "Memories",
+                                style = MaterialTheme.typography.titleLargeEmphasized,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "What the assistant has learned",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                actions = {
+                    FlowerIconButton(
+                        icon = Icons.Outlined.Search,
+                        contentDescription = "Search memories",
+                        onClick = { searchActive = true },
+                        size = 44.dp
+                    )
+                }
             )
         },
         floatingActionButton = {
@@ -146,18 +167,17 @@ fun MemoriesScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Search bar
-            SearchBar(
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
             when {
                 uiState.isLoading -> {
                     LoadingState(modifier = Modifier.fillMaxSize())
+                }
+                uiState.projectMemories.isEmpty() && searchQuery.isNotBlank() -> {
+                    ExpressiveNoResults(
+                        query = searchQuery,
+                        onClear = { searchQuery = "" },
+                        noun = "memories",
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
                 uiState.projectMemories.isEmpty() -> {
                     EmptyState(modifier = Modifier.fillMaxSize())
@@ -692,48 +712,18 @@ private fun LoadingState(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Empty state when no memories exist
- */
 @Composable
 private fun EmptyState(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Memory,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-
-            Text(
-                text = "No Memories Yet",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Text(
-                text = "The AI will learn about your projects\nas you work together",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-        }
-    }
+    ExpressiveEmptyState(
+        icon = Icons.Outlined.Memory,
+        title = "No memories yet",
+        description = "The assistant will note what it learns about your " +
+            "projects as you work together.",
+        // A different silhouette per screen, so empty states are told apart
+        // at a glance rather than all reading as the same blank page.
+        shape = EmptyStateShape.Clover,
+        modifier = modifier
+    )
 }
 
 /**

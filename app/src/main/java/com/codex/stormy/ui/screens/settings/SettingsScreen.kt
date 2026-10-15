@@ -2,7 +2,6 @@ package com.codex.stormy.ui.screens.settings
 
 import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.material.icons.outlined.Key
-import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -121,16 +120,11 @@ fun SettingsScreen(
                     onThemeSelected = viewModel::setThemeMode
                 )
 
-                // Dynamic Colors (Android 12+)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    SettingsToggle(
-                        icon = Icons.Outlined.Palette,
-                        title = "Dynamic Colors",
-                        description = "Use system color palette",
-                        checked = uiState.dynamicColors,
-                        onCheckedChange = viewModel::setDynamicColors
-                    )
-                }
+                // The Dynamic Colors toggle was removed. Material You derives
+                // a scheme from the wallpaper, which injects an arbitrary hue
+                // over every surface and silently undoes the monochrome
+                // direction -- in practice a blue wallpaper turned the whole
+                // app blue. See the note in CodeXTheme.
             }
 
             // Editor Section
