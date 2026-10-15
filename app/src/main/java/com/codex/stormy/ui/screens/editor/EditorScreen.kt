@@ -1,5 +1,11 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.agent.PlanTimeline
+import com.codex.stormy.ui.components.expressive.ToggleOption
+import com.codex.stormy.ui.components.expressive.ExpressiveToggleGroup
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.AutoAwesome
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -104,6 +110,11 @@ fun EditorScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Read once in composable scope: AnimatedContent's transitionSpec lambda
+    // is not @Composable, so MaterialTheme cannot be read inside it.
+    val tabEnterSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val tabExitSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+
     val fileDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -308,10 +319,24 @@ fun EditorScreen(
                             onTabSelected = viewModel::selectTab
                         )
 
+                        uiState.agentPlan?.let { plan ->
+                            PlanTimeline(
+                                plan = plan,
+                                modifier = Modifier.padding(
+                                    horizontal = Space.lg,
+                                    vertical = Space.xs
+                                )
+                            )
+                        }
+
                         AnimatedContent(
                             targetState = uiState.selectedTab,
                             transitionSpec = {
-                                fadeIn() togetherWith fadeOut()
+                                // Cross-fade on the effects spec. These are two
+                                // views of one file, not a navigation step, so
+                                // there is deliberately no slide: sliding would
+                                // imply moving somewhere else.
+                                fadeIn(tabEnterSpec) togetherWith fadeOut(tabExitSpec)
                             },
                             modifier = Modifier.fillMaxSize(),
                             label = "editor_tab_content"
@@ -496,6 +521,20 @@ private fun EditorTopBar(
     )
 }
 
+/**
+ * Chat / Code switch.
+ *
+ * Was a full-width [TabRow] with an underline indicator. Two problems with
+ * that here: a two-item TabRow spreads a binary choice across the whole screen
+ * width, so the tap targets are enormous and the labels float in space; and the
+ * sliding underline is a desktop idiom that reads as a page-level navigation
+ * rail, which these are not -- they are two views of the same file.
+ *
+ * An Expressive segmented control states the binary nature of the choice,
+ * occupies only the width it needs, and brings the Expressive press-squish and
+ * selection shape morph with it. Centred, so it sits under the thumb on a
+ * phone rather than at the screen edge.
+ */
 @Composable
 private fun EditorTabs(
     selectedTab: EditorTab,
@@ -503,21 +542,31 @@ private fun EditorTabs(
 ) {
     val context = LocalContext.current
 
-    TabRow(
-        selectedTabIndex = selectedTab.ordinal,
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.primary
-    ) {
-        Tab(
-            selected = selectedTab == EditorTab.CHAT,
-            onClick = { onTabSelected(EditorTab.CHAT) },
-            text = { Text(context.getString(R.string.editor_tab_chat)) }
+    val options = remember(context) {
+        listOf(
+            ToggleOption(
+                id = EditorTab.CHAT.name,
+                label = context.getString(R.string.editor_tab_chat),
+                icon = Icons.Outlined.AutoAwesome
+            ),
+            ToggleOption(
+                id = EditorTab.CODE.name,
+                label = context.getString(R.string.editor_tab_code),
+                icon = Icons.Outlined.Code
+            )
         )
-        Tab(
-            selected = selectedTab == EditorTab.CODE,
-            onClick = { onTabSelected(EditorTab.CODE) },
-            text = { Text(context.getString(R.string.editor_tab_code)) }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.lg, vertical = Space.sm),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        ExpressiveToggleGroup(
+            options = options,
+            selectedId = selectedTab.name,
+            onSelect = { id -> onTabSelected(EditorTab.valueOf(id)) }
         )
     }
 }

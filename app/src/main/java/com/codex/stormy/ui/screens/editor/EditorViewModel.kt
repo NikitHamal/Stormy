@@ -114,7 +114,15 @@ data class EditorUiState(
     // Large file handling
     val largeFileWarning: LargeFileWarning? = null,
     val fileLoadProgress: Float = 1f,
-    val isCurrentFileReadOnly: Boolean = false
+    val isCurrentFileReadOnly: Boolean = false,
+    /**
+     * The agent's published plan for the current request, or null when it has
+     * not published one. Rendered above the conversation so that long
+     * multi-step work stays legible while it happens.
+     */
+    val agentPlan: com.codex.stormy.data.ai.agents.AgentPlan? = null,
+    /** Delegated work, live and recently finished. */
+    val agentSessions: List<com.codex.stormy.data.ai.agents.AgentSession> = emptyList()
 )
 
 /**
