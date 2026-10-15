@@ -1,5 +1,18 @@
 package com.codex.stormy.ui.screens.editor
 
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CompletableDeferred
+import com.codex.stormy.ui.components.agent.PendingApproval
+import kotlinx.serialization.json.jsonPrimitive
+import com.codex.stormy.ui.components.agent.ToolPresentations
+import com.codex.stormy.data.ai.tools.ToolResult
+import com.codex.stormy.data.ai.agents.ToolCapability
+import com.codex.stormy.data.ai.agents.AgentStep
+import com.codex.stormy.data.ai.agents.AgentPhase
+import com.codex.stormy.data.ai.agents.AgentSession
+import com.codex.stormy.data.ai.agents.SubagentOrchestrator
+import com.codex.stormy.data.ai.agents.DelegationTools
+import com.codex.stormy.data.ai.agents.DelegationHandler
 import androidx.compose.runtime.Immutable
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
@@ -114,7 +127,15 @@ data class EditorUiState(
     // Large file handling
     val largeFileWarning: LargeFileWarning? = null,
     val fileLoadProgress: Float = 1f,
-    val isCurrentFileReadOnly: Boolean = false
+    val isCurrentFileReadOnly: Boolean = false,
+    /**
+     * The agent's published plan for the current request, or null when it has
+     * not published one. Rendered above the conversation so that long
+     * multi-step work stays legible while it happens.
+     */
+    val agentPlan: com.codex.stormy.data.ai.agents.AgentPlan? = null,
+    /** Delegated work, live and recently finished. */
+    val agentSessions: List<com.codex.stormy.data.ai.agents.AgentSession> = emptyList()
 )
 
 /**
@@ -148,6 +169,33 @@ class EditorViewModel(
 ) : ViewModel() {
 
     private val projectId: String = savedStateHandle["projectId"] ?: ""
+
+    /**
+     * Delegation state for this editor session.
+     *
+     * The orchestrator owns subagent lifecycle; the handler translates the
+     * model's delegation tool calls into it. The runner below is what actually
+     * drives a subagent -- it lives here because the model loop does.
+     */
+    private val subagentOrchestrator = SubagentOrchestrator(viewModelScope)
+
+    /**
+     * Approval the main conversation is blocked on, or null.
+     *
+     * Held as a CompletableDeferred rather than a callback so the tool call can
+     * simply *suspend* until the user answers. The agent loop then needs no
+     * resume path or saved continuation -- it is still sitting inside the tool
+     * call where it asked.
+     */
+    private val _pendingApproval = MutableStateFlow<PendingApproval?>(null)
+    val pendingApproval: StateFlow<PendingApproval?> = _pendingApproval.asStateFlow()
+
+    private var approvalAnswer: CompletableDeferred<Boolean>? = null
+
+    private val delegationHandler = DelegationHandler(
+        orchestrator = subagentOrchestrator,
+        runner = DelegationHandler.SubagentRunner { session -> launchSubagent(session) }
+    )
 
     private val _project = MutableStateFlow<Project?>(null)
     private val _selectedTab = MutableStateFlow(EditorTab.CHAT)
@@ -246,6 +294,12 @@ class EditorViewModel(
         state.copy(contextMaxTokens = maxTokens)
     }.combine(_contextUsageLevel) { state, usageLevel ->
         state.copy(contextUsageLevel = usageLevel)
+    }.combine(delegationHandler.plan) { state, plan ->
+        // Null rather than an empty plan, so the UI can omit the strip entirely
+        // instead of rendering an empty container.
+        state.copy(agentPlan = plan.takeIf { !it.isEmpty })
+    }.combine(subagentOrchestrator.sessions) { state, sessions ->
+        state.copy(agentSessions = sessions)
     }.combine(undoRedoManager.state) { state, undoRedoState ->
         state.copy(undoRedoState = undoRedoState)
     }.combine(_taskList) { state, taskList ->
@@ -1181,7 +1235,14 @@ class EditorViewModel(
         }
 
         // Get tools based on mode
-        val tools = if (isAgentMode) StormyTools.getAllTools() else null
+        // Delegation tools are offered only in agent mode: in chat mode there
+        // is no loop to resume, so a spawned subagent would have nowhere to
+        // report back to.
+        val tools = if (isAgentMode) {
+            StormyTools.getAllTools() + DelegationTools.all
+        } else {
+            null
+        }
 
         // Track tool calls for this iteration
         var currentToolCalls = listOf<ToolCallResponse>()
@@ -1438,7 +1499,39 @@ class EditorViewModel(
 
         for (toolCall in toolCalls) {
             val toolName = toolCall.function.name
-            val result = toolExecutor.execute(projectId, toolCall)
+            // Delegation tools are handled here rather than in ToolExecutor:
+            // they mutate this session's orchestrator and plan, which the
+            // executor has no business knowing about.
+            val result = if (toolName == "request_approval") {
+                // Handled here rather than in DelegationHandler: only the view
+                // model can suspend the loop on a UI answer.
+                val args = DelegationHandler.parseArgs(toolCall.function.arguments)
+                val action = args?.get("action")?.jsonPrimitive?.content
+                if (action.isNullOrBlank()) {
+                    ToolResult(false, "", "action is required")
+                } else {
+                    val detail = args["detail"]?.jsonPrimitive?.content
+                    if (awaitApproval(action, detail)) {
+                        ToolResult(true, "The user approved: $action")
+                    } else {
+                        ToolResult(
+                            true,
+                            "The user declined: $action. Do not attempt it, and " +
+                                "do not ask again for the same action. Continue " +
+                                "with what you can do, or explain what you cannot."
+                        )
+                    }
+                }
+            } else if (delegationHandler.handles(toolName)) {
+                val args = DelegationHandler.parseArgs(toolCall.function.arguments)
+                if (args == null) {
+                    ToolResult(false, "", "Could not parse arguments for $toolName")
+                } else {
+                    delegationHandler.execute(toolName, args)
+                }
+            } else {
+                toolExecutor.execute(projectId, toolCall)
+            }
 
             // Add visual feedback in the UI
             toolResults.append("\n\n🔧 **${formatToolName(toolName)}**\n")
@@ -1987,4 +2080,229 @@ class EditorViewModel(
             }
         }
     }
+    /**
+     * Drive a subagent to completion.
+     *
+     * The subagent gets its own message list seeded from its definition's
+     * system prompt and its brief -- deliberately *not* the parent
+     * conversation. That isolation is the point of delegation: the subagent
+     * works in a clean context, and only its final summary comes back, so the
+     * verbose middle never crowds the orchestrator's window.
+     *
+     * Tools are filtered to the definition's capabilities, enforced here rather
+     * than described in the prompt, so a read-only agent cannot write even if
+     * it decides it should.
+     */
+    private fun launchSubagent(session: AgentSession) {
+        val job = viewModelScope.launch {
+            try {
+                subagentOrchestrator.withSlot(session.id) {
+                    runSubagentLoop(session)
+                }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                // The user pressed stop. The orchestrator has already recorded
+                // CANCELLED; rethrow so the scope unwinds normally.
+                throw cancellation
+            } catch (e: Exception) {
+                subagentOrchestrator.fail(session.id, e.message ?: "Subagent failed")
+            }
+        }
+        subagentOrchestrator.attachJob(session.id, job)
+    }
+
+    private suspend fun runSubagentLoop(session: AgentSession) {
+        val definition = session.definition
+        val model = _currentModel.value ?: run {
+            subagentOrchestrator.fail(session.id, "No model selected")
+            return
+        }
+
+        val allowedTools = StormyTools.getAllTools().filter { tool ->
+            val capability = capabilityFor(tool.function.name)
+            capability != null && definition.allows(capability)
+        }
+
+        val history = mutableListOf(
+            ChatRequestMessage(role = "system", content = definition.systemPrompt),
+            ChatRequestMessage(role = "user", content = session.prompt)
+        )
+
+        var turns = 0
+        while (turns < definition.maxTurns) {
+            turns++
+            subagentOrchestrator.advance(session.id, AgentPhase.THINKING, turnsUsed = turns)
+
+            val completion = aiRepository.chat(
+                model = model,
+                messages = history,
+                tools = allowedTools.takeIf { it.isNotEmpty() }
+            ).getOrElse { error ->
+                subagentOrchestrator.fail(session.id, error.message ?: "Provider error")
+                return
+            }
+
+            val reply = completion.choices.firstOrNull()?.message
+            val calls = reply?.toolCalls
+            if (calls.isNullOrEmpty()) {
+                val summary = reply?.content?.trim().orEmpty()
+                subagentOrchestrator.advance(session.id, AgentPhase.SUMMARISING)
+                subagentOrchestrator.complete(
+                    session.id,
+                    summary.ifEmpty { "Finished without a summary." }
+                )
+                return
+            }
+
+            history += ChatRequestMessage(
+                role = "assistant",
+                content = reply.content.orEmpty()
+            )
+
+            for (call in calls) {
+                val name = call.function.name
+                val capability = capabilityFor(name)
+
+                // Refuse out-of-capability calls rather than executing them.
+                // The refusal is fed back as the tool result so the agent can
+                // adjust instead of silently producing nothing.
+                if (capability == null || !definition.allows(capability)) {
+                    history += ChatRequestMessage(
+                        role = "tool",
+                        content = "Refused: a ${definition.label} agent cannot call $name.",
+                        toolCallId = call.id
+                    )
+                    subagentOrchestrator.advance(
+                        session.id,
+                        AgentPhase.THINKING,
+                        AgentStep(
+                            index = session.steps.size,
+                            phase = AgentPhase.THINKING,
+                            label = "Blocked $name (not permitted)",
+                            finishedAt = System.currentTimeMillis(),
+                            isError = true
+                        )
+                    )
+                    continue
+                }
+
+                subagentOrchestrator.advance(session.id, phaseFor(capability))
+                val startedAt = System.currentTimeMillis()
+                val result = toolExecutor.execute(projectId, call)
+
+                subagentOrchestrator.advance(
+                    session.id,
+                    phaseFor(capability),
+                    AgentStep(
+                        index = session.steps.size,
+                        phase = phaseFor(capability),
+                        label = ToolPresentations.describe(
+                            name,
+                            subjectOf(call.function.arguments),
+                            isRunning = false
+                        ),
+                        startedAt = startedAt,
+                        finishedAt = System.currentTimeMillis(),
+                        isError = !result.success
+                    )
+                )
+
+                history += ChatRequestMessage(
+                    role = "tool",
+                    content = if (result.success) result.output else "Error: ${result.error}",
+                    toolCallId = call.id
+                )
+            }
+        }
+
+        // Out of turns. Almost always a loop rather than a task that genuinely
+        // needed more steps, so it is reported as such instead of as a failure.
+        subagentOrchestrator.advance(session.id, AgentPhase.EXHAUSTED, turnsUsed = turns)
+    }
+
+    /** Which capability a tool needs, or null if it is not a known tool. */
+    private fun capabilityFor(toolName: String): ToolCapability? = when (toolName) {
+        "read_file", "list_files", "search_files" -> ToolCapability.READ
+        "write_file", "delete_file", "create_folder", "rename_file",
+        "copy_file", "move_file", "search_replace", "patch_file" -> ToolCapability.WRITE
+        "run_command" -> ToolCapability.EXECUTE
+        "save_memory", "recall_memory", "list_memories",
+        "delete_memory", "update_memory" -> ToolCapability.MEMORY
+        "spawn_subagent" -> ToolCapability.DELEGATE
+        else -> null
+    }
+
+    private fun phaseFor(capability: ToolCapability): AgentPhase = when (capability) {
+        ToolCapability.READ -> AgentPhase.READING
+        ToolCapability.WRITE -> AgentPhase.EDITING
+        ToolCapability.EXECUTE -> AgentPhase.EXECUTING
+        else -> AgentPhase.THINKING
+    }
+
+    /** Best-effort subject for a step label: the path or command, if present. */
+    private fun subjectOf(rawArguments: String): String? {
+        val args = DelegationHandler.parseArgs(rawArguments) ?: return null
+        for (key in listOf("path", "file_path", "command", "query", "directory")) {
+            val value = runCatching {
+                args[key]?.jsonPrimitive?.content
+            }.getOrNull()
+            if (!value.isNullOrBlank()) return value
+        }
+        return null
+    }
+
+    /** Stop one delegated agent. */
+    fun stopSubagent(sessionId: String) = subagentOrchestrator.cancel(sessionId)
+
+    /** Stop every delegated agent still running. */
+    fun stopAllSubagents() = subagentOrchestrator.cancelAll()
+
+    /** Answer a subagent's pending approval request. */
+    fun resolveSubagentApproval(sessionId: String, approved: Boolean) =
+        subagentOrchestrator.resolveApproval(sessionId, approved)
+
+    /** Drop finished agent cards from the transcript. */
+    fun clearFinishedSubagents() = subagentOrchestrator.clearCompleted()
+
+    /**
+     * Answer the conversation-level approval.
+     *
+     * Dismissing the sheet calls this with false; there is no third state,
+     * because the agent is suspended inside the tool call until it has an
+     * answer and leaving it unanswered would hang the turn.
+     */
+    fun resolveApproval(approved: Boolean) {
+        _pendingApproval.value = null
+        approvalAnswer?.complete(approved)
+        approvalAnswer = null
+    }
+
+    /**
+     * Ask the user, and suspend until they answer.
+     *
+     * Not timed and not auto-dismissing: an approval that expires into a
+     * default is worse than no gate, because afterwards the user cannot tell
+     * whether they agreed or simply looked away.
+     */
+    private suspend fun awaitApproval(action: String, detail: String?): Boolean {
+        // A second request while one is open would orphan the first agent.
+        approvalAnswer?.let { return false }
+
+        val deferred = CompletableDeferred<Boolean>()
+        approvalAnswer = deferred
+        _pendingApproval.value = PendingApproval(
+            action = action,
+            detail = detail,
+            detailIsCode = detail?.contains('\n') == true
+        )
+        return try {
+            deferred.await()
+        } catch (cancellation: CancellationException) {
+            // Generation was stopped while the sheet was open: clear it so the
+            // next turn does not inherit a stale question.
+            _pendingApproval.value = null
+            approvalAnswer = null
+            throw cancellation
+        }
+    }
+
 }

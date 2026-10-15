@@ -1,5 +1,6 @@
 package com.codex.stormy.data.ai.tools
 
+import kotlinx.serialization.json.jsonPrimitive
 import com.codex.stormy.data.ai.ToolCallResponse
 import com.codex.stormy.data.ai.memory.MemoryCategory
 import com.codex.stormy.data.ai.memory.MemoryImportance
@@ -101,6 +102,13 @@ class ToolExecutor(
     // Current project path for Git operations
     private var currentProjectPath: File? = null
 
+    /**
+     * Shell executor, rebuilt whenever the project changes so its default
+     * working directory is always the current project root. The model cannot
+     * change the working directory -- see ShellTools.RUN_COMMAND.
+     */
+    private var shellExecutor: ShellToolExecutor? = null
+
     // Advanced tool executor for code analysis, batch ops, etc.
     private val advancedToolExecutor = AdvancedToolExecutor(projectRepository)
 
@@ -112,6 +120,7 @@ class ToolExecutor(
      */
     fun setProjectPath(path: File) {
         currentProjectPath = path
+        shellExecutor = ShellToolExecutor(defaultWorkingDir = path)
         advancedToolExecutor.setProjectPath(path)
     }
 
@@ -169,6 +178,7 @@ class ToolExecutor(
                 "read_file" -> executeReadFile(projectId, arguments)
                 "write_file" -> executeWriteFile(projectId, arguments)
                 "list_files" -> executeListFiles(projectId, arguments)
+                "run_command" -> executeRunCommand(arguments)
                 "delete_file" -> executeDeleteFile(projectId, arguments)
                 "create_folder" -> executeCreateFolder(projectId, arguments)
                 "rename_file" -> executeRenameFile(projectId, arguments)
@@ -354,6 +364,53 @@ class ToolExecutor(
             learningScope.cancel("ToolExecutor destroyed")
         } catch (e: Exception) {
             android.util.Log.w("ToolExecutor", "Error cancelling learning scope", e)
+        }
+    }
+
+    /**
+     * Run a shell command in the project root.
+     *
+     * Every refusal is reported back verbatim rather than flattened into a
+     * generic failure: the model can only avoid a boundary it has been told
+     * about, and the user reads these messages too.
+     */
+    private suspend fun executeRunCommand(args: JsonObject): ToolResult {
+        val command = args.getPathArg("command")?.trim()
+            ?: return ToolResult(false, "", "command is required")
+
+        val executor = shellExecutor
+            ?: return ToolResult(
+                false, "",
+                "No project is open, so there is no directory to run commands in."
+            )
+
+        val timeoutSeconds = runCatching {
+            args["timeout_seconds"]?.jsonPrimitive?.content?.toLongOrNull()
+        }.getOrNull() ?: 30L
+
+        val result = executor.execute(
+            command = command,
+            timeout = timeoutSeconds.coerceIn(1L, 300L) * 1000L
+        )
+
+        val output = result.combinedOutput.trim()
+        return when {
+            result.blocked -> ToolResult(false, "", result.stderr)
+            result.timedOut -> ToolResult(
+                false,
+                output,
+                "Command timed out after ${timeoutSeconds}s and was killed. " +
+                    "Commands are not interactive -- anything waiting for input will do this."
+            )
+            result.isSuccess -> ToolResult(
+                true,
+                output.ifEmpty { "Command succeeded with no output." }
+            )
+            else -> ToolResult(
+                false,
+                output,
+                "Exited with code ${result.exitCode}."
+            )
         }
     }
 

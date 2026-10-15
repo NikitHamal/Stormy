@@ -1,9 +1,9 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -93,7 +93,7 @@ internal fun EditProjectDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = CodeXCorners.medium
                 )
 
                 OutlinedTextField(
@@ -104,7 +104,7 @@ internal fun EditProjectDialog(
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = CodeXCorners.medium
                 )
             }
         },

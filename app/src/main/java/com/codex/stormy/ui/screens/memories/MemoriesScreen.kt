@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.memories
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -27,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -103,7 +103,7 @@ fun MemoriesScreen(
                     Column {
                         Text(
                             text = "Memories",
-                            style = MaterialTheme.typography.titleLarge
+                            style = MaterialTheme.typography.titleLargeEmphasized
                         )
                         Text(
                             text = "AI learned information",
@@ -228,7 +228,7 @@ private fun SearchBar(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(CodeXCorners.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
@@ -356,7 +356,7 @@ private fun ProjectMemoryCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = RoundedCornerShape(16.dp)
+        shape = CodeXCorners.large
     ) {
         Column {
             // Header
@@ -371,7 +371,7 @@ private fun ProjectMemoryCard(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CodeXCorners.medium)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
@@ -494,7 +494,7 @@ private fun MemoryItem(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp),
+        shape = CodeXCorners.medium,
         tonalElevation = 1.dp
     ) {
         Column(
@@ -507,7 +507,7 @@ private fun MemoryItem(
                 // Memory key badge
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(CodeXCorners.small)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
@@ -623,7 +623,7 @@ private fun AddMemoryDialog(
         title = {
             Text(
                 text = "Add Memory",
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLargeEmphasized
             )
         },
         text = {
@@ -698,7 +698,7 @@ private fun DeleteConfirmationDialog(
         title = {
             Text(
                 text = "Delete Memory",
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLargeEmphasized
             )
         },
         text = {

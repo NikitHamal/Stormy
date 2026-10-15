@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.chat
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -79,7 +80,7 @@ fun ModelSelectorSheet(
                     .padding(vertical = 12.dp)
                     .width(40.dp)
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(CodeXCorners.tiny)
                     .background(MaterialTheme.colorScheme.outlineVariant)
             )
         },
@@ -213,7 +214,7 @@ private fun CompactModelCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = CodeXCorners.medium,
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         } else {

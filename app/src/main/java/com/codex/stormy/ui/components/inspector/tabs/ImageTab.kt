@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.inspector.tabs
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -118,7 +118,7 @@ private fun ImageSourceEditor(
         // Current source preview (truncated)
         if (currentSrc.isNotEmpty()) {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = CodeXCorners.small,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Text(
@@ -164,7 +164,7 @@ private fun ImageSourceEditor(
             }),
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CodeXCorners.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         )
@@ -180,7 +180,7 @@ private fun ImageSourceEditor(
                         elementHtml = elementHtml
                     ))
                 },
-                shape = RoundedCornerShape(6.dp),
+                shape = CodeXCorners.small,
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Row(
@@ -210,7 +210,7 @@ private fun ImageSourceEditor(
 private fun PickFromDeviceButton(onPickImage: (() -> Unit)?) {
     Surface(
         onClick = { onPickImage?.invoke() },
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Row(
@@ -270,7 +270,7 @@ private fun AltTextEditor(
         }),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     )

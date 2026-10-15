@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.code
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
@@ -207,7 +207,7 @@ private fun ImagePreviewContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 10f),
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             AsyncImage(
@@ -246,7 +246,7 @@ private fun ImageMetadataCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = CodeXCorners.medium
     ) {
         Column(
             modifier = Modifier.padding(16.dp)

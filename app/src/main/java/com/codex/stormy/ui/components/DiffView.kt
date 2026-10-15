@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Done
@@ -96,9 +96,9 @@ fun DiffView(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp)),
+            .clip(CodeXCorners.medium),
         color = extendedColors.diffBackground,
-        shape = RoundedCornerShape(12.dp)
+        shape = CodeXCorners.medium
     ) {
         Column {
             // Header
@@ -224,7 +224,7 @@ private fun DiffBadge(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
+            .clip(CodeXCorners.tiny)
             .background(color.copy(alpha = 0.3f))
             .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {

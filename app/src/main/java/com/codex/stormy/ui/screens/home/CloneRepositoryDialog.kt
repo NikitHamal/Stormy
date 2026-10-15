@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Info
@@ -139,7 +139,7 @@ fun CloneRepositoryDialog(
                     singleLine = true,
                     enabled = !isCloning,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = CodeXCorners.medium
                 )
 
                 OutlinedTextField(
@@ -150,7 +150,7 @@ fun CloneRepositoryDialog(
                     singleLine = true,
                     enabled = !isCloning,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = CodeXCorners.medium
                 )
 
                 Row(
@@ -257,7 +257,7 @@ fun CloneRepositoryDialog(
                     }
                 },
                 enabled = !isCloning,
-                shape = RoundedCornerShape(12.dp)
+                shape = CodeXCorners.medium
             ) {
                 if (isCloning) {
                     ExpressiveLoadingIndicator(
@@ -277,6 +277,6 @@ fun CloneRepositoryDialog(
                 Text("Cancel")
             }
         },
-        shape = RoundedCornerShape(24.dp)
+        shape = CodeXCorners.xLarge
     )
 }

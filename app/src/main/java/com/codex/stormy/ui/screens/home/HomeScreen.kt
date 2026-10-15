@@ -1,5 +1,15 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.theme.CodeXCorners
+import androidx.compose.material3.Surface
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.theme.Elevation
+import com.codex.stormy.ui.theme.ExpressiveShapes
+import com.codex.stormy.ui.components.expressive.expressivePress
+import com.codex.stormy.ui.components.agent.AgentVisuals
+import androidx.compose.material3.ripple
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,7 +39,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -390,7 +399,7 @@ private fun SearchBar(
             }
         },
         singleLine = true,
-        shape = RoundedCornerShape(16.dp),
+        shape = CodeXCorners.large,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -412,26 +421,32 @@ private fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
+        // A circle here is the one shape that says nothing. This is the first
+        // screen on a fresh install, so it is also the app's first chance to
+        // show that shape carries meaning in this UI -- the same cookie
+        // silhouette that marks an Explore agent and a project later on.
+        Surface(
+            modifier = Modifier.size(88.dp),
+            shape = ExpressiveShapes.cookie9(),
+            color = MaterialTheme.colorScheme.primaryContainer
         ) {
-            Icon(
-                imageVector = Icons.Outlined.Code,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Outlined.Code,
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconLarge * 1.5f),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(Space.xl))
 
         Text(
             text = context.getString(R.string.home_empty_title),
-            style = MaterialTheme.typography.titleLarge,
+            // Emphasized headline: an empty state has nothing competing with
+            // it, so this is where the type scale should be most confident.
+            style = MaterialTheme.typography.headlineSmallEmphasized,
             color = MaterialTheme.colorScheme.onBackground
         )
 
@@ -548,7 +563,7 @@ private fun SwipeableProjectCard(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(CodeXCorners.large)
                     .background(
                         brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
                             colors = listOf(
@@ -579,48 +594,68 @@ private fun SwipeableProjectCard(
             }
         },
         content = {
+            val interaction = remember { MutableInteractionSource() }
             Card(
-                modifier = Modifier.clickable(onClick = onClick),
-                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .expressivePress(interaction)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = ripple(),
+                        onClick = onClick
+                    ),
+                shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                // Flat. M3 separates surfaces by tonal level, not shadow, and a
+                // list of shadowed cards is the fastest way to make an M3 app
+                // look like Material 1.
+                elevation = CardDefaults.cardElevation(defaultElevation = Elevation.flat)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(Space.lg),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Project icon
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
+                    // Every project used to get the same folder glyph in the
+                    // same rounded square, so a list of them had nothing to
+                    // scan by -- only the name differed, and names in a list
+                    // all read as one texture. A silhouette derived from the
+                    // project id gives each one a stable, recognisable mark
+                    // that survives reordering and relaunching.
+                    val accentSlot = remember(project.id) {
+                        (project.id.hashCode().mod(ProjectAccentCount))
+                    }
+                    val accent = AgentVisuals.accent(accentSlot)
+                    Surface(
+                        modifier = Modifier.size(Sizes.avatarLarge),
+                        shape = ExpressiveShapes.forIndex(accentSlot),
+                        color = accent.container
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.FolderOpen,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = project.name.firstOrNull()?.uppercase() ?: "?",
+                                style = MaterialTheme.typography.titleMediumEmphasized,
+                                color = accent.onContainer
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(Space.lg))
 
                     // Project info
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = project.name,
-                            style = MaterialTheme.typography.titleMedium,
+                            // Emphasized: the name is the only thing the user
+                            // is looking for in this row.
+                            style = MaterialTheme.typography.titleMediumEmphasized,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (project.description.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = project.description,
                                 style = MaterialTheme.typography.bodySmall,
@@ -629,7 +664,7 @@ private fun SwipeableProjectCard(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(Space.xxs))
                         Text(
                             text = project.formattedLastOpened,
                             style = MaterialTheme.typography.labelSmall,
@@ -691,3 +726,8 @@ private fun SwipeableProjectCard(
     )
 }
 
+/**
+ * Number of distinct project marks. Matches the palette and shape lists in
+ * AgentVisuals/ExpressiveShapes so colour and silhouette stay paired.
+ */
+private const val ProjectAccentCount = 5

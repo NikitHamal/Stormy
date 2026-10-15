@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.git
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -89,7 +90,7 @@ fun CIStatusBadge(
 
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
+        shape = CodeXCorners.large,
         color = color.copy(alpha = 0.15f)
     ) {
         Row(
@@ -130,7 +131,7 @@ fun CIStatusIndicator(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .clickable(onClick = onClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,

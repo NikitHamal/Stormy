@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.inspector
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -101,12 +101,12 @@ fun ColorPropertyEditor(
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(CodeXCorners.small)
                     .background(parsedColor)
                     .border(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = CodeXCorners.small
                     )
             )
 
@@ -114,7 +114,7 @@ fun ColorPropertyEditor(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(CodeXCorners.small)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
@@ -198,7 +198,7 @@ fun SliderPropertyEditor(
 
             // Value display with minimum width to prevent overlap
             Surface(
-                shape = RoundedCornerShape(4.dp),
+                shape = CodeXCorners.tiny,
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                 modifier = Modifier.widthIn(min = 48.dp)
             ) {
@@ -275,7 +275,7 @@ fun TextInputProperty(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
+                .clip(CodeXCorners.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
@@ -373,12 +373,12 @@ fun SpacingBoxEditor(
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(CodeXCorners.tiny)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                     .border(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                        shape = RoundedCornerShape(4.dp)
+                        shape = CodeXCorners.tiny
                     )
             )
 
@@ -414,7 +414,7 @@ private fun SpacingInput(
     Box(
         modifier = Modifier
             .width(40.dp)
-            .clip(RoundedCornerShape(4.dp))
+            .clip(CodeXCorners.tiny)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 4.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
@@ -472,7 +472,7 @@ fun OptionChip(
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(6.dp),
+        shape = CodeXCorners.small,
         color = backgroundColor,
         modifier = modifier
     ) {
@@ -508,7 +508,7 @@ fun TextContentEditor(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CodeXCorners.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(12.dp)
         ) {
@@ -528,7 +528,7 @@ fun TextContentEditor(
         // Apply button
         Surface(
             onClick = onApply,
-            shape = RoundedCornerShape(6.dp),
+            shape = CodeXCorners.small,
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Row(
@@ -572,7 +572,7 @@ fun TogglePropertyEditor(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .background(backgroundColor)
             .clickable { onToggle(!isEnabled) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -589,7 +589,7 @@ fun TogglePropertyEditor(
         Box(
             modifier = Modifier
                 .size(18.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .clip(CodeXCorners.tiny)
                 .background(
                     if (isEnabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
