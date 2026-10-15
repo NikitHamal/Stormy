@@ -1,23 +1,20 @@
 package com.codex.stormy.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
     primary = LightPrimary,
@@ -93,6 +90,7 @@ private val DarkColorScheme = darkColorScheme(
     surfaceBright = DarkSurfaceBright
 )
 
+@Immutable
 data class ExtendedColors(
     val chatUserBubble: Color,
     val chatUserText: Color,
@@ -180,10 +178,19 @@ val DarkExtendedColors = ExtendedColors(
 
 val LocalExtendedColors = staticCompositionLocalOf { LightExtendedColors }
 
+/**
+ * Whether components animate with the Expressive motion scheme or the standard
+ * one. Expressive uses springier, slightly overshooting spatial specs; standard
+ * is the calmer M3 baseline. Exposed as a setting because the springy feel is
+ * polarising and because reduced-motion users need a way out.
+ */
+enum class MotionStyle { Expressive, Standard }
+
 @Composable
 fun CodeXTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
+    motionStyle: MotionStyle = MotionStyle.Expressive,
     content: @Composable () -> Unit
 ) {
     val colorScheme: ColorScheme = when {
@@ -197,24 +204,18 @@ fun CodeXTheme(
 
     val extendedColors = if (darkTheme) DarkExtendedColors else LightExtendedColors
 
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            @Suppress("DEPRECATION")
-            window.statusBarColor = Color.Transparent.toArgb()
-            @Suppress("DEPRECATION")
-            window.navigationBarColor = Color.Transparent.toArgb()
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
-            }
-        }
-    }
+    // System bar handling lives in the Activity via enableEdgeToEdge(). Setting
+    // window.statusBarColor here was both deprecated (no-op from API 35) and the
+    // wrong layer -- it fired a SideEffect on every theme recomposition.
 
     CompositionLocalProvider(LocalExtendedColors provides extendedColors) {
         MaterialTheme(
             colorScheme = colorScheme,
+            motionScheme = when (motionStyle) {
+                MotionStyle.Expressive -> MotionScheme.expressive()
+                MotionStyle.Standard -> MotionScheme.standard()
+            },
+            shapes = CodeXShapes,
             typography = CodeXTypography,
             content = content
         )
