@@ -1,5 +1,8 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.data.ai.context.ContextCompactor
+import com.codex.stormy.data.ai.context.ContextBreakdownBuilder
+import com.codex.stormy.data.ai.context.ContextBreakdown
 import com.codex.stormy.data.ai.ReasoningEffort
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
@@ -137,7 +140,14 @@ data class EditorUiState(
     val agentPlan: com.codex.stormy.data.ai.agents.AgentPlan? = null,
     /** Delegated work, live and recently finished. */
     val agentSessions: List<com.codex.stormy.data.ai.agents.AgentSession> = emptyList(),
-    val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    /** Where the context window is going, for the context sheet. */
+    val contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
+    val isCompacting: Boolean = false,
+    /** Percentage freed by the last compaction, for a one-line confirmation. */
+    val lastCompactionSavedPercent: Int? = null,
+    /** How many messages a compaction would fold into the summary. */
+    val compactableMessageCount: Int = 0
 )
 
 /**
@@ -224,6 +234,12 @@ class EditorViewModel(
     private val _contextTokenCount = MutableStateFlow(0)
     private val _contextMaxTokens = MutableStateFlow(8000) // Default, will be updated when model is selected
     private val _contextUsageLevel = MutableStateFlow(ContextUsageLevel.LOW)
+    private val _contextBreakdown = MutableStateFlow(ContextBreakdown.Empty)
+    private val _isCompacting = MutableStateFlow(false)
+    private val _lastCompactionSavedPercent = MutableStateFlow<Int?>(null)
+
+    private val contextCompactor = ContextCompactor(contextWindowManager)
+    private val breakdownBuilder = ContextBreakdownBuilder(contextWindowManager)
 
     // Task planning state
     private val _taskList = MutableStateFlow<List<TodoItem>>(emptyList())
@@ -304,6 +320,15 @@ class EditorViewModel(
         state.copy(agentSessions = sessions)
     }.combine(preferencesRepository.reasoningEffort) { state, effort ->
         state.copy(reasoningEffort = effort)
+    }.combine(_contextBreakdown) { state, breakdown ->
+        state.copy(
+            contextBreakdown = breakdown,
+            compactableMessageCount = contextCompactor.partition(_messages.value).older.size
+        )
+    }.combine(_isCompacting) { state, compacting ->
+        state.copy(isCompacting = compacting)
+    }.combine(_lastCompactionSavedPercent) { state, saved ->
+        state.copy(lastCompactionSavedPercent = saved)
     }.combine(undoRedoManager.state) { state, undoRedoState ->
         state.copy(undoRedoState = undoRedoState)
     }.combine(_taskList) { state, taskList ->
@@ -1473,6 +1498,9 @@ class EditorViewModel(
 
         _contextTokenCount.value = currentTokens
         _contextMaxTokens.value = maxTokens
+        // Breakdown rides on the same hook, so the meter and the sheet can
+        // never disagree about how full the window is.
+        refreshContextBreakdown()
         _contextUsageLevel.value = when {
             usage < 0.5f -> ContextUsageLevel.LOW
             usage < 0.75f -> ContextUsageLevel.MEDIUM
@@ -2311,6 +2339,78 @@ class EditorViewModel(
 
     fun setReasoningEffort(effort: ReasoningEffort) {
         viewModelScope.launch { preferencesRepository.setReasoningEffort(effort) }
+    }
+
+    /**
+     * Recompute the context breakdown.
+     *
+     * Called after each turn rather than on every token: the numbers are
+     * estimates and the sheet is not open during streaming, so recomputing per
+     * delta would burn CPU to animate a figure nobody is reading.
+     */
+    private fun refreshContextBreakdown() {
+        val model = _currentModel.value ?: return
+        val systemPrompt = _messageHistory.firstOrNull { it.role == "system" }?.content
+        val tools = if (_agentMode.value) {
+            StormyTools.getAllTools() + DelegationTools.all
+        } else {
+            null
+        }
+        _contextBreakdown.value = breakdownBuilder.build(
+            systemPrompt = systemPrompt,
+            tools = tools,
+            messages = _messageHistory,
+            maxTokens = contextWindowManager.getAvailableTokens(model)
+        )
+    }
+
+    /**
+     * Summarise the older part of the conversation and replace it in place.
+     *
+     * Runs through the selected model with OpenCode's anchored-summary prompt.
+     * A failed compaction leaves the conversation untouched -- a half-applied
+     * compaction that dropped messages without producing a summary would lose
+     * work irrecoverably, so nothing is removed until a usable summary is in
+     * hand.
+     */
+    fun compactContext() {
+        val model = _currentModel.value ?: return
+        if (_isCompacting.value) return
+
+        val partition = contextCompactor.partition(_messages.value)
+        if (!partition.canCompact) return
+
+        viewModelScope.launch {
+            _isCompacting.value = true
+            try {
+                val previous = contextCompactor.extractPreviousSummary(_messageHistory)
+                val request = contextCompactor.buildSummaryRequest(partition.older, previous)
+
+                val completion = aiRepository.chat(
+                    model = model,
+                    messages = request,
+                    maxTokens = ContextCompactor.SUMMARY_OUTPUT_TOKENS
+                ).getOrElse { error ->
+                    _error.value = "Could not compact: ${error.message}"
+                    return@launch
+                }
+
+                val summary = completion.choices.firstOrNull()?.message?.content.orEmpty()
+                val applied = contextCompactor.applySummary(_messages.value, summary)
+                if (applied == null) {
+                    _error.value = "Compaction produced no summary; nothing was changed."
+                    return@launch
+                }
+
+                val (compactedHistory, result) = applied
+                _messageHistory.clear()
+                _messageHistory.addAll(compactedHistory)
+                _lastCompactionSavedPercent.value = result.savedPercent
+                refreshContextBreakdown()
+            } finally {
+                _isCompacting.value = false
+            }
+        }
     }
 
 }
