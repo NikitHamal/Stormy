@@ -1,9 +1,21 @@
 package com.codex.stormy.ui.components.chat
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.theme.ExpressiveShapes
+import com.codex.stormy.ui.theme.Elevation
+import com.codex.stormy.ui.components.expressive.expressivePress
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,7 +37,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,7 +44,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -94,8 +106,12 @@ fun ModernChatInput(
     agentMode: Boolean = true,
     currentModel: AiModel,
     onModelClick: () -> Unit,
+    onSettingsClick: () -> Unit = {},
+    onContextClick: () -> Unit = {},
+    contextPercent: Int = 0,
+    contextIsCritical: Boolean = false,
     fileTree: List<FileTreeNode> = emptyList(),
-    placeholder: String = "Ask Stormy anything...",
+    placeholder: String = "Ask anything, or describe what to build",
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -136,186 +152,245 @@ fun ModernChatInput(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .animateContentSize(animationSpec = tween(200)),
-            shape = RoundedCornerShape(20.dp),
+                .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+            shape = CodeXCorners.xLarge,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
-            tonalElevation = 1.dp,
-            shadowElevation = 2.dp
+            // Flat. The bar already separates from the transcript by tonal
+            // level; a shadow under a full-width surface at the bottom edge
+            // just darkens the gap.
+            tonalElevation = Elevation.flat,
+            shadowElevation = Elevation.flat,
+            border = BorderStroke(
+                Sizes.hairline,
+                MaterialTheme.colorScheme.outlineVariant
+            )
         ) {
-            Column {
-                // Context actions bar (hidden by default)
-                AnimatedVisibility(
-                    visible = showContextActions,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    ContextActionsBar(
-                        onAddFile = { },
-                        onAddCode = { },
-                        onAddImage = { },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                }
-
-                // Main input area
-                Row(
+            Column(modifier = Modifier.padding(Space.md)) {
+                // Text first, controls beneath.
+                //
+                // The old layout put the model chip *above* the field and the
+                // send button beside it, which left the text in a narrow column
+                // between two control stacks. Typing is the primary act here,
+                // so it gets the full width and the top position; everything
+                // else sits on one row below where it does not compete.
+                BasicTextField(
+                    value = textFieldValue,
+                    onValueChange = { newValue ->
+                        textFieldValue = newValue
+                        onValueChange(newValue.text)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Left side actions
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Add context button
-                        InputActionButton(
-                            icon = if (showContextActions) Icons.Outlined.ExpandLess else Icons.Outlined.Add,
-                            contentDescription = "Add context",
-                            onClick = { showContextActions = !showContextActions },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Text input field
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        // Model selector chip
-                        ModelChip(
-                            model = currentModel,
-                            onClick = onModelClick,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-
-                        // Text input with @ mention support
-                        BasicTextField(
-                            value = textFieldValue,
-                            onValueChange = { newValue ->
-                                textFieldValue = newValue
-                                onValueChange(newValue.text)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 24.dp, max = 120.dp)
-                                .focusRequester(focusRequester),
-                            enabled = isEnabled,
-                            textStyle = TextStyle(
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp,
-                                lineHeight = 22.sp
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                            keyboardActions = KeyboardActions(
-                                onSend = {
-                                    if (textFieldValue.text.isNotBlank() && isEnabled) {
-                                        onSend()
-                                        focusManager.clearFocus()
-                                    }
-                                }
-                            ),
-                            decorationBox = { innerTextField ->
-                                Box {
-                                    if (textFieldValue.text.isEmpty()) {
-                                        Text(
-                                            text = placeholder,
-                                            style = TextStyle(
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                fontSize = 15.sp
-                                            )
-                                        )
-                                    }
-                                    innerTextField()
-                                }
+                        .padding(horizontal = Space.sm, vertical = Space.xs)
+                        .focusRequester(focusRequester),
+                    enabled = isEnabled,
+                    // Capped at three lines, then it scrolls. An input that
+                    // grows without limit eventually owns the screen and
+                    // pushes the conversation it refers to out of view.
+                    maxLines = 3,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (textFieldValue.text.isNotBlank() && isEnabled) {
+                                onSend()
+                                focusManager.clearFocus()
                             }
-                        )
-
-                        // Agent mode indicator
-                        AnimatedVisibility(
-                            visible = agentMode,
-                            enter = fadeIn(),
-                            exit = fadeOut()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(top = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.AutoAwesome,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(12.dp),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                )
+                        }
+                    ),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (textFieldValue.text.isEmpty()) {
                                 Text(
-                                    text = "Agent mode",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    fontSize = 11.sp
+                                    text = placeholder,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    // One line, ellipsised. A wrapping hint
+                                    // makes the empty bar taller than the
+                                    // filled one, so the bar jumps the moment
+                                    // the user starts typing.
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            innerTextField()
                         }
+                    }
+                )
+
+                Spacer(Modifier.height(Space.sm))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Space.xs)
+                ) {
+                    InputActionButton(
+                        icon = Icons.Outlined.Tune,
+                        contentDescription = "Chat settings",
+                        onClick = onSettingsClick,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    ModelChip(
+                        model = currentModel,
+                        onClick = onModelClick
+                    )
+
+                    Spacer(Modifier.weight(1f))
+
+                    // Context meter. A ring rather than a number alone: it is
+                    // glanceable at this size, and it only earns its place on
+                    // the bar once there is something to notice.
+                    AnimatedVisibility(
+                        // Always shown once a conversation exists. Hiding it
+                        // below a threshold meant the number appeared out of
+                        // nowhere at the point it became a problem, which is
+                        // the worst moment to introduce a new control.
+                        visible = contextPercent > 0,
+                        enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                            scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                        exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                            scaleOut(MaterialTheme.motionScheme.fastSpatialSpec())
+                    ) {
+                        ContextMeter(
+                            percent = contextPercent,
+                            isCritical = contextIsCritical,
+                            onClick = onContextClick
+                        )
                     }
 
-                    // Right side actions
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Send or Stop button
-                        AnimatedVisibility(
-                            visible = textFieldValue.text.isNotBlank() || isProcessing,
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut()
-                        ) {
-                            if (isProcessing && onStop != null) {
-                                // Stop button when processing
-                                IconButton(
-                                    onClick = onStop,
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                                    ),
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Stop,
-                                        contentDescription = "Stop generation",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            } else {
-                                // Send button
-                                IconButton(
-                                    onClick = {
-                                        if (textFieldValue.text.isNotBlank() && isEnabled) {
-                                            onSend()
-                                            focusManager.clearFocus()
-                                        }
-                                    },
-                                    enabled = isEnabled && textFieldValue.text.isNotBlank(),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                    ),
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Send,
-                                        contentDescription = "Send message",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    SendButton(
+                        canSend = textFieldValue.text.isNotBlank() && isEnabled,
+                        isProcessing = isProcessing,
+                        onSend = {
+                            onSend()
+                            focusManager.clearFocus()
+                        },
+                        onStop = onStop
+                    )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Send, or stop while generating.
+ *
+ * One control in two states rather than two controls: the stop button replaces
+ * send in place, so the target the user is already aiming at is the one that
+ * interrupts. A separate stop button elsewhere means hunting for it mid-stream.
+ */
+@Composable
+private fun SendButton(
+    canSend: Boolean,
+    isProcessing: Boolean,
+    onSend: () -> Unit,
+    onStop: (() -> Unit)?
+) {
+    val interaction = remember { MutableInteractionSource() }
+
+    val container by animateColorAsState(
+        when {
+            isProcessing -> MaterialTheme.colorScheme.surfaceContainerHighest
+            canSend -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "sendContainer"
+    )
+    val content by animateColorAsState(
+        when {
+            isProcessing -> MaterialTheme.colorScheme.onSurface
+            canSend -> MaterialTheme.colorScheme.onPrimary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "sendContent"
+    )
+
+    Surface(
+        onClick = { if (isProcessing) onStop?.invoke() else onSend() },
+        enabled = isProcessing || canSend,
+        modifier = Modifier
+            .size(Sizes.minTouchTarget)
+            .expressivePress(interaction),
+        shape = ExpressiveShapes.circle(),
+        color = container,
+        contentColor = content,
+        interactionSource = interaction
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = if (isProcessing) {
+                    Icons.Outlined.Stop
+                } else {
+                    Icons.AutoMirrored.Filled.Send
+                },
+                contentDescription = if (isProcessing) "Stop generating" else "Send message",
+                modifier = Modifier.size(Sizes.icon)
+            )
+        }
+    }
+}
+
+/**
+ * Context fill, as a ring with the percentage inside.
+ *
+ * Tapping opens the breakdown, so the meter is the entry point to the thing
+ * that explains it rather than a read-only badge the user cannot act on.
+ */
+@Composable
+private fun ContextMeter(
+    percent: Int,
+    isCritical: Boolean,
+    onClick: () -> Unit
+) {
+    val sweep by animateFloatAsState(
+        targetValue = (percent / 100f).coerceIn(0f, 1f),
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "contextSweep"
+    )
+    val ringColor = if (isCritical) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(Sizes.minTouchTarget - Space.sm),
+        shape = ExpressiveShapes.circle(),
+        color = Color.Transparent
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.size(Sizes.iconLarge)) {
+                val stroke = 3.dp.toPx()
+                drawArc(
+                    color = trackColor,
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = ringColor,
+                    startAngle = -90f,
+                    sweepAngle = 360f * sweep,
+                    useCenter = false,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+            }
+            Text(
+                text = "$percent",
+                style = MaterialTheme.typography.labelSmall,
+                color = ringColor
+            )
         }
     }
 }
@@ -331,13 +406,13 @@ private fun ModelChip(
 ) {
     val rotationAngle by animateFloatAsState(
         targetValue = 0f,
-        animationSpec = tween(200),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "chevron_rotation"
     )
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
         modifier = modifier
     ) {
@@ -350,8 +425,11 @@ private fun ModelChip(
             Icon(
                 imageVector = when {
                     model.isThinkingModel -> Icons.Outlined.Psychology
-                    model.supportsToolCalls -> Icons.Outlined.AutoAwesome
-                    else -> Icons.Outlined.AutoAwesome
+                    // A wrench for tool use, a bolt for plain completion.
+                    // Both used to be the same sparkle, which made the icon
+                    // decorative rather than informative.
+                    model.supportsToolCalls -> Icons.Outlined.Handyman
+                    else -> Icons.Outlined.Bolt
                 },
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
@@ -430,7 +508,7 @@ private fun ContextActionChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
     ) {

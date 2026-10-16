@@ -1,6 +1,7 @@
 package com.codex.stormy.ui.screens.settings
 
-import android.os.Build
+import com.codex.stormy.ui.theme.CodeXCorners
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,12 +15,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.FormatSize
@@ -54,20 +55,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.BuildConfig
 import com.codex.stormy.R
+import com.codex.stormy.data.ai.AiProvider
+import com.codex.stormy.data.ai.ApiKeyRequirement
 import com.codex.stormy.data.repository.ThemeMode
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
     onNavigateToAiModels: () -> Unit = {},
     onNavigateToMemories: () -> Unit = {},
-    onNavigateToGitSettings: () -> Unit = {},
+    onNavigateToGitSettings: () -> Unit,
+    onNavigateToProviders: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -79,7 +85,6 @@ fun SettingsScreen(
                 title = {
                     Text(
                         text = context.getString(R.string.settings_title),
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -115,16 +120,11 @@ fun SettingsScreen(
                     onThemeSelected = viewModel::setThemeMode
                 )
 
-                // Dynamic Colors (Android 12+)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    SettingsToggle(
-                        icon = Icons.Outlined.Palette,
-                        title = "Dynamic Colors",
-                        description = "Use system color palette",
-                        checked = uiState.dynamicColors,
-                        onCheckedChange = viewModel::setDynamicColors
-                    )
-                }
+                // The Dynamic Colors toggle was removed. Material You derives
+                // a scheme from the wallpaper, which injects an arbitrary hue
+                // over every surface and silently undoes the monochrome
+                // direction -- in practice a blue wallpaper turned the whole
+                // app blue. See the note in CodeXTheme.
             }
 
             // Editor Section
@@ -176,28 +176,15 @@ fun SettingsScreen(
                     onClick = onNavigateToMemories
                 )
 
-                ApiKeyField(
-                    title = "Gemini API Key",
-                    value = uiState.geminiApiKey,
-                    onValueChange = viewModel::setGeminiApiKey
-                )
-
-                ApiKeyField(
-                    title = "NVIDIA API Key",
-                    value = uiState.nvidiaApiKey,
-                    onValueChange = viewModel::setNvidiaApiKey
-                )
-
-                ApiKeyField(
-                    title = "OpenRouter API Key",
-                    value = uiState.openRouterApiKey,
-                    onValueChange = viewModel::setOpenRouterApiKey
-                )
-
-                ApiKeyField(
-                    title = "DeepInfra API Key (Optional)",
-                    value = uiState.deepInfraApiKey,
-                    onValueChange = viewModel::setDeepInfraApiKey
+                // The key fields moved to their own screen. Stacked password
+                // inputs gave no sense of which providers were usable, which
+                // needed a key, or where a key came from -- the user had to
+                // already know.
+                SettingsNavItem(
+                    icon = Icons.Outlined.Key,
+                    title = "AI providers",
+                    subtitle = providerSummary(uiState.apiKeys),
+                    onClick = onNavigateToProviders
                 )
             }
 
@@ -239,29 +226,61 @@ fun SettingsScreen(
 private fun ApiKeyField(
     title: String,
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    note: String = "",
+    signupUrl: String = "",
+    masked: Boolean = true
 ) {
+    val uriHandler = LocalUriHandler.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                // Emphasized role: stresses the provider name against the note
+                // below it without changing its size.
+                style = MaterialTheme.typography.bodyMediumEmphasized,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f)
+            )
+            if (value.isNotBlank()) {
+                Icon(
+                    imageVector = Icons.Outlined.CheckCircle,
+                    contentDescription = "Key saved",
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        if (note.isNotBlank()) {
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = PoppinsFontFamily)
+            shape = MaterialTheme.shapes.large,
+            visualTransformation =
+                if (masked) PasswordVisualTransformation() else VisualTransformation.None,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (masked) KeyboardType.Password else KeyboardType.Uri
+            ),
+            textStyle = MaterialTheme.typography.bodySmall
         )
+        if (signupUrl.isNotBlank()) {
+            TextButton(onClick = { uriHandler.openUri(signupUrl) }) {
+                Text("Get a key", style = MaterialTheme.typography.labelMedium)
+            }
+        }
     }
 }
 
@@ -280,7 +299,6 @@ private fun SettingsSection(
         Text(
             text = title,
             style = MaterialTheme.typography.labelLarge,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 4.dp)
@@ -288,7 +306,7 @@ private fun SettingsSection(
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = CodeXCorners.large,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 0.dp
         ) {
@@ -329,7 +347,6 @@ private fun ThemeSelector(
             Text(
                 text = "Theme",
                 style = MaterialTheme.typography.bodyLarge,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -368,7 +385,7 @@ private fun ThemeChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = CodeXCorners.medium,
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
@@ -426,14 +443,12 @@ private fun FontSizeSetting(
                 Text(
                     text = "Font Size",
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
             Text(
                 text = "${currentSize.toInt()}sp",
                 style = MaterialTheme.typography.labelLarge,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -505,14 +520,12 @@ private fun SettingsToggle(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (description != null) {
                     Text(
                         text = description,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -563,14 +576,12 @@ private fun SettingsNavItem(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -615,7 +626,6 @@ private fun SettingsInfoItem(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -623,7 +633,6 @@ private fun SettingsInfoItem(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -661,14 +670,12 @@ private fun GitSettingsNavItem(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -682,4 +689,12 @@ private fun GitSettingsNavItem(
             modifier = Modifier.size(20.dp)
         )
     }
+}
+
+/** "3 of 11 ready" -- answers the only question this row needs to answer. */
+private fun providerSummary(apiKeys: Map<AiProvider, String>): String {
+    val ready = AiProvider.entries.count { provider ->
+        !provider.requiresApiKey || apiKeys[provider].orEmpty().isNotBlank()
+    }
+    return "$ready of ${AiProvider.entries.size} ready"
 }

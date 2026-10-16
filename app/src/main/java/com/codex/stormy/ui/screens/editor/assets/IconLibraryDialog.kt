@@ -1,5 +1,8 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.SearchPill
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessAlarm
 import androidx.compose.material.icons.outlined.AccessTime
@@ -253,7 +255,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Icon category for grouping icons
@@ -341,7 +342,6 @@ fun IconLibraryDialog(
                 Text(
                     text = "Material Icons",
                     style = MaterialTheme.typography.titleLarge,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -356,32 +356,15 @@ fun IconLibraryDialog(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Search bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                placeholder = { Text("Search icons...", fontSize = 14.sp) },
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = "Clear"
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+            // One search affordance across the app; a dialog with its own
+            // differently-shaped field is how an app stops feeling like one
+            // app.
+            SearchPill(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onClose = { searchQuery = "" },
+                placeholder = "Search icons",
+                modifier = Modifier.padding(horizontal = Space.xl)
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -477,14 +460,14 @@ private fun IconGridItem(
     Surface(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .clickable(onClick = onClick),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         },
-        shape = RoundedCornerShape(8.dp)
+        shape = CodeXCorners.small
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -520,7 +503,7 @@ private fun IconDetailSection(
         ) {
             Surface(
                 modifier = Modifier.size(48.dp),
-                shape = RoundedCornerShape(12.dp),
+                shape = CodeXCorners.medium,
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Box(
@@ -542,7 +525,6 @@ private fun IconDetailSection(
                 Text(
                     text = icon.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
@@ -603,7 +585,7 @@ private fun CopyCodeChip(
 ) {
     Surface(
         onClick = { onClick(code) },
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = modifier
     ) {

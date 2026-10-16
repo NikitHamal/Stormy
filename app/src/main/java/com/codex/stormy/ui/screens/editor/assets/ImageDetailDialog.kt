@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -23,7 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AspectRatio
@@ -76,9 +76,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.codex.stormy.ui.theme.PoppinsFontFamily
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.codex.stormy.utils.FileUtils
 import kotlinx.coroutines.launch
 import java.io.File
@@ -131,7 +132,7 @@ fun ImageDetailDialog(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .padding(vertical = 32.dp),
-            shape = RoundedCornerShape(24.dp),
+            shape = CodeXCorners.xLarge,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
@@ -149,7 +150,6 @@ fun ImageDetailDialog(
                         Text(
                             text = asset.name,
                             style = MaterialTheme.typography.titleMedium,
-                            fontFamily = PoppinsFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -184,7 +184,7 @@ fun ImageDetailDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = CodeXCorners.medium,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         AsyncImage(
@@ -207,9 +207,8 @@ fun ImageDetailDialog(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
+                            ExpressiveLoadingIndicator(
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
@@ -232,7 +231,7 @@ fun ImageDetailDialog(
                     // Optimization section toggle
                     Surface(
                         onClick = { showOptimizePanel = !showOptimizePanel },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = CodeXCorners.medium,
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                     ) {
                         Row(
@@ -251,7 +250,6 @@ fun ImageDetailDialog(
                                 Text(
                                     text = "Optimize Image",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontFamily = PoppinsFontFamily,
                                     fontWeight = FontWeight.Medium
                                 )
                                 Text(
@@ -508,9 +506,8 @@ fun ImageDetailDialog(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 if (isOptimizing) {
-                                    CircularProgressIndicator(
+                                    ExpressiveLoadingIndicator(
                                         modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
                                         color = MaterialTheme.colorScheme.onPrimary
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -543,7 +540,7 @@ private fun ImageMetadataSection(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = CodeXCorners.medium
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -562,7 +559,6 @@ private fun ImageMetadataSection(
                 Text(
                     text = "Image Details",
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -621,7 +617,6 @@ private fun MetadataItem(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium
         )
     }
@@ -636,7 +631,7 @@ private fun OptimizationResultCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = CodeXCorners.medium
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -662,7 +657,6 @@ private fun OptimizationResultCard(
                 Text(
                     text = "Optimization Complete",
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -716,7 +710,7 @@ private fun OptimizationResultCard(
 
             // Savings indicator
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = CodeXCorners.small,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             ) {
                 Row(

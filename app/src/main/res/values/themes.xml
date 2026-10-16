@@ -8,10 +8,31 @@
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:windowAnimationStyle">@style/Animation.CodeX.Activity</item>
+    </style>
+
+    <!--
+      Activity transitions, matched to the in-app navigation transitions.
+
+      Without this, moving between activities used the platform default while
+      moving between screens inside one activity used the app's own parallax
+      push. The same gesture animated two different ways depending on an
+      implementation detail the user cannot see.
+    -->
+    <style name="Animation.CodeX.Activity" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/activity_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/activity_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/activity_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/activity_close_exit</item>
     </style>
 
     <style name="Theme.CodeX.Splash" parent="Theme.CodeX">
         <item name="android:windowBackground">@drawable/splash_background</item>
+        <!-- Reset to the platform default. This theme belongs to the launcher
+             activity, and sliding the first screen in from the right on a cold
+             start reads as navigating back from somewhere the user was never
+             at. -->
+        <item name="android:windowAnimationStyle">@android:style/Animation.Activity</item>
     </style>
 
 </resources>

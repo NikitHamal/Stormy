@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,23 +18,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Error
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.DriveFolderUpload
 import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,8 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.FormSheet
+import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.R
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.FileUtils
 
 /**
@@ -84,123 +82,86 @@ fun ImportFolderDialog(
         }
     }
 
-    AlertDialog(
-        onDismissRequest = { if (!isImporting) onDismiss() },
-        title = {
-            Text(
-                text = "Import Folder",
-                style = MaterialTheme.typography.headlineSmall,
-                fontFamily = PoppinsFontFamily,
-                fontWeight = FontWeight.SemiBold
-            )
+    FormSheet(
+        title = "Import folder",
+        icon = Icons.Outlined.DriveFolderUpload,
+        onDismiss = { if (!isImporting) onDismiss() },
+        confirmLabel = when {
+            isImporting -> "Importing..."
+            selectedFolderUri == null -> "Choose folder"
+            else -> "Import"
         },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Folder selection button
-                if (!isImporting) {
-                    FolderSelector(
-                        selectedFolderName = selectedFolderName,
-                        onSelectFolder = { folderPickerLauncher.launch(null) }
-                    )
-                }
-
-                // Project name input
-                OutlinedTextField(
-                    value = projectName,
-                    onValueChange = {
-                        projectName = it
-                        nameError = null
-                    },
-                    label = { Text(context.getString(R.string.create_project_name_label)) },
-                    placeholder = { Text("Enter project name") },
-                    isError = nameError != null,
-                    supportingText = nameError?.let { { Text(it) } },
-                    singleLine = true,
-                    enabled = !isImporting,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+        onConfirm = {
+            when {
+                selectedFolderUri == null -> folderPickerLauncher.launch(null)
+                projectName.isBlank() ->
+                    nameError = context.getString(R.string.create_project_error_empty_name)
+                else -> onImport(
+                    projectName.trim(),
+                    projectDescription.trim(),
+                    selectedFolderUri!!
                 )
-
-                // Description input
-                OutlinedTextField(
-                    value = projectDescription,
-                    onValueChange = { projectDescription = it },
-                    label = { Text(context.getString(R.string.create_project_description_label)) },
-                    placeholder = { Text("Optional description") },
-                    maxLines = 2,
-                    enabled = !isImporting,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                // Progress indicator
-                AnimatedVisibility(
-                    visible = isImporting,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    ImportProgressIndicator(
-                        progress = progress,
-                        message = progressMessage
-                    )
-                }
-
-                // Error display
-                AnimatedVisibility(
-                    visible = error != null && !isImporting,
-                    enter = fadeIn(),
-                    exit = fadeOut()
-                ) {
-                    ErrorDisplay(error = error)
-                }
             }
         },
-        confirmButton = {
-            Button(
-                onClick = {
-                    when {
-                        selectedFolderUri == null -> {
-                            // Trigger folder picker
-                            folderPickerLauncher.launch(null)
-                        }
-                        projectName.isBlank() -> {
-                            nameError = context.getString(R.string.create_project_error_empty_name)
-                        }
-                        else -> {
-                            onImport(
-                                projectName.trim(),
-                                projectDescription.trim(),
-                                selectedFolderUri!!
-                            )
-                        }
-                    }
-                },
-                enabled = !isImporting,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                if (isImporting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Text(if (selectedFolderUri == null) "Select Folder" else "Import")
-                }
-            }
-        },
-        dismissButton = {
+        confirmEnabled = !isImporting,
+        confirmLoading = isImporting,
+        cancelLabel = context.getString(R.string.action_cancel)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Space.lg)
+        ) {
             if (!isImporting) {
-                TextButton(onClick = onDismiss) {
-                    Text(context.getString(R.string.action_cancel))
-                }
+                FolderSelector(
+                    selectedFolderName = selectedFolderName,
+                    onSelectFolder = { folderPickerLauncher.launch(null) }
+                )
             }
-        },
-        shape = RoundedCornerShape(24.dp)
-    )
+
+            OutlinedTextField(
+                value = projectName,
+                onValueChange = {
+                    projectName = it
+                    nameError = null
+                },
+                label = { Text(context.getString(R.string.create_project_name_label)) },
+                placeholder = { Text("Enter project name") },
+                isError = nameError != null,
+                supportingText = nameError?.let { { Text(it) } },
+                singleLine = true,
+                enabled = !isImporting,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
+
+            OutlinedTextField(
+                value = projectDescription,
+                onValueChange = { projectDescription = it },
+                label = { Text(context.getString(R.string.create_project_description_label)) },
+                placeholder = { Text("Optional description") },
+                maxLines = 2,
+                enabled = !isImporting,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
+
+            AnimatedVisibility(
+                visible = isImporting,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                ImportProgressIndicator(progress = progress, message = progressMessage)
+            }
+
+            AnimatedVisibility(
+                visible = error != null && !isImporting,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                ErrorDisplay(error = error)
+            }
+        }
+    }
 }
 
 @Composable
@@ -211,7 +172,7 @@ private fun FolderSelector(
     OutlinedButton(
         onClick = onSelectFolder,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = CodeXCorners.medium,
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (selectedFolderName != null) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
@@ -229,7 +190,7 @@ private fun FolderSelector(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(CodeXCorners.small)
                     .background(
                         if (selectedFolderName != null) {
                             MaterialTheme.colorScheme.primary
@@ -261,7 +222,6 @@ private fun FolderSelector(
                     Text(
                         text = selectedFolderName,
                         style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
@@ -276,7 +236,6 @@ private fun FolderSelector(
                     Text(
                         text = "Select a folder",
                         style = MaterialTheme.typography.bodyLarge,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
@@ -306,7 +265,7 @@ private fun ImportProgressIndicator(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(CodeXCorners.medium)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -331,7 +290,6 @@ private fun ImportProgressIndicator(
         Text(
             text = message ?: "Importing...",
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
@@ -345,7 +303,7 @@ private fun ErrorDisplay(error: String?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(CodeXCorners.medium)
             .background(MaterialTheme.colorScheme.errorContainer)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -362,7 +320,6 @@ private fun ErrorDisplay(error: String?) {
         Text(
             text = error,
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onErrorContainer
         )
     }

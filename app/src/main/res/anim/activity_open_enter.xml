@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The arriving activity: full width of travel, fading up as it lands.
+
+  Paired with activity_open_exit, which moves the screen behind it only a
+  third as far. That difference is the whole effect: the eye reads unequal
+  travel as depth, so the old screen recedes behind the new one instead of
+  sliding away beside it.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/m3_emphasized_decelerate"
+    android:shareInterpolator="false"
+    android:zAdjustment="top">
+
+    <translate
+        android:fromXDelta="100%p"
+        android:toXDelta="0"
+        android:duration="400"
+        android:interpolator="@interpolator/m3_emphasized" />
+
+    <!-- Short, and over well before the slide ends: an opacity ramp that runs
+         the full duration makes text unreadable for most of the animation. -->
+    <alpha
+        android:fromAlpha="0.4"
+        android:toAlpha="1.0"
+        android:duration="220"
+        android:interpolator="@interpolator/m3_emphasized_decelerate" />
+</set>

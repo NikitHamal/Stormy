@@ -1,5 +1,13 @@
 package com.codex.stormy.ui.components.message
 
+import com.codex.stormy.ui.components.agent.ToolCallEntry
+import com.codex.stormy.ui.components.agent.ToolCallGroup
+import com.codex.stormy.ui.components.agent.ToolCallStatus
+import com.codex.stormy.ui.components.agent.ToolCard
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.components.agent.ToolPresentations
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
@@ -25,12 +33,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
@@ -41,7 +45,6 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,10 +69,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.ui.components.MarkdownText
-import com.codex.stormy.ui.components.diff.CollapsibleDiffView
-import com.codex.stormy.ui.components.diff.DiffSummaryBadge
-import com.codex.stormy.ui.theme.PoppinsFontFamily
-import com.codex.stormy.utils.DiffUtils
 import java.util.Locale
 
 enum class AiActivityStatus {
@@ -94,6 +93,11 @@ sealed class MessageContentBlock {
     data class ThinkingBlock(val content: String, val isActive: Boolean = false) : MessageContentBlock()
     data class ReasoningBlock(val content: String, val isActive: Boolean = false) : MessageContentBlock()
 
+    /** Two or more adjacent tool calls, shown as one collapsible group. */
+    data class ToolRunBlock(
+        val calls: List<ToolCallBlock>
+    ) : MessageContentBlock()
+
     data class ToolCallBlock(
         val toolName: String,
         val status: ToolStatus,
@@ -108,6 +112,38 @@ sealed class MessageContentBlock {
 }
 
 enum class ToolStatus { RUNNING, SUCCESS, ERROR }
+
+/**
+ * Fold runs of two or more adjacent tool calls into a single block.
+ *
+ * A lone call stays a card: grouping one thing adds a disclosure the user has
+ * to open to see a single row, which is strictly worse than just showing it.
+ */
+private fun groupConsecutiveToolCalls(
+    blocks: List<MessageContentBlock>
+): List<MessageContentBlock> {
+    val out = mutableListOf<MessageContentBlock>()
+    var run = mutableListOf<MessageContentBlock.ToolCallBlock>()
+
+    fun flush() {
+        when {
+            run.size >= 2 -> out += MessageContentBlock.ToolRunBlock(run.toList())
+            run.size == 1 -> out += run.first()
+        }
+        run = mutableListOf()
+    }
+
+    blocks.forEach { block ->
+        if (block is MessageContentBlock.ToolCallBlock) {
+            run += block
+        } else {
+            flush()
+            out += block
+        }
+    }
+    flush()
+    return out
+}
 
 /** Public entry point used by the UI. */
 fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<MessageContentBlock> {
@@ -248,7 +284,14 @@ private fun extractOutput(content: String, start: Int, end: Int): String {
 private val TOOL_HEADER_REGEX = Regex(
     // Start-of-line: 🔧 optionally **Tool** or just Tool, then whitespace/newline, emoji, optional trailing text.
     // Supports both markdown bold format (🔧 **Tool Name** ✅) and plain text (🔧 Tool Name ✅)
-    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)\b[^\r\n]*\r?\n?""",
+    // No \b after the status emoji.
+    //
+    // \b asserts a word boundary, which needs a word character on one side.
+    // An emoji is not a word character and the next character is a space, so
+    // the assertion could never hold -- the pattern matched nothing, every
+    // tool call fell through to the markdown renderer, and the transcript read
+    // as "🔧 **List Files** ✅ Directory is empty" in plain text.
+    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)[^\r\n]*\r?\n?""",
     options = setOf(RegexOption.MULTILINE)
 )
 
@@ -492,7 +535,14 @@ fun AiMessageContent(
 ) {
     // During streaming, use simpler parsing to reduce lag
     // Full parsing is only done when content length changes significantly or streaming stops
-    val shouldDoFullParsing = !isStreaming || content.length < 500
+    // Always parse fully.
+    //
+    // The old guard fell back to a lighter parser once a streaming message
+    // passed 500 characters -- which is most of them -- so tool calls rendered
+    // as raw text for the entire length of any real agent run and only
+    // snapped into cards once streaming stopped. The parse is memoised on
+    // content, so it runs once per emitted chunk rather than per frame.
+    val shouldDoFullParsing = true
 
     val parsedBlocks = remember(content, isStreaming, shouldDoFullParsing) {
         if (shouldDoFullParsing) {
@@ -509,7 +559,7 @@ fun AiMessageContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(150)),
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Show minimal generating indicator only when streaming with no substantial content
@@ -517,8 +567,41 @@ fun AiMessageContent(
             MinimalGeneratingIndicator()
         }
 
-        parsedBlocks.forEach { block ->
+        // Consecutive tool calls collapse into one group.
+        //
+        // Rendered individually, a dozen calls from one agent turn dominate the
+        // transcript and push the assistant's actual answer off screen. Runs
+        // are detected here rather than in the parser so the parser stays a
+        // pure text-to-blocks function.
+        val grouped = remember(parsedBlocks) { groupConsecutiveToolCalls(parsedBlocks) }
+
+        grouped.forEach { block ->
             when (block) {
+                is MessageContentBlock.ToolRunBlock -> {
+                    ToolCallGroup(
+                        entries = block.calls.map { call ->
+                            ToolCallEntry(
+                                toolName = call.toolName,
+                                subject = call.filePath,
+                                status = call.status.toToolCallStatus(),
+                                additions = call.additions,
+                                deletions = call.deletions,
+                                // Carried through rather than dropped: these
+                                // are what each card opens to show.
+                                output = call.output,
+                                oldContent = call.oldContent,
+                                newContent = call.newContent
+                            )
+                        },
+                        // Expanded while anything is still running, so the user
+                        // can watch; collapsed once the run finishes, so the
+                        // answer is what remains on screen.
+                        initiallyExpanded = block.calls.any {
+                            it.status == ToolStatus.RUNNING
+                        }
+                    )
+                }
+
                 is MessageContentBlock.TextBlock ->
                     ResponseSection(markdown = block.content)
 
@@ -555,8 +638,7 @@ fun AiMessageContent(
         Text(
             text = timestamp,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = PoppinsFontFamily
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -627,8 +709,7 @@ private fun MinimalGeneratingIndicator(modifier: Modifier = Modifier) {
         Text(
             text = "Generating",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontFamily = PoppinsFontFamily
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         GeneratingDots()
     }
@@ -731,7 +812,7 @@ private fun ThinkingSection(content: String, isActive: Boolean, modifier: Modifi
 private fun ReasoningSection(content: String, isActive: Boolean, modifier: Modifier = Modifier) {
     CollapsibleInsightSection(
         title = "Reasoning",
-        icon = Icons.Outlined.AutoAwesome,
+        icon = Icons.Outlined.Psychology,
         content = content,
         isActive = isActive,
         modifier = modifier
@@ -749,13 +830,13 @@ private fun CollapsibleInsightSection(
     var expanded by remember { mutableStateOf(false) }
     val rotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = tween(180),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "expand_rotation"
     )
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = CodeXCorners.large,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -771,7 +852,6 @@ private fun CollapsibleInsightSection(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
@@ -817,7 +897,7 @@ private fun CodeSection(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = CodeXCorners.large,
         color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -861,18 +941,15 @@ private fun CodeSection(
     }
 }
 
-private fun toolIcon(toolName: String): ImageVector {
-    val name = toolName.lowercase(Locale.ROOT)
-    return when {
-        name.contains("read") && name.contains("file") -> Icons.Outlined.Description
-        name.contains("write") || name.contains("create") || name.contains("patch") || name.contains("edit") -> Icons.Outlined.Edit
-        name.contains("list") || name.contains("folder") || name.contains("dir") -> Icons.Outlined.FolderOpen
-        name.contains("delete") -> Icons.Outlined.Error
-        name.contains("code") || name.contains("execute") || name.contains("run") -> Icons.Outlined.Code
-        else -> Icons.Outlined.Build
-    }
-}
-
+/**
+ * A single tool call.
+ *
+ * Delegates to [ToolCard] so a lone call and a call inside a run render
+ * identically. They used to be two separate implementations that drifted:
+ * the card showed diffs and the group's rows showed nothing, so whether the
+ * user could see what a write did depended on how many calls happened to
+ * surround it.
+ */
 @Composable
 private fun ToolCallSection(
     toolName: String,
@@ -886,157 +963,27 @@ private fun ToolCallSection(
     newContent: String?,
     modifier: Modifier = Modifier
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
+    ToolCard(
+        entry = ToolCallEntry(
+            toolName = toolName,
+            subject = filePath,
+            status = status.toToolCallStatus(),
+            additions = additions,
+            deletions = deletions,
+            output = output,
+            oldContent = oldContent,
+            newContent = newContent
+        ),
+        modifier = modifier,
+        // A call still in flight opens itself, so its output streams into
+        // view rather than waiting for a tap that the user cannot know to
+        // make.
+        initiallyExpanded = isActive && status == ToolStatus.RUNNING
+    )
+}
 
-    val statusIcon = when (status) {
-        ToolStatus.SUCCESS -> Icons.Outlined.CheckCircle
-        ToolStatus.ERROR -> Icons.Outlined.Error
-        ToolStatus.RUNNING -> toolIcon(toolName)
-    }
-
-    val statusTint = when (status) {
-        ToolStatus.SUCCESS -> MaterialTheme.colorScheme.primary
-        ToolStatus.ERROR -> MaterialTheme.colorScheme.error
-        ToolStatus.RUNNING -> MaterialTheme.colorScheme.tertiary
-    }
-
-    val showDiffView = oldContent != null && newContent != null
-    val diffResult = remember(showDiffView, oldContent, newContent) {
-        if (showDiffView) DiffUtils.computeDiff(oldContent.orEmpty(), newContent.orEmpty()) else null
-    }
-
-    val displayAdditions = when {
-        additions > 0 -> additions
-        diffResult != null -> diffResult.additions
-        else -> 0
-    }
-    val displayDeletions = when {
-        deletions > 0 -> deletions
-        diffResult != null -> diffResult.deletions
-        else -> 0
-    }
-
-    val canExpand = !output.isNullOrBlank() || showDiffView
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = canExpand) { isExpanded = !isExpanded }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val infinite = rememberInfiniteTransition(label = "tool_pulse")
-                val pulse by infinite.animateFloat(
-                    initialValue = 1f,
-                    targetValue = 1.2f,
-                    animationSpec = infiniteRepeatable(tween(550), repeatMode = RepeatMode.Reverse),
-                    label = "tool_pulse_scale"
-                )
-
-                Icon(
-                    imageVector = statusIcon,
-                    contentDescription = null,
-                    tint = statusTint,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .graphicsLayer {
-                            if (isActive && status == ToolStatus.RUNNING) {
-                                scaleX = pulse
-                                scaleY = pulse
-                            }
-                        }
-                )
-
-                Spacer(Modifier.width(10.dp))
-
-                Text(
-                    text = toolName,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-
-                if (!filePath.isNullOrBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.clickable { clipboard.setText(AnnotatedString(filePath)) }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Outlined.FolderOpen, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = filePath,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-
-                if (showDiffView || displayAdditions > 0 || displayDeletions > 0) {
-                    Spacer(Modifier.width(8.dp))
-                    DiffSummaryBadge(additions = displayAdditions, deletions = displayDeletions)
-                }
-
-                if (canExpand) {
-                    Spacer(Modifier.width(8.dp))
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = isExpanded && canExpand,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    if (showDiffView && diffResult != null) {
-                        CollapsibleDiffView(
-                            filePath = filePath ?: "file",
-                            oldContent = oldContent.orEmpty(),
-                            newContent = newContent.orEmpty(),
-                            toolName = toolName,
-                            isSuccess = status == ToolStatus.SUCCESS,
-                            modifier = Modifier.padding(8.dp),
-                            initiallyExpanded = true
-                        )
-                    }
-
-                    if (!output.isNullOrBlank()) {
-                        Box(modifier = Modifier.padding(12.dp)) {
-                            MarkdownText(
-                                markdown = output,
-                                modifier = Modifier.fillMaxWidth(),
-                                textColor = MaterialTheme.colorScheme.onSurface,
-                                linkColor = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+private fun ToolStatus.toToolCallStatus(): ToolCallStatus = when (this) {
+    ToolStatus.SUCCESS -> ToolCallStatus.Success
+    ToolStatus.ERROR -> ToolCallStatus.Error
+    ToolStatus.RUNNING -> ToolCallStatus.Running
 }

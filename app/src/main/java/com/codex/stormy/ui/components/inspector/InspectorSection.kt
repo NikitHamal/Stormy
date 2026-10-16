@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Collapsible section component for organizing inspector properties
@@ -61,7 +60,6 @@ fun InspectorSection(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)

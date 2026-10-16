@@ -1,5 +1,12 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.components.agent.ApprovalSheet
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.agent.PlanTimeline
+import com.codex.stormy.ui.components.expressive.ToggleOption
+import com.codex.stormy.ui.components.expressive.ExpressiveToggleGroup
+import androidx.compose.material.icons.outlined.Code
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -28,6 +35,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Forum
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.components.expressive.SheetAction
+import com.codex.stormy.ui.components.expressive.ActionSheet
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Close
@@ -83,7 +95,6 @@ import com.codex.stormy.ui.screens.editor.code.CodeTab
 import com.codex.stormy.ui.screens.editor.filetree.FileTreeDrawer
 import com.codex.stormy.ui.screens.git.GitDrawer
 import com.codex.stormy.ui.screens.preview.PreviewActivity
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -105,6 +116,11 @@ fun EditorScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Read once in composable scope: AnimatedContent's transitionSpec lambda
+    // is not @Composable, so MaterialTheme cannot be read inside it.
+    val tabEnterSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val tabExitSpec = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+
     val fileDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -158,36 +174,47 @@ fun EditorScreen(
         }
     }
 
+    // Approval sheet sits outside the drawer stack so it overlays whatever is
+    // on screen -- the question blocks the agent, so it must not be hidden
+    // behind an open drawer.
+    val pendingApproval by viewModel.pendingApproval.collectAsStateWithLifecycle()
+    ApprovalSheet(
+        approval = pendingApproval,
+        onDecision = viewModel::resolveApproval
+    )
+
     // File Tree drawer (start-side drawer - outer for proper gesture handling)
     ModalNavigationDrawer(
         drawerState = fileDrawerState,
         drawerContent = {
-            // Only render drawer content when drawer is being shown to prevent unnecessary composition
-            if (fileDrawerState.isOpen || fileDrawerState.isAnimationRunning) {
-                FileTreeDrawer(
-                    fileTree = uiState.fileTree,
-                    expandedFolders = uiState.expandedFolders,
-                    selectedFilePath = uiState.currentFile?.path,
-                    onFileClick = { file ->
-                        viewModel.openFile(file.path)
-                        scope.launch { fileDrawerState.close() }
-                    },
-                    onFolderToggle = viewModel::toggleFolder,
-                    onCreateFile = viewModel::createFile,
-                    onCreateFolder = viewModel::createFolder,
-                    onDeleteFile = viewModel::deleteFile,
-                    onRenameFile = viewModel::renameFile,
-                    onImportFile = { parentPath ->
-                        importTargetPath = parentPath
-                        filePickerLauncher.launch("*/*")
-                    },
-                    onImportFolder = { parentPath ->
-                        importTargetPath = parentPath
-                        folderPickerLauncher.launch(null)
-                    },
-                    onClose = { scope.launch { fileDrawerState.close() } }
-                )
-            }
+            // The drawer is always composed; only its body is skipped while
+            // closed. Gating the whole sheet here gave it zero width, which
+            // collapsed the open/closed anchors and left the drawer
+            // permanently reopening itself.
+            FileTreeDrawer(
+                contentVisible = fileDrawerState.isOpen || fileDrawerState.isAnimationRunning,
+                fileTree = uiState.fileTree,
+                expandedFolders = uiState.expandedFolders,
+                selectedFilePath = uiState.currentFile?.path,
+                onFileClick = { file ->
+                    viewModel.openFile(file.path)
+                    scope.launch { fileDrawerState.close() }
+                },
+                onFolderToggle = viewModel::toggleFolder,
+                onCreateFile = viewModel::createFile,
+                onCreateFolder = viewModel::createFolder,
+                onDeleteFile = viewModel::deleteFile,
+                onRenameFile = viewModel::renameFile,
+                onImportFile = { parentPath ->
+                    importTargetPath = parentPath
+                    filePickerLauncher.launch("*/*")
+                },
+                onImportFolder = { parentPath ->
+                    importTargetPath = parentPath
+                    folderPickerLauncher.launch(null)
+                },
+                onClose = { scope.launch { fileDrawerState.close() } }
+            )
         },
         gesturesEnabled = fileDrawerState.isOpen // Only enable gestures when drawer is open
     ) {
@@ -195,16 +222,22 @@ fun EditorScreen(
         ModalNavigationDrawer(
             drawerState = gitDrawerState,
             drawerContent = {
-                // Only render when drawer is being shown
-                if (gitDrawerState.isOpen || gitDrawerState.isAnimationRunning) {
-                    uiState.project?.let { project ->
-                        GitDrawer(
-                            projectPath = project.rootPath,
-                            onClose = { scope.launch { gitDrawerState.close() } },
-                            onNavigateToGitSettings = onGitSettingsClick
-                        )
-                    }
-                }
+                // Composed unconditionally, including while `project` is still
+                // null. Wrapping this in `project?.let` gave the sheet zero
+                // width for the first frames after opening a project; when the
+                // project then loaded, the sheet gained real width, the
+                // drawer's open/closed anchors recomputed, and the swipeable
+                // state settled to Open -- which is why Source Control and
+                // Assets (the two drawers behind that null check) appeared
+                // open by themselves while the File drawer, composed
+                // unconditionally, never did.
+                GitDrawer(
+                    contentVisible = gitDrawerState.isOpen ||
+                        gitDrawerState.isAnimationRunning,
+                    projectPath = uiState.project?.rootPath,
+                    onClose = { scope.launch { gitDrawerState.close() } },
+                    onNavigateToGitSettings = onGitSettingsClick
+                )
             },
             gesturesEnabled = gitDrawerState.isOpen,
             scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)
@@ -214,38 +247,31 @@ fun EditorScreen(
                 drawerState = assetDrawerState,
                 scrimColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f),
                 drawerContent = {
-                    // Only render when drawer is being shown
-                    if (assetDrawerState.isOpen || assetDrawerState.isAnimationRunning) {
-                        uiState.project?.let { project ->
-                            AssetManagerDrawer(
-                                projectPath = project.rootPath,
-                                onClose = { scope.launch { assetDrawerState.close() } },
-                                onAssetClick = { asset ->
-                                    // Open asset file in code editor if it's a text-based file
-                                    val textExtensions = listOf("svg", "json", "xml", "txt", "md")
-                                    if (asset.extension.lowercase() in textExtensions) {
-                                        viewModel.openFile(asset.path)
-                                        scope.launch { assetDrawerState.close() }
-                                    }
-                                },
-                                onAssetDelete = { asset ->
-                                    // Refresh file tree after deletion
-                                    viewModel.refreshFileTree()
-                                },
-                                onAssetAdded = {
-                                    // Refresh file tree after adding asset
-                                    viewModel.refreshFileTree()
-                                },
-                                onCopyPath = { path ->
-                                    Toast.makeText(
-                                        context,
-                                        context.getString(R.string.assets_path_copied),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            )
+                    // See the note on the Git drawer above: the sheet must be
+                    // composed even before the project loads, or it settles
+                    // open on its own.
+                    AssetManagerDrawer(
+                        contentVisible = assetDrawerState.isOpen ||
+                            assetDrawerState.isAnimationRunning,
+                        projectPath = uiState.project?.rootPath,
+                        onClose = { scope.launch { assetDrawerState.close() } },
+                        onAssetClick = { asset ->
+                            val textExtensions = listOf("svg", "json", "xml", "txt", "md")
+                            if (asset.extension.lowercase() in textExtensions) {
+                                viewModel.openFile(asset.path)
+                                scope.launch { assetDrawerState.close() }
+                            }
+                        },
+                        onAssetDelete = { viewModel.refreshFileTree() },
+                        onAssetAdded = { viewModel.refreshFileTree() },
+                        onCopyPath = {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.assets_path_copied),
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
-                    }
+                    )
                 },
                 gesturesEnabled = assetDrawerState.isOpen
             ) {
@@ -315,16 +341,40 @@ fun EditorScreen(
                             onTabSelected = viewModel::selectTab
                         )
 
+                        uiState.agentPlan?.let { plan ->
+                            PlanTimeline(
+                                plan = plan,
+                                modifier = Modifier.padding(
+                                    horizontal = Space.lg,
+                                    vertical = Space.xs
+                                )
+                            )
+                        }
+
                         AnimatedContent(
                             targetState = uiState.selectedTab,
                             transitionSpec = {
-                                fadeIn() togetherWith fadeOut()
+                                // Cross-fade on the effects spec. These are two
+                                // views of one file, not a navigation step, so
+                                // there is deliberately no slide: sliding would
+                                // imply moving somewhere else.
+                                fadeIn(tabEnterSpec) togetherWith fadeOut(tabExitSpec)
                             },
                             modifier = Modifier.fillMaxSize(),
                             label = "editor_tab_content"
                         ) { tab ->
                             when (tab) {
                                 EditorTab.CHAT -> ChatTab(
+                                    agentSessions = uiState.agentSessions,
+                                    reasoningEffort = uiState.reasoningEffort,
+                                    onReasoningEffortChange = viewModel::setReasoningEffort,
+                                    contextBreakdown = uiState.contextBreakdown,
+                                    compactableMessageCount = uiState.compactableMessageCount,
+                                    isCompacting = uiState.isCompacting,
+                                    lastCompactionSavedPercent = uiState.lastCompactionSavedPercent,
+                                    onCompactContext = viewModel::compactContext,
+                                    onStopAgent = viewModel::stopSubagent,
+                                    onResolveAgentApproval = viewModel::resolveSubagentApproval,
                                     messages = uiState.messages,
                                     inputText = uiState.chatInput,
                                     isLoading = uiState.isAiProcessing,
@@ -503,6 +553,20 @@ private fun EditorTopBar(
     )
 }
 
+/**
+ * Chat / Code switch.
+ *
+ * Was a full-width [TabRow] with an underline indicator. Two problems with
+ * that here: a two-item TabRow spreads a binary choice across the whole screen
+ * width, so the tap targets are enormous and the labels float in space; and the
+ * sliding underline is a desktop idiom that reads as a page-level navigation
+ * rail, which these are not -- they are two views of the same file.
+ *
+ * An Expressive segmented control states the binary nature of the choice,
+ * occupies only the width it needs, and brings the Expressive press-squish and
+ * selection shape morph with it. Centred, so it sits under the thumb on a
+ * phone rather than at the screen edge.
+ */
 @Composable
 private fun EditorTabs(
     selectedTab: EditorTab,
@@ -510,21 +574,31 @@ private fun EditorTabs(
 ) {
     val context = LocalContext.current
 
-    TabRow(
-        selectedTabIndex = selectedTab.ordinal,
-        modifier = Modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.primary
-    ) {
-        Tab(
-            selected = selectedTab == EditorTab.CHAT,
-            onClick = { onTabSelected(EditorTab.CHAT) },
-            text = { Text(context.getString(R.string.editor_tab_chat)) }
+    val options = remember(context) {
+        listOf(
+            ToggleOption(
+                id = EditorTab.CHAT.name,
+                label = context.getString(R.string.editor_tab_chat),
+                icon = Icons.Outlined.Forum
+            ),
+            ToggleOption(
+                id = EditorTab.CODE.name,
+                label = context.getString(R.string.editor_tab_code),
+                icon = Icons.Outlined.Code
+            )
         )
-        Tab(
-            selected = selectedTab == EditorTab.CODE,
-            onClick = { onTabSelected(EditorTab.CODE) },
-            text = { Text(context.getString(R.string.editor_tab_code)) }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.lg, vertical = Space.sm),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        ExpressiveToggleGroup(
+            options = options,
+            selectedId = selectedTab.name,
+            onSelect = { id -> onTabSelected(EditorTab.valueOf(id)) }
         )
     }
 }
@@ -715,7 +789,7 @@ private fun FileTypeIcon(
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(2.dp))
+            .clip(CodeXCorners.tiny)
             .background(iconColor.copy(alpha = 0.15f)),
         contentAlignment = Alignment.Center
     ) {
@@ -739,137 +813,94 @@ private fun LargeFileWarningDialog(
     onOpenAnyway: () -> Unit,
     onOpenReadOnly: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Outlined.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(32.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "Large File Warning",
-                style = MaterialTheme.typography.titleLarge,
-                fontFamily = PoppinsFontFamily,
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // File info
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = warning.fileName,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontFamily = PoppinsFontFamily,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = warning.formattedSize,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                // Warning message
-                Text(
-                    text = warning.warningMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+    ActionSheet(
+        title = "This file is large",
+        subtitle = warning.warningMessage,
+        onDismiss = onDismiss,
+        actions = buildList {
+            if (warning.suggestReadOnly) {
+                add(
+                    SheetAction(
+                        label = "Open read-only",
+                        icon = Icons.Outlined.Visibility,
+                        description = "Fast, and cannot be edited by accident",
+                        onClick = onOpenReadOnly
+                    )
                 )
-
-                // Info rows
+            }
+            if (warning.canEdit) {
+                add(
+                    SheetAction(
+                        label = "Open anyway",
+                        icon = Icons.Outlined.EditNote,
+                        description = "Editing may be slow at this size",
+                        onClick = onOpenAnyway
+                    )
+                )
+            }
+        }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
+            ) {
                 Row(
+                    modifier = Modifier.padding(Space.md),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Space.md)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Timer,
+                        imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        text = "Estimated load time: ${warning.estimatedLoadTime}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                if (warning.lineCount > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = warning.fileName,
+                            style = MaterialTheme.typography.titleSmallEmphasized,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "~${warning.lineCount} lines",
+                            text = warning.formattedSize,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-        },
-        confirmButton = {
-            if (warning.canEdit) {
-                TextButton(onClick = onOpenAnyway) {
-                    Text("Open Anyway")
-                }
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
-                if (warning.suggestReadOnly) {
-                    TextButton(onClick = onOpenReadOnly) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Visibility,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text("Read-Only")
+
+            // The two figures that decide whether to wait: how long, how big.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.sm)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Timer,
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSmall),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = buildString {
+                        append("About ")
+                        append(warning.estimatedLoadTime)
+                        append(" to load")
+                        if (warning.lineCount > 0) {
+                            append(" · ~")
+                            append(warning.lineCount)
+                            append(" lines")
                         }
-                    }
-                }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-    )
+    }
 }
 
 /**
@@ -885,8 +916,7 @@ private fun FileLoadingProgressDialog(
         title = {
             Text(
                 text = "Loading File",
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = PoppinsFontFamily,
+                style = MaterialTheme.typography.titleMediumEmphasized,
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -918,6 +948,9 @@ private fun FileLoadingProgressDialog(
                 }
             }
         },
-        confirmButton = { /* No confirm button while loading */ }
+        confirmButton = { /* Nothing to decide while loading */ },
+        // The one modal that stays centred: it has no actions and must not be
+        // dismissable, and a bottom sheet is swipe-dismissable by nature.
+        shape = CodeXCorners.xLarge
     )
 }

@@ -1,9 +1,16 @@
 package com.codex.stormy.ui.screens.memories
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.FlowerIconButton
+import com.codex.stormy.ui.components.expressive.ExpressiveSearchTopBar
+import com.codex.stormy.ui.components.expressive.EmptyStateShape
+import com.codex.stormy.ui.components.expressive.ExpressiveNoResults
+import com.codex.stormy.ui.components.expressive.ExpressiveEmptyState
+import com.codex.stormy.ui.components.expressive.SearchPill
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -27,10 +34,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.components.expressive.FormSheet
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -39,11 +45,11 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,6 +83,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -95,34 +102,50 @@ fun MemoriesScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf<MemoryItemState?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    var searchActive by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // The same cross-fading bar as Home and AI Models. Memories had an
+            // always-mounted search field below a TopAppBar, which cost a row
+            // on every visit and was a third different-looking search.
+            ExpressiveSearchTopBar(
+                searchActive = searchActive,
+                onSearchActiveChange = { searchActive = it },
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                placeholder = "Search memories",
                 title = {
-                    Column {
-                        Text(
-                            text = "Memories",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                        Text(
-                            text = "AI learned information",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                        Spacer(Modifier.width(Space.sm))
+                        Column {
+                            Text(
+                                text = "Memories",
+                                style = MaterialTheme.typography.titleLargeEmphasized,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "What the assistant has learned",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                actions = {
+                    FlowerIconButton(
+                        icon = Icons.Outlined.Search,
+                        contentDescription = "Search memories",
+                        onClick = { searchActive = true },
+                        size = 44.dp
+                    )
+                }
             )
         },
         floatingActionButton = {
@@ -145,18 +168,17 @@ fun MemoriesScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Search bar
-            SearchBar(
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
             when {
                 uiState.isLoading -> {
                     LoadingState(modifier = Modifier.fillMaxSize())
+                }
+                uiState.projectMemories.isEmpty() && searchQuery.isNotBlank() -> {
+                    ExpressiveNoResults(
+                        query = searchQuery,
+                        onClear = { searchQuery = "" },
+                        noun = "memories",
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
                 uiState.projectMemories.isEmpty() -> {
                     EmptyState(modifier = Modifier.fillMaxSize())
@@ -218,7 +240,10 @@ fun MemoriesScreen(
 }
 
 /**
- * Search bar for filtering memories
+ * Search for filtering memories.
+ *
+ * Delegates to the shared pill rather than hand-rolling a third variant of
+ * the same control.
  */
 @Composable
 private fun SearchBar(
@@ -226,63 +251,13 @@ private fun SearchBar(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    SearchPill(
+        query = query,
+        onQueryChange = onQueryChange,
+        onClose = { onQueryChange("") },
+        placeholder = "Search memories",
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                textStyle = TextStyle(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp
-                ),
-                singleLine = true,
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                decorationBox = { innerTextField ->
-                    Box {
-                        if (query.isEmpty()) {
-                            Text(
-                                text = "Search memories...",
-                                style = TextStyle(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 14.sp
-                                )
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-            if (query.isNotEmpty()) {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Clear",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
+    )
 }
 
 /**
@@ -345,18 +320,18 @@ private fun ProjectMemoryCard(
 ) {
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = tween(300),
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "rotation"
     )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(300)),
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = RoundedCornerShape(16.dp)
+        shape = CodeXCorners.large
     ) {
         Column {
             // Header
@@ -371,7 +346,7 @@ private fun ProjectMemoryCard(
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CodeXCorners.medium)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
@@ -494,7 +469,7 @@ private fun MemoryItem(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp),
+        shape = CodeXCorners.medium,
         tonalElevation = 1.dp
     ) {
         Column(
@@ -507,7 +482,7 @@ private fun MemoryItem(
                 // Memory key badge
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(CodeXCorners.small)
                         .background(MaterialTheme.colorScheme.secondaryContainer)
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
@@ -618,70 +593,56 @@ private fun AddMemoryDialog(
     var value by remember { mutableStateOf("") }
     var keyError by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
+    FormSheet(
+        title = "Add memory",
+        icon = Icons.Outlined.Memory,
+        onDismiss = onDismiss,
+        confirmLabel = "Add",
+        onConfirm = {
+            if (key.isBlank()) {
+                keyError = "Key is required"
+            } else if (!key.matches(Regex("^[a-z_][a-z0-9_]*$"))) {
+                keyError = "Use lowercase letters, numbers, and underscores"
+            } else {
+                onAdd(key, value)
+            }
+        },
+        confirmEnabled = key.isNotBlank()
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.lg)) {
             Text(
-                text = "Add Memory",
-                style = MaterialTheme.typography.titleLarge
+                text = "Add a new memory for $projectName",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "Add a new memory for $projectName",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
 
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = {
-                        key = it
-                        keyError = null
-                    },
-                    label = { Text("Key") },
-                    placeholder = { Text("e.g., preferred_framework") },
-                    isError = keyError != null,
-                    supportingText = keyError?.let { { Text(it) } },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+            OutlinedTextField(
+                value = key,
+                onValueChange = {
+                    key = it
+                    keyError = null
+                },
+                label = { Text("Key") },
+                placeholder = { Text("e.g., preferred_framework") },
+                isError = keyError != null,
+                supportingText = keyError?.let { { Text(it) } },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
 
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text("Value") },
-                    placeholder = { Text("e.g., React with TypeScript") },
-                    minLines = 3,
-                    maxLines = 5,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (key.isBlank()) {
-                        keyError = "Key is required"
-                    } else if (!key.matches(Regex("^[a-z_][a-z0-9_]*$"))) {
-                        keyError = "Use lowercase letters, numbers, and underscores"
-                    } else {
-                        onAdd(key, value)
-                    }
-                }
-            ) {
-                Text("Add")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                label = { Text("Value") },
+                placeholder = { Text("e.g., React with TypeScript") },
+                minLines = 3,
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
         }
-    )
+    }
 }
 
 /**
@@ -693,36 +654,20 @@ private fun DeleteConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Delete Memory",
-                style = MaterialTheme.typography.titleLarge
-            )
-        },
-        text = {
-            Text(
-                text = "Are you sure you want to delete the memory \"$memoryKey\"? This action cannot be undone.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm
-            ) {
-                Text(
-                    text = "Delete",
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    FormSheet(
+        title = "Delete memory",
+        icon = Icons.Outlined.DeleteOutline,
+        onDismiss = onDismiss,
+        confirmLabel = "Delete",
+        onConfirm = onConfirm,
+        destructive = true
+    ) {
+        Text(
+            text = "\"$memoryKey\" will be forgotten. This cannot be undone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 /**
@@ -734,52 +679,22 @@ private fun LoadingState(modifier: Modifier = Modifier) {
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator()
+        ExpressiveLoadingIndicator()
     }
 }
 
-/**
- * Empty state when no memories exist
- */
 @Composable
 private fun EmptyState(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Memory,
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-
-            Text(
-                text = "No Memories Yet",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Text(
-                text = "The AI will learn about your projects\nas you work together",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-        }
-    }
+    ExpressiveEmptyState(
+        icon = Icons.Outlined.Memory,
+        title = "No memories yet",
+        description = "The assistant will note what it learns about your " +
+            "projects as you work together.",
+        // A different silhouette per screen, so empty states are told apart
+        // at a glance rather than all reading as the same blank page.
+        shape = EmptyStateShape.Clover,
+        modifier = modifier
+    )
 }
 
 /**

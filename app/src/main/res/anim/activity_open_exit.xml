@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The screen being covered: recedes rather than leaves. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/m3_emphasized"
+    android:shareInterpolator="false">
+
+    <translate
+        android:fromXDelta="0"
+        android:toXDelta="-33%p"
+        android:duration="400"
+        android:interpolator="@interpolator/m3_emphasized" />
+
+    <!-- Scaled about its own centre, so it settles back into the page rather
+         than drifting toward a corner. -->
+    <scale
+        android:fromXScale="1.0"
+        android:toXScale="0.94"
+        android:fromYScale="1.0"
+        android:toYScale="0.94"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:duration="400"
+        android:interpolator="@interpolator/m3_emphasized" />
+
+    <!-- Dimmed, not hidden. It is behind the new screen, not gone, and a
+         full fade would turn the transition into a cut. -->
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.6"
+        android:duration="400"
+        android:interpolator="@interpolator/m3_emphasized" />
+</set>

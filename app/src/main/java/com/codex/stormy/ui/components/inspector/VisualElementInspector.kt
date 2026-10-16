@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.inspector
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -18,13 +19,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -66,7 +67,6 @@ import com.codex.stormy.ui.components.inspector.tabs.DesignTab
 import com.codex.stormy.ui.components.inspector.tabs.ImageTab
 import com.codex.stormy.ui.components.inspector.tabs.LayoutTab
 import com.codex.stormy.ui.components.inspector.tabs.TextTab
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Production-grade visual element inspector/editor.
@@ -163,7 +163,6 @@ fun VisualElementInspector(
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.labelSmall,
-                                fontFamily = PoppinsFontFamily,
                                 fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal
                             )
                         }
@@ -278,7 +277,7 @@ private fun InspectorHeader(
                 ) {
                     // Tag badge
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = CodeXCorners.tiny,
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         Text(
@@ -328,7 +327,8 @@ private fun InspectorHeader(
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
+                            // A wand: this rewrites the element you picked.
+                            imageVector = Icons.Outlined.AutoFixHigh,
                             contentDescription = "AI Edit",
                             modifier = Modifier.size(18.dp),
                             tint = if (showAiPrompt) MaterialTheme.colorScheme.primary
@@ -402,7 +402,7 @@ private fun NoModelWarning() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.errorContainer
     ) {
         Row(
@@ -411,7 +411,7 @@ private fun NoModelWarning() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.AutoAwesome,
+                imageVector = Icons.Outlined.ErrorOutline,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onErrorContainer
@@ -420,7 +420,6 @@ private fun NoModelWarning() {
                 Text(
                     text = "No AI Model Selected",
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -459,7 +458,7 @@ private fun AiPromptInput(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CodeXCorners.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
@@ -471,8 +470,7 @@ private fun AiPromptInput(
                     .focusRequester(focusRequester),
                 textStyle = TextStyle(
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                    fontFamily = PoppinsFontFamily
+                    fontSize = 13.sp
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 singleLine = true,
@@ -488,8 +486,7 @@ private fun AiPromptInput(
                                 text = "Describe changes (e.g., 'make text blue')...",
                                 style = TextStyle(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 13.sp,
-                                    fontFamily = PoppinsFontFamily
+                                    fontSize = 13.sp
                                 )
                             )
                         }

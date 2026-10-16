@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.inspector.tabs
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,7 +41,6 @@ import com.codex.stormy.ui.components.inspector.ImageChangeRequest
 import com.codex.stormy.ui.components.inspector.InspectorElementData
 import com.codex.stormy.ui.components.inspector.InspectorSection
 import com.codex.stormy.ui.components.inspector.InspectorUtils
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Image tab for the Visual Element Inspector.
@@ -119,7 +118,7 @@ private fun ImageSourceEditor(
         // Current source preview (truncated)
         if (currentSrc.isNotEmpty()) {
             Surface(
-                shape = RoundedCornerShape(8.dp),
+                shape = CodeXCorners.small,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Text(
@@ -165,7 +164,7 @@ private fun ImageSourceEditor(
             }),
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CodeXCorners.small)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         )
@@ -181,7 +180,7 @@ private fun ImageSourceEditor(
                         elementHtml = elementHtml
                     ))
                 },
-                shape = RoundedCornerShape(6.dp),
+                shape = CodeXCorners.small,
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Row(
@@ -198,7 +197,6 @@ private fun ImageSourceEditor(
                     Text(
                         text = "Apply URL",
                         style = MaterialTheme.typography.labelSmall,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -212,7 +210,7 @@ private fun ImageSourceEditor(
 private fun PickFromDeviceButton(onPickImage: (() -> Unit)?) {
     Surface(
         onClick = { onPickImage?.invoke() },
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Row(
@@ -232,7 +230,6 @@ private fun PickFromDeviceButton(onPickImage: (() -> Unit)?) {
             Text(
                 text = "Choose from Gallery",
                 style = MaterialTheme.typography.labelMedium,
-                fontFamily = PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
@@ -263,8 +260,7 @@ private fun AltTextEditor(
         onValueChange = onEditedAltChange,
         textStyle = TextStyle(
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
-            fontFamily = PoppinsFontFamily
+            fontSize = 12.sp
         ),
         singleLine = false,
         maxLines = 3,
@@ -274,7 +270,7 @@ private fun AltTextEditor(
         }),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     )

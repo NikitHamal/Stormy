@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.git
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -666,6 +667,15 @@ class GitViewModel(
 /**
  * UI State for Git screen
  */
+/**
+ * Marked @Immutable because it holds List fields. Compose cannot prove a
+ * kotlin.collections.List is immutable -- the interface permits a mutable
+ * implementation -- so without this the whole state object counts as unstable
+ * and every composable reading it recomposes on each emission, even when the
+ * value it reads is unchanged. These lists are only ever replaced wholesale,
+ * never mutated, so the annotation is true.
+ */
+@Immutable
 data class GitUiState(
     val isLoading: Boolean = false,
     val isGitRepo: Boolean = false,

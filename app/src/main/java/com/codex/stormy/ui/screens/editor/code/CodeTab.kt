@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.code
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
@@ -40,14 +40,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.codex.stormy.R
 import com.codex.stormy.domain.model.FileTreeNode
 import com.codex.stormy.ui.screens.editor.assets.ImageMetadata
 import com.codex.stormy.ui.screens.editor.assets.ImageOptimizer
 import com.codex.stormy.ui.theme.CodeXTheme
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.FileUtils
 import java.io.File
 
@@ -192,7 +192,6 @@ private fun ImagePreviewContent(
                 Text(
                     text = file.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -208,7 +207,7 @@ private fun ImagePreviewContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 10f),
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             AsyncImage(
@@ -247,7 +246,7 @@ private fun ImageMetadataCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = CodeXCorners.medium
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -266,7 +265,6 @@ private fun ImageMetadataCard(
                 Text(
                     text = "Image Details",
                     style = MaterialTheme.typography.titleSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -328,7 +326,6 @@ private fun ImageMetadataItem(
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium
         )
     }

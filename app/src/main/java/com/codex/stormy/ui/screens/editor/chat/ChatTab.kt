@@ -1,5 +1,15 @@
 package com.codex.stormy.ui.screens.editor.chat
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.chat.ModernChatInput
+import com.codex.stormy.ui.components.chat.ContextSheet
+import com.codex.stormy.ui.components.chat.ChatSettingsSheet
+import com.codex.stormy.data.ai.context.ContextUsageLevel
+import com.codex.stormy.data.ai.context.ContextBreakdown
+import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.data.ai.ReasoningEffort
+import com.codex.stormy.ui.components.agent.AgentActivityCard
+import com.codex.stormy.data.ai.agents.AgentSession
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
@@ -41,8 +51,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -108,6 +118,16 @@ fun ChatTab(
     currentModel: AiModel? = null,
     availableModels: List<AiModel> = emptyList(),
     fileTree: List<FileTreeNode> = emptyList(),
+    agentSessions: List<AgentSession> = emptyList(),
+    reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    onReasoningEffortChange: (ReasoningEffort) -> Unit = {},
+    contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
+    compactableMessageCount: Int = 0,
+    isCompacting: Boolean = false,
+    lastCompactionSavedPercent: Int? = null,
+    onCompactContext: () -> Unit = {},
+    onStopAgent: (String) -> Unit = {},
+    onResolveAgentApproval: (String, Boolean) -> Unit = { _, _ -> },
     onInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
     onStopGeneration: (() -> Unit)? = null,
@@ -120,11 +140,36 @@ fun ChatTab(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showModelSelector by remember { mutableStateOf(false) }
+    var showChatSettings by remember { mutableStateOf(false) }
+    var showContextSheet by remember { mutableStateOf(false) }
+
+    if (showChatSettings) {
+        ChatSettingsSheet(
+            agentMode = agentMode,
+            onAgentModeChange = { onToggleAgentMode() },
+            reasoningEffort = reasoningEffort,
+            onReasoningEffortChange = onReasoningEffortChange,
+            currentModel = currentModel,
+            onDismiss = { showChatSettings = false }
+        )
+    }
+
+    if (showContextSheet) {
+        ContextSheet(
+            breakdown = contextBreakdown,
+            compactableMessageCount = compactableMessageCount,
+            isCompacting = isCompacting,
+            lastSavedPercent = lastCompactionSavedPercent,
+            onCompact = onCompactContext,
+            onDismiss = { showContextSheet = false }
+        )
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, agentSessions.size) {
+        val lastIndex = messages.size + agentSessions.size - 1
+        if (lastIndex >= 0) {
+            listState.animateScrollToItem(lastIndex)
         }
     }
 
@@ -170,6 +215,26 @@ fun ChatTab(
                     )
                 }
 
+                // Delegated work is appended after the transcript rather than
+                // interleaved by timestamp. A subagent outlives the turn that
+                // started it, so a card placed inline would scroll away while
+                // still running -- exactly when the user most wants to see it.
+                if (agentSessions.isNotEmpty()) {
+                    items(
+                        items = agentSessions,
+                        key = { it.id }
+                    ) { session ->
+                        AgentActivityCard(
+                            session = session,
+                            onStop = { onStopAgent(session.id) },
+                            onApprove = { approved ->
+                                onResolveAgentApproval(session.id, approved)
+                            },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
+                }
+
                 if (isLoading && messages.lastOrNull()?.isUser == true) {
                     item {
                         TypingIndicator()
@@ -178,7 +243,7 @@ fun ChatTab(
             }
         }
 
-        ChatInput(
+        ModernChatInput(
             value = inputText,
             onValueChange = onInputChange,
             onSend = onSendMessage,
@@ -186,14 +251,16 @@ fun ChatTab(
             isEnabled = !isLoading,
             isProcessing = isLoading,
             agentMode = agentMode,
-            currentModel = currentModel,
+            currentModel = currentModel ?: return@Column,
             onModelClick = { showModelSelector = true },
-            onToggleAgentMode = onToggleAgentMode,
+            onSettingsClick = { showChatSettings = true },
+            onContextClick = { showContextSheet = true },
+            contextPercent = contextBreakdown.percent,
+            contextIsCritical = contextBreakdown.level == ContextUsageLevel.CRITICAL,
             fileTree = fileTree,
-            messages = messages,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(Space.lg)
         )
     }
 
@@ -283,11 +350,11 @@ private fun AgentModeToggle(
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(CodeXCorners.xLarge)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(24.dp)
+                shape = CodeXCorners.xLarge
             )
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(4.dp),
@@ -296,7 +363,7 @@ private fun AgentModeToggle(
         // Chat mode button
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
+                .clip(CodeXCorners.xLarge)
                 .background(
                     if (!agentMode) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceContainerLow
@@ -328,7 +395,7 @@ private fun AgentModeToggle(
         // Agent mode button
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(20.dp))
+                .clip(CodeXCorners.xLarge)
                 .background(
                     if (agentMode) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceContainerLow
@@ -342,7 +409,8 @@ private fun AgentModeToggle(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.AutoAwesome,
+                    // Agent mode is tool use; a wrench says so.
+                    imageVector = Icons.Outlined.Handyman,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = if (agentMode) MaterialTheme.colorScheme.onPrimaryContainer
@@ -496,7 +564,7 @@ private fun TypingIndicator() {
 
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(CodeXCorners.large)
             .background(CodeXTheme.extendedColors.chatAssistantBubble)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -538,12 +606,12 @@ private fun ContextStatsTooltip(
         modifier = modifier
             .background(
                 color = MaterialTheme.colorScheme.surfaceContainer,
-                shape = RoundedCornerShape(8.dp)
+                shape = CodeXCorners.small
             )
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(8.dp)
+                shape = CodeXCorners.small
             )
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -596,280 +664,4 @@ private fun ContextStatsTooltip(
         )
     }
 }
-
-@Composable
-private fun ChatInput(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSend: () -> Unit,
-    onStop: (() -> Unit)?,
-    isEnabled: Boolean,
-    isProcessing: Boolean,
-    agentMode: Boolean,
-    currentModel: AiModel?,
-    onModelClick: () -> Unit,
-    onToggleAgentMode: () -> Unit,
-    fileTree: List<FileTreeNode> = emptyList(),
-    messages: List<ChatMessage> = emptyList(), // Added messages for context calc
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
-    
-    // Estimate token usage (approx. 4 chars per token)
-    val usedTokens = remember(messages, value) {
-        (messages.sumOf { it.content.length } + value.length) / 4
-    }
-    
-    val contextLimit = currentModel?.contextLength ?: 4096
-
-    // @ mention state
-    var textFieldValue by remember(value) {
-        mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
-    }
-    val mentionQuery = remember(textFieldValue) {
-        extractMentionQuery(textFieldValue.text, textFieldValue.selection.start)
-    }
-    val showMentionPopup = mentionQuery != null
-    
-    var showContextStats by remember { mutableStateOf(false) }
-
-    Column(modifier = modifier) {
-        // @ mention popup (above the input)
-        FileMentionPopup(
-            isVisible = showMentionPopup,
-            query = mentionQuery ?: "",
-            fileTree = fileTree,
-            onSelectItem = { item ->
-                val (newText, newCursor) = replaceMentionInText(
-                    textFieldValue.text,
-                    textFieldValue.selection.start,
-                    item
-                )
-                textFieldValue = TextFieldValue(
-                    text = newText,
-                    selection = TextRange(newCursor)
-                )
-                onValueChange(newText)
-            },
-            onDismiss = { },
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-
-        // Main Input Container
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                .padding(12.dp)
-        ) {
-            // Top: Input Field
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-            ) {
-                if (textFieldValue.text.isEmpty()) {
-                    Text(
-                        text = "Ask anything... \"How do environment variables work here?\"",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(start = 4.dp, top = 4.dp)
-                    )
-                }
-                
-                androidx.compose.foundation.text.BasicTextField(
-                    value = textFieldValue,
-                    onValueChange = { newValue ->
-                        textFieldValue = newValue
-                        onValueChange(newValue.text)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(IntrinsicSize.Min)
-                        .padding(4.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 20.sp
-                    ),
-                    maxLines = 10,
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default)
-                )
-            }
-
-            // Bottom: Toolbar (Tools, Model, Info, Send)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Left: Controls
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Build/Tools Trigger (Placeholder based on image logic if needed, else model selector)
-                    // The image likely has a "Build" button or similar. Let's stick strictly to Model + Context for now
-                    // keeping "Build" as a potential agent mode toggle or just label if user requested exact clone.
-                    // User said: "redesign... exactly like tha attched image". Image suggests "Build" dropdown maybe?
-                    // I will use the "Agent" mode toggle as "Build" if appropriate, or just keep Model Selector "MiniMax M2.1" style.
-                    
-                    // Mode Selector (Agent/Chat)
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onToggleAgentMode)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = if (agentMode) "Agent" else "Chat",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Icon(
-                            imageVector = Icons.Outlined.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Model Name (Clickable)
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onModelClick)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = currentModel?.name ?: "Select Model",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 120.dp)
-                        )
-                         Icon(
-                            imageVector = Icons.Outlined.ExpandMore,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                // Right: Context & Actions
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Context Viewer Ring
-                    Box(contentAlignment = Alignment.Center) {
-                         Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .clickable { showContextStats = !showContextStats }
-                        ) {
-                             androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                                 val sweepAngle = (usedTokens.toFloat() / contextLimit.toFloat()) * 360f
-                                 
-                                 // Background track
-                                 drawArc(
-                                     color = androidx.compose.ui.graphics.Color.DarkGray.copy(alpha = 0.3f),
-                                     startAngle = 0f,
-                                     sweepAngle = 360f,
-                                     useCenter = false,
-                                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx())
-                                 )
-                                 
-                                 // Usage arc
-                                 drawArc(
-                                     color = androidx.compose.ui.graphics.Color.Gray, // Or a theme color
-                                     startAngle = -90f,
-                                     sweepAngle = sweepAngle,
-                                     useCenter = false,
-                                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx())
-                                 )
-                             }
-                        }
-                        
-                        // Tooltip
-                        if (showContextStats) {
-                            androidx.compose.ui.window.Popup(
-                                alignment = Alignment.TopEnd,
-                                offset = androidx.compose.ui.unit.IntOffset(0, -150),
-                                onDismissRequest = { showContextStats = false },
-                                properties = androidx.compose.ui.window.PopupProperties(focusable = true)
-                            ) {
-                                ContextStatsTooltip(
-                                    usedTokens = usedTokens,
-                                    contextLimit = contextLimit,
-                                    modifier = Modifier.width(200.dp)
-                                )
-                            }
-                        }
-                    }
-
-
-
-
-                    // Stop/Send Button
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (isProcessing) MaterialTheme.colorScheme.errorContainer 
-                                else MaterialTheme.colorScheme.onSurface
-                            )
-                            .clickable(
-                                enabled = (textFieldValue.text.isNotBlank() || isProcessing) && isEnabled,
-                                onClick = {
-                                    if (isProcessing) {
-                                        onStop?.invoke()
-                                    } else if (textFieldValue.text.isNotBlank()) {
-                                        onSend()
-                                        focusManager.clearFocus()
-                                    }
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isProcessing) {
-                            Icon(
-                                imageVector = Icons.Outlined.Stop,
-                                contentDescription = "Stop",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send, // Or a specific arrow icon
-                                contentDescription = "Send",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.surface
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 

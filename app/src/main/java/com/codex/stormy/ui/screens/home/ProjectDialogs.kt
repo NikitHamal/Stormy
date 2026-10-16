@@ -1,9 +1,14 @@
 package com.codex.stormy.ui.screens.home
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.FormSheet
+import androidx.compose.material.icons.outlined.DriveFileRenameOutline
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -26,8 +31,11 @@ import com.codex.stormy.R
 import com.codex.stormy.domain.model.Project
 
 /**
- * Dialog for confirming project deletion.
- * Displays the project name and asks for confirmation before proceeding.
+ * Confirm deleting a project.
+ *
+ * A sheet rather than an AlertDialog: a dialog floats centred, which puts a
+ * destructive confirm button in the middle of the screen where a mis-tap is
+ * easiest, while a sheet keeps it at the bottom edge next to Cancel.
  */
 @Composable
 internal fun DeleteProjectDialog(
@@ -37,35 +45,24 @@ internal fun DeleteProjectDialog(
 ) {
     val context = LocalContext.current
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(context.getString(R.string.home_delete_project_title))
-        },
-        text = {
-            Text(context.getString(R.string.home_delete_project_message, projectName))
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Text(context.getString(R.string.action_delete))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(context.getString(R.string.action_cancel))
-            }
-        }
-    )
+    FormSheet(
+        title = context.getString(R.string.home_delete_project_title),
+        icon = Icons.Outlined.DeleteOutline,
+        destructive = true,
+        confirmLabel = context.getString(R.string.action_delete),
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    ) {
+        Text(
+            text = context.getString(R.string.home_delete_project_message, projectName),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 /**
- * Dialog for editing project name and description.
- * Allows modification of project metadata with validation.
+ * Rename a project and edit its description.
  */
 @Composable
 internal fun EditProjectDialog(
@@ -77,49 +74,34 @@ internal fun EditProjectDialog(
     var description by remember { mutableStateOf(project.description) }
     val focusManager = LocalFocusManager.current
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text("Edit Project")
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Project Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description (Optional)") },
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(name.trim(), description.trim()) },
-                enabled = name.isNotBlank()
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+    FormSheet(
+        title = "Rename project",
+        icon = Icons.Outlined.DriveFileRenameOutline,
+        confirmLabel = "Save",
+        confirmEnabled = name.isNotBlank(),
+        onConfirm = { onConfirm(name.trim(), description.trim()) },
+        onDismiss = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Project name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                shape = CodeXCorners.large
+            )
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Description (optional)") },
+                maxLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                shape = CodeXCorners.large
+            )
         }
-    )
+    }
 }

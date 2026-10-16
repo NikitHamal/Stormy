@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.diff
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -50,7 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import com.codex.stormy.utils.DiffUtils
 
 /**
@@ -142,7 +141,6 @@ fun DiffSummaryBadge(
             Text(
                 text = "No changes",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 fontSize = 10.sp
             )
@@ -177,7 +175,7 @@ fun CollapsibleDiffView(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
+        shape = CodeXCorners.medium,
         color = backgroundColor,
         tonalElevation = 0.dp
     ) {
@@ -271,7 +269,7 @@ fun DiffContent(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = if (isDarkTheme) DiffColors.contextBackground else DiffColors.contextBackgroundLight,
         tonalElevation = 0.dp
     ) {
@@ -294,7 +292,6 @@ fun DiffContent(
                 Text(
                     text = "Changes",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Medium
                 )
@@ -443,7 +440,7 @@ fun InlineDiffBadge(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
+            .clip(CodeXCorners.tiny)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 6.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -504,7 +501,7 @@ fun FileChangeSummary(
             fontSize = 9.sp,
             color = opColor,
             modifier = Modifier
-                .clip(RoundedCornerShape(2.dp))
+                .clip(CodeXCorners.tiny)
                 .background(opColor.copy(alpha = 0.15f))
                 .padding(horizontal = 4.dp, vertical = 1.dp)
         )

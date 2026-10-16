@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.aimodels
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,15 @@ import kotlinx.coroutines.launch
 /**
  * UI state for the AI Models management screen
  */
+/**
+ * Marked @Immutable because it holds List fields. Compose cannot prove a
+ * kotlin.collections.List is immutable -- the interface permits a mutable
+ * implementation -- so without this the whole state object counts as unstable
+ * and every composable reading it recomposes on each emission, even when the
+ * value it reads is unchanged. These lists are only ever replaced wholesale,
+ * never mutated, so the annotation is true.
+ */
+@Immutable
 data class AiModelsUiState(
     val allModels: List<AiModel> = emptyList(),
     val filteredModels: List<AiModel> = emptyList(),
@@ -34,7 +44,9 @@ data class AiModelsUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val totalCount: Int = 0,
-    val enabledCount: Int = 0
+    val enabledCount: Int = 0,
+    /** Per-provider keys, so the empty state can say what is missing. */
+    val apiKeys: Map<AiProvider, String> = emptyMap()
 )
 
 /**
@@ -58,7 +70,14 @@ class AiModelsViewModel(
     private val _defaultModelId = MutableStateFlow("")
 
     val uiState: StateFlow<AiModelsUiState> = combine(
-        modelRepository.observeEnabledModels(),
+        // Every model, not just the enabled ones.
+        //
+        // This screen is where enabling and disabling happens, so filtering it
+        // by isEnabled made a model vanish the moment it was switched off --
+        // with no way to switch it back on. Only the in-project model picker
+        // filters on enabled; this one shows the whole catalogue with its
+        // switch state.
+        modelRepository.observeAllModels(),
         _isLoading,
         _isRefreshing,
         _error,
@@ -66,8 +85,13 @@ class AiModelsViewModel(
         _searchQuery,
         _showStreamingOnly,
         _showToolCallsOnly,
-        combine(_showThinkingOnly, _currentModel, _defaultModelId) { thinking, current, default ->
-            Triple(thinking, current, default)
+        combine(
+            _showThinkingOnly,
+            _currentModel,
+            _defaultModelId,
+            preferencesRepository.apiKeys
+        ) { thinking, current, default, keys ->
+            listOf(thinking, current, default, keys)
         }
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -79,7 +103,13 @@ class AiModelsViewModel(
         val searchQuery = values[5] as String
         val showStreamingOnly = values[6] as Boolean
         val showToolCallsOnly = values[7] as Boolean
-        val (showThinkingOnly, currentModel, defaultModelId) = values[8] as Triple<Boolean, AiModel?, String>
+        @Suppress("UNCHECKED_CAST")
+        val extras = values[8] as List<Any?>
+        val showThinkingOnly = extras[0] as Boolean
+        val currentModel = extras[1] as AiModel?
+        val defaultModelId = extras[2] as String
+        @Suppress("UNCHECKED_CAST")
+        val apiKeys = extras[3] as Map<AiProvider, String>
 
         // Apply filters
         val filteredModels = models.filter { model ->
@@ -113,7 +143,11 @@ class AiModelsViewModel(
             isRefreshing = isRefreshing,
             error = error,
             totalCount = models.size,
-            enabledCount = models.size
+            // Now that the list is the full catalogue, these are genuinely
+            // different numbers -- previously both were the enabled count, so
+            // the header always read "N of N".
+            enabledCount = models.count { it.isEnabled },
+            apiKeys = apiKeys
         )
     }.stateIn(
         scope = viewModelScope,
@@ -139,7 +173,7 @@ class AiModelsViewModel(
                 val currentModelId = preferencesRepository.aiModel.first()
                 val model = modelRepository.getModelById(currentModelId)
                     ?: modelRepository.getEnabledModels().firstOrNull()
-                    ?: AiModels.getDefaultModel(AiProvider.DEEPINFRA)
+                    ?: AiModels.getDefaultModel(AiProvider.DEFAULT)
 
                 _currentModel.value = model
             } catch (e: Exception) {
@@ -155,12 +189,7 @@ class AiModelsViewModel(
             _isRefreshing.value = true
             _error.value = null
 
-            val apiKeys = mapOf(
-                AiProvider.DEEPINFRA to preferencesRepository.deepInfraApiKey.first(),
-                AiProvider.GEMINI to preferencesRepository.geminiApiKey.first(),
-                AiProvider.NVIDIA to preferencesRepository.nvidiaApiKey.first(),
-                AiProvider.OPENROUTER to preferencesRepository.openRouterApiKey.first()
-            )
+            val apiKeys = preferencesRepository.apiKeys.first()
 
             modelRepository.refreshModelsFromAllConfiguredProviders(apiKeys).onFailure { error ->
                 _error.value = "Failed to refresh: ${error.message}"
@@ -269,4 +298,19 @@ class AiModelsViewModel(
             }
         }
     }
+    /** Show or hide one model in the project model picker. */
+    fun setModelEnabled(model: AiModel, enabled: Boolean) {
+        viewModelScope.launch { modelRepository.setModelEnabled(model.id, enabled) }
+    }
+
+    /** Show or hide every model from one provider. */
+    fun setProviderEnabled(provider: AiProvider, enabled: Boolean) {
+        viewModelScope.launch { modelRepository.setProviderEnabled(provider, enabled) }
+    }
+
+    /** Show or hide every model. */
+    fun setAllModelsEnabled(enabled: Boolean) {
+        viewModelScope.launch { modelRepository.setAllModelsEnabled(enabled) }
+    }
+
 }

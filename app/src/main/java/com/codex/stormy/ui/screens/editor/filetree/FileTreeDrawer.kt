@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.filetree
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -19,8 +20,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.components.expressive.FormSheet
+import androidx.compose.material.icons.outlined.NoteAdd
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -34,7 +37,6 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.UploadFile
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -75,7 +77,8 @@ fun FileTreeDrawer(
     onRenameFile: (oldPath: String, newName: String) -> Unit,
     onImportFile: (parentPath: String) -> Unit,
     onImportFolder: (parentPath: String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    contentVisible: Boolean = true
 ) {
     val context = LocalContext.current
     var showCreateFileDialog by remember { mutableStateOf<String?>(null) }
@@ -83,10 +86,19 @@ fun FileTreeDrawer(
     var showRenameDialog by remember { mutableStateOf<FileTreeNode?>(null) }
     var showDeleteDialog by remember { mutableStateOf<FileTreeNode?>(null) }
 
+    // The sheet is composed unconditionally, even when closed.
+    //
+    // ModalNavigationDrawer measures drawerContent to place its open/closed
+    // anchors. Returning nothing while closed gives the sheet zero width, which
+    // collapses both anchors onto the same offset -- the drawer then re-settles
+    // to Open the moment the close animation ends, which is why it could be
+    // opened but never closed. Only the body below is gated.
     ModalDrawerSheet(
         modifier = Modifier.width(280.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
+        if (!contentVisible) return@ModalDrawerSheet
+
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -227,29 +239,24 @@ fun FileTreeDrawer(
     }
 
     showDeleteDialog?.let { node ->
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text(context.getString(R.string.file_delete)) },
-            text = { Text(context.getString(R.string.file_delete_confirm, node.name)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDeleteFile(node.path)
-                        showDeleteDialog = null
-                    },
-                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(context.getString(R.string.action_delete))
-                }
+        FormSheet(
+            title = context.getString(R.string.file_delete),
+            icon = Icons.Outlined.DeleteOutline,
+            onDismiss = { showDeleteDialog = null },
+            confirmLabel = context.getString(R.string.action_delete),
+            onConfirm = {
+                onDeleteFile(node.path)
+                showDeleteDialog = null
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) {
-                    Text(context.getString(R.string.action_cancel))
-                }
-            }
-        )
+            destructive = true,
+            cancelLabel = context.getString(R.string.action_cancel)
+        ) {
+            Text(
+                text = context.getString(R.string.file_delete_confirm, node.name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -567,34 +574,24 @@ private fun CreateItemDialog(
 ) {
     var name by remember { mutableStateOf(initialValue) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(label) },
-                placeholder = { Text(hint) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(name) },
-                enabled = name.isNotBlank()
-            ) {
-                Text("Create")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    FormSheet(
+        title = title,
+        icon = Icons.Outlined.NoteAdd,
+        onDismiss = onDismiss,
+        confirmLabel = "Create",
+        onConfirm = { onConfirm(name) },
+        confirmEnabled = name.isNotBlank()
+    ) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text(label) },
+            placeholder = { Text(hint) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = CodeXCorners.large
+        )
+    }
 }
 
 @Composable

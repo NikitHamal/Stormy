@@ -1,8 +1,8 @@
 package com.codex.stormy.ui.screens.git
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -67,8 +66,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.CodeXApplication
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.launch
 
 @Composable
@@ -101,7 +100,6 @@ fun GitSettingsScreen(
                 title = {
                     Text(
                         text = "Git Settings",
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -142,7 +140,7 @@ fun GitSettingsScreen(
                 OutlinedTextField(
                     value = editName,
                     onValueChange = { editName = it },
-                    label = { Text("Name", fontFamily = PoppinsFontFamily) },
+                    label = { Text("Name") },
                     placeholder = { Text("John Doe") },
                     leadingIcon = {
                         Icon(
@@ -155,7 +153,7 @@ fun GitSettingsScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = CodeXCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -167,7 +165,7 @@ fun GitSettingsScreen(
                 OutlinedTextField(
                     value = editEmail,
                     onValueChange = { editEmail = it },
-                    label = { Text("Email", fontFamily = PoppinsFontFamily) },
+                    label = { Text("Email") },
                     placeholder = { Text("john@example.com") },
                     leadingIcon = {
                         Icon(
@@ -181,7 +179,7 @@ fun GitSettingsScreen(
                         .padding(horizontal = 16.dp),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = CodeXCorners.medium,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -209,7 +207,7 @@ fun GitSettingsScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Identity", fontFamily = PoppinsFontFamily)
+                    Text("Save Identity")
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -254,7 +252,6 @@ fun GitSettingsScreen(
                                     Text(
                                         text = host,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontFamily = PoppinsFontFamily,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -286,7 +283,7 @@ fun GitSettingsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .animateContentSize(animationSpec = tween(300))
+                        .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
                 ) {
                     // Header
                     Row(
@@ -311,13 +308,11 @@ fun GitSettingsScreen(
                                 Text(
                                     text = "Add Credentials",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    fontFamily = PoppinsFontFamily,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "For private repositories",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontFamily = PoppinsFontFamily,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -355,11 +350,11 @@ fun GitSettingsScreen(
                             OutlinedTextField(
                                 value = credHost,
                                 onValueChange = { credHost = it },
-                                label = { Text("Host or Repository URL", fontFamily = PoppinsFontFamily) },
+                                label = { Text("Host or Repository URL") },
                                 placeholder = { Text("github.com or https://github.com/user/repo") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CodeXCorners.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -377,7 +372,7 @@ fun GitSettingsScreen(
                             OutlinedTextField(
                                 value = credUsername,
                                 onValueChange = { credUsername = it },
-                                label = { Text("Username", fontFamily = PoppinsFontFamily) },
+                                label = { Text("Username") },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.Person,
@@ -387,7 +382,7 @@ fun GitSettingsScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CodeXCorners.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -397,7 +392,7 @@ fun GitSettingsScreen(
                             OutlinedTextField(
                                 value = credPassword,
                                 onValueChange = { credPassword = it },
-                                label = { Text("Password / Token", fontFamily = PoppinsFontFamily) },
+                                label = { Text("Password / Token") },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.Lock,
@@ -419,7 +414,7 @@ fun GitSettingsScreen(
                                 else PasswordVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = CodeXCorners.medium,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -484,13 +479,12 @@ fun GitSettingsScreen(
                                 enabled = credUsername.isNotBlank() && credPassword.isNotBlank() && !isTestingConnection
                             ) {
                                 if (isTestingConnection) {
-                                    androidx.compose.material3.CircularProgressIndicator(
+                                    ExpressiveLoadingIndicator(
                                         modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
                                         color = MaterialTheme.colorScheme.onPrimary
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Testing...", fontFamily = PoppinsFontFamily)
+                                    Text("Testing...")
                                 } else {
                                     Icon(
                                         imageVector = Icons.Outlined.Save,
@@ -498,7 +492,7 @@ fun GitSettingsScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(if (credHost.startsWith("http")) "Test & Save" else "Save Credentials", fontFamily = PoppinsFontFamily)
+                                    Text(if (credHost.startsWith("http")) "Test & Save" else "Save Credentials")
                                 }
                             }
                         }
@@ -546,7 +540,6 @@ private fun GitSettingsSection(
         Text(
             text = title,
             style = MaterialTheme.typography.labelLarge,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 4.dp)
@@ -554,7 +547,7 @@ private fun GitSettingsSection(
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = CodeXCorners.large,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             tonalElevation = 0.dp
         ) {

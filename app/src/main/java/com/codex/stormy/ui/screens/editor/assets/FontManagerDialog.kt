@@ -1,5 +1,8 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.SearchPill
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -57,7 +59,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Font category for filtering
@@ -153,7 +154,6 @@ fun FontManagerDialog(
                 Text(
                     text = "Font Manager",
                     style = MaterialTheme.typography.titleLarge,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -185,31 +185,15 @@ fun FontManagerDialog(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Search
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                placeholder = { Text("Search fonts...") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = null
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = "Clear"
-                            )
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
+            // One search affordance across the app; a dialog with its own
+            // differently-shaped field is how an app stops feeling like one
+            // app.
+            SearchPill(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onClose = { searchQuery = "" },
+                placeholder = "Search fonts",
+                modifier = Modifier.padding(horizontal = Space.xl)
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -219,7 +203,7 @@ fun FontManagerDialog(
                 contentPadding = PaddingValues(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(FontCategory.entries) { category ->
+                items(FontCategory.entries, key = { it.name }) { category ->
                     FilterChip(
                         selected = selectedCategory == category,
                         onClick = { selectedCategory = category },
@@ -330,11 +314,10 @@ private fun FontListItem(
                     Text(
                         text = font.name,
                         style = MaterialTheme.typography.titleSmall,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.Medium
                     )
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = CodeXCorners.tiny,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
@@ -393,7 +376,6 @@ private fun FontDetailSection(
         Text(
             text = font.name,
             style = MaterialTheme.typography.titleMedium,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.SemiBold
         )
 
@@ -421,7 +403,7 @@ private fun FontDetailSection(
         ) {
             items(font.weights) { weight ->
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = CodeXCorners.small,
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Text(
@@ -482,7 +464,7 @@ private fun CopyCodeCard(
 ) {
     Surface(
         onClick = { onCopy(code) },
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Row(

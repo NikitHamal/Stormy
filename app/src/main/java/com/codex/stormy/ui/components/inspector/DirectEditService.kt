@@ -38,7 +38,18 @@ class DirectEditService(
     private val _status = MutableStateFlow<DirectEditStatus>(DirectEditStatus.Idle)
     val status: StateFlow<DirectEditStatus> = _status.asStateFlow()
 
-    private var debouncedJob: Job? = null
+    /**
+     * One debounce job per (selector, property).
+     *
+     * This used to be a single shared job, so changing `color` and then
+     * `font-size` within the debounce window cancelled the first write
+     * entirely: the live preview showed both changes but only the last one was
+     * ever persisted to CSS. Keying by target means rapid edits to *different*
+     * properties all land, while repeated edits to the *same* property (a
+     * slider drag) still collapse to one write, which is the behaviour the
+     * debounce was for.
+     */
+    private val debouncedJobs = mutableMapOf<String, Job>()
 
     // Debounce delay for batching rapid style changes (e.g., slider dragging)
     private val DEBOUNCE_DELAY_MS = 300L
@@ -59,16 +70,23 @@ class DirectEditService(
         webView: WebView?,
         onComplete: () -> Unit
     ) {
-        // Apply live preview immediately for instant visual feedback
+        // Apply live preview immediately for instant visual feedback, but only
+        // once the selector is known to address a single element.
         scope.launch {
+            if (!ensureSingleTarget(webView, request.selector)) {
+                onComplete()
+                return@launch
+            }
             webView?.let { wv ->
                 applyLiveStyleUpdate(wv, request.selector, request.property, request.newValue)
             }
         }
 
-        // Debounce the file write to batch rapid changes
-        debouncedJob?.cancel()
-        debouncedJob = scope.launch {
+        // Debounce the file write per target, so edits to other properties of
+        // the same element are not cancelled along with it.
+        val key = "${request.selector}|${request.property}"
+        debouncedJobs.remove(key)?.cancel()
+        debouncedJobs[key] = scope.launch {
             delay(DEBOUNCE_DELAY_MS)
 
             _status.value = DirectEditStatus.Editing
@@ -86,6 +104,7 @@ class DirectEditService(
             } catch (e: Exception) {
                 _status.value = DirectEditStatus.Error(e.message ?: "Failed to apply style")
             } finally {
+                debouncedJobs.remove(key)
                 onComplete()
             }
         }
@@ -101,14 +120,19 @@ class DirectEditService(
     ) {
         // Apply live preview immediately
         scope.launch {
+            if (!ensureSingleTarget(webView, request.selector)) {
+                onComplete()
+                return@launch
+            }
             webView?.let { wv ->
                 applyLiveTextUpdate(wv, request.selector, request.newText)
             }
         }
 
         // Write to file
-        debouncedJob?.cancel()
-        debouncedJob = scope.launch {
+        val key = "${request.selector}|#text"
+        debouncedJobs.remove(key)?.cancel()
+        debouncedJobs[key] = scope.launch {
             delay(DEBOUNCE_DELAY_MS)
 
             _status.value = DirectEditStatus.Editing
@@ -139,16 +163,22 @@ class DirectEditService(
         webView: WebView?,
         onComplete: () -> Unit
     ) {
+
         // Apply live preview immediately
         scope.launch {
+            if (!ensureSingleTarget(webView, request.selector)) {
+                onComplete()
+                return@launch
+            }
             webView?.let { wv ->
                 applyLiveImageUpdate(wv, request.selector, request.newSrc)
             }
         }
 
         // Write to file
-        debouncedJob?.cancel()
-        debouncedJob = scope.launch {
+        val key = "${request.selector}|#src"
+        debouncedJobs.remove(key)?.cancel()
+        debouncedJobs[key] = scope.launch {
             delay(DEBOUNCE_DELAY_MS)
 
             _status.value = DirectEditStatus.Editing
@@ -640,33 +670,48 @@ class DirectEditService(
     /**
      * Apply live CSS update to WebView for instant visual feedback
      */
+    private suspend fun countMatches(webView: WebView?, selector: String): Int =
+        LivePreviewEditor.countMatches(webView, selector)
+
+    /**
+     * Single enforcement point for "this edit addresses exactly one element".
+     *
+     * Checked here, against the live DOM at write time, rather than threaded as
+     * a flag through the ~75 places the inspector tabs build change requests.
+     * One place to be correct, and it reflects the page as it is now rather
+     * than as it was when the element was first inspected.
+     *
+     * Without this, `document.querySelectorAll(sel).forEach(...)` in the live
+     * update and the CSS rule written to disk both applied to *every* match --
+     * editing one card restyled all of them, off screen and silently.
+     */
+    private suspend fun ensureSingleTarget(webView: WebView?, selector: String): Boolean {
+        val matches = countMatches(webView, selector)
+        return when {
+            matches == 1 || matches < 0 -> true
+            matches == 0 -> {
+                _status.value = DirectEditStatus.Error(
+                    "That element is no longer in the page. Re-select it and try again."
+                )
+                false
+            }
+            else -> {
+                _status.value = DirectEditStatus.Error(
+                    "\"$selector\" matches $matches elements, so editing it would change " +
+                        "all of them. Give this element an id, or use Agent mode."
+                )
+                false
+            }
+        }
+    }
+
     private suspend fun applyLiveStyleUpdate(
         webView: WebView,
         selector: String,
         property: String,
         value: String
     ) {
-        withContext(Dispatchers.Main) {
-            val escapedSelector = selector.replace("'", "\\'")
-            val escapedProperty = property.replace("'", "\\'")
-            val escapedValue = value.replace("'", "\\'")
-
-            val script = """
-                (function() {
-                    try {
-                        var elements = document.querySelectorAll('$escapedSelector');
-                        elements.forEach(function(el) {
-                            el.style['$escapedProperty'] = '$escapedValue';
-                        });
-                        return elements.length;
-                    } catch(e) {
-                        return 0;
-                    }
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
+        LivePreviewEditor.applyStyle(webView, selector, property, value)
     }
 
     /**
@@ -677,42 +722,7 @@ class DirectEditService(
         selector: String,
         newText: String
     ) {
-        withContext(Dispatchers.Main) {
-            val escapedSelector = selector.replace("'", "\\'")
-            val escapedText = newText
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "\\n")
-
-            val script = """
-                (function() {
-                    try {
-                        var elements = document.querySelectorAll('$escapedSelector');
-                        if (elements.length > 0) {
-                            var el = elements[0];
-                            // Find first text node
-                            var textNode = null;
-                            for (var i = 0; i < el.childNodes.length; i++) {
-                                if (el.childNodes[i].nodeType === Node.TEXT_NODE && el.childNodes[i].textContent.trim()) {
-                                    textNode = el.childNodes[i];
-                                    break;
-                                }
-                            }
-                            if (textNode) {
-                                textNode.textContent = '$escapedText';
-                            } else if (!el.children.length) {
-                                el.textContent = '$escapedText';
-                            }
-                        }
-                        return elements.length;
-                    } catch(e) {
-                        return 0;
-                    }
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
+        LivePreviewEditor.applyText(webView, selector, newText)
     }
 
     /**
@@ -723,37 +733,15 @@ class DirectEditService(
         selector: String,
         newSrc: String
     ) {
-        withContext(Dispatchers.Main) {
-            val escapedSelector = selector.replace("'", "\\'")
-            val escapedSrc = newSrc
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-
-            val script = """
-                (function() {
-                    try {
-                        var elements = document.querySelectorAll('$escapedSelector');
-                        elements.forEach(function(el) {
-                            if (el.tagName === 'IMG') {
-                                el.src = '$escapedSrc';
-                            }
-                        });
-                        return elements.length;
-                    } catch(e) {
-                        return 0;
-                    }
-                })();
-            """.trimIndent()
-
-            webView.evaluateJavascript(script, null)
-        }
+        LivePreviewEditor.applyImageSrc(webView, selector, newSrc)
     }
 
     /**
      * Cancel any pending edit operation
      */
     fun cancel() {
-        debouncedJob?.cancel()
+        debouncedJobs.values.forEach { it.cancel() }
+        debouncedJobs.clear()
         _status.value = DirectEditStatus.Idle
     }
 

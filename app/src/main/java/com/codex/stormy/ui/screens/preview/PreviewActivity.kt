@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.screens.preview
 
+import androidx.activity.SystemBarStyle
+import com.codex.stormy.ui.theme.CodeXCorners
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -52,13 +54,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Clear
@@ -122,6 +124,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.CodeXApplication
 import com.codex.stormy.ui.components.inspector.AgentSelectedElement
 import com.codex.stormy.ui.components.inspector.DirectEditService
@@ -138,7 +141,7 @@ import com.codex.stormy.data.preview.FrameworkType
 import com.codex.stormy.data.preview.PreviewServerManager
 import com.codex.stormy.data.preview.PreviewServerState
 import com.codex.stormy.ui.theme.CodeXTheme
-import com.codex.stormy.ui.theme.PoppinsFontFamily
+import com.codex.stormy.utils.SelectorBuilder
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -152,7 +155,20 @@ class PreviewActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Styled from the system's own dark-mode setting here, unlike
+        // MainActivity: these two have no in-app theme toggle to follow.
+        val nightMode = resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val barStyle = if (nightMode) {
+            SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        }
+        enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
 
         projectId = intent.getStringExtra(EXTRA_PROJECT_ID) ?: ""
         projectPath = intent.getStringExtra(EXTRA_PROJECT_PATH) ?: ""
@@ -207,14 +223,31 @@ data class InspectedElement(
     val outerHTML: String,
     val computedStyles: Map<String, String>,
     val attributes: Map<String, String>,
-    val boundingRect: ElementRect
+    val boundingRect: ElementRect,
+    /**
+     * Selector computed inside the page and checked against the document, so
+     * it is known to address this element and no other. Empty only if the
+     * injected helper failed.
+     */
+    val selector: String = "",
+    /**
+     * False when the page could not produce a selector matching exactly one
+     * node. Editing through a non-unique selector would hit every match, so
+     * the UI must refuse to write rather than guess.
+     */
+    val selectorIsUnique: Boolean = false,
+    val textContent: String = "",
+    val childElementCount: Int = 0
 )
 
 data class ElementRect(
     val x: Float,
     val y: Float,
     val width: Float,
-    val height: Float
+    val height: Float,
+    /** Document-relative position; [x]/[y] are viewport-relative. */
+    val pageX: Float = x,
+    val pageY: Float = y
 )
 
 /**
@@ -294,7 +327,9 @@ class InspectorJsInterface(
             x = rectJson.optDouble("x", 0.0).toFloat(),
             y = rectJson.optDouble("y", 0.0).toFloat(),
             width = rectJson.optDouble("width", 0.0).toFloat(),
-            height = rectJson.optDouble("height", 0.0).toFloat()
+            height = rectJson.optDouble("height", 0.0).toFloat(),
+            pageX = rectJson.optDouble("pageX", rectJson.optDouble("x", 0.0)).toFloat(),
+            pageY = rectJson.optDouble("pageY", rectJson.optDouble("y", 0.0)).toFloat()
         )
 
         return InspectedElement(
@@ -305,7 +340,11 @@ class InspectorJsInterface(
             outerHTML = json.optString("outerHTML", ""),
             computedStyles = styles,
             attributes = attributes,
-            boundingRect = rect
+            boundingRect = rect,
+            selector = json.optString("selector", ""),
+            selectorIsUnique = json.optBoolean("selectorIsUnique", false),
+            textContent = json.optString("textContent", ""),
+            childElementCount = json.optInt("childElementCount", 0)
         )
     }
 }
@@ -552,9 +591,8 @@ private fun PreviewScreen(
                         when (editStatus) {
                             is PreviewEditStatus.Analyzing,
                             is PreviewEditStatus.Editing -> {
-                                CircularProgressIndicator(
+                                ExpressiveLoadingIndicator(
                                     modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -594,7 +632,7 @@ private fun PreviewScreen(
                                     SelectionMode.DISABLED -> Icons.Outlined.TouchApp
                                     SelectionMode.INSPECTOR -> Icons.Outlined.TouchApp
                                     SelectionMode.EDITOR -> Icons.Outlined.Edit
-                                    SelectionMode.AGENT -> Icons.Outlined.AutoAwesome
+                                    SelectionMode.AGENT -> Icons.Outlined.Handyman
                                 },
                                 contentDescription = when (selectionMode) {
                                     SelectionMode.DISABLED -> "Enable inspector mode"
@@ -876,8 +914,9 @@ private fun PreviewScreen(
                 var resolvedModel: com.codex.stormy.data.ai.AiModel? = null
 
                 // Priority 1: Project's last used model
-                if (project != null && !project.lastUsedModelId.isNullOrEmpty()) {
-                    resolvedModel = app.aiModelRepository.getModelById(project.lastUsedModelId)
+                val lastUsedModelId = project?.lastUsedModelId
+                if (!lastUsedModelId.isNullOrEmpty()) {
+                    resolvedModel = app.aiModelRepository.getModelById(lastUsedModelId)
                 }
 
                 // Priority 2: User's global default model
@@ -1088,7 +1127,7 @@ private fun SelectionModeIndicator(
             MaterialTheme.colorScheme.onPrimaryContainer
         )
         SelectionMode.AGENT -> Quadruple(
-            Icons.Outlined.AutoAwesome,
+            Icons.Outlined.Handyman,
             if (selectedCount == 0) "Agent • Tap elements to select for AI"
             else "Agent • $selectedCount element${if (selectedCount > 1) "s" else ""} selected",
             MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.95f),
@@ -1100,7 +1139,7 @@ private fun SelectionModeIndicator(
     Box(
         modifier = modifier
             .padding(8.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(CodeXCorners.large)
             .background(containerColor)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
@@ -1117,7 +1156,6 @@ private fun SelectionModeIndicator(
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 color = contentColor
             )
         }
@@ -1171,7 +1209,7 @@ private fun AgentPromptBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 12.dp),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = CodeXCorners.small,
                     color = MaterialTheme.colorScheme.errorContainer
                 ) {
                     Row(
@@ -1180,7 +1218,7 @@ private fun AgentPromptBar(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
+                            imageVector = Icons.Outlined.ErrorOutline,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onErrorContainer
@@ -1189,7 +1227,6 @@ private fun AgentPromptBar(
                             Text(
                                 text = "No AI Model Selected",
                                 style = MaterialTheme.typography.labelMedium,
-                                fontFamily = PoppinsFontFamily,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -1212,16 +1249,14 @@ private fun AgentPromptBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "AI is applying changes...",
                         style = MaterialTheme.typography.labelMedium,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -1232,7 +1267,7 @@ private fun AgentPromptBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 8.dp)
             ) {
-                items(selectedElements) { element ->
+                items(selectedElements, key = { it.selector }) { element ->
                     SelectedElementChip(
                         element = element,
                         onRemove = {
@@ -1266,7 +1301,7 @@ private fun AgentPromptBar(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(CodeXCorners.xLarge)
                         .background(MaterialTheme.colorScheme.surface)
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
@@ -1280,8 +1315,7 @@ private fun AgentPromptBar(
                         textStyle = TextStyle(
                             color = if (isProcessing) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                            fontFamily = PoppinsFontFamily
+                            fontSize = 14.sp
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         singleLine = false,
@@ -1293,8 +1327,7 @@ private fun AgentPromptBar(
                                         text = "Describe what to change...",
                                         style = TextStyle(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 14.sp,
-                                            fontFamily = PoppinsFontFamily
+                                            fontSize = 14.sp
                                         )
                                     )
                                 }
@@ -1326,9 +1359,8 @@ private fun AgentPromptBar(
                         )
                 ) {
                     if (isProcessing) {
-                        CircularProgressIndicator(
+                        ExpressiveLoadingIndicator(
                             modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
@@ -1377,13 +1409,13 @@ private fun SelectedElementChip(
     onRemove: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = CodeXCorners.small,
         color = MaterialTheme.colorScheme.secondaryContainer,
         modifier = Modifier
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(8.dp)
+                shape = CodeXCorners.small
             )
     ) {
         Row(
@@ -1421,7 +1453,7 @@ private fun QuickSuggestionChip(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = CodeXCorners.large,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Text(
@@ -1695,7 +1727,7 @@ private fun ElementTab(element: InspectedElement) {
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(CodeXCorners.tiny)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(8.dp)
             )
@@ -1786,7 +1818,7 @@ private fun StyleProperty(name: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(CodeXCorners.tiny)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
@@ -1812,20 +1844,23 @@ private fun StyleProperty(name: String, value: String) {
     }
 }
 
-private fun buildElementSelector(element: InspectedElement): String {
-    val sb = StringBuilder(element.tagName.lowercase())
-    if (element.id.isNotEmpty()) {
-        sb.append("#${element.id}")
+/**
+ * Selector for an inspected element.
+ *
+ * Prefers the selector the page computed and verified against the document.
+ * The local fallback can only ever be a guess -- it has no DOM to check
+ * against -- so it exists for the case where script injection failed, and
+ * callers that intend to *write* must gate on
+ * [InspectedElement.selectorIsUnique] rather than on this being non-empty.
+ */
+private fun buildElementSelector(element: InspectedElement): String =
+    element.selector.ifBlank {
+        SelectorBuilder.buildSelector(
+            tagName = element.tagName,
+            id = element.id,
+            className = element.className
+        )
     }
-    if (element.className.isNotEmpty()) {
-        element.className.split(" ").take(2).forEach { className ->
-            if (className.isNotBlank()) {
-                sb.append(".$className")
-            }
-        }
-    }
-    return sb.toString()
-}
 
 /**
  * Extension function to apply viewport mode (mobile or desktop) to WebView
@@ -1868,6 +1903,8 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                 window.__stormyInspector.disable();
             }
 
+            ${SelectorBuilder.BUILD_UNIQUE_SELECTOR_JS}
+
             // Create highlight overlay
             var overlay = document.createElement('div');
             overlay.id = '__stormy_inspector_overlay';
@@ -1884,41 +1921,90 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                 lastElement: null,
 
                 getElementData: function(el) {
-                    // Get computed styles
+                    // Longhand properties only. getPropertyValue('margin') or
+                    // 'border' returns "" in Chromium whenever the four sides
+                    // differ, which is why the inspector used to show blank
+                    // spacing on most real elements. The longhands always
+                    // resolve, and the UI recombines them.
                     var computedStyles = {};
                     var style = window.getComputedStyle(el);
-                    var importantProps = ['display', 'position', 'width', 'height', 'margin', 'padding',
-                        'color', 'background-color', 'font-size', 'font-family', 'font-weight',
-                        'border', 'border-radius', 'flex', 'flex-direction', 'justify-content',
-                        'align-items', 'gap', 'grid-template-columns'];
-                    importantProps.forEach(function(prop) {
-                        var val = style.getPropertyValue(prop);
-                        if (val) computedStyles[prop] = val;
-                    });
+                    var props = [
+                        'display', 'position', 'top', 'right', 'bottom', 'left', 'z-index',
+                        'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+                        'box-sizing', 'overflow', 'overflow-x', 'overflow-y',
+                        'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+                        'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+                        'color', 'background-color', 'background-image', 'opacity',
+                        'font-family', 'font-size', 'font-weight', 'font-style',
+                        'line-height', 'letter-spacing', 'text-align', 'text-decoration-line',
+                        'text-transform', 'white-space', 'word-break',
+                        'border-top-width', 'border-right-width', 'border-bottom-width',
+                        'border-left-width', 'border-style', 'border-color',
+                        'border-top-left-radius', 'border-top-right-radius',
+                        'border-bottom-right-radius', 'border-bottom-left-radius',
+                        'box-shadow', 'outline',
+                        'flex-direction', 'flex-wrap', 'justify-content', 'align-items',
+                        'align-content', 'align-self', 'flex-grow', 'flex-shrink', 'flex-basis',
+                        'order', 'gap', 'row-gap', 'column-gap',
+                        'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row',
+                        'transform', 'transition', 'cursor', 'visibility', 'object-fit'
+                    ];
+                    for (var p = 0; p < props.length; p++) {
+                        var val = style.getPropertyValue(props[p]);
+                        if (val !== null && val !== '') computedStyles[props[p]] = val;
+                    }
 
-                    // Get attributes
                     var attributes = {};
                     for (var i = 0; i < el.attributes.length; i++) {
                         var attr = el.attributes[i];
                         attributes[attr.name] = attr.value;
                     }
 
-                    // Get bounding rect
+                    // getBoundingClientRect is viewport-relative. Reporting it
+                    // raw meant the inspector's coordinates drifted by the
+                    // scroll offset on any scrolled page.
                     var rect = el.getBoundingClientRect();
+                    var scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
+                    var scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+                    var selector = '';
+                    var selectorIsUnique = false;
+                    try {
+                        selector = __codexUniqueSelector(el);
+                        selectorIsUnique = !!selector &&
+                            document.querySelectorAll(selector).length === 1;
+                    } catch (e) { }
+
+                    // On SVG elements className is an SVGAnimatedString, not a
+                    // string, so `el.className || ''` yielded "[object
+                    // SVGAnimatedString]" and poisoned every selector built
+                    // from it.
+                    var cls = '';
+                    if (typeof el.className === 'string') {
+                        cls = el.className;
+                    } else if (el.getAttribute) {
+                        cls = el.getAttribute('class') || '';
+                    }
 
                     return {
                         tagName: el.tagName,
                         id: el.id || '',
-                        className: el.className || '',
+                        className: cls,
+                        selector: selector,
+                        selectorIsUnique: selectorIsUnique,
                         innerHTML: el.innerHTML.substring(0, 500),
                         outerHTML: el.outerHTML.substring(0, 1000),
+                        textContent: (el.textContent || '').substring(0, 500),
+                        childElementCount: el.childElementCount,
                         computedStyles: computedStyles,
                         attributes: attributes,
                         boundingRect: {
                             x: rect.x,
                             y: rect.y,
                             width: rect.width,
-                            height: rect.height
+                            height: rect.height,
+                            pageX: rect.x + scrollX,
+                            pageY: rect.y + scrollY
                         }
                     };
                 },

@@ -25,10 +25,11 @@ import java.io.File
  */
 @Composable
 fun GitDrawer(
-    projectPath: String,
+    projectPath: String?,
     onClose: () -> Unit,
     onNavigateToGitSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentVisible: Boolean = true
 ) {
     val context = LocalContext.current
     val app = remember { CodeXApplication.getInstance() }
@@ -44,9 +45,15 @@ fun GitDrawer(
 
     val uiState by viewModel.uiState.collectAsState()
 
-    // Open repository when drawer opens
+    // Open the repository once there is a project to open.
+    //
+    // projectPath is null for the first frames after the editor launches --
+    // the sheet is composed before the project loads so that its width stays
+    // stable (see the note on ModalDrawerSheet below). File(null) throws an
+    // NPE inside java.io.File's constructor, which is what crashed here.
     LaunchedEffect(projectPath) {
-        viewModel.openRepository(File(projectPath))
+        val root = projectPath ?: return@LaunchedEffect
+        viewModel.openRepository(File(root))
     }
 
     // Handle events
@@ -66,11 +73,23 @@ fun GitDrawer(
         }
     }
 
+    // The sheet is composed unconditionally, even when closed.
+    //
+    // ModalNavigationDrawer measures drawerContent to place its open/closed
+    // anchors. Returning nothing while closed gives the sheet zero width, which
+    // collapses both anchors onto the same offset -- the drawer then re-settles
+    // to Open the moment the close animation ends, which is why it could be
+    // opened but never closed. Only the body below is gated.
     ModalDrawerSheet(
         modifier = modifier
             .width(320.dp)
             .fillMaxHeight()
     ) {
+        // Also gated on the path: the sheet is composed before the
+        // project loads so its width stays stable, but the body has
+        // nothing to show until there is a project.
+        if (!contentVisible || projectPath == null) return@ModalDrawerSheet
+
         GitPanel(
             uiState = uiState,
             onStageFile = { path -> viewModel.stageFiles(listOf(path)) },

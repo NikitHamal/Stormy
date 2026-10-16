@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Circle
@@ -72,7 +72,7 @@ fun TaskPlanningPanel(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = CodeXCorners.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 1.dp
     ) {
@@ -110,7 +110,7 @@ fun TaskPlanningPanel(
                         modifier = Modifier
                             .width(60.dp)
                             .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp)),
+                            .clip(CodeXCorners.tiny),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         strokeCap = StrokeCap.Round
@@ -218,7 +218,7 @@ private fun TaskItem(
         if (task.status == TodoStatus.IN_PROGRESS) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(CodeXCorners.tiny)
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
@@ -254,7 +254,7 @@ fun CompactTaskProgress(
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(CodeXCorners.small)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -266,7 +266,7 @@ fun CompactTaskProgress(
             modifier = Modifier
                 .weight(1f)
                 .height(4.dp)
-                .clip(RoundedCornerShape(2.dp)),
+                .clip(CodeXCorners.tiny),
             color = MaterialTheme.colorScheme.primary,
             trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             strokeCap = StrokeCap.Round

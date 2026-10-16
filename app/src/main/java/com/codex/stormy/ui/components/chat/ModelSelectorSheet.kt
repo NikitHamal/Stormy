@@ -1,7 +1,11 @@
 package com.codex.stormy.ui.components.chat
 
+import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.PickerOption
+import com.codex.stormy.ui.components.expressive.SegmentedPicker
+import com.codex.stormy.data.ai.ReasoningEffort
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,9 +45,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
 import com.codex.stormy.data.ai.AiModel
 import com.codex.stormy.data.ai.AiProvider
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 
 /**
  * Minimal model selector bottom sheet
@@ -59,6 +63,8 @@ fun ModelSelectorSheet(
     onManageModels: () -> Unit = {},
     onRefresh: () -> Unit = {},
     isRefreshing: Boolean = false,
+    reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    onReasoningEffortChange: (ReasoningEffort) -> Unit = {},
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier
 ) {
@@ -80,7 +86,7 @@ fun ModelSelectorSheet(
                     .padding(vertical = 12.dp)
                     .width(40.dp)
                     .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(CodeXCorners.tiny)
                     .background(MaterialTheme.colorScheme.outlineVariant)
             )
         },
@@ -103,14 +109,12 @@ fun ModelSelectorSheet(
                     Text(
                         text = "Select Model",
                         style = MaterialTheme.typography.titleMedium,
-                        fontFamily = PoppinsFontFamily,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "${sortedModels.size} models available",
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = PoppinsFontFamily,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -121,9 +125,8 @@ fun ModelSelectorSheet(
                         enabled = !isRefreshing
                     ) {
                         if (isRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
+                            ExpressiveLoadingIndicator(
+                                modifier = Modifier.size(18.dp)
                             )
                         } else {
                             Icon(
@@ -175,18 +178,32 @@ fun ModelSelectorSheet(
                         Text(
                             text = "No models available",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontFamily = PoppinsFontFamily,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             text = "Tap refresh to load models",
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = PoppinsFontFamily,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
                 }
             } else {
+                // Shown only for models that expose a reasoning budget. A disabled
+                // control on every other model would be a permanent dead element,
+                // and the absence is itself informative.
+                if (selectedModel?.supportsReasoningEffort == true) {
+                    SegmentedPicker(
+                        label = "Reasoning effort",
+                        options = ReasoningEffort.entries.map { PickerOption(it, it.label) },
+                        selected = reasoningEffort,
+                        onSelect = onReasoningEffortChange,
+                        modifier = Modifier.padding(
+                            horizontal = Space.lg,
+                            vertical = Space.md
+                        )
+                    )
+                }
+
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -219,7 +236,7 @@ private fun CompactModelCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = CodeXCorners.medium,
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         } else {
@@ -227,7 +244,7 @@ private fun CompactModelCard(
         },
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = tween(200))
+            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
     ) {
         Row(
             modifier = Modifier
@@ -247,7 +264,6 @@ private fun CompactModelCard(
                 Text(
                     text = getProviderInitial(model.provider),
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Bold,
                     color = getProviderColor(model.provider)
                 )
@@ -258,7 +274,6 @@ private fun CompactModelCard(
                 Text(
                     text = model.name,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.primary
@@ -292,26 +307,26 @@ private fun CompactModelCard(
 }
 
 /**
- * Get display initial for AI provider
+ * Badge letter for a provider. Derived rather than mapped, so a new provider
+ * does not need a branch here -- an exhaustive `when` over the enum made this a
+ * compile error every time the provider list grew.
  */
-private fun getProviderInitial(provider: AiProvider): String {
-    return when (provider) {
-        AiProvider.DEEPINFRA -> "D"
-        AiProvider.GEMINI -> "G"
-        AiProvider.NVIDIA -> "N"
-        AiProvider.OPENROUTER -> "O"
-    }
-}
+private fun getProviderInitial(provider: AiProvider): String =
+    provider.displayName.firstOrNull()?.uppercase() ?: "?"
 
 /**
- * Get color for AI provider
+ * Badge colour for a provider, picked deterministically from its ordinal so the
+ * same provider always gets the same colour across launches.
  */
 @Composable
 private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics.Color {
-    return when (provider) {
-        AiProvider.DEEPINFRA -> MaterialTheme.colorScheme.primary
-        AiProvider.GEMINI -> MaterialTheme.colorScheme.tertiary
-        AiProvider.NVIDIA -> MaterialTheme.colorScheme.secondary
-        AiProvider.OPENROUTER -> MaterialTheme.colorScheme.error
-    }
+    val palette = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.primaryContainer,
+        MaterialTheme.colorScheme.tertiaryContainer,
+        MaterialTheme.colorScheme.secondaryContainer
+    )
+    return palette[provider.ordinal % palette.size]
 }

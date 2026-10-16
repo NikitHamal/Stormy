@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.screens.editor.assets
 
+import com.codex.stormy.ui.theme.CodeXCorners
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -29,8 +30,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.components.expressive.FormSheet
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -44,7 +46,6 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.EmojiSymbols
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -75,10 +76,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.codex.stormy.R
-import com.codex.stormy.ui.theme.PoppinsFontFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,12 +110,13 @@ data class AssetFile(
  */
 @Composable
 fun AssetManagerDrawer(
-    projectPath: String,
+    projectPath: String?,
     onClose: () -> Unit,
     onAssetClick: (AssetFile) -> Unit,
     onAssetDelete: (AssetFile) -> Unit,
     onAssetAdded: () -> Unit,
-    onCopyPath: (String) -> Unit
+    onCopyPath: (String) -> Unit,
+    contentVisible: Boolean = true
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -133,9 +135,10 @@ fun AssetManagerDrawer(
 
     // Load assets
     fun loadAssets() {
+        val root = projectPath ?: return
         scope.launch {
             assets = withContext(Dispatchers.IO) {
-                scanAssetsFolder(projectPath)
+                scanAssetsFolder(root)
             }
         }
     }
@@ -151,7 +154,7 @@ fun AssetManagerDrawer(
     ) { uri ->
         uri?.let {
             scope.launch {
-                copyAssetToProject(context, uri, projectPath, "images")
+                copyAssetToProject(context, uri, projectPath ?: return@launch, "images")
                 loadAssets()
                 onAssetAdded()
             }
@@ -164,17 +167,29 @@ fun AssetManagerDrawer(
     ) { uri ->
         uri?.let {
             scope.launch {
-                copyAssetToProject(context, uri, projectPath, "assets")
+                copyAssetToProject(context, uri, projectPath ?: return@launch, "assets")
                 loadAssets()
                 onAssetAdded()
             }
         }
     }
 
+    // The sheet is composed unconditionally, even when closed.
+    //
+    // ModalNavigationDrawer measures drawerContent to place its open/closed
+    // anchors. Returning nothing while closed gives the sheet zero width, which
+    // collapses both anchors onto the same offset -- the drawer then re-settles
+    // to Open the moment the close animation ends, which is why it could be
+    // opened but never closed. Only the body below is gated.
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
+        // Also gated on the path: the sheet is composed before the
+        // project loads so its width stays stable, but the body has
+        // nothing to show until there is a project.
+        if (!contentVisible || projectPath == null) return@ModalDrawerSheet
+
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -191,7 +206,6 @@ fun AssetManagerDrawer(
                 Text(
                     text = context.getString(R.string.assets_title),
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.SemiBold
                 )
 
@@ -349,7 +363,7 @@ fun AssetManagerDrawer(
                                     )
                                 }
                             } else {
-                                items(images) { asset ->
+                                items(images, key = { it.path }) { asset ->
                                     AssetListItem(
                                         asset = asset,
                                         projectPath = projectPath,
@@ -388,7 +402,7 @@ fun AssetManagerDrawer(
                         }
 
                         if (AssetType.FONT in expandedSections) {
-                            items(fonts) { asset ->
+                            items(fonts, key = { it.path }) { asset ->
                                 AssetListItem(
                                     asset = asset,
                                     projectPath = projectPath,
@@ -423,7 +437,7 @@ fun AssetManagerDrawer(
                         }
 
                         if (AssetType.OTHER in expandedSections) {
-                            items(other) { asset ->
+                            items(other, key = { it.path }) { asset ->
                                 AssetListItem(
                                     asset = asset,
                                     projectPath = projectPath,
@@ -464,42 +478,38 @@ fun AssetManagerDrawer(
 
     // Delete confirmation dialog
     showDeleteDialog?.let { asset ->
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text(context.getString(R.string.file_delete)) },
-            text = { Text(context.getString(R.string.file_delete_confirm, asset.name)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                File(asset.path).delete()
-                            }
-                            loadAssets()
-                            onAssetDelete(asset)
-                        }
-                        showDeleteDialog = null
-                    },
-                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(context.getString(R.string.action_delete))
+        FormSheet(
+            title = context.getString(R.string.file_delete),
+            icon = Icons.Outlined.DeleteOutline,
+            onDismiss = { showDeleteDialog = null },
+            confirmLabel = context.getString(R.string.action_delete),
+            onConfirm = {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        File(asset.path).delete()
+                    }
+                    loadAssets()
+                    onAssetDelete(asset)
                 }
+                showDeleteDialog = null
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) {
-                    Text(context.getString(R.string.action_cancel))
-                }
-            }
-        )
+            destructive = true,
+            cancelLabel = context.getString(R.string.action_cancel)
+        ) {
+            Text(
+                text = context.getString(R.string.file_delete_confirm, asset.name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 
     // Image detail dialog with optimization
-    showImageDetail?.let { asset ->
+    val detailProjectPath = projectPath
+    showImageDetail?.takeIf { detailProjectPath != null }?.let { asset ->
         ImageDetailDialog(
             asset = asset,
-            projectPath = projectPath,
+            projectPath = detailProjectPath!!,
             onDismiss = { showImageDetail = null },
             onImageOptimized = { optimizedFile ->
                 // Refresh assets to show the new optimized image
@@ -559,7 +569,6 @@ private fun EmptyAssetsState(
         Text(
             text = context.getString(R.string.assets_empty),
             style = MaterialTheme.typography.titleMedium,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -568,7 +577,6 @@ private fun EmptyAssetsState(
         Text(
             text = context.getString(R.string.assets_empty_subtitle),
             style = MaterialTheme.typography.bodySmall,
-            fontFamily = PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
@@ -577,7 +585,7 @@ private fun EmptyAssetsState(
 
         Surface(
             onClick = onAddImage,
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Row(
@@ -594,7 +602,6 @@ private fun EmptyAssetsState(
                 Text(
                     text = context.getString(R.string.assets_add_image),
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -646,19 +653,17 @@ private fun AssetSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleSmall,
-            fontFamily = PoppinsFontFamily,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f)
         )
 
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = CodeXCorners.medium,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Text(
                 text = count.toString(),
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = PoppinsFontFamily,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
             )
         }
@@ -683,7 +688,7 @@ private fun AssetGridSection(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         userScrollEnabled = false
     ) {
-        items(assets) { asset ->
+        items(assets, key = { it.path }) { asset ->
             AssetGridItem(
                 asset = asset,
                 projectPath = projectPath,
@@ -711,13 +716,13 @@ private fun AssetGridItem(
         Surface(
             modifier = Modifier
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(CodeXCorners.small)
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = { showMenu = true }
                 ),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(8.dp)
+            shape = CodeXCorners.small
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -815,7 +820,7 @@ private fun AssetListItem(
         // Thumbnail or icon
         Surface(
             modifier = Modifier.size(40.dp),
-            shape = RoundedCornerShape(6.dp),
+            shape = CodeXCorners.small,
             color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             if (asset.type == AssetType.IMAGE) {
@@ -849,7 +854,6 @@ private fun AssetListItem(
             Text(
                 text = asset.name,
                 style = MaterialTheme.typography.bodyMedium,
-                fontFamily = PoppinsFontFamily,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -920,34 +924,25 @@ private fun CreateFolderDialog(
     val context = LocalContext.current
     var folderName by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(context.getString(R.string.assets_add_folder)) },
-        text = {
-            OutlinedTextField(
-                value = folderName,
-                onValueChange = { folderName = it },
-                label = { Text(context.getString(R.string.file_name_label)) },
-                placeholder = { Text("images") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCreate(folderName) },
-                enabled = folderName.isNotBlank()
-            ) {
-                Text(context.getString(R.string.action_create))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(context.getString(R.string.action_cancel))
-            }
-        }
-    )
+    FormSheet(
+        title = context.getString(R.string.assets_add_folder),
+        icon = Icons.Outlined.CreateNewFolder,
+        onDismiss = onDismiss,
+        confirmLabel = context.getString(R.string.action_create),
+        onConfirm = { onCreate(folderName) },
+        confirmEnabled = folderName.isNotBlank(),
+        cancelLabel = context.getString(R.string.action_cancel)
+    ) {
+        OutlinedTextField(
+            value = folderName,
+            onValueChange = { folderName = it },
+            label = { Text(context.getString(R.string.file_name_label)) },
+            placeholder = { Text("images") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = CodeXCorners.large
+        )
+    }
 }
 
 // Helper functions
