@@ -2,20 +2,56 @@ package com.codex.stormy.ui.components.agent
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
+import androidx.compose.material.icons.automirrored.outlined.ListAlt
+import androidx.compose.material.icons.automirrored.outlined.LiveHelp
+import androidx.compose.material.icons.automirrored.outlined.ManageSearch
+import androidx.compose.material.icons.automirrored.outlined.MergeType
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.Difference
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.FindInPage
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.TravelExplore
+import androidx.compose.material.icons.outlined.Troubleshoot
 import androidx.compose.ui.graphics.vector.ImageVector
+
+/**
+ * What a tool's detail looks like, which decides how the card renders it.
+ *
+ * A file write and a shell command both produce "output", but a unified diff
+ * and a stream of terminal lines want completely different treatment: one
+ * needs gutters, signs and per-line tinting, the other needs a monospaced
+ * block that wraps nowhere and scrolls sideways. Rendering both as generic
+ * text is the main reason tool output reads as debug spew.
+ */
+enum class ToolDetailKind {
+    /** Before/after content: render a unified diff. */
+    Diff,
+
+    /** File contents or a code result: monospaced, horizontally scrollable. */
+    Code,
+
+    /** A directory listing or search hits: one entry per line, path-styled. */
+    Listing,
+
+    /** Shell output: monospaced, preserves blank lines, no markdown. */
+    Terminal,
+
+    /** Prose the model produced for the user to read: render as markdown. */
+    Prose
+}
 
 /**
  * How a tool call is described to the user.
@@ -40,15 +76,59 @@ data class ToolPresentation(
      * Whether the tool's subject is a file path. Paths are truncated from the
      * start so the filename survives; everything else truncates from the end.
      */
-    val subjectIsPath: Boolean = true
+    val subjectIsPath: Boolean = true,
+    /** How this tool's detail should be rendered when expanded. */
+    val detail: ToolDetailKind = ToolDetailKind.Terminal
 )
 
 object ToolPresentations {
 
     private val map: Map<String, ToolPresentation> = mapOf(
-        "read_file" to ToolPresentation("Reading", "Read", Icons.Outlined.Description),
-        "write_file" to ToolPresentation("Writing", "Wrote", Icons.Outlined.EditNote),
-        "list_files" to ToolPresentation("Listing", "Listed", Icons.Outlined.FolderOpen),
+        // --- Reading ------------------------------------------------------
+        "read_file" to ToolPresentation(
+            "Reading", "Read", Icons.Outlined.Description, detail = ToolDetailKind.Code
+        ),
+        "read_files" to ToolPresentation(
+            "Reading", "Read", Icons.Outlined.Description, detail = ToolDetailKind.Code
+        ),
+        "list_files" to ToolPresentation(
+            "Listing", "Listed", Icons.Outlined.FolderOpen, detail = ToolDetailKind.Listing
+        ),
+        "list_directory" to ToolPresentation(
+            "Listing", "Listed", Icons.Outlined.FolderOpen, detail = ToolDetailKind.Listing
+        ),
+        "project_tree" to ToolPresentation(
+            "Mapping", "Mapped", Icons.AutoMirrored.Outlined.ListAlt,
+            detail = ToolDetailKind.Listing
+        ),
+
+        // --- Writing ------------------------------------------------------
+        "write_file" to ToolPresentation(
+            "Writing", "Wrote", Icons.Outlined.EditNote, detail = ToolDetailKind.Diff
+        ),
+        "create_file" to ToolPresentation(
+            "Creating", "Created", Icons.Outlined.EditNote, detail = ToolDetailKind.Diff
+        ),
+        "edit_file" to ToolPresentation(
+            "Editing", "Edited", Icons.Outlined.Difference, detail = ToolDetailKind.Diff
+        ),
+        "search_replace" to ToolPresentation(
+            "Replacing in", "Replaced in", Icons.Outlined.Difference,
+            detail = ToolDetailKind.Diff
+        ),
+        "patch_file" to ToolPresentation(
+            "Patching", "Patched", Icons.Outlined.Difference, detail = ToolDetailKind.Diff
+        ),
+        "apply_patch" to ToolPresentation(
+            "Applying patch to", "Patched", Icons.AutoMirrored.Outlined.MergeType,
+            detail = ToolDetailKind.Diff
+        ),
+        "append_file" to ToolPresentation(
+            "Appending to", "Appended to", Icons.Outlined.EditNote,
+            detail = ToolDetailKind.Diff
+        ),
+
+        // --- Moving things around -----------------------------------------
         "delete_file" to ToolPresentation("Deleting", "Deleted", Icons.Outlined.Delete),
         "create_folder" to ToolPresentation(
             "Creating folder", "Created folder", Icons.Outlined.CreateNewFolder
@@ -57,49 +137,215 @@ object ToolPresentations {
             "Renaming", "Renamed", Icons.Outlined.DriveFileRenameOutline
         ),
         "copy_file" to ToolPresentation("Copying", "Copied", Icons.Outlined.ContentCopy),
-        "move_file" to ToolPresentation("Moving", "Moved", Icons.Outlined.DriveFileMove),
-        "search_files" to ToolPresentation("Searching", "Searched", Icons.Outlined.FindInPage),
-        "search_replace" to ToolPresentation("Replacing in", "Replaced in", Icons.Outlined.EditNote),
-        "patch_file" to ToolPresentation("Patching", "Patched", Icons.Outlined.EditNote),
-        "run_command" to ToolPresentation(
-            "Running", "Ran", Icons.Outlined.Terminal, subjectIsPath = false
+        "move_file" to ToolPresentation("Moving", "Moved", Icons.AutoMirrored.Outlined.DriveFileMove),
+
+        // --- Searching ----------------------------------------------------
+        "search_files" to ToolPresentation(
+            "Searching", "Searched", Icons.Outlined.FindInPage, detail = ToolDetailKind.Listing
         ),
+        "grep" to ToolPresentation(
+            "Grepping for", "Found", Icons.AutoMirrored.Outlined.ManageSearch,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
+        ),
+        "glob" to ToolPresentation(
+            "Matching", "Matched", Icons.AutoMirrored.Outlined.ManageSearch,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
+        ),
+        "web_search" to ToolPresentation(
+            "Searching the web for", "Searched the web for", Icons.Outlined.TravelExplore,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "fetch_url" to ToolPresentation(
+            "Fetching", "Fetched", Icons.Outlined.Link,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "http_request" to ToolPresentation(
+            "Requesting", "Requested", Icons.Outlined.CloudDownload,
+            subjectIsPath = false, detail = ToolDetailKind.Code
+        ),
+
+        // --- Running ------------------------------------------------------
+        "run_command" to ToolPresentation(
+            "Running", "Ran", Icons.Outlined.Terminal,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+        "run_tests" to ToolPresentation(
+            "Testing", "Tested", Icons.Outlined.Troubleshoot,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+        "format_code" to ToolPresentation(
+            "Formatting", "Formatted", Icons.Outlined.DataObject, detail = ToolDetailKind.Diff
+        ),
+
+        // --- Memory -------------------------------------------------------
         "save_memory" to ToolPresentation(
-            "Saving note", "Noted", Icons.Outlined.Memory, subjectIsPath = false
+            "Saving note", "Noted", Icons.Outlined.Memory,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
         "recall_memory" to ToolPresentation(
-            "Recalling", "Recalled", Icons.Outlined.Memory, subjectIsPath = false
+            "Recalling", "Recalled", Icons.Outlined.Memory,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
         "list_memories" to ToolPresentation(
-            "Reading notes", "Read notes", Icons.Outlined.Memory, subjectIsPath = false
+            "Reading notes", "Read notes", Icons.Outlined.Memory,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
         ),
+
+        // --- Coordination -------------------------------------------------
         "spawn_subagent" to ToolPresentation(
-            "Delegating", "Delegated", Icons.AutoMirrored.Outlined.CallSplit, subjectIsPath = false
+            "Delegating", "Delegated", Icons.AutoMirrored.Outlined.CallSplit,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
         "update_plan" to ToolPresentation(
-            "Updating plan", "Updated plan", Icons.Outlined.Checklist, subjectIsPath = false
+            "Updating plan", "Updated plan", Icons.Outlined.Checklist,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
         "request_approval" to ToolPresentation(
-            "Asking you", "Asked you", Icons.Outlined.AutoAwesome, subjectIsPath = false
+            "Asking you", "Asked you", Icons.AutoMirrored.Outlined.LiveHelp,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+
+        // --- Assets -------------------------------------------------------
+        "generate_image" to ToolPresentation(
+            "Generating image", "Generated image", Icons.Outlined.Image,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
         )
     )
 
     /**
+     * Keyword fallbacks, longest first.
+     *
+     * A single generic sparkle icon for every unmapped tool was the worst part
+     * of the old rendering: it told the user nothing, and because unmapped
+     * tools are exactly the ones they have not seen before, it withheld the
+     * information precisely where it was most needed. Matching on the verb in
+     * the name recovers most of it -- anything containing "search" is a search,
+     * whatever else it does.
+     */
+    private val keywordIcons: List<Pair<String, ToolPresentation>> = listOf(
+        "replace" to ToolPresentation(
+            "Replacing in", "Replaced in", Icons.Outlined.Difference,
+            detail = ToolDetailKind.Diff
+        ),
+        "command" to ToolPresentation(
+            "Running", "Ran", Icons.Outlined.Terminal,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+        "search" to ToolPresentation(
+            "Searching", "Searched", Icons.AutoMirrored.Outlined.ManageSearch,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
+        ),
+        "delete" to ToolPresentation("Deleting", "Deleted", Icons.Outlined.Delete),
+        "rename" to ToolPresentation(
+            "Renaming", "Renamed", Icons.Outlined.DriveFileRenameOutline
+        ),
+        "folder" to ToolPresentation(
+            "Listing", "Listed", Icons.Outlined.FolderOpen, detail = ToolDetailKind.Listing
+        ),
+        "memory" to ToolPresentation(
+            "Recalling", "Recalled", Icons.Outlined.Memory,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "shell" to ToolPresentation(
+            "Running", "Ran", Icons.Outlined.Terminal,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+        "patch" to ToolPresentation(
+            "Patching", "Patched", Icons.Outlined.Difference, detail = ToolDetailKind.Diff
+        ),
+        "fetch" to ToolPresentation(
+            "Fetching", "Fetched", Icons.Outlined.Link,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "write" to ToolPresentation(
+            "Writing", "Wrote", Icons.Outlined.EditNote, detail = ToolDetailKind.Diff
+        ),
+        "list" to ToolPresentation(
+            "Listing", "Listed", Icons.AutoMirrored.Outlined.ListAlt,
+            detail = ToolDetailKind.Listing
+        ),
+        "grep" to ToolPresentation(
+            "Grepping for", "Found", Icons.AutoMirrored.Outlined.ManageSearch,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
+        ),
+        "edit" to ToolPresentation(
+            "Editing", "Edited", Icons.Outlined.Difference, detail = ToolDetailKind.Diff
+        ),
+        "diff" to ToolPresentation(
+            "Diffing", "Diffed", Icons.Outlined.Difference, detail = ToolDetailKind.Diff
+        ),
+        "move" to ToolPresentation("Moving", "Moved", Icons.AutoMirrored.Outlined.DriveFileMove),
+        "copy" to ToolPresentation("Copying", "Copied", Icons.Outlined.ContentCopy),
+        "test" to ToolPresentation(
+            "Testing", "Tested", Icons.Outlined.Troubleshoot,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+        "plan" to ToolPresentation(
+            "Updating plan", "Updated plan", Icons.Outlined.Checklist,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "http" to ToolPresentation(
+            "Requesting", "Requested", Icons.Outlined.CloudDownload,
+            subjectIsPath = false, detail = ToolDetailKind.Code
+        ),
+        "json" to ToolPresentation(
+            "Parsing", "Parsed", Icons.Outlined.DataObject,
+            subjectIsPath = false, detail = ToolDetailKind.Code
+        ),
+        "web" to ToolPresentation(
+            "Searching the web", "Searched the web", Icons.Outlined.TravelExplore,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "run" to ToolPresentation(
+            "Running", "Ran", Icons.Outlined.Terminal,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+        "read" to ToolPresentation(
+            "Reading", "Read", Icons.Outlined.Description, detail = ToolDetailKind.Code
+        ),
+        "file" to ToolPresentation(
+            "Working on", "Updated", Icons.Outlined.Description, detail = ToolDetailKind.Code
+        ),
+        "url" to ToolPresentation(
+            "Fetching", "Fetched", Icons.Outlined.Link,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        )
+    ).sortedByDescending { it.first.length }
+
+    /**
      * Presentation for a tool name.
      *
-     * Falls back to a humanised form of the raw name rather than to the name
-     * itself, so a tool added without an entry here still reads as prose
-     * ("run_lighthouse" becomes "Run lighthouse") instead of as an identifier.
+     * Three tiers: an exact entry, then a keyword in the name, then a
+     * humanised form of the name itself. The last tier still reads as prose
+     * ("run_lighthouse" becomes "Run lighthouse") rather than as an
+     * identifier, and keeps whatever icon the keyword tier inferred.
      */
     operator fun get(toolName: String): ToolPresentation {
-        map[toolName.lowercase()]?.let { return it }
+        val key = toolName.lowercase().trim()
+        map[key]?.let { return it }
+
+        // Tool names arrive both as identifiers (`write_file`) and as the
+        // humanised headings the model prints (`Write File`), because the
+        // transcript parser reads the latter. Normalising both to the same
+        // shape means one table serves both.
+        val normalised = key.replace(' ', '_').replace('-', '_')
+        map[normalised]?.let { return it }
 
         val words = toolName.replace('_', ' ').replace('-', ' ').trim()
         val humanised = words.replaceFirstChar { it.uppercase() }
+
+        keywordIcons.firstOrNull { (keyword, _) -> normalised.contains(keyword) }
+            ?.let { (_, template) ->
+                return template.copy(running = humanised, done = humanised)
+            }
+
         return ToolPresentation(
             running = humanised,
             done = humanised,
-            icon = Icons.Outlined.AutoAwesome,
+            // A gear, not a sparkle: this is machinery doing something
+            // specific, and sparkle has come to mean "generated by AI", which
+            // is true of every row here and so distinguishes nothing.
+            icon = Icons.Outlined.DataObject,
             subjectIsPath = false
         )
     }

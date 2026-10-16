@@ -44,7 +44,9 @@ data class AiModelsUiState(
     val isRefreshing: Boolean = false,
     val error: String? = null,
     val totalCount: Int = 0,
-    val enabledCount: Int = 0
+    val enabledCount: Int = 0,
+    /** Per-provider keys, so the empty state can say what is missing. */
+    val apiKeys: Map<AiProvider, String> = emptyMap()
 )
 
 /**
@@ -83,8 +85,13 @@ class AiModelsViewModel(
         _searchQuery,
         _showStreamingOnly,
         _showToolCallsOnly,
-        combine(_showThinkingOnly, _currentModel, _defaultModelId) { thinking, current, default ->
-            Triple(thinking, current, default)
+        combine(
+            _showThinkingOnly,
+            _currentModel,
+            _defaultModelId,
+            preferencesRepository.apiKeys
+        ) { thinking, current, default, keys ->
+            listOf(thinking, current, default, keys)
         }
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -96,7 +103,13 @@ class AiModelsViewModel(
         val searchQuery = values[5] as String
         val showStreamingOnly = values[6] as Boolean
         val showToolCallsOnly = values[7] as Boolean
-        val (showThinkingOnly, currentModel, defaultModelId) = values[8] as Triple<Boolean, AiModel?, String>
+        @Suppress("UNCHECKED_CAST")
+        val extras = values[8] as List<Any?>
+        val showThinkingOnly = extras[0] as Boolean
+        val currentModel = extras[1] as AiModel?
+        val defaultModelId = extras[2] as String
+        @Suppress("UNCHECKED_CAST")
+        val apiKeys = extras[3] as Map<AiProvider, String>
 
         // Apply filters
         val filteredModels = models.filter { model ->
@@ -133,7 +146,8 @@ class AiModelsViewModel(
             // Now that the list is the full catalogue, these are genuinely
             // different numbers -- previously both were the enabled count, so
             // the header always read "N of N".
-            enabledCount = models.count { it.isEnabled }
+            enabledCount = models.count { it.isEnabled },
+            apiKeys = apiKeys
         )
     }.stateIn(
         scope = viewModelScope,

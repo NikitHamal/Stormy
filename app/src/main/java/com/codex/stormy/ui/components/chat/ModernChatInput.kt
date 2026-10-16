@@ -44,7 +44,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -180,11 +181,14 @@ fun ModernChatInput(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 28.dp, max = 160.dp)
                         .padding(horizontal = Space.sm, vertical = Space.xs)
                         .focusRequester(focusRequester),
                     enabled = isEnabled,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    // Capped at three lines, then it scrolls. An input that
+                    // grows without limit eventually owns the screen and
+                    // pushes the conversation it refers to out of view.
+                    maxLines = 3,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
                         color = MaterialTheme.colorScheme.onSurface
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -202,8 +206,14 @@ fun ModernChatInput(
                             if (textFieldValue.text.isEmpty()) {
                                 Text(
                                     text = placeholder,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    // One line, ellipsised. A wrapping hint
+                                    // makes the empty bar taller than the
+                                    // filled one, so the bar jumps the moment
+                                    // the user starts typing.
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             innerTextField()
@@ -236,7 +246,11 @@ fun ModernChatInput(
                     // glanceable at this size, and it only earns its place on
                     // the bar once there is something to notice.
                     AnimatedVisibility(
-                        visible = contextPercent >= CONTEXT_VISIBLE_AT,
+                        // Always shown once a conversation exists. Hiding it
+                        // below a threshold meant the number appeared out of
+                        // nowhere at the point it became a problem, which is
+                        // the worst moment to introduce a new control.
+                        visible = contextPercent > 0,
                         enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
                             scaleIn(MaterialTheme.motionScheme.defaultSpatialSpec()),
                         exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
@@ -263,9 +277,6 @@ fun ModernChatInput(
         }
     }
 }
-
-/** Below this the meter is noise; the window is nowhere near full. */
-private const val CONTEXT_VISIBLE_AT = 25
 
 /**
  * Send, or stop while generating.
@@ -414,8 +425,11 @@ private fun ModelChip(
             Icon(
                 imageVector = when {
                     model.isThinkingModel -> Icons.Outlined.Psychology
-                    model.supportsToolCalls -> Icons.Outlined.AutoAwesome
-                    else -> Icons.Outlined.AutoAwesome
+                    // A wrench for tool use, a bolt for plain completion.
+                    // Both used to be the same sparkle, which made the icon
+                    // decorative rather than informative.
+                    model.supportsToolCalls -> Icons.Outlined.Handyman
+                    else -> Icons.Outlined.Bolt
                 },
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),

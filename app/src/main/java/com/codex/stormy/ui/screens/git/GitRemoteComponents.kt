@@ -19,12 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.FormSheet
+import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -159,61 +161,48 @@ fun AddRemoteDialog(
     var remoteName by remember { mutableStateOf("origin") }
     var remoteUrl by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
+    FormSheet(
+        title = "Add remote",
+        icon = Icons.Outlined.Hub,
+        onDismiss = onDismiss,
+        confirmLabel = "Add remote",
+        onConfirm = { onAddRemote(remoteName, remoteUrl) },
+        confirmEnabled = remoteName.isNotBlank() && remoteUrl.isNotBlank()
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text(
-                text = "Add Remote Repository",
-                fontWeight = FontWeight.SemiBold
+                text = "The URL of your remote repository -- GitHub, GitLab or Bitbucket.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Enter the URL of your remote repository (e.g., GitHub, GitLab, Bitbucket).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
 
-                OutlinedTextField(
-                    value = remoteName,
-                    onValueChange = { remoteName = it.replace(" ", "") },
-                    label = { Text("Remote name") },
-                    placeholder = { Text("origin") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+            OutlinedTextField(
+                value = remoteName,
+                onValueChange = { remoteName = it.replace(" ", "") },
+                label = { Text("Remote name") },
+                placeholder = { Text("origin") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = CodeXCorners.large
+            )
 
-                OutlinedTextField(
-                    value = remoteUrl,
-                    onValueChange = { remoteUrl = it },
-                    label = { Text("Repository URL") },
-                    placeholder = { Text("https://github.com/user/repo.git") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+            OutlinedTextField(
+                value = remoteUrl,
+                onValueChange = { remoteUrl = it },
+                label = { Text("Repository URL") },
+                placeholder = { Text("https://github.com/user/repo.git") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = CodeXCorners.large
+            )
 
-                Text(
-                    text = "Tip: You can find the URL on GitHub by clicking the green 'Code' button on your repository page.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onAddRemote(remoteName, remoteUrl) },
-                enabled = remoteName.isNotBlank() && remoteUrl.isNotBlank()
-            ) {
-                Text("Add Remote")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+            Text(
+                text = "On GitHub the URL is behind the green Code button.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-    )
+    }
 }
 
 /**

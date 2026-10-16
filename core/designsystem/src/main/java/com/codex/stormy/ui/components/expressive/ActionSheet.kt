@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.components.expressive
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,10 +22,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.sp
 import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.theme.ExpressiveShapes
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.Space
 
@@ -32,28 +35,30 @@ import com.codex.stormy.ui.theme.Space
 data class SheetAction(
     val label: String,
     val icon: ImageVector,
-    /**
-     * Marks an action that destroys something. Rendered in the error colour
-     * and placed last, because a destructive row sitting between two ordinary
-     * ones gets hit by accident.
-     */
+    /** One line on what the action does, when the label cannot carry it. */
+    val description: String? = null,
+    /** Tinted as a warning and placed last; the row is still a single tap. */
     val destructive: Boolean = false,
     val enabled: Boolean = true,
     val onClick: () -> Unit
 )
 
 /**
- * A bottom sheet of actions, replacing a dropdown menu.
+ * A list of actions on a subject, as a bottom sheet.
  *
- * A `DropdownMenu` anchored to a small icon in a list row is the wrong control
- * on a phone: it opens wherever the row happens to be, so its position moves
- * with the scroll, its rows are small, and near the bottom of the screen it
- * flips above the anchor and lands under the thumb that just tapped. A sheet
- * always arrives from the same edge, at the same size, with full-width targets.
+ * Replaces the `AlertDialog`-as-context-menu pattern. A dialog is the wrong
+ * container for a menu: it is centred, so a list of taps lands mid-screen
+ * where the thumb is not; it dims and blocks the thing the actions apply to;
+ * and it implies a decision with a confirm button when what is actually
+ * offered is a set of independent choices, any one of which completes the
+ * interaction.
  *
- * An explicit Cancel row is included. Dismissing by scrim or back gesture works
- * too, but when the list ends in a destructive action the user needs a visible,
- * safe way out that is not "tap the thing next to Delete".
+ * Each action is a card rather than a text row, because these lists mix
+ * harmless and destructive operations -- a flat list of words gives the eye
+ * nothing to catch on before it taps.
+ *
+ * Distinct from [FormSheet], which has one outcome and a confirm button.
+ * Here, tapping a row *is* the confirmation, so there is only a Cancel.
  */
 @Composable
 fun ActionSheet(
@@ -61,7 +66,14 @@ fun ActionSheet(
     actions: List<SheetAction>,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    cancelLabel: String = "Cancel"
+    subtitle: String? = null,
+    titleIsMonospace: Boolean = false,
+    cancelLabel: String = "Cancel",
+    /**
+     * Context shown above the actions -- the file being acted on, a warning,
+     * a size. Optional because most menus need only their title.
+     */
+    content: (@Composable () -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -76,40 +88,61 @@ fun ActionSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = Space.md)
+                .padding(horizontal = Space.xl)
         ) {
             title?.let {
                 Text(
-                    text = it.uppercase(),
-                    // Letterspaced small caps, as a section label rather than a
-                    // heading: it names the group without competing with the
-                    // actions, which are what the user came here to read.
-                    style = MaterialTheme.typography.labelSmallEmphasized.copy(
-                        letterSpacing = 1.4.sp
-                    ),
+                    text = it,
+                    style = MaterialTheme.typography.titleLargeEmphasized.let { style ->
+                        if (titleIsMonospace) {
+                            style.copy(fontFamily = FontFamily.Monospace)
+                        } else {
+                            style
+                        }
+                    },
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(
-                        start = Space.lg,
-                        top = Space.sm,
-                        bottom = Space.md
-                    )
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            // Destructive actions sort last regardless of declaration order, so
-            // Delete is never adjacent to the row above it in the list the
-            // caller happened to write.
-            val ordered = actions.sortedBy { it.destructive }
-            ordered.forEach { action ->
-                ActionRow(action = action, onDismiss = onDismiss)
+            content?.let {
+                Spacer(Modifier.height(Space.lg))
+                it()
             }
 
-            Spacer(Modifier.height(Space.md))
+            Spacer(Modifier.height(Space.lg))
 
+            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+                // Destructive last, unconditionally. A delete that happens to
+                // sit where "switch branch" sat in the previous sheet is the
+                // classic muscle-memory accident.
+                actions.sortedBy { it.destructive }.forEach { action ->
+                    // Dismiss is applied here rather than left to each action,
+                    // so a caller cannot forget it and leave the sheet sitting
+                    // open behind whatever its action opened.
+                    ActionRow(action = action, onDismiss = onDismiss)
+                }
+            }
+
+            Spacer(Modifier.height(Space.lg))
+
+            // A full-width tonal row, not a text button: when the list ends
+            // in a destructive action the user needs a visible, safe way out
+            // that is not "tap the thing next to Delete".
             Surface(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth(),
-                shape = CodeXCorners.xLarge,
+                shape = CodeXCorners.large,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Text(
@@ -117,9 +150,7 @@ fun ActionSheet(
                     style = MaterialTheme.typography.labelLargeEmphasized,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = Space.lg)
+                    modifier = Modifier.padding(vertical = Space.md)
                 )
             }
 
@@ -130,44 +161,75 @@ fun ActionSheet(
 
 @Composable
 private fun ActionRow(action: SheetAction, onDismiss: () -> Unit) {
-    val contentColor = when {
-        !action.enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        action.destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-
     Surface(
         onClick = {
-            // Dismiss first so the sheet's exit runs while the action's own
-            // effect starts, rather than after it -- otherwise a dialog opened
-            // by the action appears behind a sheet that is still closing.
-            onDismiss()
             action.onClick()
+            onDismiss()
         },
         enabled = action.enabled,
         modifier = Modifier.fillMaxWidth(),
         shape = CodeXCorners.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        contentColor = contentColor
+        color = if (action.destructive) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.lg),
+            modifier = Modifier.padding(horizontal = Space.md, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = action.icon,
-                // The label beside it already names the action; describing the
-                // icon too makes every row announce itself twice.
-                contentDescription = null,
-                modifier = Modifier.size(Sizes.iconLarge)
-            )
-            Spacer(Modifier.width(Space.lg))
-            Text(
-                text = action.label,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Surface(
+                modifier = Modifier.size(Sizes.avatar),
+                shape = if (action.destructive) {
+                    ExpressiveShapes.verySunny()
+                } else {
+                    ExpressiveShapes.cookie4()
+                },
+                color = if (action.destructive) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLowest
+                }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = action.icon,
+                        contentDescription = null,
+                        tint = if (action.destructive) {
+                            MaterialTheme.colorScheme.onError
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        modifier = Modifier.size(Sizes.iconSmall)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(Space.md))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = action.label,
+                    style = MaterialTheme.typography.bodyMediumEmphasized,
+                    color = if (action.destructive) {
+                        MaterialTheme.colorScheme.onErrorContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+                action.description?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (action.destructive) {
+                            MaterialTheme.colorScheme.onErrorContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
         }
     }
 }

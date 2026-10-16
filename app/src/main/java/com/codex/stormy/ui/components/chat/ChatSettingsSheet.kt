@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -79,7 +79,7 @@ fun ChatSettingsSheet(
             Spacer(Modifier.height(Space.lg))
 
             SettingToggle(
-                icon = Icons.Outlined.AutoAwesome,
+                icon = Icons.Outlined.Handyman,
                 title = "Agent mode",
                 // Describes the consequence, not the feature. "Enable
                 // autonomous coding workflow" tells the user nothing about what

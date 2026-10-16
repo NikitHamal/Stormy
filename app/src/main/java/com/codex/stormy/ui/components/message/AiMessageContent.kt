@@ -1,8 +1,9 @@
 package com.codex.stormy.ui.components.message
 
-import com.codex.stormy.ui.components.agent.ToolCallStatus
 import com.codex.stormy.ui.components.agent.ToolCallEntry
 import com.codex.stormy.ui.components.agent.ToolCallGroup
+import com.codex.stormy.ui.components.agent.ToolCallStatus
+import com.codex.stormy.ui.components.agent.ToolCard
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.CodeXCorners
@@ -34,9 +35,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
@@ -47,7 +45,6 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.TextFields
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -72,9 +69,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.stormy.ui.components.MarkdownText
-import com.codex.stormy.ui.components.diff.CollapsibleDiffView
-import com.codex.stormy.ui.components.diff.DiffSummaryBadge
-import com.codex.stormy.utils.DiffUtils
 import java.util.Locale
 
 enum class AiActivityStatus {
@@ -589,13 +583,14 @@ fun AiMessageContent(
                             ToolCallEntry(
                                 toolName = call.toolName,
                                 subject = call.filePath,
-                                status = when (call.status) {
-                                    ToolStatus.SUCCESS -> ToolCallStatus.Success
-                                    ToolStatus.ERROR -> ToolCallStatus.Error
-                                    ToolStatus.RUNNING -> ToolCallStatus.Running
-                                },
+                                status = call.status.toToolCallStatus(),
                                 additions = call.additions,
-                                deletions = call.deletions
+                                deletions = call.deletions,
+                                // Carried through rather than dropped: these
+                                // are what each card opens to show.
+                                output = call.output,
+                                oldContent = call.oldContent,
+                                newContent = call.newContent
                             )
                         },
                         // Expanded while anything is still running, so the user
@@ -817,7 +812,7 @@ private fun ThinkingSection(content: String, isActive: Boolean, modifier: Modifi
 private fun ReasoningSection(content: String, isActive: Boolean, modifier: Modifier = Modifier) {
     CollapsibleInsightSection(
         title = "Reasoning",
-        icon = Icons.Outlined.AutoAwesome,
+        icon = Icons.Outlined.Psychology,
         content = content,
         isActive = isActive,
         modifier = modifier
@@ -946,18 +941,15 @@ private fun CodeSection(
     }
 }
 
-private fun toolIcon(toolName: String): ImageVector {
-    val name = toolName.lowercase(Locale.ROOT)
-    return when {
-        name.contains("read") && name.contains("file") -> Icons.Outlined.Description
-        name.contains("write") || name.contains("create") || name.contains("patch") || name.contains("edit") -> Icons.Outlined.Edit
-        name.contains("list") || name.contains("folder") || name.contains("dir") -> Icons.Outlined.FolderOpen
-        name.contains("delete") -> Icons.Outlined.Error
-        name.contains("code") || name.contains("execute") || name.contains("run") -> Icons.Outlined.Code
-        else -> Icons.Outlined.Build
-    }
-}
-
+/**
+ * A single tool call.
+ *
+ * Delegates to [ToolCard] so a lone call and a call inside a run render
+ * identically. They used to be two separate implementations that drifted:
+ * the card showed diffs and the group's rows showed nothing, so whether the
+ * user could see what a write did depended on how many calls happened to
+ * surround it.
+ */
 @Composable
 private fun ToolCallSection(
     toolName: String,
@@ -971,172 +963,27 @@ private fun ToolCallSection(
     newContent: String?,
     modifier: Modifier = Modifier
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
+    ToolCard(
+        entry = ToolCallEntry(
+            toolName = toolName,
+            subject = filePath,
+            status = status.toToolCallStatus(),
+            additions = additions,
+            deletions = deletions,
+            output = output,
+            oldContent = oldContent,
+            newContent = newContent
+        ),
+        modifier = modifier,
+        // A call still in flight opens itself, so its output streams into
+        // view rather than waiting for a tap that the user cannot know to
+        // make.
+        initiallyExpanded = isActive && status == ToolStatus.RUNNING
+    )
+}
 
-    val statusIcon = when (status) {
-        ToolStatus.SUCCESS -> Icons.Outlined.CheckCircle
-        ToolStatus.ERROR -> Icons.Outlined.Error
-        ToolStatus.RUNNING -> toolIcon(toolName)
-    }
-
-    val statusTint = when (status) {
-        ToolStatus.SUCCESS -> MaterialTheme.colorScheme.primary
-        ToolStatus.ERROR -> MaterialTheme.colorScheme.error
-        ToolStatus.RUNNING -> MaterialTheme.colorScheme.tertiary
-    }
-
-    val showDiffView = oldContent != null && newContent != null
-    val diffResult = remember(showDiffView, oldContent, newContent) {
-        if (showDiffView) DiffUtils.computeDiff(oldContent.orEmpty(), newContent.orEmpty()) else null
-    }
-
-    val displayAdditions = when {
-        additions > 0 -> additions
-        diffResult != null -> diffResult.additions
-        else -> 0
-    }
-    val displayDeletions = when {
-        deletions > 0 -> deletions
-        diffResult != null -> diffResult.deletions
-        else -> 0
-    }
-
-    val canExpand = !output.isNullOrBlank() || showDiffView
-
-    val isRunning = isActive && status == ToolStatus.RUNNING
-    val presentation = ToolPresentations[toolName]
-    val subject = filePath?.takeIf { it.isNotBlank() }?.let { raw ->
-        if (presentation.subjectIsPath) ToolPresentations.shortenPath(raw) else raw
-    }
-    // One prose line instead of an identifier plus a path chip. Those two used
-    // to compete for the same row, and on a phone both ended up ellipsized.
-    val headline = ToolPresentations.describe(toolName, subject, isRunning)
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = CodeXCorners.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        enabled = canExpand,
-                        // Names the consequence. The row is a disclosure, not a
-                        // button called "expand".
-                        onClickLabel = if (isExpanded) "Hide output" else "Show output"
-                    ) { isExpanded = !isExpanded }
-                    .padding(horizontal = Space.md, vertical = Space.sm),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val infinite = rememberInfiniteTransition(label = "tool_pulse")
-                val pulse by infinite.animateFloat(
-                    initialValue = 1f,
-                    targetValue = 1.18f,
-                    // Infinite, so it cannot come from the motion scheme --
-                    // those specs are finite by type.
-                    animationSpec = infiniteRepeatable(tween(550), repeatMode = RepeatMode.Reverse),
-                    label = "tool_pulse_scale"
-                )
-
-                Icon(
-                    imageVector = statusIcon,
-                    // Status is already carried by the headline's tense and the
-                    // icon's colour; labelling it here would make every row
-                    // announce its status twice.
-                    contentDescription = null,
-                    tint = statusTint,
-                    modifier = Modifier
-                        .size(Sizes.icon)
-                        .graphicsLayer {
-                            if (isRunning) {
-                                scaleX = pulse
-                                scaleY = pulse
-                            }
-                        }
-                )
-
-                Spacer(Modifier.width(Space.sm))
-
-                Text(
-                    text = headline,
-                    // Emphasized while running, so the live row stands out in a
-                    // stack of finished ones without changing size -- the list
-                    // would otherwise reflow as each call completes.
-                    style = if (isRunning) MaterialTheme.typography.labelLargeEmphasized
-                    else MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-
-                if (showDiffView || displayAdditions > 0 || displayDeletions > 0) {
-                    Spacer(Modifier.width(Space.sm))
-                    DiffSummaryBadge(additions = displayAdditions, deletions = displayDeletions)
-                }
-
-                if (canExpand) {
-                    Spacer(Modifier.width(Space.xs))
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Outlined.ExpandLess
-                        else Icons.Outlined.ExpandMore,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(Sizes.icon)
-                    )
-                }
-            }
-
-            // The full path gets its own line when the headline shortened it,
-            // so the headline stays readable and the path is still copyable.
-            filePath?.takeIf { presentation.subjectIsPath && it != subject }?.let { full ->
-                Text(
-                    text = full,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .clickable { clipboard.setText(AnnotatedString(full)) }
-                        .padding(start = 42.dp, end = Space.md, bottom = Space.sm)
-                )
-            }
-
-            AnimatedVisibility(
-                visible = isExpanded && canExpand,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                    if (showDiffView && diffResult != null) {
-                        CollapsibleDiffView(
-                            filePath = filePath ?: "file",
-                            oldContent = oldContent.orEmpty(),
-                            newContent = newContent.orEmpty(),
-                            toolName = toolName,
-                            isSuccess = status == ToolStatus.SUCCESS,
-                            modifier = Modifier.padding(8.dp),
-                            initiallyExpanded = true
-                        )
-                    }
-
-                    if (!output.isNullOrBlank()) {
-                        Box(modifier = Modifier.padding(12.dp)) {
-                            MarkdownText(
-                                markdown = output,
-                                modifier = Modifier.fillMaxWidth(),
-                                textColor = MaterialTheme.colorScheme.onSurface,
-                                linkColor = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+private fun ToolStatus.toToolCallStatus(): ToolCallStatus = when (this) {
+    ToolStatus.SUCCESS -> ToolCallStatus.Success
+    ToolStatus.ERROR -> ToolCallStatus.Error
+    ToolStatus.RUNNING -> ToolCallStatus.Running
 }

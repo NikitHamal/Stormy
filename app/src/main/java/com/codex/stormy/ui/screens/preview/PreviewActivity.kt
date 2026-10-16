@@ -57,9 +57,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Clear
@@ -631,7 +632,7 @@ private fun PreviewScreen(
                                     SelectionMode.DISABLED -> Icons.Outlined.TouchApp
                                     SelectionMode.INSPECTOR -> Icons.Outlined.TouchApp
                                     SelectionMode.EDITOR -> Icons.Outlined.Edit
-                                    SelectionMode.AGENT -> Icons.Outlined.AutoAwesome
+                                    SelectionMode.AGENT -> Icons.Outlined.Handyman
                                 },
                                 contentDescription = when (selectionMode) {
                                     SelectionMode.DISABLED -> "Enable inspector mode"
@@ -1126,7 +1127,7 @@ private fun SelectionModeIndicator(
             MaterialTheme.colorScheme.onPrimaryContainer
         )
         SelectionMode.AGENT -> Quadruple(
-            Icons.Outlined.AutoAwesome,
+            Icons.Outlined.Handyman,
             if (selectedCount == 0) "Agent • Tap elements to select for AI"
             else "Agent • $selectedCount element${if (selectedCount > 1) "s" else ""} selected",
             MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.95f),
@@ -1217,7 +1218,7 @@ private fun AgentPromptBar(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
+                            imageVector = Icons.Outlined.ErrorOutline,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onErrorContainer

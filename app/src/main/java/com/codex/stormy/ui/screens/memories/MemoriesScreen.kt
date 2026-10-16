@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.components.expressive.FormSheet
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -44,11 +45,11 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -592,70 +593,56 @@ private fun AddMemoryDialog(
     var value by remember { mutableStateOf("") }
     var keyError by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
+    FormSheet(
+        title = "Add memory",
+        icon = Icons.Outlined.Memory,
+        onDismiss = onDismiss,
+        confirmLabel = "Add",
+        onConfirm = {
+            if (key.isBlank()) {
+                keyError = "Key is required"
+            } else if (!key.matches(Regex("^[a-z_][a-z0-9_]*$"))) {
+                keyError = "Use lowercase letters, numbers, and underscores"
+            } else {
+                onAdd(key, value)
+            }
+        },
+        confirmEnabled = key.isNotBlank()
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.lg)) {
             Text(
-                text = "Add Memory",
-                style = MaterialTheme.typography.titleLargeEmphasized
+                text = "Add a new memory for $projectName",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "Add a new memory for $projectName",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
 
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = {
-                        key = it
-                        keyError = null
-                    },
-                    label = { Text("Key") },
-                    placeholder = { Text("e.g., preferred_framework") },
-                    isError = keyError != null,
-                    supportingText = keyError?.let { { Text(it) } },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+            OutlinedTextField(
+                value = key,
+                onValueChange = {
+                    key = it
+                    keyError = null
+                },
+                label = { Text("Key") },
+                placeholder = { Text("e.g., preferred_framework") },
+                isError = keyError != null,
+                supportingText = keyError?.let { { Text(it) } },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
 
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text("Value") },
-                    placeholder = { Text("e.g., React with TypeScript") },
-                    minLines = 3,
-                    maxLines = 5,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (key.isBlank()) {
-                        keyError = "Key is required"
-                    } else if (!key.matches(Regex("^[a-z_][a-z0-9_]*$"))) {
-                        keyError = "Use lowercase letters, numbers, and underscores"
-                    } else {
-                        onAdd(key, value)
-                    }
-                }
-            ) {
-                Text("Add")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                label = { Text("Value") },
+                placeholder = { Text("e.g., React with TypeScript") },
+                minLines = 3,
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
         }
-    )
+    }
 }
 
 /**
@@ -667,36 +654,20 @@ private fun DeleteConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Delete Memory",
-                style = MaterialTheme.typography.titleLargeEmphasized
-            )
-        },
-        text = {
-            Text(
-                text = "Are you sure you want to delete the memory \"$memoryKey\"? This action cannot be undone.",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm
-            ) {
-                Text(
-                    text = "Delete",
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    FormSheet(
+        title = "Delete memory",
+        icon = Icons.Outlined.DeleteOutline,
+        onDismiss = onDismiss,
+        confirmLabel = "Delete",
+        onConfirm = onConfirm,
+        destructive = true
+    ) {
+        Text(
+            text = "\"$memoryKey\" will be forgotten. This cannot be undone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 /**

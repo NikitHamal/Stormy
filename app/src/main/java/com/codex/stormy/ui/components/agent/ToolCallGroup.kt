@@ -1,10 +1,9 @@
 package com.codex.stormy.ui.components.agent
 
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -16,6 +15,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,9 +25,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -39,24 +39,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.codex.stormy.ui.theme.CodeXCorners
+import com.codex.stormy.ui.theme.ExpressiveShapes
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.Space
-
-/** One tool call inside a [ToolCallGroup]. */
-data class ToolCallEntry(
-    val toolName: String,
-    /** The path, command or query the call acted on. */
-    val subject: String?,
-    val status: ToolCallStatus,
-    val additions: Int = 0,
-    val deletions: Int = 0
-)
-
-enum class ToolCallStatus { Running, Success, Error }
 
 /** A reasoning block that sits inside the same group as the tool calls. */
 data class ReasoningEntry(val text: String, val isActive: Boolean)
@@ -75,12 +65,12 @@ data class ReasoningEntry(val text: String, val isActive: Boolean)
  * The summary line counts rather than lists, because "7 tool calls" is a
  * better scan target than seven truncated verbs.
  *
- * ### Layout
+ * ### What expanding gives you
  *
- * Each row is verb on the left, subject on the right in a monospaced chip.
- * Splitting them that way lets the eye run down the verbs to see the *shape*
- * of what happened -- read, read, write, run -- without parsing paths, while
- * the paths stay available in a column of their own.
+ * A stack of [ToolCard]s, each of which opens its own result -- a diff for a
+ * write, terminal output for a command, hits for a search. The group used to
+ * expand to a list of verb-and-path rows with the results thrown away, which
+ * made it a table of contents for a document that did not exist.
  *
  * Changed files are summarised beneath as chips with their +/- counts, so the
  * blast radius of the turn is visible without expanding anything.
@@ -98,6 +88,11 @@ fun ToolCallGroup(
     var expanded by remember { mutableStateOf(initiallyExpanded) }
     val anyRunning = entries.any { it.status == ToolCallStatus.Running } ||
         reasoning?.isActive == true
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "groupChevron"
+    )
 
     Column(modifier = modifier.fillMaxWidth()) {
         // --- Summary line -------------------------------------------------
@@ -111,10 +106,12 @@ fun ToolCallGroup(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                imageVector = Icons.Outlined.ExpandMore,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(Sizes.icon)
+                modifier = Modifier
+                    .size(Sizes.icon)
+                    .rotate(chevronRotation)
             )
             Spacer(Modifier.width(Space.sm))
             Text(
@@ -126,6 +123,12 @@ fun ToolCallGroup(
                 Spacer(Modifier.width(Space.sm))
                 RunningDots()
             }
+            Spacer(Modifier.weight(1f))
+            // The icons of the calls in the run, collapsed. Gives the shape of
+            // the turn -- read, read, write, run -- without opening it.
+            if (!expanded) {
+                ToolIconTrail(entries)
+            }
         }
 
         AnimatedVisibility(
@@ -136,11 +139,18 @@ fun ToolCallGroup(
                 shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec())
         ) {
             Column(
-                modifier = Modifier.padding(start = Space.lg, top = Space.xs),
-                verticalArrangement = Arrangement.spacedBy(Space.xs)
+                modifier = Modifier.padding(top = Space.xs),
+                verticalArrangement = Arrangement.spacedBy(Space.sm)
             ) {
-                reasoning?.let { ReasoningRow(it) }
-                entries.forEach { entry -> ToolRow(entry) }
+                reasoning?.let { ReasoningCard(it) }
+                entries.forEach { entry ->
+                    ToolCard(
+                        entry = entry,
+                        // The running call is the one the user is watching, so
+                        // it opens itself; finished ones stay shut.
+                        initiallyExpanded = entry.status == ToolCallStatus.Running
+                    )
+                }
             }
         }
 
@@ -163,99 +173,143 @@ private fun summaryLabel(toolCount: Int, messageCount: Int): String = buildStrin
     }
 }
 
+/** The distinct tool icons in a run, as a small trail on the summary row. */
 @Composable
-private fun ReasoningRow(reasoning: ReasoningEntry) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            imageVector = Icons.Outlined.AutoAwesome,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(Sizes.iconSmall)
-        )
-        Spacer(Modifier.width(Space.sm))
-        Text(
-            text = "Thinking",
-            style = MaterialTheme.typography.labelLargeEmphasized,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(Modifier.width(Space.sm))
-        SubjectChip(
-            // The first line only: reasoning runs to paragraphs, and the point
-            // of this row is that it is a one-line trace, not a transcript.
-            text = reasoning.text.lineSequence().firstOrNull()?.trim().orEmpty(),
-            monospace = false,
-            modifier = Modifier.weight(1f, fill = false)
-        )
+private fun ToolIconTrail(entries: List<ToolCallEntry>) {
+    val icons = remember(entries) {
+        entries.map { ToolPresentations[it.toolName].icon }
+            .distinct()
+            .take(MAX_TRAIL_ICONS)
     }
-}
-
-@Composable
-private fun ToolRow(entry: ToolCallEntry) {
-    val presentation = ToolPresentations[entry.toolName]
-    val running = entry.status == ToolCallStatus.Running
-    val subject = entry.subject?.takeIf { it.isNotBlank() }?.let { raw ->
-        if (presentation.subjectIsPath) ToolPresentations.shortenPath(raw) else raw
-    }
-
-    Row(
-        modifier = Modifier.alpha(if (entry.status == ToolCallStatus.Error) 0.75f else 1f),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = presentation.icon,
-            contentDescription = null,
-            tint = if (entry.status == ToolCallStatus.Error) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(Sizes.iconSmall)
-        )
-        Spacer(Modifier.width(Space.sm))
-        Text(
-            // Tense carries the status: "Writing" while it runs, "Wrote" once
-            // done. More reliable than a colour, which the eye skips.
-            text = if (running) presentation.running else presentation.done,
-            style = if (running) {
-                MaterialTheme.typography.labelLargeEmphasized
-            } else {
-                MaterialTheme.typography.labelLarge
-            },
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1
-        )
-        if (subject != null) {
-            Spacer(Modifier.width(Space.sm))
-            SubjectChip(
-                text = subject,
-                monospace = presentation.subjectIsPath,
-                modifier = Modifier.weight(1f, fill = false)
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+        icons.forEach { icon ->
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(Sizes.iconSmall)
+                    .alpha(0.7f)
             )
         }
     }
 }
 
+/**
+ * The model's reasoning for this turn.
+ *
+ * Previously headed by a generic sparkle, which said "AI" -- true of every
+ * row in the thread and so informative about none of them. A head with a
+ * thought in it says what this block actually is, and the Expressive
+ * silhouette distinguishes it from the tool cards below without a label.
+ */
 @Composable
-private fun SubjectChip(
-    text: String,
-    monospace: Boolean,
-    modifier: Modifier = Modifier
-) {
+private fun ReasoningCard(reasoning: ReasoningEntry) {
+    var expanded by remember { mutableStateOf(false) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "reasoningChevron"
+    )
+    val firstLine = remember(reasoning.text) {
+        reasoning.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    }
+    val hasMore = reasoning.text.trim() != firstLine
+
     Surface(
-        modifier = modifier,
-        shape = CodeXCorners.small,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh
+        modifier = Modifier.fillMaxWidth(),
+        shape = CodeXCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium.let {
-                if (monospace) it.copy(fontFamily = FontFamily.Monospace) else it
-            },
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = Space.sm, vertical = Space.xxs)
-        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        enabled = hasMore,
+                        onClickLabel = if (expanded) "Hide reasoning" else "Show reasoning"
+                    ) { expanded = !expanded }
+                    .padding(horizontal = Space.md, vertical = Space.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(Sizes.avatar),
+                    shape = ExpressiveShapes.cookie6(),
+                    color = if (reasoning.isActive) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Psychology,
+                            contentDescription = null,
+                            tint = if (reasoning.isActive) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.size(Sizes.iconSmall)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(Space.md))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (reasoning.isActive) "Thinking" else "Thought",
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = firstLine,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                if (reasoning.isActive) {
+                    RunningDots()
+                    Spacer(Modifier.width(Space.xs))
+                }
+
+                if (hasMore) {
+                    Icon(
+                        imageVector = Icons.Outlined.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(Sizes.icon)
+                            .rotate(chevronRotation)
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                    expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                    shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec())
+            ) {
+                Text(
+                    text = reasoning.text.trim(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(
+                        start = Space.md,
+                        end = Space.md,
+                        bottom = Space.md
+                    )
+                )
+            }
+        }
     }
 }
 
@@ -327,7 +381,7 @@ private fun ChangedFileChips(entries: List<ToolCallEntry>) {
 
 /** Three dots that fade in sequence while a run is in flight. */
 @Composable
-private fun RunningDots() {
+internal fun RunningDots() {
     val transition = rememberInfiniteTransition(label = "toolDots")
     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         repeat(3) { index ->
@@ -359,3 +413,4 @@ private fun RunningDots() {
 }
 
 private const val MAX_FILE_CHIPS = 4
+private const val MAX_TRAIL_ICONS = 5

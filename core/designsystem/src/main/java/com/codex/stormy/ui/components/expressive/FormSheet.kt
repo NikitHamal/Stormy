@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -57,6 +58,7 @@ fun FormSheet(
     onConfirm: () -> Unit,
     modifier: Modifier = Modifier,
     confirmEnabled: Boolean = true,
+    confirmLoading: Boolean = false,
     destructive: Boolean = false,
     cancelLabel: String = "Cancel",
     content: @Composable () -> Unit
@@ -162,6 +164,16 @@ fun FormSheet(
                         ButtonDefaults.buttonColors()
                     }
                 ) {
+                    // The spinner lives in the button rather than over the
+                    // sheet: the work was started by this control, so that is
+                    // where its progress belongs, and the form stays readable.
+                    if (confirmLoading) {
+                        ExpressiveLoadingIndicator(
+                            modifier = Modifier.size(Sizes.iconSmall),
+                            color = LocalContentColor.current
+                        )
+                        Spacer(Modifier.width(Space.sm))
+                    }
                     Text(confirmLabel, style = MaterialTheme.typography.labelLargeEmphasized)
                 }
             }

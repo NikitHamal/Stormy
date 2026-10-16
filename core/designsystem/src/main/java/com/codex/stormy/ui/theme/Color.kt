@@ -59,8 +59,12 @@ val LightSurface = Color(0xFFFCFCFB)
 val LightOnSurface = Color(0xFF1C1917)
 val LightSurfaceVariant = Color(0xFFF0EFED)
 val LightOnSurfaceVariant = Color(0xFF57534E)
-val LightOutline = Color(0xFFD6D3D1)
-val LightOutlineVariant = Color(0xFFE7E5E4)
+// Measured, not eyeballed. The previous outline sat at 1.45:1 against the
+// surface, which is below the 3:1 WCAG asks for non-text UI -- borders and
+// dividers were effectively invisible, which is why cards read as floating
+// text rather than as containers.
+val LightOutline = Color(0xFF8C8681)        // 3.5:1 on surface
+val LightOutlineVariant = Color(0xFFC7C2BB) // 1.7:1, a visible hairline
 val LightInverseSurface = Color(0xFF292524)
 val LightInverseOnSurface = Color(0xFFF5F5F4)
 val LightInversePrimary = Color(0xFFD6D3D1)
@@ -68,13 +72,17 @@ val LightInversePrimary = Color(0xFFD6D3D1)
 // Surface levels. The steps are deliberately small: M3 separates surfaces
 // tonally rather than with shadow, and in a monochrome palette a large step
 // reads as a different colour rather than a different height.
+// The ramp was far too tight: every step sat between 1.06 and 1.20 against
+// the background, so a card was indistinguishable from the page behind it.
+// These are spaced to roughly 1.1 / 1.2 / 1.3 / 1.5, which separates the
+// levels without turning the surface grey.
 val LightSurfaceContainerLowest = Color(0xFFFFFFFF)
-val LightSurfaceContainerLow = Color(0xFFFAFAF9)
-val LightSurfaceContainer = Color(0xFFF5F5F4)
-val LightSurfaceContainerHigh = Color(0xFFF0EFED)
-val LightSurfaceContainerHighest = Color(0xFFE7E5E4)
-val LightSurfaceDim = Color(0xFFE7E5E4)
-val LightSurfaceBright = Color(0xFFFCFCFB)
+val LightSurfaceContainerLow = Color(0xFFF5F2ED)     // 1.09:1
+val LightSurfaceContainer = Color(0xFFECE9E4)        // 1.18:1
+val LightSurfaceContainerHigh = Color(0xFFE1DED9)    // 1.31:1
+val LightSurfaceContainerHighest = Color(0xFFD4D1CC) // 1.48:1
+val LightSurfaceDim = Color(0xFFE1DED9)
+val LightSurfaceBright = Color(0xFFFFFFFF)
 
 // ----------------------------------------------------------------------------
 // DARK
@@ -107,20 +115,20 @@ val DarkOnBackground = Color(0xFFF5F5F4)
 val DarkSurface = Color(0xFF0C0B0A)
 val DarkOnSurface = Color(0xFFF5F5F4)
 val DarkSurfaceVariant = Color(0xFF2C2825)
-val DarkOnSurfaceVariant = Color(0xFFBFB9B4)
-val DarkOutline = Color(0xFF5C5650)
-val DarkOutlineVariant = Color(0xFF373330)
+val DarkOnSurfaceVariant = Color(0xFFC9C3BD)
+val DarkOutline = Color(0xFF908981)        // 5.7:1 on surface
+val DarkOutlineVariant = Color(0xFF453F3A) // 1.9:1
 val DarkInverseSurface = Color(0xFFF5F5F4)
 val DarkInverseOnSurface = Color(0xFF292524)
 val DarkInversePrimary = Color(0xFF44403C)
 
-val DarkSurfaceContainerLowest = Color(0xFF070606)
-val DarkSurfaceContainerLow = Color(0xFF131110)
-val DarkSurfaceContainer = Color(0xFF191716)
-val DarkSurfaceContainerHigh = Color(0xFF221F1D)
-val DarkSurfaceContainerHighest = Color(0xFF2C2825)
+val DarkSurfaceContainerLowest = Color(0xFF060504)
+val DarkSurfaceContainerLow = Color(0xFF17140F)     // 1.07:1
+val DarkSurfaceContainer = Color(0xFF211E19)        // 1.18:1
+val DarkSurfaceContainerHigh = Color(0xFF2D2A25)    // 1.38:1
+val DarkSurfaceContainerHighest = Color(0xFF3A3732) // 1.66:1
 val DarkSurfaceDim = Color(0xFF0C0B0A)
-val DarkSurfaceBright = Color(0xFF373330)
+val DarkSurfaceBright = Color(0xFF484540)
 
 // ============================================================================
 // SYNTAX HIGHLIGHTING COLORS - One Dark Pro inspired

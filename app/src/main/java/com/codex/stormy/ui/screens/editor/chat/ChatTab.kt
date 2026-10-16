@@ -51,8 +51,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -409,7 +409,8 @@ private fun AgentModeToggle(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.AutoAwesome,
+                    // Agent mode is tool use; a wrench says so.
+                    imageVector = Icons.Outlined.Handyman,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                     tint = if (agentMode) MaterialTheme.colorScheme.onPrimaryContainer

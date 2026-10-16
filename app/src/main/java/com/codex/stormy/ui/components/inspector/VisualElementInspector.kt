@@ -24,7 +24,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -326,7 +327,8 @@ private fun InspectorHeader(
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.AutoAwesome,
+                            // A wand: this rewrites the element you picked.
+                            imageVector = Icons.Outlined.AutoFixHigh,
                             contentDescription = "AI Edit",
                             modifier = Modifier.size(18.dp),
                             tint = if (showAiPrompt) MaterialTheme.colorScheme.primary
@@ -409,7 +411,7 @@ private fun NoModelWarning() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.AutoAwesome,
+                imageVector = Icons.Outlined.ErrorOutline,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onErrorContainer

@@ -28,6 +28,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.theme.Space
+import com.codex.stormy.ui.components.expressive.SheetAction
+import com.codex.stormy.ui.components.expressive.FormSheet
+import com.codex.stormy.ui.components.expressive.ActionSheet
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.AltRoute
 import androidx.compose.material.icons.automirrored.outlined.CallMerge
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDownward
@@ -46,7 +52,6 @@ import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -901,46 +906,33 @@ private fun BranchesSection(
 
     // Delete branch confirmation dialog
     branchToDelete?.let { branch ->
-        AlertDialog(
-            onDismissRequest = { branchToDelete = null },
-            title = {
+        FormSheet(
+            title = "Delete branch",
+            icon = Icons.Outlined.DeleteOutline,
+            onDismiss = { branchToDelete = null },
+            confirmLabel = "Delete",
+            onConfirm = {
+                onDeleteBranch(branch.name, false)
+                branchToDelete = null
+            },
+            destructive = true
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 Text(
-                    text = "Delete Branch",
-                    fontWeight = FontWeight.SemiBold
+                    text = branch.name,
+                    style = MaterialTheme.typography.bodyMediumEmphasized.copy(
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Are you sure you want to delete the branch '${branch.name}'?",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = "This action cannot be undone.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDeleteBranch(branch.name, false)
-                        branchToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { branchToDelete = null }) {
-                    Text("Cancel")
-                }
+                Text(
+                    text = "The branch will be removed from this repository. " +
+                        "This cannot be undone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-        )
+        }
     }
 
     // Create branch dialog
@@ -948,63 +940,48 @@ private fun BranchesSection(
         var branchName by remember { mutableStateOf("") }
         var checkoutAfterCreate by remember { mutableStateOf(true) }
 
-        AlertDialog(
-            onDismissRequest = { showCreateDialog = false },
-            title = {
+        FormSheet(
+            title = "Create branch",
+            icon = Icons.Outlined.AltRoute,
+            onDismiss = { showCreateDialog = false },
+            confirmLabel = "Create",
+            onConfirm = {
+                onCreateBranch(branchName, checkoutAfterCreate)
+                showCreateDialog = false
+            },
+            confirmEnabled = branchName.isNotBlank()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
                 Text(
-                    text = "Create Branch",
-                    fontWeight = FontWeight.SemiBold
+                    text = "Branches from ${currentBranch?.name ?: "the current branch"}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+                OutlinedTextField(
+                    value = branchName,
+                    onValueChange = { branchName = it.replace(" ", "-") },
+                    label = { Text("Branch name") },
+                    placeholder = { Text("feature/my-feature") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = CodeXCorners.large
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = checkoutAfterCreate,
+                        onCheckedChange = { checkoutAfterCreate = it }
+                    )
+                    Spacer(modifier = Modifier.width(Space.md))
                     Text(
-                        text = "Create a new branch from '${currentBranch?.name ?: "current"}'",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Switch to it after creating",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-
-                    OutlinedTextField(
-                        value = branchName,
-                        onValueChange = { branchName = it.replace(" ", "-") },
-                        label = { Text("Branch name") },
-                        placeholder = { Text("feature/my-feature") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Switch(
-                            checked = checkoutAfterCreate,
-                            onCheckedChange = { checkoutAfterCreate = it }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Switch to branch after creating",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onCreateBranch(branchName, checkoutAfterCreate)
-                        showCreateDialog = false
-                    },
-                    enabled = branchName.isNotBlank()
-                ) {
-                    Text("Create")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel")
                 }
             }
-        )
+        }
     }
 }
 
@@ -1082,94 +1059,38 @@ private fun BranchItem(
 
         // Context menu dialog (shown on long-press)
         if (showContextMenu) {
-            AlertDialog(
-                onDismissRequest = { showContextMenu = false },
-                title = {
-                    Text(
-                        text = branch.name,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            ActionSheet(
+                title = branch.name,
+                titleIsMonospace = true,
+                subtitle = if (isCurrent) {
+                    "The current branch. Switch away before deleting it."
+                } else {
+                    null
+                },
+                onDismiss = { showContextMenu = false },
+                actions = if (isCurrent) {
+                    emptyList()
+                } else {
+                    listOf(
+                        SheetAction(
+                            label = "Switch to this branch",
+                            icon = Icons.Outlined.SwapHoriz,
+                            description = "Check out ${branch.name}",
+                            onClick = {
+                                showContextMenu = false
+                                onCheckout()
+                            }
+                        ),
+                        SheetAction(
+                            label = "Delete branch",
+                            icon = Icons.Outlined.DeleteOutline,
+                            destructive = true,
+                            onClick = {
+                                showContextMenu = false
+                                onDelete()
+                            }
+                        )
                     )
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // Switch to branch option (only for non-current branches)
-                        if (!isCurrent) {
-                            Surface(
-                                onClick = {
-                                    showContextMenu = false
-                                    onCheckout()
-                                },
-                                shape = CodeXCorners.small,
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.SwapHoriz,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = "Switch to this branch",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-                            }
-                        }
-
-                        // Delete branch option (only for non-current branches)
-                        if (!isCurrent) {
-                            Surface(
-                                onClick = {
-                                    showContextMenu = false
-                                    onDelete()
-                                },
-                                shape = CodeXCorners.small,
-                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Delete,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                    Text(
-                                        text = "Delete branch",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-
-                        // Info for current branch
-                        if (isCurrent) {
-                            Text(
-                                text = "This is the current branch. Switch to another branch before deleting.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showContextMenu = false }) {
-                        Text("Close")
-                    }
                 }
             )
         }
@@ -1309,118 +1230,32 @@ private fun CommitItem(
 
         // Context menu dialog for reset options
         if (showContextMenu) {
-            AlertDialog(
-                onDismissRequest = { showContextMenu = false },
-                title = {
-                    Column {
-                        Text(
-                            text = "Reset to Commit",
-                            style = MaterialTheme.typography.titleMediumEmphasized,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = commit.shortId,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                },
-                text = {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = commit.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Soft Reset option
-                        Surface(
-                            onClick = {
-                                showContextMenu = false
-                                onSoftReset()
-                            },
-                            shape = CodeXCorners.small,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.History,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Soft Reset",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = "Keep changes in staging area",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+            ActionSheet(
+                title = "Reset to ${commit.shortId}",
+                titleIsMonospace = true,
+                subtitle = commit.message,
+                onDismiss = { showContextMenu = false },
+                actions = listOf(
+                    SheetAction(
+                        label = "Soft reset",
+                        icon = Icons.Outlined.History,
+                        description = "Move the branch here, keep changes staged",
+                        onClick = {
+                            showContextMenu = false
+                            onSoftReset()
                         }
-
-                        // Hard Reset option
-                        Surface(
-                            onClick = {
-                                showContextMenu = false
-                                onHardReset()
-                            },
-                            shape = CodeXCorners.small,
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Delete,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Hard Reset",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                    Text(
-                                        text = "Discard all changes (cannot be undone)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+                    ),
+                    SheetAction(
+                        label = "Hard reset",
+                        icon = Icons.Outlined.DeleteOutline,
+                        description = "Discard every change since this commit",
+                        destructive = true,
+                        onClick = {
+                            showContextMenu = false
+                            onHardReset()
                         }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showContextMenu = false }) {
-                        Text("Cancel")
-                    }
-                }
+                    )
+                )
             )
         }
     }

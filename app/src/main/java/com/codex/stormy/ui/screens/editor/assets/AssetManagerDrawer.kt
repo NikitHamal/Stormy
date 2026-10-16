@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.components.expressive.FormSheet
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -44,7 +46,6 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.EmojiSymbols
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -477,35 +478,30 @@ fun AssetManagerDrawer(
 
     // Delete confirmation dialog
     showDeleteDialog?.let { asset ->
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text(context.getString(R.string.file_delete)) },
-            text = { Text(context.getString(R.string.file_delete_confirm, asset.name)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                File(asset.path).delete()
-                            }
-                            loadAssets()
-                            onAssetDelete(asset)
-                        }
-                        showDeleteDialog = null
-                    },
-                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(context.getString(R.string.action_delete))
+        FormSheet(
+            title = context.getString(R.string.file_delete),
+            icon = Icons.Outlined.DeleteOutline,
+            onDismiss = { showDeleteDialog = null },
+            confirmLabel = context.getString(R.string.action_delete),
+            onConfirm = {
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        File(asset.path).delete()
+                    }
+                    loadAssets()
+                    onAssetDelete(asset)
                 }
+                showDeleteDialog = null
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) {
-                    Text(context.getString(R.string.action_cancel))
-                }
-            }
-        )
+            destructive = true,
+            cancelLabel = context.getString(R.string.action_cancel)
+        ) {
+            Text(
+                text = context.getString(R.string.file_delete_confirm, asset.name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 
     // Image detail dialog with optimization
@@ -928,34 +924,25 @@ private fun CreateFolderDialog(
     val context = LocalContext.current
     var folderName by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(context.getString(R.string.assets_add_folder)) },
-        text = {
-            OutlinedTextField(
-                value = folderName,
-                onValueChange = { folderName = it },
-                label = { Text(context.getString(R.string.file_name_label)) },
-                placeholder = { Text("images") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = CodeXCorners.medium
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCreate(folderName) },
-                enabled = folderName.isNotBlank()
-            ) {
-                Text(context.getString(R.string.action_create))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(context.getString(R.string.action_cancel))
-            }
-        }
-    )
+    FormSheet(
+        title = context.getString(R.string.assets_add_folder),
+        icon = Icons.Outlined.CreateNewFolder,
+        onDismiss = onDismiss,
+        confirmLabel = context.getString(R.string.action_create),
+        onConfirm = { onCreate(folderName) },
+        confirmEnabled = folderName.isNotBlank(),
+        cancelLabel = context.getString(R.string.action_cancel)
+    ) {
+        OutlinedTextField(
+            value = folderName,
+            onValueChange = { folderName = it },
+            label = { Text(context.getString(R.string.file_name_label)) },
+            placeholder = { Text("images") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = CodeXCorners.large
+        )
+    }
 }
 
 // Helper functions

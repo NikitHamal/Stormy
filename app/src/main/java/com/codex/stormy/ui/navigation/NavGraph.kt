@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.navigation
 
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -46,6 +48,8 @@ fun CodeXNavGraph(
     // NavHost's transition lambdas are not @Composable, so the scheme is read
     // here, in composable scope, and captured. Reading it per transition would
     // not compile -- and would be wasteful even if it did.
+    // One spring for the slide, so both screens move on the same curve and
+    // stay locked together through the transition.
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
     val enterFade = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
     val exitFade = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
@@ -53,38 +57,37 @@ fun CodeXNavGraph(
     NavHost(
         navController = navController,
         startDestination = startDestination,
-        // Screen transitions read from the Expressive motion scheme rather
-        // than a hard-coded tween(300). Spatial springs move the content,
-        // effects specs handle the cross-fade -- that split is the whole point
-        // of the scheme, and it means these transitions match every other
-        // animation in the app and follow the user's motion-style preference.
+        // Forward and back are deliberately asymmetric.
+        //
+        // The old version slid both screens the same distance in opposite
+        // directions, which reads as a carousel: two peers swapping places,
+        // with no sense of depth. Pushing forward should feel like going
+        // *into* something.
+        //
+        // So: the incoming screen travels the full width while the outgoing
+        // one moves a third of it and dims slightly -- parallax, which the eye
+        // reads as the old screen receding behind the new one rather than
+        // sliding away beside it. Going back reverses exactly that, so the
+        // screen the user came from appears to come forward again.
+        //
+        // Scale is deliberately absent on the incoming screen: scaling a full
+        // page of text makes it legible only once it lands, which is the one
+        // moment the animation should already be over.
         enterTransition = {
-            fadeIn(animationSpec = enterFade) +
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = spatial
-                )
+            slideInHorizontally(spatial) { full -> full } +
+                fadeIn(enterFade)
         },
         exitTransition = {
-            fadeOut(animationSpec = exitFade) +
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = spatial
-                )
+            slideOutHorizontally(spatial) { full -> -full / 3 } +
+                fadeOut(exitFade)
         },
         popEnterTransition = {
-            fadeIn(animationSpec = enterFade) +
-                slideIntoContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = spatial
-                )
+            slideInHorizontally(spatial) { full -> -full / 3 } +
+                fadeIn(enterFade)
         },
         popExitTransition = {
-            fadeOut(animationSpec = exitFade) +
-                slideOutOfContainer(
-                    towards = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = spatial
-                )
+            slideOutHorizontally(spatial) { full -> full } +
+                fadeOut(exitFade)
         }
     ) {
         composable(Screen.Onboarding.route) {
@@ -165,7 +168,8 @@ fun CodeXNavGraph(
             AiModelsScreen(
                 onBackClick = {
                     navController.popBackStack()
-                }
+                },
+                onNavigateToProviders = { navController.navigate(Screen.Providers.route) }
             )
         }
 

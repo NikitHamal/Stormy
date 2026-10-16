@@ -1,5 +1,10 @@
 package com.codex.stormy.ui.screens.aimodels
 
+import com.codex.stormy.ui.components.expressive.EmptyStateShape
+import com.codex.stormy.ui.components.expressive.ExpressiveNoResults
+import com.codex.stormy.ui.components.expressive.ExpressiveEmptyState
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.Key
 import com.codex.stormy.ui.components.expressive.FilterChipItem
 import com.codex.stormy.ui.components.expressive.FilterChipStrip
 import com.codex.stormy.ui.components.expressive.FlowerIconButton
@@ -38,8 +43,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import com.codex.stormy.ui.components.expressive.SheetAction
+import com.codex.stormy.ui.components.expressive.ActionSheet
+import androidx.compose.material.icons.outlined.ToggleOn
+import androidx.compose.material.icons.outlined.ToggleOff
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Cloud
@@ -52,7 +61,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -91,6 +99,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AiModelsScreen(
     onBackClick: () -> Unit,
+    onNavigateToProviders: () -> Unit = {},
     viewModel: AiModelsViewModel = viewModel(factory = AiModelsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -104,10 +113,16 @@ fun AiModelsScreen(
     }
 
     var searchActive by remember { mutableStateOf(false) }
-    val providerChips = remember(uiState.allModels) {
+    // Every provider gets a chip, including ones with no models yet.
+    //
+    // Building the list from the models that happened to load meant a
+    // provider you had not set a key for simply did not exist on this screen,
+    // so there was nowhere to discover it or find out what it needed. The
+    // empty state behind the chip is what tells you.
+    val providerChips = remember {
         buildList {
             add(FilterChipItem(ProviderChipAll, "All"))
-            uiState.allModels.map { it.provider }.distinct().forEach { provider ->
+            AiProvider.entries.forEach { provider ->
                 add(FilterChipItem(provider.name, provider.displayName))
             }
         }
@@ -156,7 +171,18 @@ fun AiModelsScreen(
                     LoadingState(modifier = Modifier.fillMaxSize())
                 }
                 uiState.filteredModels.isEmpty() -> {
-                    EmptyState(modifier = Modifier.fillMaxSize())
+                    ProviderEmptyState(
+                        provider = uiState.selectedProvider,
+                        hasKey = uiState.selectedProvider?.let { provider ->
+                            !provider.requiresApiKey ||
+                                uiState.apiKeys[provider].orEmpty().isNotBlank()
+                        } ?: true,
+                        query = uiState.searchQuery,
+                        onClearSearch = { viewModel.updateSearchQuery("") },
+                        onSetKey = onNavigateToProviders,
+                        onRefresh = viewModel::refreshModels,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
                 else -> {
                     ModelsList(
@@ -288,10 +314,9 @@ private fun ModelsList(
             ) { model ->
                 MinimalModelItem(
                     model = model,
-                    isSelected = model.id == currentModelId,
                     isDefault = model.id == defaultModelId,
                     onEnabledChange = { enabled -> onModelEnabledChange(model, enabled) },
-                    onClick = { onModelSelect(model) },
+                    onClick = { onModelEnabledChange(model, !model.isEnabled) },
                     onSetAsDefault = {
                         onSetAsDefault(model)
                         scope.launch {
@@ -376,7 +401,6 @@ private fun ProviderSectionHeader(
 @Composable
 private fun MinimalModelItem(
     model: AiModel,
-    isSelected: Boolean,
     isDefault: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -387,7 +411,6 @@ private fun MinimalModelItem(
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
             isDefault -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
             else -> MaterialTheme.colorScheme.surfaceContainerLow
         },
@@ -407,9 +430,6 @@ private fun MinimalModelItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Disabled rows fade rather than disappear: the user needs
-                    // to find them again to switch them back on.
-                    .alpha(if (model.isEnabled) 1f else 0.45f)
                     .padding(horizontal = Space.md, vertical = Space.md),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Space.md)
@@ -449,9 +469,8 @@ private fun MinimalModelItem(
                         Text(
                             text = model.name,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (isSelected || isDefault) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = if (isDefault) FontWeight.SemiBold else FontWeight.Normal,
                             color = when {
-                                isSelected -> MaterialTheme.colorScheme.primary
                                 isDefault -> MaterialTheme.colorScheme.secondary
                                 else -> MaterialTheme.colorScheme.onSurface
                             },
@@ -497,72 +516,59 @@ private fun MinimalModelItem(
                     }
                 )
 
-                // Selection indicator
-                AnimatedVisibility(
-                    visible = isSelected,
-                    enter = scaleIn() + fadeIn(),
-                    exit = scaleOut() + fadeOut()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Check,
-                            contentDescription = "Selected",
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                }
             }
         }
 
         // Context menu
-        DropdownMenu(
-            expanded = showContextMenu,
-            onDismissRequest = { showContextMenu = false }
-        ) {
-            if (isDefault) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = "Remove as default"
+        // One sheet vocabulary app-wide. A dropdown anchored to a long-press
+        // opens wherever the finger happened to be, which on a long list puts
+        // "Set as default" under a different row each time.
+        if (showContextMenu) {
+            ActionSheet(
+                title = model.name,
+                subtitle = model.provider.displayName,
+                onDismiss = { showContextMenu = false },
+                actions = listOf(
+                    if (isDefault) {
+                        SheetAction(
+                            label = "Remove as default",
+                            icon = Icons.Outlined.StarOutline,
+                            description = "New chats will use whatever you pick",
+                            onClick = {
+                                showContextMenu = false
+                                onClearDefault()
+                            }
+                        )
+                    } else {
+                        SheetAction(
+                            label = "Set as default",
+                            icon = Icons.Outlined.Star,
+                            description = "New chats start with this model",
+                            onClick = {
+                                showContextMenu = false
+                                onSetAsDefault()
+                            }
                         )
                     },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.StarOutline,
-                            contentDescription = null
-                        )
-                    },
-                    onClick = {
-                        showContextMenu = false
-                        onClearDefault()
-                    }
+                    SheetAction(
+                        label = if (model.isEnabled) "Turn off" else "Turn on",
+                        icon = if (model.isEnabled) {
+                            Icons.Outlined.ToggleOff
+                        } else {
+                            Icons.Outlined.ToggleOn
+                        },
+                        description = if (model.isEnabled) {
+                            "Hide it from the picker inside projects"
+                        } else {
+                            "Show it in the picker inside projects"
+                        },
+                        onClick = {
+                            showContextMenu = false
+                            onEnabledChange(!model.isEnabled)
+                        }
+                    )
                 )
-            } else {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = "Set as default"
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Star,
-                            contentDescription = null
-                        )
-                    },
-                    onClick = {
-                        showContextMenu = false
-                        onSetAsDefault()
-                    }
-                )
-            }
+            )
         }
     }
 }
@@ -573,7 +579,7 @@ private fun MinimalModelItem(
 private fun getModelIcon(model: AiModel): ImageVector {
     return when {
         model.isThinkingModel -> Icons.Outlined.Psychology
-        model.supportsToolCalls -> Icons.Outlined.AutoAwesome
+        model.supportsToolCalls -> Icons.Outlined.Handyman
         else -> Icons.Outlined.Bolt
     }
 }
@@ -639,3 +645,57 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 
 /** Sentinel id for the "All providers" chip. */
 private const val ProviderChipAll = "__all__"
+
+/**
+ * What to show when a provider has no models to list.
+ *
+ * Three different situations that a single "nothing here" would conflate:
+ * the search matched nothing, the provider needs a key before it can be
+ * queried, or it is configured but has not been refreshed. Each needs a
+ * different action, so each gets its own.
+ */
+@Composable
+private fun ProviderEmptyState(
+    provider: AiProvider?,
+    hasKey: Boolean,
+    query: String,
+    onClearSearch: () -> Unit,
+    onSetKey: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    when {
+        query.isNotBlank() -> ExpressiveNoResults(
+            query = query,
+            onClear = onClearSearch,
+            noun = "models",
+            modifier = modifier
+        )
+
+        provider != null && !hasKey -> ExpressiveEmptyState(
+            icon = Icons.Outlined.Key,
+            title = "${provider.displayName} needs a key",
+            description = provider.keyNote.ifBlank {
+                "Add an API key to load this provider's models."
+            },
+            shape = EmptyStateShape.Sunny,
+            actionLabel = "Add key",
+            onAction = onSetKey,
+            modifier = modifier
+        )
+
+        else -> ExpressiveEmptyState(
+            icon = Icons.Outlined.CloudDownload,
+            title = if (provider != null) {
+                "No models from ${provider.displayName} yet"
+            } else {
+                "No models yet"
+            },
+            description = "Refresh to fetch the current catalogue.",
+            shape = EmptyStateShape.Burst,
+            actionLabel = "Refresh",
+            onAction = onRefresh,
+            modifier = modifier
+        )
+    }
+}

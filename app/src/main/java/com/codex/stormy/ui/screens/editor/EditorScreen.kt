@@ -7,7 +7,6 @@ import com.codex.stormy.ui.components.agent.PlanTimeline
 import com.codex.stormy.ui.components.expressive.ToggleOption
 import com.codex.stormy.ui.components.expressive.ExpressiveToggleGroup
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.AutoAwesome
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -36,6 +35,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Forum
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.components.expressive.SheetAction
+import com.codex.stormy.ui.components.expressive.ActionSheet
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Close
@@ -575,7 +579,7 @@ private fun EditorTabs(
             ToggleOption(
                 id = EditorTab.CHAT.name,
                 label = context.getString(R.string.editor_tab_chat),
-                icon = Icons.Outlined.AutoAwesome
+                icon = Icons.Outlined.Forum
             ),
             ToggleOption(
                 id = EditorTab.CODE.name,
@@ -809,135 +813,94 @@ private fun LargeFileWarningDialog(
     onOpenAnyway: () -> Unit,
     onOpenReadOnly: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Outlined.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(32.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "Large File Warning",
-                style = MaterialTheme.typography.titleLargeEmphasized,
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // File info
-                Surface(
-                    shape = CodeXCorners.medium,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = warning.fileName,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = warning.formattedSize,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                // Warning message
-                Text(
-                    text = warning.warningMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+    ActionSheet(
+        title = "This file is large",
+        subtitle = warning.warningMessage,
+        onDismiss = onDismiss,
+        actions = buildList {
+            if (warning.suggestReadOnly) {
+                add(
+                    SheetAction(
+                        label = "Open read-only",
+                        icon = Icons.Outlined.Visibility,
+                        description = "Fast, and cannot be edited by accident",
+                        onClick = onOpenReadOnly
+                    )
                 )
-
-                // Info rows
+            }
+            if (warning.canEdit) {
+                add(
+                    SheetAction(
+                        label = "Open anyway",
+                        icon = Icons.Outlined.EditNote,
+                        description = "Editing may be slow at this size",
+                        onClick = onOpenAnyway
+                    )
+                )
+            }
+        }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
+            ) {
                 Row(
+                    modifier = Modifier.padding(Space.md),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(Space.md)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Timer,
+                        imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        text = "Estimated load time: ${warning.estimatedLoadTime}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                if (warning.lineCount > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.InsertDriveFile,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = warning.fileName,
+                            style = MaterialTheme.typography.titleSmallEmphasized,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "~${warning.lineCount} lines",
+                            text = warning.formattedSize,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-        },
-        confirmButton = {
-            if (warning.canEdit) {
-                TextButton(onClick = onOpenAnyway) {
-                    Text("Open Anyway")
-                }
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
-                if (warning.suggestReadOnly) {
-                    TextButton(onClick = onOpenReadOnly) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Visibility,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text("Read-Only")
+
+            // The two figures that decide whether to wait: how long, how big.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.sm)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Timer,
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSmall),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = buildString {
+                        append("About ")
+                        append(warning.estimatedLoadTime)
+                        append(" to load")
+                        if (warning.lineCount > 0) {
+                            append(" · ~")
+                            append(warning.lineCount)
+                            append(" lines")
                         }
-                    }
-                }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
-    )
+    }
 }
 
 /**
@@ -985,6 +948,9 @@ private fun FileLoadingProgressDialog(
                 }
             }
         },
-        confirmButton = { /* No confirm button while loading */ }
+        confirmButton = { /* Nothing to decide while loading */ },
+        // The one modal that stays centred: it has no actions and must not be
+        // dismissable, and a bottom sheet is swipe-dismissable by nature.
+        shape = CodeXCorners.xLarge
     )
 }

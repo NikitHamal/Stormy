@@ -14,16 +14,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.codex.stormy.ui.components.expressive.ExpressiveLoadingIndicator
+import com.codex.stormy.ui.components.expressive.FormSheet
+import com.codex.stormy.ui.theme.Sizes
+import com.codex.stormy.ui.theme.Space
 
 /**
  * Dialog for cloning a Git repository
@@ -96,77 +96,92 @@ fun CloneRepositoryDialog(
         return false
     }
 
-    AlertDialog(
-        onDismissRequest = { if (!isCloning) onDismiss() },
-        icon = {
-            Icon(
-                imageVector = Icons.Outlined.CloudDownload,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp)
-            )
+    FormSheet(
+        title = "Clone repository",
+        icon = Icons.Outlined.CloudDownload,
+        // Swiping the sheet away mid-clone would orphan a running job, so the
+        // dismiss paths are closed for the duration rather than cancelling.
+        onDismiss = { if (!isCloning) onDismiss() },
+        confirmLabel = if (isCloning) "Cloning..." else "Clone",
+        onConfirm = {
+            when {
+                url.isBlank() -> urlError = "Repository URL is required"
+                !isValidGitInput(url) ->
+                    urlError = "Invalid repository URL or format"
+                projectName.isBlank() -> urlError = "Project name is required"
+                else -> onClone(normalizeGitUrl(url.trim()), projectName.trim(), shallow)
+            }
         },
-        title = {
-            Text(
-                text = "Clone Repository",
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Column(
+        confirmEnabled = !isCloning,
+        confirmLoading = isCloning
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Space.lg)
+        ) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = {
+                    url = it
+                    urlError = null
+                    if (projectName.isBlank()) {
+                        projectName = extractProjectName(it)
+                    }
+                },
+                label = { Text("Repository URL") },
+                placeholder = { Text("user/repo or https://github.com/...") },
+                isError = urlError != null || error != null,
+                supportingText = {
+                    when {
+                        urlError != null -> Text(urlError!!)
+                        error != null -> Text(error, color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                singleLine = true,
+                enabled = !isCloning,
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                shape = CodeXCorners.large
+            )
+
+            OutlinedTextField(
+                value = projectName,
+                onValueChange = { projectName = it },
+                label = { Text("Project name") },
+                placeholder = { Text("my-project") },
+                singleLine = true,
+                enabled = !isCloning,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large
+            )
+
+            // The whole row toggles, not just the box: a 20dp checkbox is the
+            // smallest target on the sheet and the label explains the choice.
+            Surface(
+                onClick = { if (!isCloning) shallow = !shallow },
+                enabled = !isCloning,
+                modifier = Modifier.fillMaxWidth(),
+                shape = CodeXCorners.large,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = {
-                        url = it
-                        urlError = null
-                        // Auto-fill project name if empty
-                        if (projectName.isBlank()) {
-                            projectName = extractProjectName(it)
-                        }
-                    },
-                    label = { Text("Repository URL") },
-                    placeholder = { Text("user/repo or https://github.com/...") },
-                    isError = urlError != null || error != null,
-                    supportingText = {
-                        when {
-                            urlError != null -> Text(urlError!!)
-                            error != null -> Text(error, color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    singleLine = true,
-                    enabled = !isCloning,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = CodeXCorners.medium
-                )
-
-                OutlinedTextField(
-                    value = projectName,
-                    onValueChange = { projectName = it },
-                    label = { Text("Project Name") },
-                    placeholder = { Text("my-project") },
-                    singleLine = true,
-                    enabled = !isCloning,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = CodeXCorners.medium
-                )
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.padding(
+                        start = Space.md,
+                        end = Space.lg,
+                        top = Space.sm,
+                        bottom = Space.sm
+                    )
                 ) {
                     Checkbox(
                         checked = shallow,
                         onCheckedChange = { shallow = it },
                         enabled = !isCloning
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
+                    Spacer(modifier = Modifier.width(Space.sm))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Shallow clone",
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMediumEmphasized,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
@@ -176,107 +191,67 @@ fun CloneRepositoryDialog(
                         )
                     }
                 }
+            }
 
-                // Progress indicator during clone
-                AnimatedVisibility(visible = isCloning) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (progress != null && progress > 0f) {
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth()
+            AnimatedVisibility(visible = isCloning) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Space.sm)
+                ) {
+                    if (progress != null && progress > 0f) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = progressMessage ?: "Cloning...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = progressMessage ?: "Cloning...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "${(progress * 100).toInt()}%",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                ExpressiveLoadingIndicator(
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = progressMessage ?: "Connecting...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = "${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            ExpressiveLoadingIndicator(
+                                modifier = Modifier.size(Sizes.iconSmall)
+                            )
+                            Spacer(modifier = Modifier.width(Space.md))
+                            Text(
+                                text = progressMessage ?: "Connecting...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
+            }
 
-                // Info tip
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "For private repos, configure Git credentials in Settings first.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSmall),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(Space.sm))
+                Text(
+                    text = "For private repos, configure Git credentials in Settings first.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    when {
-                        url.isBlank() -> urlError = "Repository URL is required"
-                        !isValidGitInput(url) ->
-                            urlError = "Invalid repository URL or format"
-                        projectName.isBlank() -> urlError = "Project name is required"
-                        else -> onClone(normalizeGitUrl(url.trim()), projectName.trim(), shallow)
-                    }
-                },
-                enabled = !isCloning,
-                shape = CodeXCorners.medium
-            ) {
-                if (isCloning) {
-                    ExpressiveLoadingIndicator(
-                        modifier = Modifier.size(18.dp),
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Text(if (isCloning) "Cloning..." else "Clone")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isCloning
-            ) {
-                Text("Cancel")
-            }
-        },
-        shape = CodeXCorners.xLarge
-    )
+        }
+    }
 }
