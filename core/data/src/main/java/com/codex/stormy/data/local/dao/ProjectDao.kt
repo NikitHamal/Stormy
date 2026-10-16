@@ -12,7 +12,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ProjectDao {
 
-    @Query("SELECT * FROM projects ORDER BY lastOpenedAt DESC")
+    // Pinned first, then most-recently-opened. Ordering lives in the query
+    // rather than in the UI so every consumer -- list, search, sync read --
+    // agrees, and so SQLite does the sort on an already-indexed column.
+    @Query("SELECT * FROM projects ORDER BY isPinned DESC, lastOpenedAt DESC")
     fun getAllProjects(): Flow<List<ProjectEntity>>
 
     @Query("SELECT * FROM projects WHERE id = :projectId")
@@ -21,7 +24,10 @@ interface ProjectDao {
     @Query("SELECT * FROM projects WHERE id = :projectId")
     fun observeProjectById(projectId: String): Flow<ProjectEntity?>
 
-    @Query("SELECT * FROM projects WHERE name LIKE '%' || :query || '%' ORDER BY lastOpenedAt DESC")
+    @Query(
+        "SELECT * FROM projects WHERE name LIKE '%' || :query || '%' " +
+            "ORDER BY isPinned DESC, lastOpenedAt DESC"
+    )
     fun searchProjects(query: String): Flow<List<ProjectEntity>>
 
     @Query("SELECT COUNT(*) FROM projects WHERE name = :name")
@@ -51,9 +57,14 @@ interface ProjectDao {
     @Query("UPDATE projects SET lastUsedModelId = :modelId WHERE id = :projectId")
     suspend fun updateLastUsedModelId(projectId: String, modelId: String?)
 
-    @Query("SELECT * FROM projects ORDER BY lastOpenedAt DESC")
+    @Query("SELECT * FROM projects ORDER BY isPinned DESC, lastOpenedAt DESC")
     suspend fun getAllProjectsSync(): List<ProjectEntity>
 
     @Query("UPDATE projects SET rootPath = :newPath WHERE id = :projectId")
     suspend fun updateRootPath(projectId: String, newPath: String)
+
+    // A targeted UPDATE, not a read-modify-write of the whole row: pinning
+    // must not bump updatedAt or race a rename happening at the same time.
+    @Query("UPDATE projects SET isPinned = :pinned WHERE id = :projectId")
+    suspend fun setPinned(projectId: String, pinned: Boolean)
 }

@@ -17,7 +17,8 @@ data class Project(
     val lastOpenedAt: Long,
     val thumbnailPath: String?,
     val rootPath: String,
-    val lastUsedModelId: String? = null
+    val lastUsedModelId: String? = null,
+    val isPinned: Boolean = false
 ) {
     val formattedLastOpened: String
         get() {
@@ -55,7 +56,8 @@ data class Project(
         lastOpenedAt = lastOpenedAt,
         thumbnailPath = thumbnailPath,
         rootPath = rootPath,
-        lastUsedModelId = lastUsedModelId
+        lastUsedModelId = lastUsedModelId,
+        isPinned = isPinned
     )
 
     companion object {
@@ -73,7 +75,8 @@ data class Project(
             lastOpenedAt = entity.lastOpenedAt,
             thumbnailPath = entity.thumbnailPath,
             rootPath = entity.rootPath,
-            lastUsedModelId = entity.lastUsedModelId
+            lastUsedModelId = entity.lastUsedModelId,
+            isPinned = entity.isPinned
         )
     }
 }

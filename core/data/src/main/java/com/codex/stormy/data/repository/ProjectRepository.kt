@@ -216,6 +216,26 @@ class ProjectRepository(
         }
     }
 
+    /**
+     * Pin or unpin a project.
+     *
+     * Deliberately does not touch `updatedAt`: pinning says something about
+     * how the user wants the list arranged, not about the project's contents,
+     * and bumping the timestamp would reorder every other list that sorts by
+     * it.
+     */
+    suspend fun setProjectPinned(
+        projectId: String,
+        pinned: Boolean
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            projectDao.setPinned(projectId, pinned)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun deleteProject(projectId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val project = projectDao.getProjectById(projectId)

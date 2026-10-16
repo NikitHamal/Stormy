@@ -63,6 +63,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
@@ -341,6 +343,9 @@ fun HomeScreen(
                         onEditClick = { project ->
                             projectToEdit = project
                         },
+                        onPinClick = { project ->
+                            viewModel.setProjectPinned(project.id, !project.isPinned)
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -498,6 +503,7 @@ private fun ProjectsList(
     onProjectClick: (Project) -> Unit,
     onDeleteClick: (Project) -> Unit,
     onEditClick: (Project) -> Unit,
+    onPinClick: (Project) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -514,6 +520,7 @@ private fun ProjectsList(
                 onClick = { onProjectClick(project) },
                 onDeleteClick = { onDeleteClick(project) },
                 onEditClick = { onEditClick(project) },
+                onPinClick = { onPinClick(project) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .animateItem(
@@ -543,6 +550,7 @@ private fun SwipeableProjectCard(
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onEditClick: () -> Unit,
+    onPinClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -552,6 +560,22 @@ private fun SwipeableProjectCard(
             title = project.name,
             onDismiss = { showMenu = false },
             actions = listOf(
+                SheetAction(
+                    label = if (project.isPinned) "Unpin" else "Pin to top",
+                    // Filled when it is pinned, outlined when it is not, so
+                    // the row states the current state as well as the action.
+                    icon = if (project.isPinned) {
+                        Icons.Filled.PushPin
+                    } else {
+                        Icons.Outlined.PushPin
+                    },
+                    description = if (project.isPinned) {
+                        "Let it sort by when you last opened it"
+                    } else {
+                        "Keep it above the rest of the list"
+                    },
+                    onClick = onPinClick
+                ),
                 SheetAction(
                     label = "Rename",
                     icon = Icons.Outlined.Edit,
@@ -670,15 +694,30 @@ private fun SwipeableProjectCard(
 
                     // Project info
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = project.name,
-                            // Emphasized: the name is the only thing the user
-                            // is looking for in this row.
-                            style = MaterialTheme.typography.titleMediumEmphasized,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = project.name,
+                                // Emphasized: the name is the only thing the
+                                // user is looking for in this row.
+                                style = MaterialTheme.typography.titleMediumEmphasized,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            // Without this a pinned project looks like it was
+                            // opened most recently, and the user wonders why
+                            // the list will not reorder.
+                            if (project.isPinned) {
+                                Spacer(modifier = Modifier.width(Space.xs))
+                                Icon(
+                                    imageVector = Icons.Filled.PushPin,
+                                    contentDescription = "Pinned",
+                                    modifier = Modifier.size(Sizes.iconSmall),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         if (project.description.isNotEmpty()) {
                             Text(
                                 text = project.description,

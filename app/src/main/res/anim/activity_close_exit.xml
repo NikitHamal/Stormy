@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dismissed activity leaves the way it came in, slightly faster:
+     a back gesture should feel more immediate than the push that preceded it. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/m3_emphasized_accelerate"
+    android:shareInterpolator="false"
+    android:zAdjustment="top">
+
+    <translate
+        android:fromXDelta="0"
+        android:toXDelta="100%p"
+        android:duration="320"
+        android:interpolator="@interpolator/m3_emphasized_accelerate" />
+
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="0.4"
+        android:startOffset="120"
+        android:duration="200"
+        android:interpolator="@interpolator/m3_emphasized_accelerate" />
+</set>

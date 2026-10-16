@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Material 3 Expressive "emphasized" easing.
+
+  A standard ease-in-out spends its whole duration drifting, which is why the
+  stock activity animation reads as sluggish at any length. This curve holds
+  briefly, covers most of the distance in the middle third, then settles — the
+  same asymmetry a spring has, expressed as a path because window animations
+  cannot be springs.
+-->
+<pathInterpolator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:pathData="M 0,0 C 0.05,0 0.133333,0.06 0.166666,0.4 C 0.208333,0.82 0.25,1 1,1" />

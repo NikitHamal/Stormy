@@ -182,6 +182,20 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * Pin or unpin a project.
+     *
+     * No loading flag: the list is driven by a Flow off the database, so the
+     * row reorders itself the moment the write lands. Showing a spinner for
+     * a single-column UPDATE would be slower than the update it reports on.
+     */
+    fun setProjectPinned(projectId: String, pinned: Boolean) {
+        viewModelScope.launch {
+            projectRepository.setProjectPinned(projectId, pinned)
+                .onFailure { throwable -> _error.value = throwable.message }
+        }
+    }
+
     fun clearError() {
         _error.value = null
     }

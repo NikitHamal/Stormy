@@ -8,10 +8,15 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>
+        <!-- Animation.CodeX.Activity is defined once in values/, not
+             duplicated here: the transition is the same in either theme, and a
+             second copy is a second thing to forget to change. -->
+        <item name="android:windowAnimationStyle">@style/Animation.CodeX.Activity</item>
     </style>
 
     <style name="Theme.CodeX.Splash" parent="Theme.CodeX">
         <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Activity</item>
     </style>
 
 </resources>

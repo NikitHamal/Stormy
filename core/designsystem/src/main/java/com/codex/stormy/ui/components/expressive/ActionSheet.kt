@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.expressive
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -122,15 +124,17 @@ fun ActionSheet(
 
             Spacer(Modifier.height(Space.lg))
 
-            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+            // Tight: with no fills the rows read as one list, and a gap
+            // wide enough for cards would break it into fragments.
+            Column(verticalArrangement = Arrangement.spacedBy(Space.xxs)) {
                 // Destructive last, unconditionally. A delete that happens to
                 // sit where "switch branch" sat in the previous sheet is the
                 // classic muscle-memory accident.
-                actions.sortedBy { it.destructive }.forEach { action ->
-                    // Dismiss is applied here rather than left to each action,
-                    // so a caller cannot forget it and leave the sheet sitting
-                    // open behind whatever its action opened.
-                    ActionRow(action = action, onDismiss = onDismiss)
+                // Dismiss is applied in the row rather than left to each
+                // action, so a caller cannot forget it and leave the sheet
+                // sitting open behind whatever its action opened.
+                actions.sortedBy { it.destructive }.forEachIndexed { index, action ->
+                    ActionRow(action = action, index = index, onDismiss = onDismiss)
                 }
             }
 
@@ -160,50 +164,60 @@ fun ActionSheet(
 }
 
 @Composable
-private fun ActionRow(action: SheetAction, onDismiss: () -> Unit) {
+private fun ActionRow(action: SheetAction, index: Int, onDismiss: () -> Unit) {
+    // Intent is carried by the content colour, not by a filled row. A tinted
+    // block behind every action turns the sheet into a stack of cards and
+    // makes the icon shapes -- the thing that actually distinguishes one
+    // action from another here -- compete with their own backgrounds.
+    val contentColor = when {
+        !action.enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        action.destructive -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
     Surface(
         onClick = {
-            action.onClick()
+            // Dismiss first so the sheet's exit runs while the action's own
+            // effect starts, rather than after it -- otherwise a sheet opened
+            // by the action appears behind one that is still closing.
             onDismiss()
+            action.onClick()
         },
         enabled = action.enabled,
         modifier = Modifier.fillMaxWidth(),
         shape = CodeXCorners.large,
-        color = if (action.destructive) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        }
+        color = Color.Transparent,
+        contentColor = contentColor
     ) {
         Row(
             modifier = Modifier.padding(horizontal = Space.md, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier.size(Sizes.avatar),
-                shape = if (action.destructive) {
-                    ExpressiveShapes.verySunny()
-                } else {
-                    ExpressiveShapes.cookie4()
-                },
-                color = if (action.destructive) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerLowest
-                }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = action.icon,
-                        contentDescription = null,
-                        tint = if (action.destructive) {
-                            MaterialTheme.colorScheme.onError
+            // The silhouette is the row's identity: a destructive action is
+            // always the spiked one, and the rest take a stable shape from
+            // their position, so a sheet the user has opened before looks the
+            // same every time.
+            Box(
+                modifier = Modifier
+                    .size(Sizes.avatar)
+                    .border(
+                        width = Sizes.hairline,
+                        color = contentColor.copy(alpha = HAIRLINE_ALPHA),
+                        shape = if (action.destructive) {
+                            ExpressiveShapes.verySunny()
                         } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.size(Sizes.iconSmall)
-                    )
-                }
+                            ExpressiveShapes.forIndex(index)
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = action.icon,
+                    // The label beside it already names the action; describing
+                    // the icon too makes every row announce itself twice.
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSmall)
+                )
             }
 
             Spacer(Modifier.width(Space.md))
@@ -211,25 +225,27 @@ private fun ActionRow(action: SheetAction, onDismiss: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = action.label,
-                    style = MaterialTheme.typography.bodyMediumEmphasized,
-                    color = if (action.destructive) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    }
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 action.description?.let {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.labelSmall,
                         color = if (action.destructive) {
-                            MaterialTheme.colorScheme.onErrorContainer
+                            contentColor.copy(alpha = 0.8f)
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        },
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
         }
     }
 }
+
+/** The outline weight on an icon silhouette: present, not a border. */
+private const val HAIRLINE_ALPHA = 0.45f

@@ -1,5 +1,6 @@
 package com.codex.stormy.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
@@ -16,7 +17,19 @@ data class ProjectEntity(
     val lastOpenedAt: Long,
     val thumbnailPath: String?,
     val rootPath: String,
-    val lastUsedModelId: String? = null
+    val lastUsedModelId: String? = null,
+    /**
+     * Pinned projects sort above the rest regardless of when they were last
+     * opened.
+     *
+     * The SQL default is declared here as well as in the migration, so a
+     * fresh install's CREATE TABLE and an upgraded install's ALTER TABLE
+     * produce byte-identical schemas. Without it the two differ by a DEFAULT
+     * clause, and whether Room's validator minds is a detail of its version
+     * rather than something this code should depend on.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val isPinned: Boolean = false
 )
 
 @Serializable
