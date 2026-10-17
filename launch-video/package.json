@@ -1,0 +1,21 @@
+{
+  "name": "oro-launch-video",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Oro 15s launch motion graphic: deterministic HTML composition + headless render pipeline",
+  "type": "module",
+  "scripts": {
+    "setup": "npx playwright install chromium",
+    "render": "node scripts/render.mjs",
+    "render:vertical": "node scripts/render.mjs --format vertical",
+    "render:all": "node scripts/render.mjs --format landscape && node scripts/render.mjs --format vertical && node scripts/stills.mjs --poster",
+    "preview": "node scripts/serve.mjs",
+    "stills": "node scripts/stills.mjs",
+    "contact": "node scripts/stills.mjs --every 0.5 --contact"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "playwright": "^1.48.0"
+  }
+}
