@@ -71,7 +71,7 @@ class RunTranscriptTest {
     }
 
     @Test
-    fun `ask_user card shows question and answer, failures show the error`() {
+    fun `ask_user renders as an answered quote, not a tool card`() {
         val t = RunTranscript()
         val ask = call("q", "ask_user", """{"question":"Which colour?","options":["Blue","Green"]}""")
         t.toolStarted(ask)
@@ -80,7 +80,8 @@ class RunTranscriptTest {
         t.toolStarted(edit)
         t.toolFinished(edit, ToolResult(false, "", "old_string was not found in a.css."))
         val r = t.render()
-        assertThat(r).contains("✅ Which colour? → Green")
+        assertThat(r).contains("> **You answered** · Which colour?\n> **Green**")
+        assertThat(r).doesNotContain("Ask User")
         assertThat(r).contains("❌ old_string was not found in a.css.")
     }
 
@@ -102,5 +103,27 @@ class RunTranscriptTest {
         val content = "<think>plan</think>\n\nLet me look.\n\n🔧 **Read File**\n✅ File: a.html\n1|x\n\n🔧 **Edit File**\n❌ not found\n\nDone."
         assertThat(RunTranscript.toHistoryText(content))
             .isEqualTo("Let me look.\n\n[Read File: done]\n\n[Edit File: failed]\n\nDone.")
+    }
+
+    @Test
+    fun `batched ask_user lists every answer and marks skips`() {
+        val t = RunTranscript()
+        val ask = call(
+            "q", "ask_user",
+            """{"questions":[{"question":"Framework?","options":[{"label":"React"}]},{"question":"Name?"}]}"""
+        )
+        t.toolStarted(ask)
+        assertThat(t.render()).isEmpty()
+        val output = com.oro.app.data.ai.tools.UserQuestions.formatAnswers(
+            com.oro.app.data.ai.tools.UserQuestions.parse(
+                kotlinx.serialization.json.Json.parseToJsonElement(ask.function.arguments)
+                    as kotlinx.serialization.json.JsonObject
+            ),
+            listOf("React", null)
+        )
+        t.toolFinished(ask, ToolResult(true, output))
+        val r = t.render()
+        assertThat(r).contains("1. Framework? — **React**")
+        assertThat(r).contains("2. Name? — _skipped_")
     }
 }

@@ -158,7 +158,7 @@ fun ChatTab(
     /** What the running turn is doing; drives the working indicator's label. */
     workingLabel: String? = null,
     pendingQuestion: PendingQuestion? = null,
-    onAnswerQuestion: (String) -> Unit = {},
+    onAnswerQuestion: (List<String?>) -> Unit = {},
     onSkipQuestion: () -> Unit = {},
     runError: RunError? = null,
     onRetryRun: () -> Unit = {},
@@ -317,8 +317,8 @@ fun ChatTab(
                         if (pendingQuestion != null) {
                             AskUserCard(
                                 question = pendingQuestion,
-                                onAnswer = onAnswerQuestion,
-                                onSkip = onSkipQuestion,
+                                onSubmit = onAnswerQuestion,
+                                onDismiss = onSkipQuestion,
                                 modifier = Modifier.animateItem()
                             )
                         } else {

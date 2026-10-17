@@ -56,6 +56,18 @@ sealed class UserInputResult {
  */
 interface ToolInteractionCallback {
     suspend fun askUser(question: String, options: List<String>?): String?
+
+    /**
+     * Ask a batch of questions and wait for all answers: one entry per
+     * question, null where the user skipped it. Null overall means the user
+     * dismissed the whole set. The default asks them one by one, so older
+     * callbacks keep working.
+     */
+    suspend fun askQuestions(questions: List<UserQuestion>): List<String?>? {
+        val answers = mutableListOf<String?>()
+        for (q in questions) answers += askUser(q.question, q.options.map { it.label }.ifEmpty { null })
+        return answers
+    }
     suspend fun onTaskFinished(summary: String)
     suspend fun onFileChanged(path: String, changeType: FileChangeType, oldContent: String?, newContent: String?)
     suspend fun onTodoCreated(todo: TodoItem)
@@ -1218,9 +1230,13 @@ class ToolExecutor(
      * so the model does not proceed as if it had one.
      */
     private suspend fun executeAskUser(args: JsonObject): ToolResult {
-        val question = args.getStringArg("question")?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return ToolResult(false, "", "Missing required argument: question")
-        val options = parseOptions(args)
+        val questions = UserQuestions.parse(args)
+        if (questions.isEmpty()) {
+            return ToolResult(
+                false, "",
+                "Missing required argument: questions (an array of {question, header, options}) or question"
+            )
+        }
 
         val callback = interactionCallback
             ?: return ToolResult(
@@ -1229,41 +1245,14 @@ class ToolExecutor(
                     "reasonable assumption, state it in your reply, and continue."
             )
 
-        val answer = callback.askUser(question, options)?.trim()
-        return when {
-            answer == null -> ToolResult(
+        val answers = callback.askQuestions(questions)
+            ?: return ToolResult(
                 true,
                 "The user dismissed the question without answering. Do not ask it " +
                     "again; proceed with your best judgement and state any assumption " +
                     "you make, or stop and explain what you need."
             )
-            answer.isEmpty() -> ToolResult(true, "The user replied with an empty answer.")
-            else -> ToolResult(true, "User answered: $answer")
-        }
-    }
-
-    /** `options` as a JSON array, a JSON-array string, or a comma list. */
-    private fun parseOptions(args: JsonObject): List<String>? {
-        val element = args["options"] ?: return null
-        val list = when (element) {
-            is kotlinx.serialization.json.JsonArray -> element.mapNotNull {
-                (it as? kotlinx.serialization.json.JsonPrimitive)?.content
-            }
-            is kotlinx.serialization.json.JsonPrimitive -> {
-                val raw = element.content.trim()
-                if (raw.startsWith("[")) {
-                    runCatching {
-                        (Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonArray)
-                            .map { (it as kotlinx.serialization.json.JsonPrimitive).content }
-                    }.getOrElse { raw.trim('[', ']').split(",") }
-                } else {
-                    raw.split(",")
-                }
-            }
-            else -> emptyList()
-        }
-        return list.map { it.trim().trim('"') }.filter { it.isNotEmpty() }.distinct().take(6)
-            .takeIf { it.isNotEmpty() }
+        return ToolResult(true, UserQuestions.formatAnswers(questions, answers))
     }
 
     private suspend fun executeFinishTask(args: JsonObject): ToolResult {

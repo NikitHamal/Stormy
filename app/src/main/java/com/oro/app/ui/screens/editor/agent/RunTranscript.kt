@@ -4,6 +4,7 @@ import com.oro.app.data.ai.ToolCallResponse
 import com.oro.app.data.ai.tools.JsonParserUtils
 import com.oro.app.data.ai.tools.ToolAliases
 import com.oro.app.data.ai.tools.ToolResult
+import com.oro.app.data.ai.tools.UserQuestions
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -92,6 +93,13 @@ class RunTranscript(initial: String = "") {
     @Synchronized
     fun toolStarted(call: ToolCallResponse) {
         closeThinking()
+        // ask_user has its own interactive card while it waits; a tool pill
+        // next to it would show the same thing twice. Its answers are added as
+        // a quote when it finishes.
+        if (ToolAliases.canonicalName(call.function.name) == "ask_user") {
+            version++
+            return
+        }
         segments += ToolCard(
             id = call.id,
             title = titleFor(call.function.name),
@@ -103,6 +111,12 @@ class RunTranscript(initial: String = "") {
 
     @Synchronized
     fun toolFinished(call: ToolCallResponse, result: ToolResult) {
+        if (ToolAliases.canonicalName(call.function.name) == "ask_user") {
+            closeThinking()
+            segments += Note(answeredSummary(call, result))
+            version++
+            return
+        }
         val card = segments.lastOrNull { it is ToolCard && it.id == call.id } as? ToolCard ?: run {
             toolStarted(call)
             segments.last() as ToolCard
@@ -178,6 +192,32 @@ class RunTranscript(initial: String = "") {
         }
     }.trimEnd()
 
+    /** "> **You answered** · Which framework?" + the answer, as a Markdown quote. */
+    private fun answeredSummary(call: ToolCallResponse, result: ToolResult): String {
+        val args = JsonParserUtils.parseToJsonObject(call.function.arguments)
+        val questions = args?.let { UserQuestions.parse(it) }.orEmpty()
+        if (!result.success || questions.isEmpty()) return "> _Question skipped_"
+        val out = result.output
+        if (questions.size == 1) {
+            val answer = out.removePrefix("User answered: ").lineSequence().first().trim()
+            val skipped = !out.startsWith("User answered: ")
+            return "> **You answered** · ${questions[0].question.oneLine()}\n> " +
+                if (skipped) "_Skipped_" else "**${answer.take(200)}**"
+        }
+        val answers = out.lines().filter { it.trimStart().startsWith("→") }
+            .map { it.trimStart().removePrefix("→").trim() }
+        return buildString {
+            append("> **You answered ${questions.size} questions**")
+            questions.forEachIndexed { i, q ->
+                val a = answers.getOrNull(i).orEmpty()
+                append("\n> ").append(i + 1).append(". ").append(q.question.oneLine()).append(" — ")
+                append(if (a.isEmpty() || a.startsWith("(skipped")) "_skipped_" else "**${a.take(160)}**")
+            }
+        }
+    }
+
+    private fun String.oneLine(): String = lineSequence().first().trim().take(160)
+
     private fun StringBuilder.ensureBreak() {
         if (isEmpty()) return
         if (!endsWith("\n\n")) append(if (endsWith("\n")) "\n" else "\n\n")
@@ -213,6 +253,7 @@ class RunTranscript(initial: String = "") {
                 }
             }
             (args["tasks"] as? JsonArray)?.let { return "${it.size} steps" }
+            (args["questions"] as? JsonArray)?.let { return "${it.size} questions" }
             return null
         }
 

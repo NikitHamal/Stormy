@@ -80,6 +80,8 @@ sealed interface AgentRunResult {
 data class AgentLoopConfig(
     /** Model calls per run before stopping (each tool round trip is one). */
     val maxIterations: Int = 40,
+    /** Times a run asks the model to resend a tool call that did not parse. */
+    val maxMalformedCallRetries: Int = 2,
     /** Retries per model call for transient failures. */
     val maxRetries: Int = 4,
     /** Retries for an empty or reasoning-only reply. */
@@ -148,13 +150,14 @@ class AgentLoop(
     ): AgentRunResult {
         var iteration = 0
         var lengthContinuations = 0
+        var malformedNudges = 0
         val recentCalls = ArrayDeque<String>()
 
         while (true) {
             if (iteration >= config.maxIterations) return AgentRunResult.IterationLimit(iteration)
             iteration++
 
-            val turn = when (val outcome = callModel(conversation, iteration, listener, prepare)) {
+            val turn = when (val outcome = callModel(conversation, iteration, listener, prepare, knownTools.isNotEmpty())) {
                 is CallOutcome.Failure -> return AgentRunResult.Failed(outcome.message, outcome.retryable)
                 is CallOutcome.Success -> outcome.turn
             }
@@ -169,6 +172,21 @@ class AgentLoop(
                     visible = parsed.visibleText
                     fromText = true
                 }
+            }
+            // Tool-call markup that did not parse (bad JSON, unknown tool, a
+            // template the model half-remembered): nothing ran. Say so and ask
+            // again, rather than ending the run on a reply full of markup.
+            val malformed = calls.isEmpty() && knownTools.isNotEmpty() &&
+                TextToolCallParser.looksLikeToolCall(turn.content)
+            if (malformed) {
+                visible = turn.content.substring(0, TextToolCallParser.visiblePrefixLength(turn.content)).trimEnd()
+            }
+            if (malformed && malformedNudges < config.maxMalformedCallRetries) {
+                malformedNudges++
+                listener.onTurnComplete(visible, emptyList())
+                conversation += ChatRequestMessage(role = "assistant", content = stripThinking(turn.content))
+                conversation += ChatRequestMessage(role = "user", content = malformedCallNudge(knownTools))
+                continue
             }
             calls = calls.mapIndexed { i, c ->
                 if (c.id.isBlank()) c.copy(id = "call_${iteration}_$i") else c
@@ -251,6 +269,13 @@ class AgentLoop(
         }
     }
 
+    private fun malformedCallNudge(knownTools: Set<String>): String = buildString {
+        append("Your last reply contained a tool call that could not be read, so nothing ran. ")
+        append("Send it again in exactly this format, with valid JSON (escape quotes and newlines inside strings):\n")
+        append("<tool_call>\n{\"name\": \"TOOL_NAME\", \"arguments\": {...}}\n</tool_call>\n")
+        append("TOOL_NAME must be one of: ").append(knownTools.sorted().joinToString(", ")).append('.')
+    }
+
     // ------------------------------------------------------------ model call
 
     private data class Turn(
@@ -272,7 +297,8 @@ class AgentLoop(
         conversation: List<ChatRequestMessage>,
         iteration: Int,
         listener: AgentLoopListener,
-        prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest
+        prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest,
+        hideToolMarkup: Boolean = false
     ): CallOutcome {
         var attempt = 0
         var emptyRetries = 0
@@ -282,7 +308,7 @@ class AgentLoop(
             listener.onStatus(AgentStatus.Thinking)
             listener.onModelCallStarted(iteration, attempt)
             val request = prepare(conversation, pressure)
-            val turn = collectTurn(request, listener)
+            val turn = collectTurn(request, listener, hideToolMarkup)
 
             val error = turn.error
             if (error != null) {
@@ -327,8 +353,17 @@ class AgentLoop(
     }
 
     /** Collect one streamed completion, with an idle watchdog. */
-    private suspend fun collectTurn(request: AgentRequest, listener: AgentLoopListener): Turn {
+    private suspend fun collectTurn(
+        request: AgentRequest,
+        listener: AgentLoopListener,
+        hideToolMarkup: Boolean = false
+    ): Turn {
         val content = StringBuilder()
+        // Text-protocol tool calls (often a whole file) stream as markup; only
+        // the prose before them is shown live. onTurnComplete sets the final
+        // visible text either way.
+        var shown = 0
+        var markupFound = false
         val reasoning = StringBuilder()
         var toolCalls = emptyList<ToolCallResponse>()
         var finishReason: String? = null
@@ -370,7 +405,21 @@ class AgentLoop(
                                 writing = true
                                 listener.onStatus(AgentStatus.Writing)
                             }
-                            listener.onText(event.content)
+                            if (!hideToolMarkup) {
+                                listener.onText(event.content)
+                            } else if (!markupFound) {
+                                val visible = TextToolCallParser.visiblePrefixLength(content, shown)
+                                if (visible > shown) {
+                                    listener.onText(content.substring(shown, visible))
+                                    shown = visible
+                                }
+                                if (visible < content.length &&
+                                    TextToolCallParser.looksLikeToolCall(content.substring(visible))
+                                ) {
+                                    markupFound = true
+                                    listener.onStatus(AgentStatus(AgentStatus.Kind.WRITING, "Preparing tool call"))
+                                }
+                            }
                         }
                         is StreamEvent.ReasoningDelta -> {
                             reasoning.append(event.reasoning)

@@ -26,6 +26,8 @@ import kotlinx.serialization.json.contentOrNull
  *    `<tool_call>name<arg_key>path</arg_key><arg_value>a.html</arg_value></tool_call>`,
  *    including namespaced special tokens (`<ifm|tool_call>`, K2 Horizon)
  *  - `[TOOL_CALLS][{"name": ..., "arguments": {...}}]` (Mistral)
+ *  - Kimi K2 sections: `<|tool_call_begin|>functions.read_file:0<|tool_call_argument_begin|>{...}<|tool_call_end|>`
+ *  - DeepSeek: `<｜tool▁call▁begin｜>function<｜tool▁sep｜>read_file` + a JSON body
  *  - fenced ```json blocks holding a call object or an array of them
  *  - a reply that is nothing but one call object
  *
@@ -53,6 +55,63 @@ object TextToolCallParser {
     private val NAMESPACED_TAG = Regex("""<(/?)[A-Za-z0-9_]+\|""")
     private val KV_PAIR = Regex("""(?s)<arg_key>(.*?)(?:</arg_key>|(?=<arg_value>))\s*<arg_value>(.*?)(?:</arg_value>|(?=<arg_key>)|$)""")
     private val WRAPPER = Regex("""</?tool_calls>""")
+    private val KIMI_CALL = Regex(
+        """(?s)<\|tool_call_begin\|>\s*([\w.\-]+?)(?::\d+)?\s*<\|tool_call_argument_begin\|>(.*?)(?:<\|tool_call_end\|>|$)"""
+    )
+    private val KIMI_SECTION = Regex("""<\|tool_calls_section_(?:begin|end)\|>""")
+    private val DEEPSEEK_CALL = Regex(
+        """(?s)<｜tool▁call▁begin｜>\s*(?:function)?\s*<｜tool▁sep｜>\s*([\w.\-]+)\s*(.*?)(?:<｜tool▁call▁end｜>|$)"""
+    )
+    private val DEEPSEEK_SECTION = Regex("""<｜tool▁calls▁(?:begin|end)｜>""")
+
+    /**
+     * Arguments that are always text. Key-value formats carry raw values, and
+     * guessing a type from the value turned a JSON file's `content` into an
+     * object (write_file then failed) and "404" into a number.
+     */
+    private val TEXT_KEYS = setOf(
+        "path", "file_path", "content", "old_string", "new_string", "pattern", "query", "url",
+        "question", "command", "text", "source", "destination", "description", "summary",
+        "key", "value", "include", "header", "label"
+    )
+
+    private val VERBATIM_KEYS = setOf("content", "old_string", "new_string")
+
+    /** Opening tokens of every format above; [visiblePrefixLength] hides from the first one. */
+    private val OPENERS = listOf(
+        "<tool_call", "<tool_calls", "<function=", "[TOOL_CALLS]", "<|tool_call", "<|tool_calls",
+        "<｜tool▁call", "<ifm|tool_call"
+    )
+
+    /**
+     * How much of a partial, still-streaming reply is safe to show: everything
+     * before the first tool-call opener, held back by a few characters while
+     * the tail could still be the start of one. Lets the UI stream prose while
+     * the call itself (often a whole file) stays off screen.
+     */
+    fun visiblePrefixLength(streamed: CharSequence, from: Int = 0): Int {
+        // Text before [from] was already shown, so it held no opener; an
+        // opener can only start in the last few characters before it.
+        val scanFrom = (from - 16).coerceAtLeast(0)
+        var cut = streamed.length
+        for (opener in OPENERS) {
+            val i = streamed.indexOf(opener, scanFrom)
+            if (i in 0 until cut) cut = i
+        }
+        if (cut < streamed.length) return cut
+        // Hold back a trailing fragment that could still grow into an opener.
+        val tailStart = (streamed.length - 16).coerceAtLeast(0)
+        for (i in tailStart until streamed.length) {
+            val c = streamed[i]
+            if (c != '<' && c != '[') continue
+            val tail = streamed.subSequence(i, streamed.length).toString()
+            if (OPENERS.any { it.startsWith(tail) }) return i
+        }
+        return streamed.length
+    }
+
+    /** True when [content] contains a tool-call opener; parsing it may still have failed. */
+    fun looksLikeToolCall(content: String): Boolean = OPENERS.any { content.contains(it) }
 
     fun parse(content: String, knownTools: Set<String>): Parsed {
         if (content.isBlank()) return Parsed(content, emptyList())
@@ -110,6 +169,22 @@ object TextToolCallParser {
             if (acceptFunctionTag(m, ::accept)) text = text.replace(m.value, "")
         }
 
+        // 2b. Kimi K2 and DeepSeek special-token sections.
+        if (text.contains("<|tool_call_begin|>")) {
+            KIMI_CALL.findAll(text).toList().forEach { m ->
+                val args = parseJson(extractJson(m.groupValues[2]) ?: m.groupValues[2].trim())
+                if (accept(m.groupValues[1].substringAfterLast('.'), args)) text = text.replace(m.value, "")
+            }
+            text = text.replace(KIMI_SECTION, "")
+        }
+        if (text.contains("<｜tool▁call▁begin｜>")) {
+            DEEPSEEK_CALL.findAll(text).toList().forEach { m ->
+                val args = extractJson(m.groupValues[2])?.let { parseJson(it) }
+                if (accept(m.groupValues[1], args)) text = text.replace(m.value, "")
+            }
+            text = text.replace(DEEPSEEK_SECTION, "")
+        }
+
         // 3. Mistral marker.
         val marker = text.indexOf(MISTRAL_MARKER)
         if (marker >= 0) {
@@ -155,6 +230,7 @@ object TextToolCallParser {
                 val raw = p.groupValues[2]
                 // Numbers and booleans stay typed; everything else is text.
                 val value: JsonElement = when {
+                    p.groupValues[1] in TEXT_KEYS -> JsonPrimitive(raw)
                     raw.trim() == "true" || raw.trim() == "false" -> JsonPrimitive(raw.trim().toBoolean())
                     raw.trim().matches(Regex("-?\\d+")) -> JsonPrimitive(raw.trim().toLong())
                     raw.trim().startsWith("[") -> parseJson(raw.trim()) ?: JsonPrimitive(raw)
@@ -177,6 +253,7 @@ object TextToolCallParser {
             val key = Regex("[A-Za-z_][\\w]*").find(m.groupValues[1])?.value ?: return@forEach
             val raw = m.groupValues[2].trim('\n')
             args[key] = when {
+                key in TEXT_KEYS -> JsonPrimitive(raw)
                 raw.trim() == "true" || raw.trim() == "false" -> JsonPrimitive(raw.trim().toBoolean())
                 raw.trim().matches(Regex("-?\\d+")) -> JsonPrimitive(raw.trim().toLong())
                 raw.trim().startsWith("[") || raw.trim().startsWith("{") -> parseJson(raw.trim()) ?: JsonPrimitive(raw)
@@ -184,7 +261,8 @@ object TextToolCallParser {
             }
         }
         val debris = Regex("\"[}\\]]+\\s*$")
-        val kvClean = args.isNotEmpty() && args.values.none {
+        // File bodies are taken verbatim: a JS file may well start with a quote.
+        val kvClean = args.isNotEmpty() && args.filterKeys { it !in VERBATIM_KEYS }.values.none {
             it is JsonPrimitive && it.isString && (debris.containsMatchIn(it.content) || it.content.trimStart().startsWith("\""))
         }
         if (kvClean) return accept(name, JsonObject(args))

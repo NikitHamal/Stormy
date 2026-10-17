@@ -126,4 +126,60 @@ class TextToolCallParserTest {
         assertThat(calls[1].function.name).isEqualTo("grep")
         assertThat(calls[1].function.arguments).isEqualTo("{\"pattern\":\".*\",\"path\":\"style.css\",\"include\":\"*.css\"}")
     }
+
+    /** Recorded live from K2 Horizon 375B on 2026-10-17 under the real Orobi prompt. */
+    @Test
+    fun `k2 horizon native template with two calls`() {
+        val content = """
+            I'll look at the existing project first.
+            <ifm|tool_calls>
+            <ifm|tool_call>read_file
+            <ifm|arg_key>path</ifm|arg_key>
+            <ifm|arg_value>index.html</ifm|arg_value>
+            </ifm|tool_call>
+            <ifm|tool_call>read_file
+            <ifm|arg_key>path</ifm|arg_key>
+            <ifm|arg_value>style.css</ifm|arg_value>
+            </ifm|tool_call>
+            </ifm|tool_calls>
+        """.trimIndent()
+        val parsed = TextToolCallParser.parse(content, known)
+        assertThat(parsed.calls.map { it.function.arguments })
+            .containsExactly("{\"path\":\"index.html\"}", "{\"path\":\"style.css\"}").inOrder()
+        assertThat(parsed.visibleText).isEqualTo("I'll look at the existing project first.")
+    }
+
+    @Test
+    fun `key-value file bodies stay strings even when they look like JSON or numbers`() {
+        val content = "<ifm|tool_call>write_file\n<ifm|arg_key>path</ifm|arg_key>\n<ifm|arg_value>manifest.json</ifm|arg_value>\n" +
+            "<ifm|arg_key>content</ifm|arg_key>\n<ifm|arg_value>{\"name\": \"Cafe\"}</ifm|arg_value>\n</ifm|tool_call>"
+        val args = kotlinx.serialization.json.Json.parseToJsonElement(
+            TextToolCallParser.parse(content, known).calls.single().function.arguments
+        ) as kotlinx.serialization.json.JsonObject
+        val body = args["content"] as kotlinx.serialization.json.JsonPrimitive
+        assertThat(body.isString).isTrue()
+        assertThat(body.content).isEqualTo("{\"name\": \"Cafe\"}")
+    }
+
+    @Test
+    fun `kimi k2 and deepseek special-token sections`() {
+        val kimi = "Reading.<|tool_calls_section_begin|><|tool_call_begin|>functions.read_file:0" +
+            "<|tool_call_argument_begin|>{\"path\": \"a.html\"}<|tool_call_end|><|tool_calls_section_end|>"
+        val k = TextToolCallParser.parse(kimi, known)
+        assertThat(k.calls.single().function.name).isEqualTo("read_file")
+        assertThat(k.visibleText).isEqualTo("Reading.")
+
+        val deepseek = "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>list_files\n```json\n{}\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜>"
+        assertThat(TextToolCallParser.parse(deepseek, known).calls.single().function.name).isEqualTo("list_files")
+    }
+
+    @Test
+    fun `streaming prefix hides tool markup and partial openers`() {
+        assertThat(TextToolCallParser.visiblePrefixLength("Let me read it.\n<ifm|tool_call>read_file")).isEqualTo(16)
+        assertThat(TextToolCallParser.visiblePrefixLength("Plain prose")).isEqualTo(11)
+        // "<tool_c" could still become "<tool_call>": hold it back.
+        assertThat(TextToolCallParser.visiblePrefixLength("Ok <tool_c")).isEqualTo(3)
+        // A finished HTML tag in prose is not held back.
+        assertThat(TextToolCallParser.visiblePrefixLength("Use <b>bold</b>")).isEqualTo(15)
+    }
 }

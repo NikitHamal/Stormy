@@ -65,15 +65,24 @@ class K2FrameParser {
         private val DETAILS_OPEN = Regex("<details\\b[^>]*>")
         private val SUMMARY = Regex("(?s)<summary\\b[^>]*>.*?</summary>")
 
-        /** (reasoning, answer) from cumulative content. */
+        /**
+         * (reasoning, answer) from cumulative content.
+         *
+         * The reasoning block is the leading `<details type="reasoning">`; it
+         * ends at the first `</details>` on a line of its own (reasoning lines
+         * are `> `-quoted, so a tag the model *thinks about* never starts a
+         * line). This used to split at the LAST `</details>` in the content,
+         * so any answer whose file contained a `<details>` element (FAQ
+         * sections, accordions) was filed as reasoning, tool call and all, and
+         * the call silently vanished.
+         */
         fun split(content: String): Pair<String, String> {
-            val close = content.lastIndexOf("</details>")
-            return if (close < 0) {
-                // Still inside the reasoning block, or no reasoning at all.
-                if (DETAILS_OPEN.containsMatchIn(content)) strip(content) to "" else "" to content
-            } else {
-                strip(content.substring(0, close)) to content.substring(close + "</details>".length).trimStart('\n')
-            }
+            val open = DETAILS_OPEN.find(content)
+            if (open == null || content.substring(0, open.range.first).isNotBlank()) return "" to content
+            val close = Regex("(?m)^</details>").find(content, open.range.last + 1)
+                ?: return strip(content) to "" // still inside the reasoning block
+            return strip(content.substring(0, close.range.first)) to
+                content.substring(close.range.last + 1).trimStart('\n')
         }
 
         private fun strip(text: String): String = text

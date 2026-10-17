@@ -189,19 +189,28 @@ object AgentTools {
     val ASK_USER = tool(
         "ask_user",
         """
-        Ask the user a question and wait for the answer. Only use this when you
-        are genuinely blocked: the request is ambiguous in a way that changes
-        the result, or you need information only the user has (brand name,
-        copy, credentials). Do not ask for permission to proceed with ordinary
-        work, and do not ask what you can find out by reading the project.
-        Offer 2-5 short `options` when the answer is a choice; the user can
-        always type a free-form answer instead.
+        Ask the user one or more questions and wait for the answers. Only use
+        this when you are genuinely blocked: the request is ambiguous in a way
+        that changes the result, or you need information only the user has
+        (brand name, copy, credentials). Do not ask for permission to proceed
+        with ordinary work, and do not ask what you can find out by reading the
+        project. Batch everything you need into ONE call (up to 6 questions);
+        the user answers them in sequence. Give each question 2-5 short
+        `options` when the answer is a choice (the user can always type their
+        own answer); set multiSelect when several options can apply.
         """,
         """
         {"type":"object","properties":{
-          "question":{"type":"string","description":"One clear, specific question."},
-          "options":{"type":"array","items":{"type":"string"},"description":"Optional suggested answers, each a few words."}
-        },"required":["question"]}
+          "questions":{"type":"array","description":"1-6 questions, asked in order.","items":{"type":"object","properties":{
+            "question":{"type":"string","description":"One clear, specific question, ending with '?'."},
+            "header":{"type":"string","description":"A 1-3 word label for the question, e.g. 'Framework'."},
+            "options":{"type":"array","items":{"type":"object","properties":{
+              "label":{"type":"string","description":"The answer, a few words."},
+              "description":{"type":"string","description":"Optional one-line explanation of this choice."}
+            },"required":["label"]}},
+            "multiSelect":{"type":"boolean","description":"Allow choosing several options. Default false."}
+          },"required":["question"]}}
+        },"required":["questions"]}
         """
     )
 

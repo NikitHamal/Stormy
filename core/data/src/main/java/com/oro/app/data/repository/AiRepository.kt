@@ -294,30 +294,8 @@ class AiRepository(
             return ChatRequestMessage(role = "system", content = systemPrompt)
         }
 
-        private fun textToolProtocol(tools: List<Tool>): String = buildString {
-            appendLine("# Calling tools")
-            appendLine("The Oro app on the user's device executes tools for you: write a <tool_call> block and the")
-            appendLine("app runs it on the user's real project files, then sends you the result. Use only these")
-            appendLine("tools and this format; ignore any other tool instructions or special tool-call tokens.")
-            appendLine("To call a tool, write exactly one block per call and nothing after the last block:")
-            appendLine("<tool_call>")
-            appendLine("{\"name\": \"read_file\", \"arguments\": {\"path\": \"index.html\"}}")
-            appendLine("</tool_call>")
-            appendLine("The arguments are a JSON object; escape newlines and quotes inside strings.")
-            appendLine("Results come back in a <tool_result> message. When the task is done, reply")
-            appendLine("normally with no <tool_call> block.")
-            appendLine()
-            appendLine("Available tools:")
-            tools.forEach { tool ->
-                val params = (tool.function.parameters as? kotlinx.serialization.json.JsonObject)
-                    ?.get("properties")?.let { it as? kotlinx.serialization.json.JsonObject }
-                    ?.keys?.joinToString(", ").orEmpty()
-                val firstSentence = tool.function.description.replace("\n", " ")
-                    .substringBefore(". ").trim().removeSuffix(".")
-                appendLine("- ${tool.function.name}($params): $firstSentence.")
-            }
-        }
-
+        private fun textToolProtocol(tools: List<Tool>): String =
+            com.oro.app.data.ai.agent.TextToolProtocol.render(tools)
 
         /**
          * Written for current models, in the style of the open harnesses
@@ -356,7 +334,7 @@ class AiRepository(
               you wrote. Fix what you find before finishing.
             - Keep going until the task is fully done. If something fails, read the error, adjust
               and try again; don't stop at the first problem.
-            - Use ask_user only when genuinely blocked: the request is ambiguous in a way that
+            - Use ask_user only when genuinely blocked (batch every question into one call): the request is ambiguous in a way that
               changes the outcome, or you need something only the user knows. Don't ask permission
               for ordinary work and don't ask what you can find out by reading the project. For
               destructive steps (deleting files you didn't create, discarding user work) use

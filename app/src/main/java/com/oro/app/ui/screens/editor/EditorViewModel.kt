@@ -88,6 +88,8 @@ import com.oro.app.data.ai.agent.HistoryPruner
 import com.oro.app.data.ai.agent.TokenEstimator
 import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.ToolAliases
+import com.oro.app.data.ai.tools.QuestionOption
+import com.oro.app.data.ai.tools.UserQuestion
 import com.oro.app.data.ai.Tool
 import com.oro.app.ui.components.agent.PendingQuestion
 import com.oro.app.ui.components.agent.RunError
@@ -283,7 +285,7 @@ class EditorViewModel(
     private var _aiGenerationJob: Job? = null
     private val _runStatus = MutableStateFlow<AgentStatus?>(null)
     private val _pendingQuestion = MutableStateFlow<PendingQuestion?>(null)
-    @Volatile private var questionAnswer: CompletableDeferred<String?>? = null
+    @Volatile private var questionAnswer: CompletableDeferred<List<String?>?>? = null
     private val _runError = MutableStateFlow<RunError?>(null)
 
     /** Transcript of the run in progress, rendered into the last assistant message. */
@@ -555,7 +557,12 @@ class EditorViewModel(
     private fun setupToolInteractionCallback() {
         toolExecutor.interactionCallback = object : ToolInteractionCallback {
             override suspend fun askUser(question: String, options: List<String>?): String? =
-                awaitAnswer(question, options.orEmpty())
+                awaitAnswers(
+                    listOf(UserQuestion(question, options = options.orEmpty().map { QuestionOption(it) }))
+                )?.firstOrNull()
+
+            override suspend fun askQuestions(questions: List<UserQuestion>): List<String?>? =
+                awaitAnswers(questions)
 
             override suspend fun onTaskFinished(summary: String) {
                 // Clear task list when task is finished
@@ -1288,12 +1295,12 @@ class EditorViewModel(
         _runError.value = null
     }
 
-    /** The user answered the agent's ask_user question. */
-    fun answerQuestion(answer: String) {
+    /** The user answered the agent's ask_user questions (null = skipped). */
+    fun answerQuestion(answers: List<String?>) {
         val pending = questionAnswer ?: return
         _pendingQuestion.value = null
         questionAnswer = null
-        pending.complete(answer)
+        pending.complete(answers)
     }
 
     /** The user declined to answer; the agent proceeds on its own judgement. */
@@ -1311,15 +1318,14 @@ class EditorViewModel(
      * success with "Waiting for user response...", and the run ended -- so the
      * user saw a green "Ask User" card and was never asked anything.
      */
-    private suspend fun awaitAnswer(question: String, options: List<String>): String? {
-        // One question at a time; a second concurrent ask is answered as skipped.
+    private suspend fun awaitAnswers(questions: List<UserQuestion>): List<String?>? {
+        // One call at a time; a second concurrent ask is answered as skipped.
         if (questionAnswer != null) return null
-        val deferred = CompletableDeferred<String?>()
+        val deferred = CompletableDeferred<List<String?>?>()
         questionAnswer = deferred
         _pendingQuestion.value = PendingQuestion(
             id = java.util.UUID.randomUUID().toString(),
-            question = question,
-            options = options
+            questions = questions
         )
         return try {
             deferred.await()
