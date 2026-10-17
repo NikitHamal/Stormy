@@ -135,6 +135,8 @@ fun ChatTab(
     onRestoreCheckpoint: (String) -> Unit = {},
     autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
     onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
+    selfCheck: Boolean = true,
+    onSelfCheckChange: (Boolean) -> Unit = {},
     attachedPhotos: Int = 0,
     onAttachPhoto: (android.net.Uri) -> Unit = {},
     onClearPhotos: () -> Unit = {},
@@ -208,7 +210,9 @@ fun ChatTab(
             currentModel = currentModel,
             onDismiss = { showChatSettings = false },
             autonomy = autonomy,
-            onAutonomyChange = onAutonomyChange
+            onAutonomyChange = onAutonomyChange,
+            selfCheck = selfCheck,
+            onSelfCheckChange = onSelfCheckChange
         )
     }
 

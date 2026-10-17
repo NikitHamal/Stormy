@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
@@ -101,7 +102,8 @@ fun SessionsSheet(
     isRunActive: Boolean,
     onStopRun: (() -> Unit)?,
     actions: ChatSessionActions,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onTimeline: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by rememberSaveable { mutableStateOf("") }
@@ -159,6 +161,14 @@ fun SessionsSheet(
                         Icon(Icons.Outlined.AddComment, contentDescription = null, modifier = Modifier.size(Sizes.icon))
                         Spacer(Modifier.width(Space.sm))
                         Text("New chat", style = MaterialTheme.typography.labelLargeEmphasized)
+                    }
+                }
+
+                if (onTimeline != null) {
+                    TextButton(onClick = onTimeline, modifier = Modifier.padding(top = Space.xs)) {
+                        Icon(Icons.Outlined.History, contentDescription = null, modifier = Modifier.size(Sizes.icon))
+                        Spacer(Modifier.width(Space.sm))
+                        Text("Checkpoint timeline", maxLines = 1)
                     }
                 }
 

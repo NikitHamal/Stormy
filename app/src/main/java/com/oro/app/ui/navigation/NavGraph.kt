@@ -46,6 +46,9 @@ sealed class Screen(val route: String) {
     data object Mcp : Screen("mcp")
     data object Voice : Screen("voice")
     data object Skills : Screen("skills")
+    data object Timeline : Screen("timeline/{projectId}") {
+        fun createRoute(projectId: String) = "timeline/$projectId"
+    }
     data object ProviderEditor : Screen("provider_editor/{ref}") {
         fun createRoute(ref: String) = "provider_editor/" + android.net.Uri.encode(ref)
     }
@@ -185,7 +188,17 @@ fun OroNavGraph(
                 },
                 onGitSettingsClick = {
                     navController.navigate(Screen.GitSettings.route)
+                },
+                onTimelineClick = {
+                    navController.navigate(Screen.Timeline.createRoute(projectId))
                 }
+            )
+        }
+
+        composable(Screen.Timeline.route) { entry ->
+            com.oro.app.ui.screens.timeline.TimelineScreen(
+                projectId = entry.arguments?.getString("projectId").orEmpty(),
+                onBack = { navController.popBackStack() }
             )
         }
 

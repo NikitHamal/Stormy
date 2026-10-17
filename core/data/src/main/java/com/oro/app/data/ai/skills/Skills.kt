@@ -18,14 +18,23 @@ import java.io.File
  * the body. That keeps a library of skills cheap: a hundred skills cost a
  * hundred lines, not a hundred playbooks, until one is needed.
  */
-data class Skill(val name: String, val description: String, val body: String, val source: Source) {
+data class Skill(
+    val name: String,
+    val description: String,
+    val body: String,
+    val source: Source,
+    /** Starter files (path -> content); use_skill hands them to the model to write. */
+    val files: Map<String, String> = emptyMap()
+) {
     enum class Source { BUILT_IN, MINE, PROJECT }
 
-    fun toMarkdown(): String = "---\nname: $name\ndescription: $description\n---\n" + body.trim() + "\n"
+    fun toMarkdown(): String = "---\nname: $name\ndescription: $description\n---\n" + body.trim() + "\n" +
+        files.entries.joinToString("") { (path, content) -> "\n```file:$path\n${content.trimEnd()}\n```\n" }
 }
 
 object Skills {
 
+    private val FILE_BLOCK = Regex("(?s)```file:([^\\n]+)\\n(.*?)\\n```")
     private val FRONT = Regex("""(?s)^---\s*\n(.*?)\n---\s*\n?(.*)$""")
 
     fun parse(text: String, source: Skill.Source, fallbackName: String = "skill"): Skill? {
@@ -33,9 +42,12 @@ object Skills {
         val (meta, body) = if (m != null) m.groupValues[1] to m.groupValues[2] else "" to text
         fun field(k: String) = Regex("""(?m)^$k\s*:\s*(.+)$""").find(meta)?.groupValues?.get(1)?.trim()?.trim('"')
         val name = slug(field("name") ?: fallbackName)
-        if (body.isBlank()) return null
-        val description = field("description") ?: body.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(120).orEmpty()
-        return Skill(name, description, body.trim(), source)
+        // Starter files are fenced blocks tagged ```file:path.
+        val files = LinkedHashMap<String, String>()
+        val prose = FILE_BLOCK.replace(body) { mm -> files[mm.groupValues[1].trim()] = mm.groupValues[2]; "" }.trim()
+        if (prose.isBlank() && files.isEmpty()) return null
+        val description = field("description") ?: prose.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(120).orEmpty()
+        return Skill(name, description, prose, source, files)
     }
 
     fun slug(s: String) = s.trim().lowercase().replace(Regex("[^a-z0-9-]+"), "-").trim('-').take(48).ifEmpty { "skill" }
@@ -63,10 +75,23 @@ object Skills {
     /** The catalogue line in the system prompt. */
     fun catalogue(skills: List<Skill>): String = if (skills.isEmpty()) "" else buildString {
         append("\n\n# Skills\nPlaybooks you can load with use_skill(name) when a task matches. Load before starting such a task:\n")
-        skills.forEach { append("- ").append(it.name).append(": ").append(it.description).append('\n') }
+        skills.forEach {
+            append("- ").append(it.name).append(": ").append(it.description)
+            if (it.files.isNotEmpty()) append(" [starter files: ").append(it.files.keys.joinToString(", ")).append(']')
+            append('\n')
+        }
     }.trimEnd()
 
     val BUILT_IN: List<Skill> = listOf(
+        Skill(
+            "landing-page-starter", "Start a modern landing page: sticky nav with mobile menu, hero, features, CTA, footer, dark mode",
+            """
+            Use for a new site or an empty project. Apply the starter files, then adapt every text, colour and section
+            to what the user asked for (brand name, real copy, their palette). Keep the structure: semantic landmarks,
+            mobile-first CSS with custom properties, the accessible menu and the theme toggle.
+            """.trimIndent(), Skill.Source.BUILT_IN,
+            mapOf("index.html" to StarterFiles.INDEX, "style.css" to StarterFiles.CSS, "app.js" to StarterFiles.JS)
+        ),
         Skill(
             "dark-mode", "Add a dark theme with a toggle that follows the system and remembers the choice",
             """

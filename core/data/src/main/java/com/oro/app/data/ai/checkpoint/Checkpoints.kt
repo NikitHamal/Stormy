@@ -73,6 +73,10 @@ class Checkpoints(private val projectRoot: File) {
             }
         }
 
+        /** Paths this run has changed so far (existing or deleted). */
+        @Synchronized
+        fun changedPaths(): List<String> = captured.keys.toList()
+
         /** Write the manifest; returns null when the run changed nothing. */
         @Synchronized
         fun finish(): CheckpointManifest? {
@@ -125,6 +129,22 @@ class Checkpoints(private val projectRoot: File) {
             dir.deleteRecursively()
         }
         return RestoreResult(toUndo.size, touched.toList())
+    }
+
+    /** A file's saved pre-image as text, or null if it did not exist before (or is binary/missing). */
+    fun before(cp: CheckpointManifest, file: CheckpointFile): String? {
+        if (!file.existed || file.blob == null) return null
+        val f = File(File(base, cp.id), file.blob)
+        return if (f.isFile && f.length() < 2_000_000) runCatching { f.readText() }.getOrNull() else null
+    }
+
+    /** Put one file back to its state in [cp], leaving the rest of the project alone. */
+    fun restoreFile(cp: CheckpointManifest, file: CheckpointFile) {
+        val target = File(projectRoot, file.path)
+        if (file.existed && file.blob != null) {
+            target.parentFile?.mkdirs()
+            File(File(base, cp.id), file.blob).copyTo(target, overwrite = true)
+        } else if (target.isFile) target.delete()
     }
 
     /** Message ids that have a checkpoint, for showing the restore action. */

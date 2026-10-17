@@ -113,7 +113,8 @@ fun SkillsScreen(onBack: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                if (skill.source == Skill.Source.BUILT_IN) "Built in" else "Mine",
+                                (if (skill.source == Skill.Source.BUILT_IN) "Built in" else "Mine") +
+                                    if (skill.files.isEmpty()) "" else " · ${skill.files.size} starter file" + if (skill.files.size == 1) "" else "s",
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline
                             )
                         }
@@ -143,7 +144,7 @@ fun SkillsScreen(onBack: () -> Unit) {
             confirmEnabled = name.isNotBlank() && body.isNotBlank(),
             onConfirm = {
                 base?.let { Skills.delete(dir, it.name) }
-                Skills.save(dir, Skill(Skills.slug(name), description.trim(), body.trim(), Skill.Source.MINE))
+                Skills.save(dir, Skill(Skills.slug(name), description.trim(), body.trim(), Skill.Source.MINE, base?.files.orEmpty()))
                 version++
                 creating = false; editing = null
             }

@@ -211,12 +211,31 @@ class ToolExecutor(
                 val q = args.getStringArg("query").orEmpty()
                 return ToolResult(true, com.oro.app.data.ai.search.WebDocs.format(com.oro.app.data.ai.search.WebDocs.lookup(q)))
             }
+            "open_pull_request" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val token = githubToken?.invoke()?.trim().orEmpty()
+                if (token.isEmpty()) return ToolResult(false, "", "No GitHub sign-in. Ask the user to add a GitHub token under Settings > Git credentials.")
+                val title = args.getStringArg("title")?.trim().orEmpty()
+                if (title.isEmpty()) return ToolResult(false, "", "title is required")
+                val body = args.getStringArg("body").orEmpty() + "\n\n---\nOpened from Oro."
+                return com.oro.app.data.git.PullRequests(root, token).open(
+                    repo = args.getStringArg("repo"), title = title, body = body,
+                    branch = args.getStringArg("branch")?.trim()?.ifEmpty { null }, base = args.getStringArg("base")
+                ).fold(
+                    onSuccess = { ToolResult(true, "Opened pull request #${it.number}: ${it.url}\nBranch ${it.branch}, ${it.changedFiles.size} files: ${it.changedFiles.take(30).joinToString(", ")}") },
+                    onFailure = { ToolResult(false, "", it.message ?: "Could not open the pull request") }
+                )
+            }
             "use_skill" -> {
                 val wanted = com.oro.app.data.ai.skills.Skills.slug(args.getStringArg("name").orEmpty())
                 val all = com.oro.app.data.ai.skills.Skills.all(skillsDir ?: File("/nonexistent"), currentProjectPath)
                 val skill = all.firstOrNull { it.name == wanted }
                     ?: return ToolResult(false, "", "No skill named '$wanted'. Available: ${all.joinToString(", ") { it.name }}")
-                return ToolResult(true, "Skill ${skill.name}: ${skill.description}\n\n${skill.body}")
+                val starter = if (skill.files.isEmpty()) "" else buildString {
+                    append("\n\n# Starter files\nWrite each with write_file (skip or merge any that already exist in the project), then adapt them to the request.\n")
+                    skill.files.forEach { (path, content) -> append("\n## ").append(path).append("\n```\n").append(content.trimEnd()).append("\n```\n") }
+                }
+                return ToolResult(true, "Skill ${skill.name}: ${skill.description}\n\n${skill.body}$starter")
             }
             "screenshot_preview", "audit_page" -> {
                 val previewer = com.oro.app.data.preview.PagePreviewers.instance
@@ -273,6 +292,9 @@ class ToolExecutor(
     /** App-wide skills folder (set by the app); project skills live in .oro/skills. */
     @Volatile
     var skillsDir: File? = null
+
+    /** The user's GitHub token, for open_pull_request. */
+    var githubToken: (suspend () -> String?)? = null
 
     /** MCP servers for the current run; set by the caller that offered their tools. */
     @Volatile

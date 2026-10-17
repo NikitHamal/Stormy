@@ -89,6 +89,10 @@ object ToolPresentations {
             "Searching the project", "Searched the project", Icons.Outlined.BugReport,
             subjectIsPath = false, detail = ToolDetailKind.Listing
         ),
+        "open_pull_request" to ToolPresentation(
+            "Opening a pull request", "Opened a pull request", Icons.AutoMirrored.Outlined.MergeType,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
         "docs_lookup" to ToolPresentation(
             "Checking the docs", "Checked the docs", Icons.Outlined.BugReport,
             subjectIsPath = false, detail = ToolDetailKind.Prose

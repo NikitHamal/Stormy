@@ -50,6 +50,7 @@ class PreferencesRepository(private val context: Context) {
         val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
         val AUTONOMY = stringPreferencesKey("autonomy_mode")
         val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
+        val SELF_CHECK = booleanPreferencesKey("self_check")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
         // AI Provider and Model settings
@@ -281,6 +282,13 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
         context.dataStore.edit { it[PreferenceKeys.AUTONOMY] = mode.name }
+    }
+
+    /** Orobi checks its own changes (render, syntax, preview errors) before finishing. */
+    val selfCheck: Flow<Boolean> = context.dataStore.data.map { it[PreferenceKeys.SELF_CHECK] ?: true }.distinctUntilChanged()
+
+    suspend fun setSelfCheck(on: Boolean) {
+        context.dataStore.edit { it[PreferenceKeys.SELF_CHECK] = on }
     }
 
     /** "SYSTEM" or "WHISTLE" (the app's DictationEngine names). */

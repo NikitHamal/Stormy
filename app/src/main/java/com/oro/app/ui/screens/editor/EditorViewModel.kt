@@ -1589,6 +1589,9 @@ class EditorViewModel(
         val mcp = if (isAgentMode) preferencesRepository.mcpSettings.first() else com.oro.app.data.ai.mcp.McpSettings()
         toolExecutor.mcpSettings = mcp
         toolExecutor.skillsDir = File(com.oro.app.OroApplication.getInstance().filesDir, "skills")
+        toolExecutor.githubToken = {
+            runCatching { com.oro.app.OroApplication.getInstance().gitCredentialsManager.getCredentialsForHost("github.com")?.password }.getOrNull()
+        }
         val mcpTools = if (mcp.servers.any { it.enabled }) {
             runCatching {
                 kotlinx.coroutines.withTimeout(15_000) { com.oro.app.data.ai.mcp.McpRegistry.tools(mcp) }
@@ -1734,8 +1737,31 @@ class EditorViewModel(
             val userMsg = _messages.value.lastOrNull { it.isUser }
             if (sid != null && userMsg != null) checkpoints()?.begin(sid, userMsg.id, userMsg.content) else null
         }
+        val runStartedAt = System.currentTimeMillis()
         val result = try {
-            loop.run(_messageHistory, knownTools, listener, prepare)
+            var r = loop.run(_messageHistory, knownTools, listener, prepare)
+            // Self-check: look at what the run changed and give it one more turn to fix problems.
+            val recorder0 = toolExecutor.checkpoint
+            val root0 = _project.value?.rootPath?.let { File(it) }
+            if (r is AgentRunResult.Completed && isAgentMode && recorder0 != null && root0 != null &&
+                preferencesRepository.selfCheck.first()
+            ) {
+                listener.onStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Checking the result"))
+                val report = com.oro.app.data.ai.agent.SelfCheck.run(projectId, root0, recorder0.changedPaths(), runStartedAt) { path ->
+                    val call = ToolCallResponse("selfcheck", "function", com.oro.app.data.ai.FunctionCall("check_syntax", kotlinx.serialization.json.JsonObject(mapOf("path" to kotlinx.serialization.json.JsonPrimitive(path))).toString()))
+                    val out = toolExecutor.execute(projectId, call)
+                    com.oro.app.data.ai.agent.SelfCheck.syntaxProblem(out.output.ifBlank { out.error.orEmpty() }, out.success)
+                }
+                if (report != null) {
+                    run.note("_Self-check: found issues, fixing them._")
+                    pushTranscript(force = true)
+                    _messageHistory += ChatRequestMessage(role = "user", content = report)
+                    r = loop.run(_messageHistory, knownTools, listener, prepare)
+                } else {
+                    run.note("_Self-check passed._")
+                }
+            }
+            r
         } finally {
             val recorder = toolExecutor.checkpoint
             toolExecutor.checkpoint = null
@@ -2584,6 +2610,13 @@ class EditorViewModel(
 
     val autonomyMode: StateFlow<com.oro.app.data.ai.agent.AutonomyMode> = preferencesRepository.autonomyMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.oro.app.data.ai.agent.AutonomyMode.DEFAULT)
+
+    val selfCheck: StateFlow<Boolean> = preferencesRepository.selfCheck
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setSelfCheck(on: Boolean) {
+        viewModelScope.launch { preferencesRepository.setSelfCheck(on) }
+    }
 
     fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
         viewModelScope.launch { preferencesRepository.setAutonomyMode(mode) }

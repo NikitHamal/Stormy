@@ -36,7 +36,7 @@ object AutonomyPolicy {
     /** Whether a call changes something (and so needs a Leashed OK). */
     fun isChange(toolName: String): Boolean {
         val n = ToolAliases.canonicalName(toolName)
-        return n in MUTATING || McpNames.isMcp(n)
+        return n in MUTATING || n == "open_pull_request" || McpNames.isMcp(n)
     }
 
     /** Why this call needs the user even when Unleashed, or null. */
@@ -54,6 +54,7 @@ object AutonomyPolicy {
                     if (count > 3) return "Delete the folder $path ($count files)"
                 }
             }
+            "open_pull_request" -> return "Open a pull request on GitHub" + str("repo").let { if (it.isEmpty()) "" else " ($it)" }
             "move_file" -> if ((args["overwrite"] as? JsonPrimitive)?.contentOrNull == "true") {
                 return "Move $path over an existing ${str("destination")}"
             }
@@ -79,6 +80,7 @@ object AutonomyPolicy {
             "multi_edit" -> "Edit $path" to "Several replacements in one file"
             "delete_file" -> "Delete $path" to null
             "move_file" -> "Move ${str("source")} to ${str("destination")}" to null
+            "open_pull_request" -> "Open pull request: ${str("title")}" to str("body").take(900)
             else -> if (McpNames.isMcp(n)) "Use ${n.removePrefix(McpNames.PREFIX).replace("__", ": ")}" to args.toString().take(600)
             else n to null
         }

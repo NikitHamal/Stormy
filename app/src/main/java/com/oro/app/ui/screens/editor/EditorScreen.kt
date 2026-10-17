@@ -121,6 +121,7 @@ fun EditorScreen(
     onBackClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onGitSettingsClick: () -> Unit = {},
+    onTimelineClick: () -> Unit = {},
     viewModel: EditorViewModel = viewModel(
         factory = EditorViewModel.Factory,
         key = projectId
@@ -132,6 +133,7 @@ fun EditorScreen(
     val checkpointIds by viewModel.checkpointMessageIds.collectAsStateWithLifecycle()
     val autonomy by viewModel.autonomyMode.collectAsStateWithLifecycle()
     val attachedImages by viewModel.attachedImages.collectAsStateWithLifecycle()
+    val selfCheck by viewModel.selfCheck.collectAsStateWithLifecycle()
 
     // Ask for notifications the first time a run starts, the moment the
     // reason is obvious: so Orobi can say when it is done while you are away.
@@ -405,6 +407,7 @@ fun EditorScreen(
                         }
                         if (showSessions) {
                             SessionsSheet(
+                                onTimeline = { showSessions = false; onTimelineClick() },
                                 state = sessionsState,
                                 projectName = uiState.project?.name,
                                 isRunActive = uiState.isAiProcessing,
@@ -437,6 +440,8 @@ fun EditorScreen(
                                     onRestoreCheckpoint = viewModel::restoreCheckpoint,
                                     autonomy = autonomy,
                                     onAutonomyChange = viewModel::setAutonomyMode,
+                                    selfCheck = selfCheck,
+                                    onSelfCheckChange = viewModel::setSelfCheck,
                                     attachedPhotos = attachedImages.size,
                                     onAttachPhoto = viewModel::attachImage,
                                     onClearPhotos = viewModel::clearAttachedImages,

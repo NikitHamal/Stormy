@@ -10,6 +10,19 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-17 — size cut + suggestions round
+**Done**
+- Removed on-device LLMs and MediaPipe (APK back toward ~4 MB). Whistle STT kept.
+- Whistle live mode: `Whistle.Stream` (`needle_stream_transcribe_*` via JNI), words appear while you talk.
+- `search_project` (`ai/search/ProjectSearch`, BM25 + synonyms, lexical, not embeddings) and `docs_lookup` (`resources/oro/webdocs.json`, offline).
+- Design from a photo: composer photo button, images to vision models (`EditorViewModel.attachImage`).
+- Self-check after agent runs (`SelfCheck`, setting in chat settings, one extra fix turn at most).
+- Checkpoint timeline screen (`ui/screens/timeline`), per-file diff and restore.
+- Skills carry starter files (```` ```file:path ```` blocks; built-in `landing-page-starter`).
+- `open_pull_request` tool (`git/PullRequests`, Git Data API; uploads only changed files; never deletes; always asks the user).
+
+**Unverified on a device**: live Whistle latency on low-end phones, PR flow against a real repo, self-check rendering cost.
+
 ## 2026-10-17 — issue #28, second round
 **Done**
 - Wrap fixes; full-screen provider editor (`ProviderEditorScreen`); vendor presets seeded as built-ins; fetched models default off.
@@ -21,7 +34,7 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 - On-device LLMs were added then removed (MediaPipe grew the APK from ~4 MB to ~60 MB). Do not re-add without a size budget.
 - Launch video: real landing page in the live scene, re-rendered.
 
-**Unverified on a device** (CI only compiles): Whistle transcription quality, off-screen WebView capture (may draw blank on some WebView versions; metrics still work), MCP OAuth against real servers, MediaPipe model load on low-RAM phones.
+**Unverified on a device** (CI only compiles): Whistle transcription quality, off-screen WebView capture (may draw blank on some WebView versions; metrics still work), MCP OAuth against real servers.
 
 **Next**: see `docs/NEXT.md`.
 

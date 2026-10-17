@@ -307,6 +307,26 @@ object AgentTools {
         """
     )
 
+    val OPEN_PULL_REQUEST = tool(
+        "open_pull_request",
+        """
+        Propose the project's current files as a GitHub pull request: a new
+        branch off the base, one commit with every changed file, then the PR.
+        Only when the user asks for a PR. The user always confirms first.
+        Write a clear title and a body with a short summary and a checklist of
+        what changed and how it was verified.
+        """,
+        """
+        {"type":"object","properties":{
+          "title":{"type":"string","description":"PR title, imperative, under 70 characters."},
+          "body":{"type":"string","description":"Markdown: summary, changes, how it was checked."},
+          "repo":{"type":"string","description":"owner/name. Omit to use the project's origin remote."},
+          "branch":{"type":"string","description":"Branch to create. Default: oro/<title>."},
+          "base":{"type":"string","description":"Branch to merge into. Default: the repo's default branch."}
+        },"required":["title","body"]}
+        """
+    )
+
     val WEB_FETCH = tool(
         "web_fetch",
         """
@@ -355,7 +375,7 @@ object AgentTools {
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
         CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH,
-        SEARCH_PROJECT, DOCS_LOOKUP, ASK_USER, SAVE_MEMORY, USE_SKILL
+        SEARCH_PROJECT, DOCS_LOOKUP, ASK_USER, SAVE_MEMORY, USE_SKILL, OPEN_PULL_REQUEST
     )
     // run_command is deliberately not offered: on Android there is no node,
     // npm or python, so models burned turns trying to install packages, and

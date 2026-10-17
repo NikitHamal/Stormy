@@ -18,4 +18,16 @@ class SkillsTest {
         assertThat(all.first { it.name == "dark-mode" }.description).isEqualTo("Project version")
         assertThat(Skills.catalogue(all)).contains("- seo-basics:")
     }
+
+    @Test
+    fun `starter files are parsed out of the body and round-trip`() {
+        val md = "---\nname: starter\ndescription: A page\n---\nApply the files.\n\n```file:index.html\n<h1>Hi</h1>\n<p>x</p>\n```\n"
+        val s = Skills.parse(md, Skill.Source.MINE)!!
+        assertThat(s.body).isEqualTo("Apply the files.")
+        assertThat(s.files).containsExactly("index.html", "<h1>Hi</h1>\n<p>x</p>")
+        assertThat(Skills.parse(s.toMarkdown(), Skill.Source.MINE)).isEqualTo(s)
+        val builtIn = Skills.BUILT_IN.first { it.name == "landing-page-starter" }
+        assertThat(builtIn.files.keys).containsExactly("index.html", "style.css", "app.js")
+        assertThat(Skills.catalogue(listOf(builtIn))).contains("starter files: index.html")
+    }
 }
