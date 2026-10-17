@@ -30,14 +30,18 @@ enum class ModelGroup(val title: String, val subtitle: String) {
                 group to if (group == RECOMMENDED) {
                     list.sortedBy { recommendedOrder.indexOf(it.id) }
                 } else {
-                    list.sortedWith(compareBy<AiModel> { it.provider.ordinal }.thenBy { it.name.lowercase() })
+                    list.sortedWith(
+                        compareBy<AiModel> { it.provider.ordinal }
+                            .thenBy { it.providerLabel().lowercase() }
+                            .thenBy { it.name.lowercase() }
+                    )
                 }
             }
         }
 
         /** One-line description under a model's name. */
         fun caption(model: AiModel): String = buildList {
-            add(model.provider.displayName.removeSuffix(" (community)"))
+            add(model.providerLabel())
             add(formatContext(model.contextLength))
             if (!model.supportsToolCalls) add("text tool calls")
             if (model.provider.isCommunity) add("unofficial")
@@ -50,3 +54,11 @@ enum class ModelGroup(val title: String, val subtitle: String) {
         }
     }
 }
+
+/** The provider's name as the user knows it: a custom provider's own name, not "Custom". */
+fun AiModel.providerLabel(): String =
+    if (provider == AiProvider.CUSTOM) {
+        com.oro.app.data.ai.providers.CustomProviderRegistry.nameFor(id) ?: provider.displayName
+    } else {
+        provider.displayName.removeSuffix(" (community)")
+    }

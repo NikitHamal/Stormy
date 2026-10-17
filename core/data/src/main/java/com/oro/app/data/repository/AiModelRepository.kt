@@ -3,6 +3,7 @@ package com.oro.app.data.repository
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiModels
 import com.oro.app.data.ai.AiProvider
+import com.oro.app.data.ai.providers.ModelIds
 import com.oro.app.data.ai.ReasoningEffortSupport
 import com.oro.app.data.ai.ModelCapabilities
 import com.oro.app.data.ai.GeminiModelService
@@ -67,6 +68,10 @@ class AiModelRepository(
         val failures = mutableListOf<String>()
 
         for (provider in AiProvider.entries) {
+            // Custom providers refresh one by one from their own screen
+            // (refreshCustomProvider); a blanket delete-by-provider here would
+            // wipe every one of their catalogues.
+            if (provider == AiProvider.CUSTOM) continue
             val key = apiKeys[provider].orEmpty()
             if (provider.requiresApiKey && key.isBlank()) {
                 continue
@@ -249,6 +254,56 @@ class AiModelRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /** Models of one custom provider, hand-added first. */
+    fun observeCustomProviderModels(providerId: String): Flow<List<AiModel>> =
+        aiModelDao.observeModelsWithPrefix(ModelIds.prefixFor(providerId))
+            .map { rows -> rows.map { it.toAiModel() } }
+
+    /**
+     * Replace a custom provider's fetched catalogue, keeping per-model state
+     * (enabled, favourite, alias, usage) and every hand-added model.
+     */
+    suspend fun replaceCustomProviderModels(providerId: String, fetched: List<AiModel>): Int =
+        withContext(Dispatchers.IO) {
+            val existing = aiModelDao.getAllModels().associateBy { it.id }
+            val manual = existing.values.filter { it.isCustom && it.id.startsWith(ModelIds.prefixFor(providerId)) }
+                .map { it.id }.toSet()
+            val rows = fetched.filter { it.id !in manual }.map { model ->
+                val old = existing[model.id]
+                model.toEntity().copy(
+                    isEnabled = old?.isEnabled ?: true,
+                    isFavorite = old?.isFavorite ?: false,
+                    alias = old?.alias,
+                    lastUsed = old?.lastUsed,
+                    usageCount = old?.usageCount ?: 0,
+                    addedAt = old?.addedAt ?: System.currentTimeMillis()
+                )
+            }
+            aiModelDao.deleteFetchedModelsWithPrefix(ModelIds.prefixFor(providerId))
+            aiModelDao.insertModels(rows)
+            rows.size
+        }
+
+    suspend fun addCustomProviderModel(
+        providerId: String,
+        upstreamId: String,
+        name: String,
+        contextLength: Int,
+        supportsToolCalls: Boolean,
+        isThinkingModel: Boolean
+    ): Result<Unit> = addCustomModel(
+        id = ModelIds.of(providerId, upstreamId.trim()),
+        name = name.ifBlank { upstreamId }.trim(),
+        provider = AiProvider.CUSTOM,
+        contextLength = contextLength,
+        supportsToolCalls = supportsToolCalls,
+        isThinkingModel = isThinkingModel
+    )
+
+    suspend fun deleteCustomProviderModels(providerId: String) = withContext(Dispatchers.IO) {
+        aiModelDao.deleteAllModelsWithPrefix(ModelIds.prefixFor(providerId))
     }
 
     suspend fun deleteModel(modelId: String): Result<Unit> {

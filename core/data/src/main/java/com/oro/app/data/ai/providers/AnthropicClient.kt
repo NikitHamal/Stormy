@@ -1,0 +1,312 @@
+package com.oro.app.data.ai.providers
+
+import com.oro.app.data.ai.AiHttp
+import com.oro.app.data.ai.ChatRequestMessage
+import com.oro.app.data.ai.ChatStreamParser
+import com.oro.app.data.ai.FunctionCall
+import com.oro.app.data.ai.StreamEvent
+import com.oro.app.data.ai.Tool
+import com.oro.app.data.ai.ToolCallResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+
+/**
+ * Anthropic Messages API (`POST /v1/messages`, streaming), for Anthropic and
+ * the many vendors that expose an Anthropic-compatible endpoint.
+ *
+ * Maps the app's OpenAI-shaped conversation onto Messages: system turns move
+ * to the top-level `system` field, assistant `tool_calls` become `tool_use`
+ * blocks, `tool` results become `tool_result` blocks in a user turn, and
+ * consecutive same-role turns are merged (the API wants them alternating).
+ * Streamed `text_delta` / `thinking_delta` / `input_json_delta` events come
+ * back as the same [StreamEvent]s the OpenAI path emits, so the agent loop
+ * cannot tell the protocols apart.
+ */
+class AnthropicClient(
+    private val name: String,
+    baseUrl: String,
+    private val apiKey: String,
+    private val headers: Map<String, String> = emptyMap()
+) {
+    private val root = baseUrl.trim().trimEnd('/').let { if (it.endsWith("/v1")) it else "$it/v1" }
+
+    fun stream(
+        model: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?,
+        temperature: Float?,
+        maxTokens: Int
+    ): Flow<StreamEvent> = flow {
+        val body = buildBody(model, messages, tools, temperature, maxTokens)
+        val request = requestBuilder("$root/messages")
+            .header("Accept", "text/event-stream")
+            .post(body.toString().toRequestBody(AiHttp.jsonMediaType))
+            .build()
+        val call = AiHttp.streaming.newCall(request)
+        val handle = currentCoroutineContext()[Job]?.invokeOnCompletion { call.cancel() }
+        try {
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    emit(errorFor(response.code, response.header("retry-after"), runCatching { response.body?.string() }.getOrNull()))
+                    return@use
+                }
+                emit(StreamEvent.Started)
+                val source = response.body?.source() ?: run {
+                    emit(StreamEvent.Error("$name sent an empty response", retryable = true)); return@use
+                }
+                val parser = AnthropicStreamParser(name)
+                while (!parser.finished) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data.isEmpty()) continue
+                    emit(StreamEvent.RawSSE(data))
+                    parser.onData(data).forEach { emit(it) }
+                }
+                parser.finish().forEach { emit(it) }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emit(StreamEvent.Error("$name: ${e.message ?: e.javaClass.simpleName}", retryable = e is java.io.IOException))
+        } finally {
+            handle?.dispose()
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /** `GET /v1/models`, following pagination. Returns (id, display name) pairs. */
+    fun listModels(): Result<List<Pair<String, String>>> = runCatching {
+        val out = mutableListOf<Pair<String, String>>()
+        var after: String? = null
+        repeat(10) {
+            val url = "$root/models?limit=100" + (after?.let { "&after_id=$it" } ?: "")
+            val response = AiHttp.client.newCall(requestBuilder(url).get().build()).execute()
+            val text = response.use { r ->
+                val b = r.body?.string().orEmpty()
+                if (!r.isSuccessful) throw java.io.IOException(errorFor(r.code, null, b).message)
+                b
+            }
+            val root = AiHttp.json.parseToJsonElement(text) as JsonObject
+            (root["data"] as? JsonArray).orEmpty().forEach { m ->
+                val o = m as? JsonObject ?: return@forEach
+                val id = o.str("id") ?: return@forEach
+                out += id to (o.str("display_name") ?: id)
+            }
+            if ((root["has_more"] as? JsonPrimitive)?.contentOrNull != "true") return@runCatching out
+            after = root.str("last_id") ?: return@runCatching out
+        }
+        out
+    }
+
+    private fun requestBuilder(url: String): Request.Builder {
+        val b = Request.Builder().url(url)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("Content-Type", "application/json")
+        if (apiKey.isNotBlank()) b.header("x-api-key", apiKey)
+        headers.forEach { (k, v) -> b.header(k, v) }
+        return b
+    }
+
+    private fun errorFor(code: Int, retryAfter: String?, body: String?): StreamEvent.Error {
+        val detail = ChatStreamParser.describeErrorBody(body)
+        val message = when (code) {
+            401 -> "$name rejected the API key (401)"
+            403 -> "$name refused the request (403)" + (detail?.let { ": $it" } ?: "")
+            429 -> "$name rate limit reached" + (detail?.let { ": $it" } ?: "")
+            529 -> "$name is overloaded (529)"
+            else -> detail?.let { "$name: $it ($code)" } ?: "$name request failed ($code)"
+        }
+        return StreamEvent.Error(
+            message,
+            httpCode = code,
+            retryAfterMs = ChatStreamParser.retryAfterMs(retryAfter, body),
+            retryable = code == 529 || ChatStreamParser.isRetryableStatus(code)
+        )
+    }
+
+    companion object {
+        const val ANTHROPIC_VERSION = "2023-06-01"
+
+        fun buildBody(
+            model: String,
+            messages: List<ChatRequestMessage>,
+            tools: List<Tool>?,
+            temperature: Float?,
+            maxTokens: Int
+        ): JsonObject = buildJsonObject {
+            put("model", model)
+            put("max_tokens", maxTokens)
+            put("stream", true)
+            temperature?.let { put("temperature", it.coerceIn(0f, 1f)) }
+            val system = messages.filter { it.role == "system" }.mapNotNull { it.content }.joinToString("\n\n")
+            if (system.isNotBlank()) put("system", system)
+            put("messages", mapMessages(messages))
+            if (!tools.isNullOrEmpty()) {
+                putJsonArray("tools") {
+                    tools.forEach { t ->
+                        addJsonObject {
+                            put("name", t.function.name)
+                            put("description", t.function.description)
+                            put("input_schema", t.function.parameters)
+                        }
+                    }
+                }
+            }
+        }
+
+        /** OpenAI-shaped turns -> alternating Messages turns with content blocks. */
+        fun mapMessages(messages: List<ChatRequestMessage>): JsonArray {
+            data class Turn(val role: String, val blocks: MutableList<JsonObject>)
+            val turns = mutableListOf<Turn>()
+            fun add(role: String, block: JsonObject) {
+                val last = turns.lastOrNull()
+                if (last != null && last.role == role) last.blocks += block else turns += Turn(role, mutableListOf(block))
+            }
+            fun text(t: String) = buildJsonObject { put("type", "text"); put("text", t) }
+
+            for (m in messages) {
+                when (m.role) {
+                    "system" -> Unit
+                    "user" -> m.content?.takeIf { it.isNotBlank() }?.let { add("user", text(it)) }
+                    "assistant" -> {
+                        m.content?.takeIf { it.isNotBlank() }?.let { add("assistant", text(it)) }
+                        m.toolCalls.orEmpty().forEach { c ->
+                            add("assistant", buildJsonObject {
+                                put("type", "tool_use")
+                                put("id", c.id)
+                                put("name", c.function.name)
+                                put("input", parseInput(c.function.arguments))
+                            })
+                        }
+                    }
+                    "tool" -> add("user", buildJsonObject {
+                        put("type", "tool_result")
+                        put("tool_use_id", m.toolCallId.orEmpty())
+                        put("content", m.content.orEmpty().ifEmpty { "(no output)" })
+                    })
+                }
+            }
+            // The first turn must be the user's.
+            if (turns.firstOrNull()?.role == "assistant") turns.add(0, Turn("user", mutableListOf(text("Continue."))))
+            return buildJsonArray {
+                turns.forEach { t ->
+                    addJsonObject {
+                        put("role", t.role)
+                        putJsonArray("content") { t.blocks.forEach { add(it) } }
+                    }
+                }
+            }
+        }
+
+        private fun parseInput(arguments: String): JsonElement =
+            runCatching { AiHttp.json.parseToJsonElement(arguments.ifBlank { "{}" }) }.getOrNull()
+                ?.takeIf { it is JsonObject } ?: buildJsonObject { }
+    }
+}
+
+/**
+ * Messages SSE -> [StreamEvent]s. Tool-use blocks accumulate their
+ * `input_json_delta` fragments and are emitted together at `message_stop`,
+ * which is what the agent loop expects from the OpenAI path too.
+ */
+class AnthropicStreamParser(private val name: String = "Anthropic") {
+    private class PendingTool(val id: String, val name: String, val json: StringBuilder = StringBuilder())
+
+    private val tools = sortedMapOf<Int, PendingTool>()
+    private var inputTokens = 0
+    private var outputTokens = 0
+    private var stopReason: String? = null
+    var finished = false
+        private set
+
+    fun onData(data: String): List<StreamEvent> {
+        if (finished) return emptyList()
+        val obj = runCatching { AiHttp.json.parseToJsonElement(data) as? JsonObject }.getOrNull() ?: return emptyList()
+        val out = mutableListOf<StreamEvent>()
+        when (obj.str("type")) {
+            "message_start" -> {
+                val usage = (obj["message"] as? JsonObject)?.get("usage") as? JsonObject
+                inputTokens = usage.int("input_tokens") + usage.int("cache_read_input_tokens") + usage.int("cache_creation_input_tokens")
+            }
+            "content_block_start" -> {
+                val index = obj.int("index")
+                val block = obj["content_block"] as? JsonObject
+                if (block?.str("type") == "tool_use") {
+                    tools[index] = PendingTool(block.str("id").orEmpty(), block.str("name").orEmpty())
+                } else if (block?.str("type") == "text") {
+                    block.str("text")?.takeIf { it.isNotEmpty() }?.let { out += StreamEvent.ContentDelta(it) }
+                }
+            }
+            "content_block_delta" -> {
+                val delta = obj["delta"] as? JsonObject
+                when (delta?.str("type")) {
+                    "text_delta" -> delta.str("text")?.takeIf { it.isNotEmpty() }?.let { out += StreamEvent.ContentDelta(it) }
+                    "thinking_delta" -> delta.str("thinking")?.takeIf { it.isNotEmpty() }?.let { out += StreamEvent.ReasoningDelta(it) }
+                    "input_json_delta" -> tools[obj.int("index")]?.json?.append(delta.str("partial_json").orEmpty())
+                }
+            }
+            "message_delta" -> {
+                (obj["delta"] as? JsonObject)?.str("stop_reason")?.let { stopReason = it }
+                (obj["usage"] as? JsonObject)?.let { outputTokens = it.int("output_tokens") }
+            }
+            "message_stop" -> out += finish()
+            "error" -> {
+                val err = obj["error"] as? JsonObject
+                val type = err?.str("type").orEmpty()
+                finished = true
+                out += StreamEvent.Error(
+                    "$name: ${err?.str("message") ?: type.ifEmpty { "stream error" }}",
+                    httpCode = if (type == "rate_limit_error") 429 else null,
+                    retryable = type in setOf("overloaded_error", "api_error", "rate_limit_error")
+                )
+            }
+        }
+        return out
+    }
+
+    fun finish(): List<StreamEvent> {
+        if (finished) return emptyList()
+        finished = true
+        val out = mutableListOf<StreamEvent>()
+        if (tools.isNotEmpty()) {
+            out += StreamEvent.ToolCalls(tools.values.map { t ->
+                ToolCallResponse(id = t.id, type = "function", function = FunctionCall(t.name, t.json.toString().ifBlank { "{}" }))
+            })
+        }
+        stopReason?.let {
+            out += StreamEvent.FinishReason(
+                when (it) {
+                    "tool_use" -> "tool_calls"
+                    "max_tokens" -> "length"
+                    else -> "stop"
+                }
+            )
+        }
+        if (inputTokens > 0 || outputTokens > 0) out += StreamEvent.Usage(inputTokens, outputTokens)
+        out += StreamEvent.Completed
+        return out
+    }
+}
+
+private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+private fun JsonObject?.int(key: String): Int = (this?.get(key) as? JsonPrimitive)?.intOrNull ?: 0

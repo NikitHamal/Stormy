@@ -90,6 +90,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiProvider
+import com.oro.app.data.ai.providerLabel
 import kotlinx.coroutines.launch
 
 /**
@@ -286,7 +287,7 @@ private fun ModelsList(
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
-    val modelsByProvider = models.groupBy { it.provider }
+    val modelsByProvider = remember(models) { models.groupBy { it.provider } }
     val scope = rememberCoroutineScope()
 
     LazyColumn(
@@ -526,7 +527,7 @@ private fun MinimalModelItem(
         if (showContextMenu) {
             ActionSheet(
                 title = model.name,
-                subtitle = model.provider.displayName,
+                subtitle = model.providerLabel(),
                 onDismiss = { showContextMenu = false },
                 actions = listOf(
                     if (isDefault) {

@@ -10,6 +10,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.ReasoningEffort
+import com.oro.app.data.ai.AiHttp
+import com.oro.app.data.ai.providers.ApiKeyEntry
+import com.oro.app.data.ai.providers.CustomProviderRegistry
+import com.oro.app.data.ai.providers.ProviderSettings
+import com.oro.app.data.ai.providers.ProviderSettingsMigration
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -38,6 +43,8 @@ class PreferencesRepository(private val context: Context) {
             stringPreferencesKey("${provider.name.lowercase()}_api_key")
 
         val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
+        /** [ProviderSettings] as JSON: custom providers and multi-key lists. */
+        val PROVIDER_SETTINGS = stringPreferencesKey("provider_settings_v1")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
         // AI Provider and Model settings
@@ -177,8 +184,17 @@ class PreferencesRepository(private val context: Context) {
     }
 
     suspend fun setApiKeyForProvider(provider: AiProvider, key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.apiKey(provider)] = key.trim()
+        // Single-key callers edit the first key and leave any others alone.
+        updateProviderSettings { settings ->
+            val list = settings.builtInKeys[provider.name].orEmpty()
+            val trimmed = key.trim()
+            val next = when {
+                list.isEmpty() && trimmed.isEmpty() -> list
+                list.isEmpty() -> listOf(ApiKeyEntry(java.util.UUID.randomUUID().toString(), trimmed))
+                trimmed.isEmpty() -> list.drop(1)
+                else -> listOf(list[0].copy(key = trimmed)) + list.drop(1)
+            }
+            settings.copy(builtInKeys = settings.builtInKeys + (provider.name to next))
         }
     }
 
@@ -215,13 +231,59 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    /** Keys for every provider at once, for building an AiProviderManager. */
+    /**
+     * The first usable key of every provider, for code that only needs "is
+     * there a key" or one key to try. Requests rotate through every key via
+     * [providerSettings].
+     */
     val apiKeys: Flow<Map<AiProvider, String>> = context.dataStore.data.map { preferences ->
+        val settings = readProviderSettings(preferences)
         AiProvider.entries.associateWith { provider ->
             // The pre-per-provider "api_key" belonged to DeepInfra, which has
             // been removed; there is no provider left to migrate it to, and
             // handing one provider's key to another would silently 401.
-            preferences[PreferenceKeys.apiKey(provider)] ?: ""
+            settings.builtInKeys[provider.name]?.firstOrNull { it.enabled && it.key.isNotBlank() }?.key
+                ?: preferences[PreferenceKeys.apiKey(provider)] ?: ""
+        }
+    }
+
+    /** Custom providers and every provider's key list, legacy settings folded in. */
+    val providerSettings: Flow<ProviderSettings> = context.dataStore.data
+        .map { readProviderSettings(it) }
+        .distinctUntilChanged()
+
+    private fun readProviderSettings(preferences: Preferences): ProviderSettings {
+        val stored = preferences[PreferenceKeys.PROVIDER_SETTINGS]?.let { raw ->
+            runCatching { AiHttp.json.decodeFromString(ProviderSettings.serializer(), raw) }.getOrNull()
+        } ?: ProviderSettings()
+        val merged = ProviderSettingsMigration.withLegacy(
+            stored = stored,
+            legacyKeys = AiProvider.entries.associate { it.name to (preferences[PreferenceKeys.apiKey(it)] ?: "") },
+            legacyCustomBaseUrl = preferences[PreferenceKeys.CUSTOM_BASE_URL].orEmpty()
+        )
+        CustomProviderRegistry.update(merged)
+        return merged
+    }
+
+    /** Atomically edit provider settings. */
+    suspend fun updateProviderSettings(transform: (ProviderSettings) -> ProviderSettings) {
+        context.dataStore.edit { preferences ->
+            val next = transform(readProviderSettings(preferences))
+            preferences[PreferenceKeys.PROVIDER_SETTINGS] =
+                AiHttp.json.encodeToString(ProviderSettings.serializer(), next)
+            // Keep the single-key preferences in step with the lists: other
+            // code (and a downgrade) still reads them.
+            AiProvider.entries.forEach { provider ->
+                next.builtInKeys[provider.name]?.let { list ->
+                    preferences[PreferenceKeys.apiKey(provider)] =
+                        list.firstOrNull { it.enabled && it.key.isNotBlank() }?.key.orEmpty()
+                }
+            }
+            // The legacy custom server was deleted: stop re-importing it.
+            if (next.customById(ProviderSettingsMigration.LEGACY_CUSTOM_ID) == null) {
+                preferences.remove(PreferenceKeys.CUSTOM_BASE_URL)
+            }
+            CustomProviderRegistry.update(next)
         }
     }
 

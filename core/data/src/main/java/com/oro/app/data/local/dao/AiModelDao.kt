@@ -65,6 +65,16 @@ interface AiModelDao {
     @Query("DELETE FROM ai_models WHERE provider = :provider AND isCustom = 0")
     suspend fun deleteModelsByProvider(provider: String)
 
+    /** Fetched (not hand-added) models whose id starts with [prefix]. */
+    @Query("DELETE FROM ai_models WHERE substr(id, 1, length(:prefix)) = :prefix AND isCustom = 0")
+    suspend fun deleteFetchedModelsWithPrefix(prefix: String)
+
+    @Query("DELETE FROM ai_models WHERE substr(id, 1, length(:prefix)) = :prefix")
+    suspend fun deleteAllModelsWithPrefix(prefix: String)
+
+    @Query("SELECT * FROM ai_models WHERE substr(id, 1, length(:prefix)) = :prefix ORDER BY isCustom DESC, name ASC")
+    fun observeModelsWithPrefix(prefix: String): Flow<List<AiModelEntity>>
+
     @Query("UPDATE ai_models SET isEnabled = :isEnabled, updatedAt = :timestamp WHERE id = :id")
     suspend fun setModelEnabled(id: String, isEnabled: Boolean, timestamp: Long = System.currentTimeMillis())
 

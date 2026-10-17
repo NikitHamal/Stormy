@@ -7,6 +7,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.ui.screens.settings.SettingsViewModel
 import com.oro.app.ui.screens.providers.ProvidersScreen
+import com.oro.app.ui.screens.providers.ProvidersViewModel
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -183,13 +184,9 @@ fun OroNavGraph(
         }
 
         composable(Screen.Providers.route) {
-            val viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
-            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
             ProvidersScreen(
-                apiKeys = uiState.apiKeys,
-                customBaseUrl = uiState.customBaseUrl,
-                onKeyChange = viewModel::setApiKey,
-                onCustomBaseUrlChange = viewModel::setCustomBaseUrl,
+                viewModel = viewModel,
                 onBackClick = { navController.popBackStack() }
             )
         }

@@ -24,8 +24,12 @@ class OpenAiCompatibleProvider(
     private val apiKey: String,
     /** Only used by [AiProvider.CUSTOM], where the URL is user-supplied. */
     baseUrlOverride: String = "",
-    extraHeaders: Map<String, String> = emptyMap()
+    extraHeaders: Map<String, String> = emptyMap(),
+    /** Name in error messages; custom providers carry the user's name. */
+    nameOverride: String = ""
 ) {
+    private val displayName: String = nameOverride.ifBlank { provider.displayName }
+
     /**
      * Headers the provider always wants (attribution, origin), merged with
      * anything the caller adds. OpenRouter and Kilo Code want attribution
@@ -39,7 +43,7 @@ class OpenAiCompatibleProvider(
         (baseUrlOverride.takeIf { it.isNotBlank() } ?: provider.baseUrl).trimEnd('/')
 
     private fun missingKeyMessage(): String {
-        return "${provider.displayName} API key is required. Add it in Settings > AI."
+        return "$displayName API key is required. Add it in Settings > AI."
     }
 
     /**
@@ -240,7 +244,7 @@ class OpenAiCompatibleProvider(
 
     /** Map a failed request to a user-readable, retry-classified error. */
     private fun errorFor(code: Int?, retryAfterHeader: String?, body: String?, t: Throwable?): StreamEvent.Error {
-        val name = provider.displayName
+        val name = displayName
         val detail = ChatStreamParser.describeErrorBody(body)
         val retryAfter = ChatStreamParser.retryAfterMs(retryAfterHeader, body)
         if (code == null) {

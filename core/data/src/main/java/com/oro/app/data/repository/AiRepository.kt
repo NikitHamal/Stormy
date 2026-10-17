@@ -159,7 +159,8 @@ class AiRepository(
     private suspend fun createProviderManager(): AiProviderManager {
         return AiProviderManager.fromApiKeys(
             apiKeys = preferencesRepository.apiKeys.first(),
-            customBaseUrl = preferencesRepository.customBaseUrl.first()
+            customBaseUrl = preferencesRepository.customBaseUrl.first(),
+            settings = preferencesRepository.providerSettings.first()
         )
     }
 
