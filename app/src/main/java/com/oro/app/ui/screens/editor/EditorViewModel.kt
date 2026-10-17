@@ -1147,6 +1147,8 @@ class EditorViewModel(
         _messages.value = _messages.value + userMessage
         _chatInput.value = ""
         _messageHistory.add(aiRepository.createUserMessage(content))
+        // A new request gets a new plan; the previous one is finished business.
+        delegationHandler.resetPlan()
 
         startRun {
             chatRepository.saveMessage(userMessage)
@@ -1462,6 +1464,31 @@ class EditorViewModel(
                                 "for the same action. Continue with what you can do, or explain what you cannot."
                         )
                     }
+                }
+            }
+            name == "spawn_subagent" -> {
+                val args = DelegationHandler.parseArgs(call.function.arguments)
+                    ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
+                // Wait for the subagent and return its summary as the result.
+                // The handler used to answer "it will report back" and nothing
+                // ever did: the summary landed on a card the model never saw,
+                // and the run often finished before the subagent did.
+                val before = subagentOrchestrator.sessions.value.map { it.id }.toSet()
+                val started = delegationHandler.execute(name, args)
+                if (!started.success) return started
+                val sessionId = subagentOrchestrator.sessions.value.firstOrNull { it.id !in before }?.id
+                    ?: return started
+                val done = subagentOrchestrator.sessions
+                    .first { list -> list.none { it.id == sessionId } || list.first { it.id == sessionId }.let { !it.isLive } }
+                    .firstOrNull { it.id == sessionId }
+                when {
+                    done == null -> ToolResult(false, "", "The subagent was removed before it finished.")
+                    done.summary != null -> ToolResult(true, "Subagent \"${done.description}\" finished:\n${done.summary}")
+                    done.error != null -> ToolResult(false, "", "Subagent \"${done.description}\" failed: ${done.error}")
+                    else -> ToolResult(
+                        false, "",
+                        "Subagent \"${done.description}\" stopped (${done.phase.name.lowercase()}) without a summary. Do the work directly."
+                    )
                 }
             }
             delegationHandler.handles(name) -> {

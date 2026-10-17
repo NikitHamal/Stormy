@@ -449,8 +449,9 @@ class AgentLoop(
         ToolResult(false, "", "Tool crashed: ${e.message ?: e.javaClass.simpleName}")
     }
 
+    /** Read-only tools, and subagents (which run in their own context). */
     private fun isReadOnly(call: ToolCallResponse): Boolean =
-        ToolAliases.canonicalName(call.function.name) in AgentTools.readOnly
+        ToolAliases.canonicalName(call.function.name).let { it in AgentTools.readOnly || it == "spawn_subagent" }
 
     private fun resultText(result: ToolResult): String {
         val raw = if (result.success) result.output.ifBlank { "(no output)" }

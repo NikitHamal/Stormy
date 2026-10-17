@@ -104,6 +104,45 @@ object HistoryPruner {
     }
 
     /**
+     * Give every assistant tool call a result.
+     *
+     * A run stopped mid-tool (the user pressed Stop, the app was killed) leaves
+     * an assistant message whose tool_calls have no `tool` replies, and every
+     * provider rejects the next request with a 400 until that is fixed. Missing
+     * results are filled in, in place, right after their call.
+     */
+    fun closeDanglingToolCalls(history: MutableList<ChatRequestMessage>) {
+        var i = 0
+        while (i < history.size) {
+            val m = history[i]
+            val calls = m.toolCalls
+            if (m.role == "assistant" && !calls.isNullOrEmpty()) {
+                var j = i + 1
+                val answered = mutableSetOf<String>()
+                while (j < history.size && history[j].role == "tool") {
+                    history[j].toolCallId?.let { answered += it }
+                    j++
+                }
+                val missing = calls.filter { it.id !in answered }
+                missing.forEachIndexed { k, call ->
+                    history.add(
+                        j + k,
+                        ChatRequestMessage(
+                            role = "tool",
+                            content = "Not run: the previous run was stopped before this tool call executed.",
+                            toolCallId = call.id,
+                            name = call.function.name
+                        )
+                    )
+                }
+                i = j + missing.size
+            } else {
+                i++
+            }
+        }
+    }
+
+    /**
      * Index from which messages are kept verbatim: roughly the last
      * [PROTECT_RECENT_TOKENS]. Not "everything after the last user message":
      * in an agent run the whole run comes after it, and that is exactly the
