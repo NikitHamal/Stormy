@@ -40,6 +40,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudUpload
 import com.oro.app.ui.theme.Sizes
 import com.oro.app.ui.components.expressive.SheetAction
 import com.oro.app.ui.components.expressive.ActionSheet
@@ -159,6 +160,7 @@ fun EditorScreen(
     }
     val context = LocalContext.current
     var showSessions by remember { mutableStateOf(false) }
+    var showDeploy by remember { mutableStateOf(false) }
     // Read once in composable scope: AnimatedContent's transitionSpec lambda
     // is not @Composable, so MaterialTheme cannot be read inside it.
     val tabEnterSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
@@ -370,7 +372,8 @@ fun EditorScreen(
                                     context.startActivity(intent)
                                 }
                             },
-                            onSettingsClick = onSettingsClick
+                            onSettingsClick = onSettingsClick,
+                            onDeployClick = { showDeploy = true }
                         )
                     }
                 ) { innerPadding ->
@@ -389,6 +392,15 @@ fun EditorScreen(
                                 showSessions = true
                             }
                         )
+                        val deployRoot = uiState.project?.rootPath
+                        if (showDeploy && deployRoot != null) {
+                            com.oro.app.ui.screens.editor.deploy.DeploySheet(
+                                projectRoot = deployRoot,
+                                projectName = uiState.project?.name ?: "site",
+                                onDeployed = viewModel::onDeployed,
+                                onDismiss = { showDeploy = false }
+                            )
+                        }
                         if (showSessions) {
                             SessionsSheet(
                                 state = sessionsState,
@@ -538,7 +550,8 @@ private fun EditorTopBar(
     onAssetsClick: () -> Unit,
     onGitClick: () -> Unit,
     onPreviewClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onDeployClick: () -> Unit = {}
 ) {
     val iconSize = 20.dp // Reduced from 24dp (default) by 4dp
 
@@ -597,6 +610,16 @@ private fun EditorTopBar(
                 Icon(
                     imageVector = Icons.Outlined.PlayArrow,
                     contentDescription = "Preview",
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+            IconButton(
+                onClick = onDeployClick,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.CloudUpload,
+                    contentDescription = "Publish",
                     modifier = Modifier.size(iconSize)
                 )
             }

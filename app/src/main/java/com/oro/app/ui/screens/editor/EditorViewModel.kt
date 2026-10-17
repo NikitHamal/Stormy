@@ -338,6 +338,12 @@ class EditorViewModel(
         }
     }
 
+    /** The user published the site; Orobi should know where it lives. */
+    fun onDeployed(url: String) {
+        if (_isAiProcessing.value) return
+        _messageHistory += ChatRequestMessage(role = "user", content = "[The user published this project. It is live at $url]")
+    }
+
     /** Put every file back to how it was before [messageId]'s run (and all later runs). */
     fun restoreCheckpoint(messageId: String) {
         val sid = _currentSessionId.value ?: return
@@ -1528,7 +1534,15 @@ class EditorViewModel(
     private suspend fun runAgent(model: AiModel, run: RunTranscript): AgentRunResult {
         val isAgentMode = _agentMode.value
         val nativeTools = model.supportsToolCalls
-        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() else emptyList()
+        // MCP servers' tools join the built-ins for this run (listing is cached).
+        val mcp = if (isAgentMode) preferencesRepository.mcpSettings.first() else com.oro.app.data.ai.mcp.McpSettings()
+        toolExecutor.mcpSettings = mcp
+        val mcpTools = if (mcp.servers.any { it.enabled }) {
+            runCatching {
+                kotlinx.coroutines.withTimeout(15_000) { com.oro.app.data.ai.mcp.McpRegistry.tools(mcp) }
+            }.getOrDefault(emptyList()).map { it.asTool() }
+        } else emptyList()
+        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() + mcpTools else emptyList()
         val knownTools = offeredTools.map { it.function.name }.toSet()
 
         // Context that does not change during a run, computed once.

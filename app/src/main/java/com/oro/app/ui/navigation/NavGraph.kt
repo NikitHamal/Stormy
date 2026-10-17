@@ -43,6 +43,7 @@ sealed class Screen(val route: String) {
     data object Memories : Screen("memories")
     data object GitSettings : Screen("git_settings")
     data object Providers : Screen("providers")
+    data object Mcp : Screen("mcp")
 }
 
 @Composable
@@ -183,6 +184,10 @@ fun OroNavGraph(
             )
         }
 
+        composable(Screen.Mcp.route) {
+            com.oro.app.ui.screens.mcp.McpScreen(onBackClick = { navController.popBackStack() })
+        }
+
         composable(Screen.Providers.route) {
             val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
             ProvidersScreen(
@@ -207,6 +212,9 @@ fun OroNavGraph(
                 },
                 onNavigateToProviders = {
                     navController.navigate(Screen.Providers.route)
+                },
+                onNavigateToMcp = {
+                    navController.navigate(Screen.Mcp.route)
                 }
             )
         }

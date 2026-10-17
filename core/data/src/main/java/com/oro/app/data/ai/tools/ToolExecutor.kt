@@ -155,6 +155,15 @@ class ToolExecutor(
         toolName: String,
         args: JsonObject
     ): ToolResult? {
+        if (com.oro.app.data.ai.mcp.McpNames.isMcp(toolName)) {
+            return com.oro.app.data.ai.mcp.McpRegistry.call(mcpSettings, toolName, args).fold(
+                onSuccess = { (text, isError) ->
+                    if (isError) ToolResult(false, text.take(20_000), "The MCP tool reported an error.")
+                    else ToolResult(true, text.ifBlank { "(no output)" }.take(40_000))
+                },
+                onFailure = { ToolResult(false, "", it.message ?: "MCP call failed") }
+            )
+        }
         val ws = workspace ?: currentProjectPath?.let { WorkspaceTools(it).also { w -> workspace = w } }
         checkpoint?.let { rec ->
             val paths = when (toolName) {
@@ -216,6 +225,10 @@ class ToolExecutor(
     // Interaction callback for user input and notifications
     var interactionCallback: ToolInteractionCallback? = null
 
+    /** MCP servers for the current run; set by the caller that offered their tools. */
+    @Volatile
+    var mcpSettings: com.oro.app.data.ai.mcp.McpSettings = com.oro.app.data.ai.mcp.McpSettings()
+
     /** The running agent turn's checkpoint; files are captured before their first change. */
     @Volatile
     var checkpoint: com.oro.app.data.ai.checkpoint.Checkpoints.Recorder? = null
@@ -252,7 +265,9 @@ class ToolExecutor(
             // before anything else and are NOT behind enableArgumentValidation.
             // That flag exists to trade strictness for permissiveness on
             // argument shapes; a security boundary must not be switchable.
-            AgentPathPolicy.denyIfAnyPathBlocked(arguments, currentProjectPath)?.let { reason ->
+            // MCP tools act on remote services, not project files: their
+            // "path" arguments are repository paths, not paths on this device.
+            if (!com.oro.app.data.ai.mcp.McpNames.isMcp(toolName)) AgentPathPolicy.denyIfAnyPathBlocked(arguments, currentProjectPath)?.let { reason ->
                 android.util.Log.w(TAG, "Blocked $toolName: $reason")
                 return ToolResult(success = false, output = "", error = reason)
             }

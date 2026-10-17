@@ -45,6 +45,9 @@ class PreferencesRepository(private val context: Context) {
         val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
         /** [ProviderSettings] as JSON: custom providers and multi-key lists. */
         val PROVIDER_SETTINGS = stringPreferencesKey("provider_settings_v1")
+        /** MCP servers as JSON ([com.oro.app.data.ai.mcp.McpSettings]). */
+        val MCP_SETTINGS = stringPreferencesKey("mcp_servers_v1")
+        val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
         // AI Provider and Model settings
@@ -263,6 +266,27 @@ class PreferencesRepository(private val context: Context) {
         )
         CustomProviderRegistry.update(merged)
         return merged
+    }
+
+    val mcpSettings: Flow<com.oro.app.data.ai.mcp.McpSettings> = context.dataStore.data.map { p ->
+        p[PreferenceKeys.MCP_SETTINGS]?.let { raw ->
+            runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.mcp.McpSettings.serializer(), raw) }.getOrNull()
+        } ?: com.oro.app.data.ai.mcp.McpSettings()
+    }.distinctUntilChanged()
+
+    val netlifyToken: Flow<String> = context.dataStore.data.map { it[PreferenceKeys.NETLIFY_TOKEN].orEmpty() }.distinctUntilChanged()
+
+    suspend fun setNetlifyToken(token: String) {
+        context.dataStore.edit { it[PreferenceKeys.NETLIFY_TOKEN] = token.trim() }
+    }
+
+    suspend fun updateMcpSettings(transform: (com.oro.app.data.ai.mcp.McpSettings) -> com.oro.app.data.ai.mcp.McpSettings) {
+        context.dataStore.edit { p ->
+            val current = p[PreferenceKeys.MCP_SETTINGS]?.let { raw ->
+                runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.mcp.McpSettings.serializer(), raw) }.getOrNull()
+            } ?: com.oro.app.data.ai.mcp.McpSettings()
+            p[PreferenceKeys.MCP_SETTINGS] = AiHttp.json.encodeToString(com.oro.app.data.ai.mcp.McpSettings.serializer(), transform(current))
+        }
     }
 
     /** Atomically edit provider settings. */
