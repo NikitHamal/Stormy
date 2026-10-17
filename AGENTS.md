@@ -11,6 +11,9 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 | `app/src/main/java/com/oro/app/ui/screens/editor/` | Editor: `EditorViewModel` (runs, sessions, checkpoints, usage), `chat/ChatTab`, `sessions/`, `deploy/`, `agent/RunTranscript` |
 | `app/src/main/java/com/oro/app/agent/` | `BackgroundRuns` + `AgentRunService` (foreground keep-alive, notifications) |
 | `app/src/main/java/com/oro/app/voice/` | Dictation: system speech and Whistle (on-device) |
+| `app/src/main/java/com/oro/app/preview/` | `WebViewPagePreviewer` (off-screen renders for screenshot / responsive / audit tools) |
+| `core/data/.../ai/local/` | On-device LLMs (MediaPipe LLM Inference, Qwen 2.5 `.task`) |
+| `core/data/.../ai/skills/` | Skills (Markdown playbooks, `use_skill`) |
 | `app/src/main/cpp/` | JNI bridge to the Needle/Whistle engine (`libneedle.a` per ABI) |
 | `core/data/` | Everything not UI: AI providers, agent loop, tools, Room DB, repositories |
 | `core/data/.../ai/agent/` | `AgentLoop`, `TextToolCallParser`, `TextToolProtocol`, `HistoryPruner`, `Autonomy` |
@@ -36,7 +39,7 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 - **Commits:** imperative subject, body explains why; end with the co-author trailer used in history.
 
 ## Handy facts
-- Agent tool names: `read_file, write_file, edit_file, multi_edit, list_files, glob, grep, delete_file, move_file, check_syntax, get_preview_errors, screenshot_preview, audit_page, web_fetch, ask_user, save_memory, update_plan, spawn_subagent, request_approval` + `mcp__<server>__<tool>`.
+- Agent tool names: `read_file, write_file, edit_file, multi_edit, list_files, glob, grep, delete_file, move_file, check_syntax, get_preview_errors, screenshot_preview, audit_page, web_fetch, ask_user, save_memory, use_skill, update_plan, spawn_subagent, request_approval` + `mcp__<server>__<tool>`.
 - Text-protocol models (K2 and other web bridges) get `TextToolProtocol.render(...)`; recovered calls are parsed by `TextToolCallParser`.
 - Project-level instructions for Orobi: `ORO.md`, `AGENTS.md`, `CLAUDE.md`, `.oro/instructions.md` in a user's project root.
 - Per-project app data: `.oro/` (checkpoints, usage, deploy state, logs, skills).

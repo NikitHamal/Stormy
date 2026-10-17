@@ -10,20 +10,20 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
-## 2026-10-17 — issue #28, second round (in progress)
-**Done this session**
-- Wrap fixes (one-line segmented labels, sheet buttons), provider editor as a full screen,
-  well-known vendors seeded as built-ins, fetched models default off.
-- Merged `main` (StormyWeb). Removed the duplicate Chat/Agent chip from the empty chat.
-- Autonomy: Leashed (approve every change) / Unleashed (asks only for risky steps) in Chat settings.
-- AGENTS.md + this ledger.
+## 2026-10-17 — issue #28, second round
+**Done**
+- Wrap fixes; full-screen provider editor (`ProviderEditorScreen`); vendor presets seeded as built-ins; fetched models default off.
+- Merged `main`; StormyWeb rewritten as a modular replica of the app (see `StormyWeb/README.md`).
+- Leashed / Unleashed autonomy (`AutonomyPolicy`), removed the duplicate Chat/Agent chip.
+- Dictation: system `SpeechRecognizer` + Whistle on-device (JNI in `app/src/main/cpp`, weak `std::__hash_memory` shim for older NDK libc++).
+- `screenshot_preview` / `audit_page` (`WebViewPagePreviewer`), images to vision models (`ChatRequestMessage.images`).
+- MCP OAuth sign-in (`McpOAuth`, `oro-mcp://callback`), share project (zip / live link), skills (`use_skill`).
+- On-device LLMs (`LocalModels`, MediaPipe 0.10.27: stream with `generateResponseAsync(prompt, ProgressListener)`).
+- Launch video: real landing page in the live scene, re-rendered.
 
-**In progress / next** (see the issue comment for the full list)
-- Dictation: system SpeechRecognizer + Whistle on-device STT (JNI to `libneedle.a`, model downloaded on demand).
-- Preview screenshot / responsive check / page audit tools (offscreen WebView, images to vision models).
-- MCP OAuth sign-in, project sharing (zip), skills (`.oro/skills/*.md`).
-- Offline local LLM (MediaPipe LLM Inference, Qwen 2.5 0.5B/1.5B `.task` from litert-community).
-- StormyWeb: full modular replica of the Oro app. Launch video: a real landing page in the live scene.
+**Unverified on a device** (CI only compiles): Whistle transcription quality, off-screen WebView capture (may draw blank on some WebView versions; metrics still work), MCP OAuth against real servers, MediaPipe model load on low-RAM phones.
+
+**Next**: see `docs/NEXT.md`.
 
 ## 2026-10-17 — issue #28, first round
 Caret fix, Chat split-button tab, plan docked on composer, one-line tool rows, single-stage
