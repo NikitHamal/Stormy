@@ -76,3 +76,42 @@ class TextEditsTest {
         assertThat(ok.content).contains("<h1>B</h1>")
     }
 }
+
+class ToolAliasesTest {
+    @Test
+    fun `namespaced and foreign names map to canonical tools`() {
+        assertThat(ToolAliases.canonicalName("repo_browser.print_tree")).isEqualTo("list_files")
+        assertThat(ToolAliases.canonicalName("functions.read_file")).isEqualTo("read_file")
+        assertThat(ToolAliases.canonicalName("str_replace")).isEqualTo("edit_file")
+        assertThat(ToolAliases.canonicalName("todowrite")).isEqualTo("update_plan")
+    }
+
+    @Test
+    fun `legacy argument names are renamed`() {
+        val (name, args) = ToolAliases.normalise(
+            "patch_file",
+            kotlinx.serialization.json.buildJsonObject {
+                put("path", kotlinx.serialization.json.JsonPrimitive("a.css"))
+                put("old_content", kotlinx.serialization.json.JsonPrimitive("x"))
+                put("new_content", kotlinx.serialization.json.JsonPrimitive("y"))
+            }
+        )
+        assertThat(name).isEqualTo("edit_file")
+        assertThat(args.keys).containsExactly("path", "old_string", "new_string")
+    }
+
+    @Test
+    fun `read_file line_end becomes a limit`() {
+        val (_, args) = ToolAliases.normalise(
+            "read_file",
+            kotlinx.serialization.json.buildJsonObject {
+                put("path", kotlinx.serialization.json.JsonPrimitive("a"))
+                put("line_start", kotlinx.serialization.json.JsonPrimitive(10))
+                put("line_end", kotlinx.serialization.json.JsonPrimitive(19))
+            }
+        )
+        assertThat(args["offset"].toString()).isEqualTo("10")
+        assertThat(args["limit"].toString()).isEqualTo("10")
+        assertThat(args.containsKey("line_end")).isFalse()
+    }
+}

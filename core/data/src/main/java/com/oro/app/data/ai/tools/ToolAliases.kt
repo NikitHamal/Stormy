@@ -35,6 +35,10 @@ object ToolAliases {
         "list" to "list_files",
         "list_dir" to "list_files",
         "list_directory" to "list_files",
+        "print_tree" to "list_files",
+        "tree" to "list_files",
+        "open_file" to "read_file",
+        "read_file_lines" to "read_file",
         "find_files" to "glob",
         "search_files" to "grep",
         "search" to "grep",
@@ -69,7 +73,7 @@ object ToolAliases {
         ),
         "read_file" to mapOf(
             "file_path" to "path", "filepath" to "path", "file" to "path", "filename" to "path",
-            "start_line" to "offset", "line" to "offset"
+            "start_line" to "offset", "line" to "offset", "line_start" to "offset"
         ),
         "write_file" to mapOf(
             "file_path" to "path", "filepath" to "path", "file" to "path", "filename" to "path",
@@ -94,7 +98,9 @@ object ToolAliases {
     )
 
     fun canonicalName(name: String): String {
-        val n = name.trim().lowercase().removePrefix("functions.").removePrefix("oro.")
+        // Namespaced names ("functions.read_file", gpt-oss's
+        // "repo_browser.print_tree") keep only the last segment.
+        val n = name.trim().lowercase().substringAfterLast('.')
         return nameAliases[n] ?: n
     }
 
@@ -112,6 +118,13 @@ object ToolAliases {
             // Never let an alias overwrite an explicitly given canonical arg.
             if (target != key && args.containsKey(target)) continue
             out[target] = value
+        }
+        // read_file with an end line instead of a count.
+        if (canonical == "read_file" && !out.containsKey("limit")) {
+            val end = (args["line_end"] ?: args["end_line"])?.let { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+            val start = (out["offset"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+            if (end != null && end >= start) out["limit"] = JsonPrimitive(end - start + 1)
+            out.remove("line_end"); out.remove("end_line")
         }
         if (raw == "search_files" && !out.containsKey("literal")) {
             out["literal"] = JsonPrimitive(true)

@@ -152,7 +152,7 @@ class OpenAiCompatibleProvider(
                         }
                     }
 
-                    trySend(errorFor(response?.code, response?.header("Retry-After"), body, t))
+                    trySend(errorFor(response?.code, retryHeader(response), body, t))
                     channel.close()
                 }
             }
@@ -216,7 +216,7 @@ class OpenAiCompatibleProvider(
             AiHttp.client.newCall(httpRequestBuilder.build()).execute().use { response ->
                 val responseBody = response.body?.string()
                 if (!response.isSuccessful) {
-                    val error = errorFor(response.code, response.header("Retry-After"), responseBody, null)
+                    val error = errorFor(response.code, retryHeader(response), responseBody, null)
                     return@withContext Result.failure(ProviderException(error))
                 }
                 if (responseBody.isNullOrBlank()) {
@@ -229,6 +229,14 @@ class OpenAiCompatibleProvider(
             Result.failure(e)
         }
     }
+
+    /**
+     * `Retry-After`, or the IETF `RateLimit-Reset` seconds that OVH sends on
+     * its 429s instead.
+     */
+    private fun retryHeader(response: Response?): String? =
+        response?.header("Retry-After")
+            ?: response?.header("ratelimit-reset")?.takeIf { (it.toLongOrNull() ?: Long.MAX_VALUE) < 3_600 }
 
     /** Map a failed request to a user-readable, retry-classified error. */
     private fun errorFor(code: Int?, retryAfterHeader: String?, body: String?, t: Throwable?): StreamEvent.Error {
