@@ -1,0 +1,52 @@
+        /* CODEIT BRAND — infinity loader, wordmark, agent thinking states.
+           Brand magenta (#F800F8) is fixed in every theme; surfaces/ink
+           follow the warm monochrome app palette. */
+
+        :root{
+            --st-magenta: #F800F8;
+            --st-font: 'Poppins', system-ui, sans-serif;
+            --st-mono: 'JetBrains Mono', ui-monospace, monospace;
+            --st-surface-2: #2B2823;
+            --st-on: #EDE9E2;
+            --st-muted: #8D877D;
+            --st-accent: #EDE9E2;
+            --st-on-accent: #141210;
+            --st-ease: cubic-bezier(.2,0,0,1);
+        }
+        html[data-theme="light"]{
+            --st-surface-2: #ECE9E2;
+            --st-on: #1C1B19;
+            --st-muted: #6E6A63;
+            --st-accent: #1C1B19;
+            --st-on-accent: #F7F4EE;
+        }
+
+        @keyframes stInf{to{stroke-dashoffset:-100}}
+        @keyframes stVerb{0%{content:'Scaffolding…'}25%{content:'Compiling…'}50%{content:'Wiring up…'}75%{content:'Polishing…'}}
+        @keyframes stShim{from{background-position:100% 0}to{background-position:0 0}}
+        @keyframes stHop{0%,60%,100%{transform:none;opacity:.4}30%{transform:translateY(-5px);opacity:1;background:var(--st-magenta)}}
+
+        /* Infinity loader (app logo, living mark) */
+        .st-inf{width:var(--w,28px);height:auto;overflow:visible;flex:none;display:inline-block;vertical-align:middle}
+        .st-inf path{fill:none;stroke-width:90;stroke-linecap:round;stroke-linejoin:round}
+        .st-inf .tk{stroke:color-mix(in srgb,var(--st-magenta) 20%,transparent)}
+        .st-inf .ch{stroke:var(--st-magenta);stroke-dasharray:24 76;animation:stInf 1.6s linear infinite}
+
+        /* Wordmark next to the logo */
+        .st-wordmark{font-family:var(--st-font);font-weight:600;letter-spacing:0.16em}
+
+        /* Inline loader row (Thinking / Generating) */
+        .st-il{display:grid;justify-items:center;gap:22px;font:500 13px var(--st-font);color:var(--st-muted)}
+        .st-il .b{display:flex;align-items:center;gap:10px}
+        .st-il .btn{display:flex;align-items:center;gap:10px;height:48px;padding:0 22px 0 16px;border:0;border-radius:24px;background:var(--st-on);color:var(--st-bg,#141210);font:500 14px var(--st-font)}
+
+        /* Agent thinking states */
+        .st-tk{display:grid;gap:14px;justify-items:start;font-family:var(--st-font);color:var(--st-on);padding:6px 2px}
+        .st-tk .cli{font:500 13px var(--st-mono);display:flex;gap:10px;align-items:center}
+        .st-tk .v::before{content:'Scaffolding…';animation:stVerb 8s steps(1,end) infinite}
+        .st-tk .h{color:var(--st-muted);font-size:11.5px}
+        .st-tk .sh{font-size:15px;font-weight:500;background:linear-gradient(90deg,var(--st-muted) 35%,var(--st-on) 50%,var(--st-muted) 65%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:stShim 2s linear infinite}
+        .st-tk .bub{display:flex;gap:5px;padding:14px 16px;background:var(--st-surface-2);border-radius:20px 20px 20px 6px}
+        .st-tk .bub i{width:8px;height:8px;border-radius:50%;background:var(--st-muted);animation:stHop 1.2s var(--st-ease) infinite}
+        .st-tk .bub i:nth-child(2){animation-delay:.15s}
+        .st-tk .bub i:nth-child(3){animation-delay:.3s}
