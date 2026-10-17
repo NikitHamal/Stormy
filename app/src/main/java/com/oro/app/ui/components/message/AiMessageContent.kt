@@ -229,10 +229,22 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
         val tagMatch = OPEN_TAG_REGEX.find(content, headerEndExclusive)
         
         // If we found a tag, and it's before the next tool, that's our effective end
-        val effectiveEnd = if (tagMatch != null && tagMatch.range.first < nextToolStart) {
+        val tagEnd = if (tagMatch != null && tagMatch.range.first < nextToolStart) {
             tagMatch.range.first
         } else {
             nextToolStart
+        }
+        // A blank line also ends a tool's output: the agent writes cards with
+        // no blank lines inside, so text after one (the final reply) renders
+        // as text instead of disappearing into the last card.
+        // (Searched from the header's own newline, which the header match
+        // consumes, so "status line, blank line, reply" ends the card there.)
+        val searchFrom = (headerEndExclusive - 1).coerceAtLeast(0)
+        val blankLine = content.indexOf("\n\n", searchFrom)
+        val effectiveEnd = if (blankLine in searchFrom until tagEnd) {
+            maxOf(blankLine, headerEndExclusive)
+        } else {
+            tagEnd
         }
         
         val toolEndExclusive = effectiveEnd
@@ -535,7 +547,13 @@ fun AiMessageContent(
     timestamp: String,
     isStreaming: Boolean = false,
     currentActivity: AiActivityStatus = AiActivityStatus.IDLE,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * False when the caller shows its own labelled working indicator (the chat
+     * does, so the label can say "Running edit_file" or "Waiting for your
+     * answer"); avoids two loaders on screen.
+     */
+    showWorkingIndicator: Boolean = true
 ) {
     // During streaming, use simpler parsing to reduce lag
     // Full parsing is only done when content length changes significantly or streaming stops
@@ -567,7 +585,7 @@ fun AiMessageContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Show minimal generating indicator only when streaming with no substantial content
-        if (isStreaming && !hasSubstantialContent) {
+        if (isStreaming && showWorkingIndicator && !hasSubstantialContent) {
             MinimalGeneratingIndicator()
         }
 
@@ -634,7 +652,7 @@ fun AiMessageContent(
         }
 
         // Show inline generating indicator at the end when streaming with content
-        if (isStreaming && hasSubstantialContent) {
+        if (isStreaming && showWorkingIndicator && hasSubstantialContent) {
             InlineGeneratingIndicator()
         }
 

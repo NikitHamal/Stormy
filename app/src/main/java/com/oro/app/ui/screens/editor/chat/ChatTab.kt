@@ -16,6 +16,10 @@ import com.oro.app.data.ai.context.ContextBreakdown
 import com.oro.app.ui.theme.OroCorners
 import com.oro.app.data.ai.ReasoningEffort
 import com.oro.app.ui.components.agent.AgentActivityCard
+import com.oro.app.ui.components.agent.AskUserCard
+import com.oro.app.ui.components.agent.PendingQuestion
+import com.oro.app.ui.components.agent.RunError
+import com.oro.app.ui.components.agent.RunErrorCard
 import com.oro.app.data.ai.agents.AgentSession
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -142,7 +146,15 @@ fun ChatTab(
     onModelChange: (AiModel) -> Unit = {},
     onRefreshModels: () -> Unit = {},
     onNavigateToModels: () -> Unit = {},
-    isRefreshingModels: Boolean = false
+    isRefreshingModels: Boolean = false,
+    /** What the running turn is doing; drives the working indicator's label. */
+    workingLabel: String? = null,
+    pendingQuestion: PendingQuestion? = null,
+    onAnswerQuestion: (String) -> Unit = {},
+    onSkipQuestion: () -> Unit = {},
+    runError: RunError? = null,
+    onRetryRun: () -> Unit = {},
+    onDismissRunError: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -173,8 +185,11 @@ fun ChatTab(
     }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    LaunchedEffect(messages.size, agentSessions.size) {
-        val lastIndex = messages.size + agentSessions.size - 1
+    // Trailing items after messages and agent cards: the working indicator /
+    // question while a run is live, or the error card after one failed.
+    val trailingItems = (if (isLoading) 1 else 0) + (if (!isLoading && runError != null) 1 else 0)
+    LaunchedEffect(messages.size, agentSessions.size, pendingQuestion?.id, runError, isLoading) {
+        val lastIndex = messages.size + agentSessions.size + trailingItems - 1
         if (lastIndex >= 0) {
             listState.animateScrollToItem(lastIndex)
         }
@@ -243,9 +258,32 @@ fun ChatTab(
                     }
                 }
 
-                if (isLoading && messages.lastOrNull()?.isUser == true) {
-                    item {
-                        TypingIndicator()
+                // While a turn is live there is always exactly one visible
+                // working state at the end of the list: the question the agent
+                // is waiting on, or Orobi's indicator with what it is doing.
+                // It used to show only until the (empty) assistant message was
+                // added, then vanish for the rest of the run.
+                if (isLoading) {
+                    item(key = "run-status") {
+                        if (pendingQuestion != null) {
+                            AskUserCard(
+                                question = pendingQuestion,
+                                onAnswer = onAnswerQuestion,
+                                onSkip = onSkipQuestion,
+                                modifier = Modifier.animateItem()
+                            )
+                        } else {
+                            TypingIndicator(label = workingLabel ?: "Thinking")
+                        }
+                    }
+                } else if (runError != null) {
+                    item(key = "run-error") {
+                        RunErrorCard(
+                            error = runError,
+                            onRetry = onRetryRun,
+                            onDismiss = onDismissRunError,
+                            modifier = Modifier.animateItem()
+                        )
                     }
                 }
             }
@@ -593,7 +631,9 @@ private fun ChatBubble(
                     content = message.content,
                     timestamp = message.formattedTime,
                     isStreaming = isStreaming,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    // The list's trailing indicator carries the label.
+                    showWorkingIndicator = false
                 )
             }
         }
@@ -609,10 +649,10 @@ private fun ChatBubble(
     }
 }
 
-/** Between sending and the first token: Orobi is on it. */
+/** Orobi is on it: shown for the whole turn, labelled with the current step. */
 @Composable
-private fun TypingIndicator() {
-    OrobiWorking(label = "Thinking", modifier = Modifier.padding(vertical = 4.dp))
+private fun TypingIndicator(label: String) {
+    OrobiWorking(label = label, modifier = Modifier.padding(vertical = 4.dp))
 }
 
 @Composable

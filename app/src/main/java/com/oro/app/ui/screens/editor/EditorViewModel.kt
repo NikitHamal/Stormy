@@ -72,6 +72,26 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.oro.app.data.ai.agent.AgentLoop
+import com.oro.app.data.ai.agent.AgentLoopConfig
+import com.oro.app.data.ai.agent.AgentLoopListener
+import com.oro.app.data.ai.agent.AgentModelClient
+import com.oro.app.data.ai.agent.AgentRequest
+import com.oro.app.data.ai.agent.AgentRunResult
+import com.oro.app.data.ai.agent.AgentStatus
+import com.oro.app.data.ai.agent.AgentToolRunner
+import com.oro.app.data.ai.agent.HistoryPruner
+import com.oro.app.data.ai.agent.TokenEstimator
+import com.oro.app.data.ai.tools.AgentTools
+import com.oro.app.data.ai.tools.ToolAliases
+import com.oro.app.data.ai.Tool
+import com.oro.app.ui.components.agent.PendingQuestion
+import com.oro.app.ui.components.agent.RunError
+import com.oro.app.ui.screens.editor.agent.RunTranscript
 
 /**
  * Represents an open file tab in the editor
@@ -147,7 +167,13 @@ data class EditorUiState(
     /** Percentage freed by the last compaction, for a one-line confirmation. */
     val lastCompactionSavedPercent: Int? = null,
     /** How many messages a compaction would fold into the summary. */
-    val compactableMessageCount: Int = 0
+    val compactableMessageCount: Int = 0,
+    /** What the running turn is doing; null when idle. */
+    val runStatus: AgentStatus? = null,
+    /** The agent's open ask_user question, while the run waits on it. */
+    val pendingQuestion: PendingQuestion? = null,
+    /** Why the last run stopped without finishing, with a retry affordance. */
+    val runError: RunError? = null
 )
 
 /**
@@ -228,7 +254,6 @@ class EditorViewModel(
     private val _availableModels = MutableStateFlow<List<AiModel>>(emptyList())
     private val _isRefreshingModels = MutableStateFlow(false)
     private val _messageHistory = mutableListOf<ChatRequestMessage>()
-    private val _streamingContent = MutableStateFlow("")
 
     // Context window tracking
     private val _contextTokenCount = MutableStateFlow(0)
@@ -249,20 +274,25 @@ class EditorViewModel(
     private val _fileLoadProgress = MutableStateFlow(1f)
     private val _isCurrentFileReadOnly = MutableStateFlow(false)
 
-    // Agent loop state tracking
-    private var _pendingToolCalls = mutableListOf<ToolCallResponse>()
-    private var _shouldContinueAgentLoop = false
-    private var _agentIterationCount = 0
-    private var _taskCompleted = false
-
-    // AI generation job for cancellation support
+    // Agent run state
     private var _aiGenerationJob: Job? = null
-    private var _isGenerationCancelled = false
+    private val _runStatus = MutableStateFlow<AgentStatus?>(null)
+    private val _pendingQuestion = MutableStateFlow<PendingQuestion?>(null)
+    @Volatile private var questionAnswer: CompletableDeferred<String?>? = null
+    private val _runError = MutableStateFlow<RunError?>(null)
 
-    // Streaming update debouncing for performance
-    private var _streamingUpdateJob: Job? = null
-    private var _lastStreamingUpdate = 0L
-    private var _pendingStreamingUpdate = false
+    /** Transcript of the run in progress, rendered into the last assistant message. */
+    @Volatile private var transcript: RunTranscript? = null
+    @Volatile private var lastPushedRevision = -1L
+    @Volatile private var lastPushAt = 0L
+    private var pushJob: Job? = null
+
+    /** System prompt and tools of the last request, for the context breakdown. */
+    @Volatile private var lastSystemPrompt: String? = null
+    @Volatile private var lastRequestTools: List<Tool>? = null
+
+    /** Set when the provider rejected native tools; the run then uses text tool calls. */
+    @Volatile private var forceTextTools = false
 
     val uiState: StateFlow<EditorUiState> = combine(
         _project,
@@ -339,6 +369,12 @@ class EditorViewModel(
         state.copy(fileLoadProgress = progress)
     }.combine(_isCurrentFileReadOnly) { state, isReadOnly ->
         state.copy(isCurrentFileReadOnly = isReadOnly)
+    }.combine(_runStatus) { state, status ->
+        state.copy(runStatus = status)
+    }.combine(_pendingQuestion) { state, question ->
+        state.copy(pendingQuestion = question)
+    }.combine(_runError) { state, error ->
+        state.copy(runError = error)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -450,6 +486,7 @@ class EditorViewModel(
             projectRepository.observeProjectById(projectId).collect { project ->
                 _project.value = project
                 if (project != null) {
+                    toolExecutor.setProjectPath(File(project.rootPath))
                     loadFileTree()
                 }
             }
@@ -461,11 +498,8 @@ class EditorViewModel(
      */
     private fun setupToolInteractionCallback() {
         toolExecutor.interactionCallback = object : ToolInteractionCallback {
-            override suspend fun askUser(question: String, options: List<String>?): String? {
-                // For now, we'll display the question in the chat
-                // A full implementation would show a dialog and wait for user input
-                return null
-            }
+            override suspend fun askUser(question: String, options: List<String>?): String? =
+                awaitAnswer(question, options.orEmpty())
 
             override suspend fun onTaskFinished(summary: String) {
                 // Clear task list when task is finished
@@ -485,6 +519,18 @@ class EditorViewModel(
                     oldContent = oldContent,
                     newContent = newContent
                 )
+                // Keep the open editor in step with the agent's edits, unless
+                // the user has unsaved changes of their own in it.
+                if (path == _currentFile.value?.path &&
+                    _fileContent.value == _originalFileContent.value &&
+                    changeType != FileChangeType.MOVED && changeType != FileChangeType.RENAMED
+                ) {
+                    val fresh = if (changeType == FileChangeType.DELETED) "" else newContent
+                    if (fresh != null) {
+                        _fileContent.value = fresh
+                        _originalFileContent.value = fresh
+                    }
+                }
             }
 
             override suspend fun onTodoCreated(todo: TodoItem) {
@@ -533,12 +579,13 @@ class EditorViewModel(
                     _messageHistory.add(aiRepository.createUserMessage(message.content))
                 }
                 message.isAssistant && message.status != MessageStatus.STREAMING -> {
-                    _messageHistory.add(
-                        ChatRequestMessage(
-                            role = "assistant",
-                            content = message.content
-                        )
-                    )
+                    // Reasoning and tool-card markup are display-only; sending
+                    // them back wastes context and teaches the model to write
+                    // fake tool cards.
+                    val text = RunTranscript.toHistoryText(message.content)
+                    if (text.isNotBlank()) {
+                        _messageHistory.add(ChatRequestMessage(role = "assistant", content = text))
+                    }
                 }
             }
         }
@@ -1099,445 +1146,308 @@ class EditorViewModel(
         val userMessage = ChatMessage.createUserMessage(projectId, content)
         _messages.value = _messages.value + userMessage
         _chatInput.value = ""
-        _isAiProcessing.value = true
-
-        // Reset agent loop state for new conversation turn
-        _agentIterationCount = 0
-        _taskCompleted = false
-        _isGenerationCancelled = false
-        _pendingToolCalls.clear()
-
-        // Add to message history for AI context
         _messageHistory.add(aiRepository.createUserMessage(content))
 
-        // Track the generation job for cancellation support
-        _aiGenerationJob = viewModelScope.launch {
-            // Save user message to database
+        startRun {
             chatRepository.saveMessage(userMessage)
-
-            // Auto-learn from user message (non-blocking)
             if (_agentMode.value) {
-                try {
-                    val currentFile = _currentFile.value?.path
-                    semanticMemorySystem.learnFromUserMessage(projectId, content, currentFile)
-                } catch (e: Exception) {
-                    // Silently ignore learning errors - don't disrupt user experience
+                // Learning is best-effort and must never block or break a run.
+                runCatching {
+                    semanticMemorySystem.learnFromUserMessage(projectId, content, _currentFile.value?.path)
                 }
             }
+        }
+    }
 
-            sendAiRequest()
+    /** Resume after a failed or limited run, from the history as it stands. */
+    fun retryRun() {
+        if (_isAiProcessing.value) return
+        if (_messageHistory.none { it.role == "user" }) return
+        // After a run the history is rebuilt from the saved transcript and
+        // ends with Orobi's partial reply; ask it to pick up from there.
+        if (_messageHistory.lastOrNull()?.role != "user") {
+            _messageHistory.add(
+                aiRepository.createUserMessage(
+                    "Continue from where you stopped. Check the current state of the files first if unsure."
+                )
+            )
+        }
+        startRun()
+    }
+
+    fun dismissRunError() {
+        _runError.value = null
+    }
+
+    /** The user answered the agent's ask_user question. */
+    fun answerQuestion(answer: String) {
+        val pending = questionAnswer ?: return
+        _pendingQuestion.value = null
+        questionAnswer = null
+        pending.complete(answer)
+    }
+
+    /** The user declined to answer; the agent proceeds on its own judgement. */
+    fun skipQuestion() {
+        val pending = questionAnswer ?: return
+        _pendingQuestion.value = null
+        questionAnswer = null
+        pending.complete(null)
+    }
+
+    /**
+     * Show the agent's question and suspend until the user answers.
+     *
+     * Previously the callback returned null immediately, the tool reported
+     * success with "Waiting for user response...", and the run ended -- so the
+     * user saw a green "Ask User" card and was never asked anything.
+     */
+    private suspend fun awaitAnswer(question: String, options: List<String>): String? {
+        // One question at a time; a second concurrent ask is answered as skipped.
+        if (questionAnswer != null) return null
+        val deferred = CompletableDeferred<String?>()
+        questionAnswer = deferred
+        _pendingQuestion.value = PendingQuestion(
+            id = java.util.UUID.randomUUID().toString(),
+            question = question,
+            options = options
+        )
+        return try {
+            deferred.await()
+        } finally {
+            // Cancelled (Stop) or answered: either way the card goes.
+            if (questionAnswer === deferred) questionAnswer = null
+            _pendingQuestion.value = null
         }
     }
 
     /**
-     * Stop the current AI generation/agent loop
-     * This cancels any ongoing streaming and tool execution
+     * Stop the current run: cancels the stream, any running tool, and any
+     * open question or approval.
      */
     fun stopGeneration() {
         if (!_isAiProcessing.value) return
-
-        _isGenerationCancelled = true
         _aiGenerationJob?.cancel()
-        _aiGenerationJob = null
-        _streamingUpdateJob?.cancel()
+        // The job's finally block records the stop in the transcript and
+        // resets state; nothing else to do here.
+    }
 
-        // Update the last message to show it was stopped
-        val currentContent = _streamingContent.value
-        if (currentContent.isNotEmpty()) {
-            updateLastAssistantMessage(
-                currentContent + "\n\n⏹️ Generation stopped by user.",
-                MessageStatus.SENT
-            )
-        } else {
-            // Remove empty assistant message if nothing was generated
-            val currentMessages = _messages.value.toMutableList()
-            if (currentMessages.isNotEmpty() && !currentMessages.last().isUser) {
-                currentMessages.removeAt(currentMessages.lastIndex)
-                _messages.value = currentMessages
-            }
+    /**
+     * Start an agent (or chat) run on the current history.
+     *
+     * Runs off the main thread: the loop, stream parsing and transcript
+     * rendering used to execute on Main, with a string concatenation per
+     * token, which is what made long replies stutter.
+     */
+    private fun startRun(beforeRun: suspend () -> Unit = {}) {
+        val model = _currentModel.value
+        if (model == null) {
+            _runError.value = RunError("Select a model first (tap the model name below the input).", actionLabel = "Retry")
+            return
         }
+        _runError.value = null
+        _isAiProcessing.value = true
+        _runStatus.value = AgentStatus.Thinking
+        forceTextTools = false
 
-        // Clean up state
-        _isAiProcessing.value = false
-        _taskCompleted = false
-        _agentIterationCount = 0
+        val assistantMessage = ChatMessage.createAssistantMessage(
+            projectId = projectId,
+            content = "",
+            status = MessageStatus.STREAMING
+        )
+        _messages.value = _messages.value + assistantMessage
+        val run = RunTranscript()
+        transcript = run
+        lastPushedRevision = -1L
 
-        // Refresh file tree in a coroutine since loadFileTree is a suspend function
-        viewModelScope.launch {
-            loadFileTree()
+        _aiGenerationJob = viewModelScope.launch(Dispatchers.Default) {
+            var finalStatus = MessageStatus.SENT
+            try {
+                beforeRun()
+                HistoryPruner.closeDanglingToolCalls(_messageHistory)
+                val result = runAgent(model, run)
+                when (result) {
+                    is AgentRunResult.Completed -> Unit
+                    is AgentRunResult.Failed -> {
+                        finalStatus = MessageStatus.ERROR
+                        if (run.render().isBlank()) run.note("⚠️ ${result.message}")
+                        _runError.value = RunError(
+                            message = result.message +
+                                if (result.retryable) "" else "\nCheck the provider settings or pick another model, then retry.",
+                            actionLabel = "Retry"
+                        )
+                    }
+                    is AgentRunResult.IterationLimit -> {
+                        run.note("_Paused after ${result.iterations} steps._")
+                        _runError.value = RunError(
+                            message = "Orobi paused after ${result.iterations} steps to check in. Continue to let it keep working.",
+                            actionLabel = "Continue",
+                            isNotice = true
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                run.closeThinking()
+                run.note("_Stopped._")
+                throw cancelled
+            } catch (e: Exception) {
+                finalStatus = MessageStatus.ERROR
+                run.note("⚠️ ${e.message ?: "Something went wrong"}")
+                _runError.value = RunError("Something went wrong: ${e.message ?: e.javaClass.simpleName}")
+            } finally {
+                withContext(NonCancellable) {
+                    run.closeThinking()
+                    pushJob?.cancel()
+                    updateLastAssistantMessage(run.render(), finalStatus)
+                    transcript = null
+                    _runStatus.value = null
+                    _pendingQuestion.value = null
+                    questionAnswer?.cancel()
+                    questionAnswer = null
+                    _isAiProcessing.value = false
+                    loadFileTree()
+                }
+            }
         }
     }
 
-    private suspend fun sendAiRequest() {
-        // Check for cancellation at the start of each iteration
-        if (_isGenerationCancelled) {
-            return
-        }
-        currentCoroutineContext().ensureActive()
-
-        val model = _currentModel.value
+    /** One agent run through [AgentLoop]; returns how it ended. */
+    private suspend fun runAgent(model: AiModel, run: RunTranscript): AgentRunResult {
         val isAgentMode = _agentMode.value
+        val nativeTools = model.supportsToolCalls
+        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() else emptyList()
+        val knownTools = offeredTools.map { it.function.name }.toSet()
 
-        // Check if model is selected
-        if (model == null) {
-            updateLastAssistantMessage(
-                "❌ Please select a model first before sending a message.",
-                MessageStatus.ERROR
-            )
-            _isAiProcessing.value = false
-            return
-        }
-
-        // Check iteration limit
-        if (_agentIterationCount >= MAX_AGENT_ITERATIONS) {
-            appendToLastAssistantMessage(
-                "\n\n⚠️ Agent reached maximum iteration limit ($MAX_AGENT_ITERATIONS). Stopping to prevent infinite loop."
-            )
-            updateLastAssistantMessage(_streamingContent.value, MessageStatus.SENT)
-            _isAiProcessing.value = false
-            loadFileTree()
-            return
-        }
-
-        _agentIterationCount++
-
-        // Build system message with project context and memories
-        val projectName = _project.value?.name ?: "Unknown Project"
-        val currentFileName = _currentFile.value?.name ?: ""
-        val currentFileContent = if (_fileContent.value.isNotEmpty()) {
-            "\n\nCurrently open file ($currentFileName):\n```\n${_fileContent.value}\n```"
-        } else ""
-
-        // Get memory context if in agent mode
-        val memoryContext = if (isAgentMode) {
-            memoryStorage.getContextString(projectId)
-        } else ""
-
-        // Get semantic memory context for richer project knowledge
-        val semanticMemoryContext = if (isAgentMode) {
-            try {
-                val currentFiles = _currentFile.value?.path?.let { listOf(it) } ?: emptyList()
+        // Context that does not change during a run, computed once.
+        val memoryContext = if (isAgentMode) memoryStorage.getContextString(projectId) else ""
+        val semanticContext = if (isAgentMode) {
+            runCatching {
                 semanticMemorySystem.buildContextString(
                     projectId = projectId,
-                    currentFiles = currentFiles,
+                    currentFiles = _currentFile.value?.path?.let { listOf(it) } ?: emptyList(),
                     queryTags = emptyList(),
                     maxTokens = 2000
                 )
-            } catch (e: Exception) {
-                "" // Gracefully handle any memory system errors
-            }
+            }.getOrDefault("")
         } else ""
-
-        // Get file tree for context
-        val fileTreeContext = if (isAgentMode) {
-            buildFileTreeContext()
-        } else ""
-
-        // Get user preferences context
         val preferencesContext = userPreferencesLearner.getPreferencesContext(projectId)
 
-        val systemMessage = aiRepository.createSystemMessage(
-            projectContext = "Project: $projectName$fileTreeContext$currentFileContent$memoryContext$semanticMemoryContext$preferencesContext"
-        )
-
-        // Optimize message history if needed for context window
-        val optimizedHistory = if (contextWindowManager.needsOptimization(_messageHistory, model)) {
-            contextWindowManager.optimizeMessages(_messageHistory, model, systemMessage)
-        } else {
-            _messageHistory.toList()
-        }
-
-        val messagesWithSystem = listOf(systemMessage) + optimizedHistory
-
-        // Update context window stats
-        updateContextStats(messagesWithSystem)
-
-        // Only create new assistant message if this is the first iteration
-        if (_agentIterationCount == 1) {
-            _streamingContent.value = ""
-            val assistantMessage = ChatMessage.createAssistantMessage(
-                projectId = projectId,
-                content = "",
-                status = MessageStatus.STREAMING
+        val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
+            val textMode = !nativeTools || forceTextTools
+            val system = aiRepository.createSystemMessage(
+                projectContext = buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext),
+                agentMode = isAgentMode,
+                nativeTools = !textMode,
+                toolList = offeredTools
             )
-            _messages.value = _messages.value + assistantMessage
+            val tools = if (isAgentMode && !textMode) offeredTools else null
+            val window = contextWindowManager.getAvailableTokens(model)
+            val fixed = TokenEstimator.estimate(system) + toolTokens(tools)
+            val share = when (pressure) { 0 -> 0.9; 1 -> 0.6; else -> 0.35 }
+            val budget = ((window * share).toInt() - fixed).coerceAtLeast(2_000)
+            val pruned = HistoryPruner.prune(history, budget)
+            val messages = listOf(system) + pruned
+            lastSystemPrompt = system.content
+            lastRequestTools = tools
+            updateContextStats(messages)
+            AgentRequest(messages, tools)
         }
 
-        // Get tools based on mode
-        // Delegation tools are offered only in agent mode: in chat mode there
-        // is no loop to resume, so a spawned subagent would have nowhere to
-        // report back to.
-        val tools = if (isAgentMode) {
-            OroTools.getAllTools() + DelegationTools.all
-        } else {
-            null
-        }
-
-        // Track tool calls for this iteration
-        var currentToolCalls = listOf<ToolCallResponse>()
-        var hasToolCalls = false
-        var finishedWithToolCalls = false
-
-
-        // Log the request with full details
-        logDebugToProject(
-            "REQUEST",
-            """
-            Model: ${model.id}
-            Agent Mode: $isAgentMode
-            Tools Enabled: ${tools != null}
-            Tool Count: ${tools?.size ?: 0}
-            Iteration: $_agentIterationCount
-            Message Count: ${messagesWithSystem.size}
-
-            --- System Message ---
-            ${systemMessage.content}
-
-            --- Conversation History (${optimizedHistory.size} messages) ---
-            ${optimizedHistory.mapIndexed { idx, msg ->
-                "[$idx] ${msg.role.uppercase()}${if (msg.toolCallId != null) " (tool_call_id: ${msg.toolCallId})" else ""}:\n${msg.content?.take(500)}${if ((msg.content?.length ?: 0) > 500) "... [truncated]" else ""}"
-            }.joinToString("\n\n")}
-
-            --- Tools Available ---
-            ${tools?.joinToString(", ") { it.function.name } ?: "None"}
-            """.trimIndent()
-        )
-
-        try {
-            aiRepository.streamChat(
-                model = model,
-                messages = messagesWithSystem,
-                tools = tools,
-                temperature = 0.7f
-            ).collect { event ->
-                // Check for cancellation on each event
-                if (_isGenerationCancelled) {
-                    return@collect
-                }
-                currentCoroutineContext().ensureActive()
-
-                when (event) {
-                    is StreamEvent.Started -> {
-                        // Streaming started - log initial event
-                        logDebugToProject("SSE_STARTED", "Streaming started for model: ${model.id}")
-                    }
-                    is StreamEvent.RawSSE -> {
-                        // Log raw SSE data for debugging
-                        logDebugRawSSE(event.data)
-                    }
-                    is StreamEvent.ContentDelta -> {
-                        // Handle content delta - may contain inline <think> tags from some models
-                        val currentContent = _streamingContent.value
-                        val hasUnclosedThinkTag = hasUnclosedThinkingTag(currentContent)
-                        val deltaContainsCloseTag = event.content.lowercase().contains("</think>")
-                        val deltaContainsOpenTag = event.content.lowercase().contains("<think>")
-
-                        if (hasUnclosedThinkTag && !deltaContainsCloseTag && !deltaContainsOpenTag && event.content.isNotEmpty()) {
-                            // We have an open think block from ReasoningDelta, and this is regular content
-                            // Close the think block before adding regular content
-                            _streamingContent.value += "</think>\n${event.content}"
-                        } else {
-                            // Either no open think tag, or the delta contains tags that will handle closure
-                            _streamingContent.value += event.content
-                        }
-                        // Use debounced update for better performance
-                        debouncedStreamingUpdate()
-                    }
-                    is StreamEvent.ReasoningDelta -> {
-                        // Handle reasoning for thinking models - wrap in <think> tags for proper parsing
-                        val currentContent = _streamingContent.value
-                        val hasOpenThinkTag = hasUnclosedThinkingTag(currentContent)
-
-                        if (!hasOpenThinkTag && event.reasoning.isNotEmpty()) {
-                            // Start a new think block
-                            _streamingContent.value += "<think>${event.reasoning}"
-                        } else if (hasOpenThinkTag) {
-                            // Continue the existing think block
-                            _streamingContent.value += event.reasoning
-                        }
-                        // Use debounced update for better performance
-                        debouncedStreamingUpdate()
-                    }
-                    is StreamEvent.ToolCalls -> {
-                        // Store tool calls for processing after stream completes
-                        currentToolCalls = event.toolCalls
-                        hasToolCalls = true
-                    }
-                    is StreamEvent.FinishReason -> {
-                        // Track if finished due to tool calls
-                        finishedWithToolCalls = event.reason == "tool_calls"
-                    }
-                    is StreamEvent.Error -> {
-                        // Don't show error if generation was cancelled
-                        if (!_isGenerationCancelled) {
-                            updateLastAssistantMessage(
-                                _streamingContent.value + "\n\n❌ Error: ${event.message}",
-                                MessageStatus.ERROR
-                            )
-                            _isAiProcessing.value = false
-                        }
-                    }
-                    is StreamEvent.Completed -> {
-                        // Skip completion handling if cancelled
-                        if (_isGenerationCancelled) {
-                            return@collect
-                        }
-
-                        // Handle completion based on whether we have tool calls
-                        if (hasToolCalls && currentToolCalls.isNotEmpty()) {
-                            // Process tool calls and continue the loop
-                            val shouldContinue = handleToolCalls(currentToolCalls)
-
-                            if (shouldContinue && _agentMode.value && !_taskCompleted && !_isGenerationCancelled) {
-                                // Continue the agentic loop
-                                sendAiRequest()
-                            } else {
-                                // Task completed or agent stopped
-                                updateLastAssistantMessage(_streamingContent.value, MessageStatus.SENT)
-                                _isAiProcessing.value = false
-                                loadFileTree()
-                            }
-                        } else {
-                            // No native tool calls - check for text-based tool calls as fallback
-                            val finalContent = _streamingContent.value
-                            val textToolCalls = parseTextBasedToolCalls(finalContent)
-
-                            if (textToolCalls.isNotEmpty() && _agentMode.value) {
-                                // Found text-based tool calls - execute them
-                                val shouldContinue = handleToolCalls(textToolCalls)
-
-                                if (shouldContinue && !_taskCompleted && !_isGenerationCancelled) {
-                                    // Continue the agentic loop
-                                    sendAiRequest()
-                                } else {
-                                    // Task completed or agent stopped
-                                    updateLastAssistantMessage(_streamingContent.value, MessageStatus.SENT)
-                                    _isAiProcessing.value = false
-                                    loadFileTree()
-                                }
-                            } else {
-                                // No tool calls - conversation turn complete
-                                updateLastAssistantMessage(finalContent, MessageStatus.SENT)
-
-                                // Log the response
-                                logDebugToProject(
-                                    "RESPONSE",
-                                    """
-                                    Content: $finalContent
-                                    """.trimIndent()
-                                )
-
-                                // Add assistant response to history (without tool calls)
-                                if (finalContent.isNotEmpty()) {
-                                    _messageHistory.add(
-                                        ChatRequestMessage(
-                                            role = "assistant",
-                                            content = finalContent
-                                        )
-                                    )
-                                }
-
-                                _isAiProcessing.value = false
-                                loadFileTree()
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: CancellationException) {
-            // Cancellation is expected when user stops generation - don't treat as error
-            // State cleanup is handled by stopGeneration()
-            throw e // Re-throw to properly cancel the coroutine
-        } catch (e: Exception) {
-            // Don't show error if generation was cancelled
-            if (!_isGenerationCancelled) {
-                updateLastAssistantMessage(
-                    _streamingContent.value + "\n\n❌ Failed to connect to AI: ${e.message}",
-                    MessageStatus.ERROR
+        val pacingStatus = AgentStatus(AgentStatus.Kind.RETRYING, "Waiting for ${model.provider.displayName}'s rate limit")
+        val onRateLimitWait: suspend () -> Unit = { _runStatus.value = pacingStatus }
+        val client = object : AgentModelClient {
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> {
+                val stream = aiRepository.streamChat(
+                    model = model,
+                    messages = request.messages,
+                    tools = request.tools,
+                    temperature = 0.5f,
+                    onRateLimitWait = onRateLimitWait
                 )
-                _isAiProcessing.value = false
+                return if (request.tools == null) stream else detectToolRejection(stream)
             }
         }
-    }
 
-    /**
-     * Build a compact file tree context string for the AI
-     */
-    private fun buildFileTreeContext(): String {
-        val tree = _fileTree.value
-        if (tree.isEmpty()) return ""
+        val runner = AgentToolRunner { call -> runTool(call) }
 
-        val sb = StringBuilder("\n\nProject file structure:\n")
-        buildFileTreeString(tree, sb, 0)
-        return sb.toString()
-    }
-
-    private fun buildFileTreeString(nodes: List<FileTreeNode>, sb: StringBuilder, depth: Int) {
-        val indent = "  ".repeat(depth)
-        for (node in nodes) {
-            when (node) {
-                is FileTreeNode.FileNode -> {
-                    sb.append("$indent- ${node.name}\n")
-                }
-                is FileTreeNode.FolderNode -> {
-                    sb.append("$indent📁 ${node.name}/\n")
-                    buildFileTreeString(node.children, sb, depth + 1)
+        val listener = object : AgentLoopListener {
+            override fun onStatus(status: AgentStatus) {
+                _runStatus.value = status
+            }
+            override fun onModelCallStarted(iteration: Int, attempt: Int) {
+                run.beginModelCall()
+                pushTranscript(force = true)
+            }
+            override fun onReasoning(delta: String) {
+                run.appendReasoning(delta)
+                pushTranscript()
+            }
+            override fun onText(delta: String) {
+                run.appendText(delta)
+                pushTranscript()
+            }
+            override fun onAttemptDiscarded(reason: String) {
+                run.discardCurrentCall()
+                pushTranscript(force = true)
+                logDebugToProject("RETRY", reason)
+            }
+            override fun onTurnComplete(visibleText: String, toolCalls: List<ToolCallResponse>) {
+                run.setCurrentCallText(visibleText)
+                pushTranscript(force = true)
+            }
+            override fun onToolStarted(call: ToolCallResponse) {
+                run.toolStarted(call)
+                pushTranscript(force = true)
+            }
+            override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
+                run.toolFinished(call, result)
+                pushTranscript(force = true)
+                if (ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly) {
+                    viewModelScope.launch { loadFileTree() }
                 }
             }
+            override fun onUsage(promptTokens: Int, completionTokens: Int) {
+                // The provider's own count beats the estimate when it gives one.
+                if (promptTokens > 0) _contextTokenCount.value = promptTokens
+            }
         }
-    }
 
-    /**
-     * Update context window statistics for UI display
-     */
-    private fun updateContextStats(messages: List<ChatRequestMessage>) {
-        val model = _currentModel.value ?: return
-        val currentTokens = contextWindowManager.estimateTotalTokens(messages)
-        val maxTokens = contextWindowManager.getAvailableTokens(model)
-        val usage = currentTokens.toFloat() / maxTokens
-
-        _contextTokenCount.value = currentTokens
-        _contextMaxTokens.value = maxTokens
-        // Breakdown rides on the same hook, so the meter and the sheet can
-        // never disagree about how full the window is.
-        refreshContextBreakdown()
-        _contextUsageLevel.value = when {
-            usage < 0.5f -> ContextUsageLevel.LOW
-            usage < 0.75f -> ContextUsageLevel.MEDIUM
-            usage < 0.9f -> ContextUsageLevel.HIGH
-            else -> ContextUsageLevel.CRITICAL
-        }
-    }
-
-    /**
-     * Handle tool calls and return whether the agent should continue
-     */
-    private suspend fun handleToolCalls(toolCalls: List<ToolCallResponse>): Boolean {
-        val toolResults = StringBuilder()
-        var shouldContinue = true
-
-        // First, add the assistant message with tool calls to history
-        val currentContent = _streamingContent.value
-        _messageHistory.add(
-            AssistantMessageWithToolCalls(
-                content = if (currentContent.isNotEmpty()) currentContent else null,
-                toolCalls = toolCalls
-            ).toChatRequestMessage()
+        logDebugToProject("RUN", "Model: ${model.id} (${model.provider.displayName}) agent=$isAgentMode nativeTools=$nativeTools")
+        val loop = AgentLoop(
+            client = client,
+            tools = runner,
+            config = AgentLoopConfig(maxIterations = MAX_AGENT_ITERATIONS)
         )
+        val result = loop.run(_messageHistory, knownTools, listener, prepare)
+        logDebugToProject("RUN_END", result.toString().take(500))
+        refreshContextBreakdown()
+        return result
+    }
 
-        // Begin a change group for undo/redo
-        val toolNames = toolCalls.map { it.function.name }.distinct().joinToString(", ")
-        undoRedoManager.beginChangeGroup("AI: $toolNames")
+    /**
+     * Some providers answer 400 when sent tools for a model they serve without
+     * tool support. Switch the run to text tool calls and let the loop retry,
+     * rather than failing the run over a capability the harness can emulate.
+     */
+    private fun detectToolRejection(stream: Flow<StreamEvent>): Flow<StreamEvent> = flow {
+        stream.collect { event ->
+            if (event is StreamEvent.Error && !forceTextTools && event.httpCode in setOf(400, 404, 422) &&
+                Regex("tool|function", RegexOption.IGNORE_CASE).containsMatchIn(event.message)
+            ) {
+                forceTextTools = true
+                emit(StreamEvent.Error("Model rejected native tools; switching to text tool calls", retryAfterMs = 500, retryable = true))
+            } else {
+                emit(event)
+            }
+        }
+    }
 
-        for (toolCall in toolCalls) {
-            val toolName = toolCall.function.name
-            // Delegation tools are handled here rather than in ToolExecutor:
-            // they mutate this session's orchestrator and plan, which the
-            // executor has no business knowing about.
-            val result = if (toolName == "request_approval") {
-                // Handled here rather than in DelegationHandler: only the view
-                // model can suspend the loop on a UI answer.
-                val args = DelegationHandler.parseArgs(toolCall.function.arguments)
+    /** Execute one tool call for the main agent. */
+    private suspend fun runTool(call: ToolCallResponse): ToolResult {
+        val name = ToolAliases.canonicalName(call.function.name)
+        return when {
+            name == "request_approval" -> {
+                val args = DelegationHandler.parseArgs(call.function.arguments)
                 val action = args?.get("action")?.jsonPrimitive?.content
                 if (action.isNullOrBlank()) {
                     ToolResult(false, "", "action is required")
@@ -1548,126 +1458,129 @@ class EditorViewModel(
                     } else {
                         ToolResult(
                             true,
-                            "The user declined: $action. Do not attempt it, and " +
-                                "do not ask again for the same action. Continue " +
-                                "with what you can do, or explain what you cannot."
+                            "The user declined: $action. Do not attempt it, and do not ask again " +
+                                "for the same action. Continue with what you can do, or explain what you cannot."
                         )
                     }
                 }
-            } else if (delegationHandler.handles(toolName)) {
-                val args = DelegationHandler.parseArgs(toolCall.function.arguments)
-                if (args == null) {
-                    ToolResult(false, "", "Could not parse arguments for $toolName")
-                } else {
-                    delegationHandler.execute(toolName, args)
+            }
+            delegationHandler.handles(name) -> {
+                val args = DelegationHandler.parseArgs(call.function.arguments)
+                    ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
+                delegationHandler.execute(name, args)
+            }
+            else -> {
+                undoRedoManager.beginChangeGroup("AI: ${RunTranscript.titleFor(name)}")
+                try {
+                    toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
+                } finally {
+                    undoRedoManager.endChangeGroup()
                 }
-            } else {
-                toolExecutor.execute(projectId, toolCall)
             }
+        }
+    }
 
-            // Add visual feedback in the UI
-            toolResults.append("\n\n🔧 **${formatToolName(toolName)}**\n")
-            if (result.success) {
-                val output = result.output.take(500) // Truncate long outputs in UI
-                if (result.output.length > 500) {
-                    toolResults.append("✅ ${output}...")
-                } else {
-                    toolResults.append("✅ $output")
+    private fun toolTokens(tools: List<Tool>?): Int = tools?.sumOf {
+        TokenEstimator.estimate(it.function.name) + TokenEstimator.estimate(it.function.description) +
+            TokenEstimator.estimate(it.function.parameters.toString())
+    } ?: 0
+
+    private fun buildProjectContext(
+        isAgentMode: Boolean,
+        memoryContext: String,
+        semanticContext: String,
+        preferencesContext: String
+    ): String = buildString {
+        append("Project: ").append(_project.value?.name ?: "Untitled")
+        if (isAgentMode) append(buildFileTreeContext())
+        val file = _currentFile.value
+        val content = _fileContent.value
+        if (file != null && content.isNotEmpty()) {
+            append("\n\nThe user has ").append(file.path).append(" open in the editor")
+            if (content.length <= OPEN_FILE_CONTEXT_CHARS) {
+                append(":\n```\n").append(content).append("\n```")
+            } else {
+                append(" (").append(content.lines().size).append(" lines; read it with read_file if relevant).")
+            }
+        }
+        append(memoryContext)
+        append(semanticContext)
+        append(preferencesContext)
+    }
+
+    /**
+     * Push the transcript into the last assistant message, at most every
+     * [STREAMING_UPDATE_INTERVAL_MS] unless [force]d (structural changes such
+     * as a tool card appearing are shown at once).
+     */
+    private fun pushTranscript(force: Boolean = false) {
+        val run = transcript ?: return
+        if (run.revision == lastPushedRevision) return
+        val now = System.currentTimeMillis()
+        if (force || now - lastPushAt >= STREAMING_UPDATE_INTERVAL_MS) {
+            pushJob?.cancel()
+            lastPushAt = now
+            lastPushedRevision = run.revision
+            updateLastAssistantMessageDirect(run.render(), MessageStatus.STREAMING)
+        } else if (pushJob?.isActive != true) {
+            pushJob = viewModelScope.launch(Dispatchers.Default) {
+                delay(STREAMING_UPDATE_INTERVAL_MS)
+                transcript?.let {
+                    lastPushAt = System.currentTimeMillis()
+                    lastPushedRevision = it.revision
+                    updateLastAssistantMessageDirect(it.render(), MessageStatus.STREAMING)
                 }
-            } else {
-                toolResults.append("❌ ${result.error}")
-            }
-
-            // Add tool result to message history for AI context
-            _messageHistory.add(
-                aiRepository.createToolResultMessage(
-                    toolCallId = toolCall.id,
-                    result = if (result.success) result.output else "Error: ${result.error}"
-                )
-            )
-
-            // Check if this is a finish_task tool call
-            if (toolName == "finish_task") {
-                _taskCompleted = true
-                shouldContinue = false
-            }
-
-            // Check if this is an ask_user tool call (requires user input)
-            if (toolName == "ask_user") {
-                shouldContinue = false
             }
         }
-
-        // End the change group for undo/redo
-        undoRedoManager.endChangeGroup()
-
-        // Append tool results to streaming content
-        _streamingContent.value += toolResults.toString()
-        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
-
-        // Refresh file tree to reflect any changes
-        loadFileTree()
-
-        return shouldContinue
     }
 
     /**
-     * Format tool name for display (convert snake_case to Title Case)
+     * Build a compact file tree context string for the AI
      */
-    private fun formatToolName(name: String): String {
-        return name.split("_").joinToString(" ") { word ->
-            word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    private fun buildFileTreeContext(): String {
+        val tree = _fileTree.value
+        if (tree.isEmpty()) return "\n\nThe project is empty."
+
+        val sb = StringBuilder("\n\nProject files:\n")
+        buildFileTreeString(tree, sb, 0)
+        return sb.toString().let { if (it.length > 6_000) it.take(6_000) + "\n… (use list_files for the rest)" else it }
+    }
+
+    private fun buildFileTreeString(nodes: List<FileTreeNode>, sb: StringBuilder, depth: Int) {
+        val indent = "  ".repeat(depth)
+        for (node in nodes) {
+            if (!com.oro.app.data.ai.tools.AgentPathPolicy.isVisible(node.name)) continue
+            when (node) {
+                is FileTreeNode.FileNode -> sb.append("$indent${node.name}\n")
+                is FileTreeNode.FolderNode -> {
+                    sb.append("$indent${node.name}/\n")
+                    if (node.name != "node_modules") buildFileTreeString(node.children, sb, depth + 1)
+                }
+            }
         }
     }
 
     /**
-     * Append text to the last assistant message
+     * Update context window statistics for UI display
      */
-    private fun appendToLastAssistantMessage(text: String) {
-        _streamingContent.value += text
-        updateLastAssistantMessage(_streamingContent.value, MessageStatus.STREAMING)
-    }
+    private fun updateContextStats(messages: List<ChatRequestMessage>) {
+        val model = _currentModel.value ?: return
+        val currentTokens = contextWindowManager.estimateTotalTokens(messages) + toolTokens(lastRequestTools)
+        val maxTokens = contextWindowManager.getAvailableTokens(model)
+        val usage = currentTokens.toFloat() / maxTokens
 
-    /**
-     * Debounced update for streaming content to reduce UI lag.
-     * Updates are batched and applied at most every STREAMING_UPDATE_INTERVAL_MS.
-     */
-    private fun debouncedStreamingUpdate() {
-        val currentTime = System.currentTimeMillis()
-        val timeSinceLastUpdate = currentTime - _lastStreamingUpdate
-
-        if (timeSinceLastUpdate >= STREAMING_UPDATE_INTERVAL_MS) {
-            // Enough time has passed, update immediately
-            _lastStreamingUpdate = currentTime
-            updateLastAssistantMessageDirect(_streamingContent.value, MessageStatus.STREAMING)
-        } else if (!_pendingStreamingUpdate) {
-            // Schedule a delayed update
-            _pendingStreamingUpdate = true
-            _streamingUpdateJob?.cancel()
-            _streamingUpdateJob = viewModelScope.launch {
-                delay(STREAMING_UPDATE_INTERVAL_MS - timeSinceLastUpdate)
-                _pendingStreamingUpdate = false
-                _lastStreamingUpdate = System.currentTimeMillis()
-                updateLastAssistantMessageDirect(_streamingContent.value, MessageStatus.STREAMING)
-            }
+        _contextTokenCount.value = currentTokens
+        _contextMaxTokens.value = maxTokens
+        refreshContextBreakdown()
+        _contextUsageLevel.value = when {
+            usage < 0.5f -> ContextUsageLevel.LOW
+            usage < 0.75f -> ContextUsageLevel.MEDIUM
+            usage < 0.9f -> ContextUsageLevel.HIGH
+            else -> ContextUsageLevel.CRITICAL
         }
-        // If pendingStreamingUpdate is true, an update is already scheduled
-    }
-
-    /**
-     * Flush any pending streaming updates immediately
-     */
-    private fun flushStreamingUpdate() {
-        _streamingUpdateJob?.cancel()
-        _pendingStreamingUpdate = false
-        _lastStreamingUpdate = System.currentTimeMillis()
     }
 
     private fun updateLastAssistantMessage(content: String, status: MessageStatus) {
-        // For non-streaming updates, flush any pending and update directly
-        if (status != MessageStatus.STREAMING) {
-            flushStreamingUpdate()
-        }
         updateLastAssistantMessageDirect(content, status)
     }
 
@@ -1676,24 +1589,25 @@ class EditorViewModel(
         if (currentMessages.isNotEmpty()) {
             val lastMessage = currentMessages.last()
             if (!lastMessage.isUser) {
-                // Sanitize content when saving (not streaming)
-                val sanitizedContent = if (status != MessageStatus.STREAMING) {
+                val finalContent = if (status != MessageStatus.STREAMING) {
                     sanitizeAiResponseContent(content)
                 } else {
                     content
                 }
-
-                val updatedMessage = lastMessage.copy(
-                    content = sanitizedContent,
-                    status = status
-                )
+                val updatedMessage = lastMessage.copy(content = finalContent, status = status)
                 currentMessages[currentMessages.lastIndex] = updatedMessage
                 _messages.value = currentMessages
 
-                // Persist to database when message is complete (not streaming)
                 if (status != MessageStatus.STREAMING) {
                     viewModelScope.launch {
-                        chatRepository.saveMessage(updatedMessage)
+                        if (updatedMessage.content.isBlank()) {
+                            // Nothing to keep: an empty assistant row would
+                            // render as a blank bubble after reload.
+                            _messages.value = _messages.value.filterNot { it.id == updatedMessage.id }
+                            chatRepository.deleteMessage(updatedMessage)
+                        } else {
+                            chatRepository.saveMessage(updatedMessage)
+                        }
                     }
                 }
             }
@@ -1772,9 +1686,10 @@ class EditorViewModel(
     }
 
     fun clearChat() {
+        if (_isAiProcessing.value) stopGeneration()
         _messages.value = emptyList()
         _messageHistory.clear()
-        _streamingContent.value = ""
+        _runError.value = null
 
         // Clear persisted messages
         viewModelScope.launch {
@@ -1899,138 +1814,11 @@ class EditorViewModel(
         _chatInput.value = prompt
     }
 
-    /**
-     * Parse text-based tool calls from model output as a fallback when native function calling is not used.
-     * Some models output tool calls as text instead of using the OpenAI function calling API.
-     *
-     * Supported patterns:
-     * 1. JSON code blocks: ```json {"name": "tool_name", "arguments": {...}} ```
-     * 2. Tool name headers: **write_file** or `write_file` followed by JSON
-     * 3. Function call syntax: write_file(path="...", content="...")
-     */
-    private fun parseTextBasedToolCalls(content: String): List<ToolCallResponse> {
-        val toolCalls = mutableListOf<ToolCallResponse>()
-        val knownTools = OroTools.getToolNames()
-
-        // Pattern 1: JSON code blocks with tool calls
-        val jsonBlockRegex = Regex("""```(?:json)?\s*\{[^}]*"(?:name|function)":\s*"([^"]+)"[^}]*\}[^`]*```""", RegexOption.DOT_MATCHES_ALL)
-        jsonBlockRegex.findAll(content).forEach { match ->
-            try {
-                val jsonStr = match.value.replace("```json", "").replace("```", "").trim()
-                parseToolCallJson(jsonStr, knownTools)?.let { toolCalls.add(it) }
-            } catch (e: Exception) {
-                // Ignore parsing errors
-            }
-        }
-
-        // Pattern 2: Detect inline JSON for tool calls (e.g., {"type": "function", "function": {"name": "write_file", ...}})
-        val inlineJsonRegex = Regex("""\{[^{}]*"function":\s*\{[^{}]*"name":\s*"([^"]+)"[^}]*\}[^}]*\}""")
-        inlineJsonRegex.findAll(content).forEach { match ->
-            try {
-                parseToolCallJson(match.value, knownTools)?.let { toolCalls.add(it) }
-            } catch (e: Exception) {
-                // Ignore parsing errors
-            }
-        }
-
-        // Pattern 3: Function call syntax (function_name(param1="value1", param2="value2"))
-        for (toolName in knownTools) {
-            val funcCallRegex = Regex("""$toolName\s*\(\s*([^)]*)\s*\)""")
-            funcCallRegex.findAll(content).forEach { match ->
-                try {
-                    val argsStr = match.groupValues[1]
-                    val argsMap = parseFunctionArguments(argsStr)
-                    if (argsMap.isNotEmpty()) {
-                        val jsonArgs = kotlinx.serialization.json.Json.encodeToString(
-                            kotlinx.serialization.json.JsonObject.serializer(),
-                            kotlinx.serialization.json.JsonObject(argsMap.mapValues {
-                                kotlinx.serialization.json.JsonPrimitive(it.value)
-                            })
-                        )
-                        toolCalls.add(
-                            ToolCallResponse(
-                                id = "text_${System.currentTimeMillis()}_${toolCalls.size}",
-                                type = "function",
-                                function = FunctionCall(name = toolName, arguments = jsonArgs)
-                            )
-                        )
-                    }
-                } catch (e: Exception) {
-                    // Ignore parsing errors
-                }
-            }
-        }
-
-        return toolCalls.distinctBy { "${it.function.name}_${it.function.arguments}" }
-    }
-
-    /**
-     * Parse a JSON string into a ToolCallResponse
-     */
-    private fun parseToolCallJson(jsonStr: String, knownTools: List<String>): ToolCallResponse? {
-        return try {
-            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
-            val element = json.parseToJsonElement(jsonStr)
-
-            when {
-                // Format: {"function": {"name": "...", "arguments": {...}}}
-                element is kotlinx.serialization.json.JsonObject && element.containsKey("function") -> {
-                    val func = element["function"]?.let { it as? kotlinx.serialization.json.JsonObject }
-                    val name = func?.get("name")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-                    val args = func?.get("arguments")
-
-                    if (name != null && knownTools.contains(name)) {
-                        ToolCallResponse(
-                            id = "text_${System.currentTimeMillis()}",
-                            type = "function",
-                            function = FunctionCall(
-                                name = name,
-                                arguments = args?.toString() ?: "{}"
-                            )
-                        )
-                    } else null
-                }
-                // Format: {"name": "...", "arguments": {...}}
-                element is kotlinx.serialization.json.JsonObject && element.containsKey("name") -> {
-                    val name = element["name"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
-                    val args = element["arguments"]
-
-                    if (name != null && knownTools.contains(name)) {
-                        ToolCallResponse(
-                            id = "text_${System.currentTimeMillis()}",
-                            type = "function",
-                            function = FunctionCall(
-                                name = name,
-                                arguments = args?.toString() ?: "{}"
-                            )
-                        )
-                    } else null
-                }
-                else -> null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    /**
-     * Parse function-style arguments: param1="value1", param2="value2"
-     */
-    private fun parseFunctionArguments(argsStr: String): Map<String, String> {
-        val args = mutableMapOf<String, String>()
-
-        // Match param="value" or param='value' patterns
-        val argRegex = Regex("""(\w+)\s*=\s*["']([^"']*?)["']""")
-        argRegex.findAll(argsStr).forEach { match ->
-            args[match.groupValues[1]] = match.groupValues[2]
-        }
-
-        return args
-    }
-
     companion object {
-        private const val MAX_AGENT_ITERATIONS = 25 // Prevent infinite loops
-        private const val STREAMING_UPDATE_INTERVAL_MS = 100L // Debounce interval for streaming updates (10 FPS - better for performance)
+        private const val MAX_AGENT_ITERATIONS = 40
+        private const val OPEN_FILE_CONTEXT_CHARS = 12_000
+        /** At most this often is a streaming transcript pushed to the UI. */
+        private const val STREAMING_UPDATE_INTERVAL_MS = 80L
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -2149,119 +1937,93 @@ class EditorViewModel(
             return
         }
 
-        val allowedTools = OroTools.getAllTools().filter { tool ->
+        val allowedTools = AgentTools.all.filter { tool ->
             val capability = capabilityFor(tool.function.name)
             capability != null && definition.allows(capability)
         }
+        val nativeTools = model.supportsToolCalls
+        val textToolProtocol = if (!nativeTools && allowedTools.isNotEmpty()) {
+            "\n\n" + (aiRepository.createSystemMessage(
+                agentMode = true, nativeTools = false, toolList = allowedTools
+            ).content.orEmpty().substringAfter("# Calling tools", "").let { if (it.isBlank()) "" else "# Calling tools$it" }
+                .substringBefore("\n# Web guidelines"))
+        } else ""
+        val system = ChatRequestMessage(role = "system", content = definition.systemPrompt + textToolProtocol)
+        val history = mutableListOf(ChatRequestMessage(role = "user", content = session.prompt))
+        var turns = 0
 
-        val history = mutableListOf(
-            ChatRequestMessage(role = "system", content = definition.systemPrompt),
-            ChatRequestMessage(role = "user", content = session.prompt)
+        val loop = AgentLoop(
+            client = { request ->
+                aiRepository.streamChat(model = model, messages = request.messages, tools = request.tools, temperature = 0.4f)
+            },
+            // Out-of-capability calls are refused, not executed, and the
+            // refusal goes back as the result so the agent can adjust.
+            tools = { call ->
+                val name = ToolAliases.canonicalName(call.function.name)
+                val capability = capabilityFor(name)
+                if (capability == null || !definition.allows(capability)) {
+                    ToolResult(false, "", "Refused: a ${definition.label} agent cannot call ${call.function.name}.")
+                } else {
+                    toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
+                }
+            },
+            config = AgentLoopConfig(maxIterations = definition.maxTurns)
         )
 
-        var turns = 0
-        while (turns < definition.maxTurns) {
-            turns++
-            subagentOrchestrator.advance(session.id, AgentPhase.THINKING, turnsUsed = turns)
-
-            val completion = aiRepository.chat(
-                model = model,
-                messages = history,
-                tools = allowedTools.takeIf { it.isNotEmpty() }
-            ).getOrElse { error ->
-                subagentOrchestrator.fail(session.id, error.message ?: "Provider error")
-                return
+        val listener = object : AgentLoopListener {
+            private val started = mutableMapOf<String, Long>()
+            override fun onModelCallStarted(iteration: Int, attempt: Int) {
+                turns = iteration
+                subagentOrchestrator.advance(session.id, AgentPhase.THINKING, turnsUsed = iteration)
             }
-
-            val reply = completion.choices.firstOrNull()?.message
-            val calls = reply?.toolCalls
-            if (calls.isNullOrEmpty()) {
-                val summary = reply?.content?.trim().orEmpty()
-                subagentOrchestrator.advance(session.id, AgentPhase.SUMMARISING)
-                subagentOrchestrator.complete(
-                    session.id,
-                    summary.ifEmpty { "Finished without a summary." }
-                )
-                return
-            }
-
-            history += ChatRequestMessage(
-                role = "assistant",
-                content = reply.content.orEmpty()
-            )
-
-            for (call in calls) {
-                val name = call.function.name
-                val capability = capabilityFor(name)
-
-                // Refuse out-of-capability calls rather than executing them.
-                // The refusal is fed back as the tool result so the agent can
-                // adjust instead of silently producing nothing.
-                if (capability == null || !definition.allows(capability)) {
-                    history += ChatRequestMessage(
-                        role = "tool",
-                        content = "Refused: a ${definition.label} agent cannot call $name.",
-                        toolCallId = call.id
-                    )
-                    subagentOrchestrator.advance(
-                        session.id,
-                        AgentPhase.THINKING,
-                        AgentStep(
-                            index = session.steps.size,
-                            phase = AgentPhase.THINKING,
-                            label = "Blocked $name (not permitted)",
-                            finishedAt = System.currentTimeMillis(),
-                            isError = true
-                        )
-                    )
-                    continue
+            override fun onToolStarted(call: ToolCallResponse) {
+                started[call.id] = System.currentTimeMillis()
+                capabilityFor(ToolAliases.canonicalName(call.function.name))?.let {
+                    subagentOrchestrator.advance(session.id, phaseFor(it))
                 }
-
-                subagentOrchestrator.advance(session.id, phaseFor(capability))
-                val startedAt = System.currentTimeMillis()
-                val result = toolExecutor.execute(projectId, call)
-
+            }
+            override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
+                val name = ToolAliases.canonicalName(call.function.name)
+                val phase = capabilityFor(name)?.let { phaseFor(it) } ?: AgentPhase.THINKING
                 subagentOrchestrator.advance(
                     session.id,
-                    phaseFor(capability),
+                    phase,
                     AgentStep(
-                        index = session.steps.size,
-                        phase = phaseFor(capability),
-                        label = ToolPresentations.describe(
-                            name,
-                            subjectOf(call.function.arguments),
-                            isRunning = false
-                        ),
-                        startedAt = startedAt,
+                        index = subagentOrchestrator.session(session.id)?.steps?.size ?: 0,
+                        phase = phase,
+                        label = ToolPresentations.describe(name, subjectOf(call.function.arguments), isRunning = false),
+                        startedAt = started[call.id] ?: System.currentTimeMillis(),
                         finishedAt = System.currentTimeMillis(),
                         isError = !result.success
                     )
                 )
-
-                history += ChatRequestMessage(
-                    role = "tool",
-                    content = if (result.success) result.output else "Error: ${result.error}",
-                    toolCallId = call.id
-                )
             }
         }
 
-        // Out of turns. Almost always a loop rather than a task that genuinely
-        // needed more steps, so it is reported as such instead of as a failure.
-        subagentOrchestrator.advance(session.id, AgentPhase.EXHAUSTED, turnsUsed = turns)
+        val knownTools = allowedTools.map { it.function.name }.toSet()
+        when (val result = loop.run(history, knownTools, listener) { h, pressure ->
+            val window = contextWindowManager.getAvailableTokens(model)
+            val share = if (pressure == 0) 0.9 else 0.5
+            val tools = if (nativeTools) allowedTools.takeIf { it.isNotEmpty() } else null
+            AgentRequest(
+                listOf(system) + HistoryPruner.prune(h, (window * share).toInt() - TokenEstimator.estimate(system) - toolTokens(tools)),
+                tools
+            )
+        }) {
+            is AgentRunResult.Completed -> {
+                subagentOrchestrator.advance(session.id, AgentPhase.SUMMARISING)
+                subagentOrchestrator.complete(session.id, result.finalText.ifBlank { "Finished without a summary." })
+            }
+            is AgentRunResult.Failed -> subagentOrchestrator.fail(session.id, result.message)
+            // Out of turns. Almost always a loop rather than a task that
+            // genuinely needed more steps, so reported as such.
+            is AgentRunResult.IterationLimit ->
+                subagentOrchestrator.advance(session.id, AgentPhase.EXHAUSTED, turnsUsed = turns)
+        }
     }
 
     /** Which capability a tool needs, or null if it is not a known tool. */
-    private fun capabilityFor(toolName: String): ToolCapability? = when (toolName) {
-        "read_file", "list_files", "search_files" -> ToolCapability.READ
-        "write_file", "delete_file", "create_folder", "rename_file",
-        "copy_file", "move_file", "search_replace", "patch_file" -> ToolCapability.WRITE
-        "run_command" -> ToolCapability.EXECUTE
-        "save_memory", "recall_memory", "list_memories",
-        "delete_memory", "update_memory" -> ToolCapability.MEMORY
-        "spawn_subagent" -> ToolCapability.DELEGATE
-        else -> null
-    }
+    private fun capabilityFor(toolName: String): ToolCapability? = AgentTools.capabilityOf(toolName)
 
     private fun phaseFor(capability: ToolCapability): AgentPhase = when (capability) {
         ToolCapability.READ -> AgentPhase.READING
@@ -2350,16 +2112,15 @@ class EditorViewModel(
      */
     private fun refreshContextBreakdown() {
         val model = _currentModel.value ?: return
-        val systemPrompt = _messageHistory.firstOrNull { it.role == "system" }?.content
-        val tools = if (_agentMode.value) {
-            OroTools.getAllTools() + DelegationTools.all
-        } else {
-            null
-        }
+        // The system prompt is built per request and never stored in the
+        // history, so it is taken from the last request (it used to be looked
+        // for in the history and was therefore always missing from the sheet).
+        val systemPrompt = lastSystemPrompt
+        val tools = lastRequestTools
         _contextBreakdown.value = breakdownBuilder.build(
             systemPrompt = systemPrompt,
             tools = tools,
-            messages = _messageHistory,
+            messages = _messageHistory.toList(),
             maxTokens = contextWindowManager.getAvailableTokens(model)
         )
     }
