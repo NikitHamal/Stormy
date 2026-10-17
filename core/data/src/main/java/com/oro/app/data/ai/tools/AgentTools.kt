@@ -262,6 +262,37 @@ object AgentTools {
         """
     )
 
+    val SEARCH_PROJECT = tool(
+        "search_project",
+        """
+        Search the project by meaning-adjacent words, not just exact text:
+        "pricing table", "mobile menu", "contact form". Returns the best
+        matching places (file, lines, snippet). Runs on the device. Use grep
+        for an exact string or regex.
+        """,
+        """
+        {"type":"object","properties":{
+          "query":{"type":"string","description":"What you are looking for, in a few words."},
+          "limit":{"type":"integer","description":"Max results. Default 8."}
+        },"required":["query"]}
+        """
+    )
+
+    val DOCS_LOOKUP = tool(
+        "docs_lookup",
+        """
+        Look up HTML, CSS or JavaScript in Oro's offline reference (works with
+        no internet): element and property usage with a working example and
+        mobile/accessibility notes. E.g. "sticky header", "dialog", "fetch",
+        "dark mode toggle", "grid auto-fit".
+        """,
+        """
+        {"type":"object","properties":{
+          "query":{"type":"string","description":"The element, property, API or pattern."}
+        },"required":["query"]}
+        """
+    )
+
     val USE_SKILL = tool(
         "use_skill",
         """
@@ -324,7 +355,7 @@ object AgentTools {
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
         CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH,
-        ASK_USER, SAVE_MEMORY, USE_SKILL
+        SEARCH_PROJECT, DOCS_LOOKUP, ASK_USER, SAVE_MEMORY, USE_SKILL
     )
     // run_command is deliberately not offered: on Android there is no node,
     // npm or python, so models burned turns trying to install packages, and
@@ -333,7 +364,7 @@ object AgentTools {
 
     /** Names of tools that never modify anything, safe to run concurrently. */
     val readOnly: Set<String> = setOf(
-        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors", "screenshot_preview", "audit_page", "use_skill",
+        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors", "screenshot_preview", "audit_page", "use_skill", "search_project", "docs_lookup",
         // legacy names
         "search_files", "get_file_info", "recall_memory", "list_memories"
     )

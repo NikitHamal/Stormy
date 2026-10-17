@@ -196,6 +196,21 @@ class ToolExecutor(
                     }
                 }
             }
+            "search_project" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val q = args.getStringArg("query").orEmpty()
+                val limit = args.getStringArg("limit")?.toIntOrNull()?.coerceIn(1, 20) ?: 8
+                val search = projectSearch?.takeIf { it.first == root.path }?.second
+                    ?: com.oro.app.data.ai.search.ProjectSearch(root).also { projectSearch = root.path to it }
+                val hits = kotlinx.coroutines.withContext(Dispatchers.IO) { search.search(q, limit) }
+                return ToolResult(true, if (hits.isEmpty()) "No matches for \"$q\"." else hits.joinToString("\n\n") {
+                    "${it.path}:${it.startLine}-${it.endLine}\n${it.snippet}"
+                })
+            }
+            "docs_lookup" -> {
+                val q = args.getStringArg("query").orEmpty()
+                return ToolResult(true, com.oro.app.data.ai.search.WebDocs.format(com.oro.app.data.ai.search.WebDocs.lookup(q)))
+            }
             "use_skill" -> {
                 val wanted = com.oro.app.data.ai.skills.Skills.slug(args.getStringArg("name").orEmpty())
                 val all = com.oro.app.data.ai.skills.Skills.all(skillsDir ?: File("/nonexistent"), currentProjectPath)
@@ -251,6 +266,9 @@ class ToolExecutor(
 
     // Interaction callback for user input and notifications
     var interactionCallback: ToolInteractionCallback? = null
+
+    /** Cached project search index, keyed by project root. */
+    private var projectSearch: Pair<String, com.oro.app.data.ai.search.ProjectSearch>? = null
 
     /** App-wide skills folder (set by the app); project skills live in .oro/skills. */
     @Volatile

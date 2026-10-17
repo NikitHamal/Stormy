@@ -324,6 +324,36 @@ class EditorViewModel(
     /** The session on screen; null for a fresh chat not yet sent. */
     private val _currentSessionId = MutableStateFlow<String?>(null)
 
+    /** Photos attached to the next message (base64 JPEG, downscaled). */
+    private val _attachedImages = MutableStateFlow<List<String>>(emptyList())
+    val attachedImages: StateFlow<List<String>> = _attachedImages
+
+    /** Attach a photo (design reference); downscaled to 1280 px, JPEG. */
+    fun attachImage(uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val resolver = com.oro.app.OroApplication.getInstance().contentResolver
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1280) sample *= 2
+                val bmp = resolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                } ?: error("Could not read the photo")
+                val scale = minOf(1f, 1280f / maxOf(bmp.width, bmp.height))
+                val scaled = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
+                val out = java.io.ByteArrayOutputStream()
+                scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
+                if (scaled !== bmp) scaled.recycle()
+                bmp.recycle()
+                val b64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                _attachedImages.value = (_attachedImages.value + b64).takeLast(3)
+            }
+        }
+    }
+
+    fun clearAttachedImages() { _attachedImages.value = emptyList() }
+
     /** User messages of the current chat whose run left a file checkpoint. */
     private val _checkpointMessageIds = MutableStateFlow<Set<String>>(emptySet())
     val checkpointMessageIds: StateFlow<Set<String>> = _checkpointMessageIds
@@ -1304,7 +1334,10 @@ class EditorViewModel(
     }
 
     fun sendMessage() {
-        val content = _chatInput.value.trim()
+        val images = _attachedImages.value
+        val content = _chatInput.value.trim().ifEmpty {
+            if (images.isNotEmpty()) "Build this design as a page in the project." else ""
+        }
         // Before the last session is restored there is no telling which
         // session this would belong to; that window is a few milliseconds.
         if (content.isEmpty() || _isAiProcessing.value || !sessionRestored) return
@@ -1314,11 +1347,29 @@ class EditorViewModel(
         // that message, so an abandoned "new chat" never leaves an empty row.
         val existingSessionId = _currentSessionId.value
         val sessionId = existingSessionId ?: java.util.UUID.randomUUID().toString()
-        val userMessage = ChatMessage.createUserMessage(projectId, content, sessionId = sessionId)
+        val userMessage = ChatMessage.createUserMessage(
+            projectId, if (images.isEmpty()) content else "📷 " + content, sessionId = sessionId
+        )
         _messages.value = _messages.value + userMessage
         _chatInput.value = ""
         inputDrafts.remove(existingSessionId ?: DRAFT_KEY)
-        _messageHistory.add(aiRepository.createUserMessage(content))
+        // Design from a photo: the picture goes with this turn to vision
+        // models; other models are told plainly that they cannot see it.
+        val vision = _currentModel.value?.let { com.oro.app.data.ai.VisionSupport.supports(com.oro.app.data.ai.providers.ModelIds.upstream(it.id)) } == true
+        _messageHistory.add(
+            when {
+                images.isEmpty() -> aiRepository.createUserMessage(content)
+                vision -> aiRepository.createUserMessage(
+                    content + "\n\n(The attached photo is the visual reference: match its layout, hierarchy, " +
+                        "spacing and colours as closely as the web allows; use real text from it where readable.)"
+                ).copy(images = images)
+                else -> aiRepository.createUserMessage(
+                    content + "\n\n(The user attached a photo, but the current model cannot see images. Say so " +
+                        "and suggest switching to a vision model, then do what you can from the text.)"
+                )
+            }
+        )
+        _attachedImages.value = emptyList()
         // A new request gets a new plan; the previous one is finished business.
         delegationHandler.resetPlan()
 

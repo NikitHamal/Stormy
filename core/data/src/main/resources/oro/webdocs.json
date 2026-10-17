@@ -1,0 +1,548 @@
+[
+{
+"name": "<!DOCTYPE html> page skeleton",
+"kind": "html",
+"summary": "Minimal valid HTML5 page with language, charset, viewport and title.",
+"example": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Page</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <script src=\"app.js\" defer></script>\n</body>\n</html>",
+"notes": "Without the viewport meta tag, phones render at ~980px and zoom out."
+},
+{
+"name": "<meta name=\"description\">",
+"kind": "html",
+"summary": "Short summary shown by search engines (120-160 characters).",
+"example": "<meta name=\"description\" content=\"Handmade coffee in Lisbon since 2019.\">",
+"notes": ""
+},
+{
+"name": "Open Graph tags",
+"kind": "html",
+"summary": "Title, description and image used when a link is shared.",
+"example": "<meta property=\"og:title\" content=\"Bean There\">\n<meta property=\"og:description\" content=\"Handmade coffee.\">\n<meta property=\"og:image\" content=\"https://example.com/og.jpg\">\n<meta name=\"twitter:card\" content=\"summary_large_image\">",
+"notes": ""
+},
+{
+"name": "<header> <nav> <main> <footer>",
+"kind": "html",
+"summary": "Landmark elements; screen readers jump between them. One <main> per page.",
+"example": "<header><nav aria-label=\"Main\"><a href=\"/\">Home</a></nav></header>\n<main id=\"main\">...</main>\n<footer>© 2026</footer>",
+"notes": ""
+},
+{
+"name": "<section> vs <article> vs <div>",
+"kind": "html",
+"summary": "<section>: a themed group with a heading. <article>: self-contained (post, card). <div>: no meaning, for styling only.",
+"example": "<section aria-labelledby=\"t\"><h2 id=\"t\">Menu</h2>...</section>",
+"notes": ""
+},
+{
+"name": "<a href>",
+"kind": "html",
+"summary": "Link. External links opening a new tab should use rel=\"noopener\".",
+"example": "<a href=\"https://example.com\" target=\"_blank\" rel=\"noopener\">Docs</a>\n<a href=\"#contact\">Contact</a>\n<a href=\"mailto:hi@example.com\">Email</a>\n<a href=\"tel:+351210000000\">Call</a>",
+"notes": ""
+},
+{
+"name": "<button>",
+"kind": "html",
+"summary": "Use for actions (not navigation). type=\"button\" stops it from submitting a form.",
+"example": "<button type=\"button\" aria-expanded=\"false\" aria-controls=\"menu\">Menu</button>",
+"notes": ""
+},
+{
+"name": "<img>",
+"kind": "html",
+"summary": "Always set alt (empty alt=\"\" for decorative), width/height to avoid layout shift, loading=\"lazy\" below the fold.",
+"example": "<img src=\"hero.jpg\" alt=\"Barista pouring latte art\" width=\"1200\" height=\"800\" loading=\"lazy\" decoding=\"async\">",
+"notes": ""
+},
+{
+"name": "<picture> responsive images",
+"kind": "html",
+"summary": "Serve smaller files to phones and modern formats where supported.",
+"example": "<picture>\n  <source srcset=\"hero.avif\" type=\"image/avif\">\n  <img src=\"hero.jpg\" srcset=\"hero-800.jpg 800w, hero-1600.jpg 1600w\" sizes=\"100vw\" alt=\"...\">\n</picture>",
+"notes": ""
+},
+{
+"name": "<form> <label> <input>",
+"kind": "html",
+"summary": "Every input needs a label. Use the right type for the right phone keyboard.",
+"example": "<form action=\"/subscribe\" method=\"post\">\n  <label for=\"email\">Email</label>\n  <input id=\"email\" name=\"email\" type=\"email\" autocomplete=\"email\" required>\n  <button type=\"submit\">Subscribe</button>\n</form>",
+"notes": "type=email/tel/number/url give phones the right keyboard; autocomplete fills it in."
+},
+{
+"name": "<select> <textarea>",
+"kind": "html",
+"summary": "Dropdown and multi-line text input.",
+"example": "<label for=\"size\">Size</label>\n<select id=\"size\" name=\"size\"><option>Small</option><option selected>Medium</option></select>\n<label for=\"msg\">Message</label>\n<textarea id=\"msg\" rows=\"4\"></textarea>",
+"notes": ""
+},
+{
+"name": "<details> <summary>",
+"kind": "html",
+"summary": "Native accordion; works without JavaScript and is keyboard accessible.",
+"example": "<details>\n  <summary>Do you deliver?</summary>\n  <p>Yes, within Lisbon.</p>\n</details>",
+"notes": ""
+},
+{
+"name": "<dialog>",
+"kind": "html",
+"summary": "Native modal. showModal() traps focus and adds a backdrop; Esc closes it.",
+"example": "<dialog id=\"d\"><form method=\"dialog\"><p>Saved!</p><button>OK</button></form></dialog>\n<script>document.getElementById(\"d\").showModal()</script>",
+"notes": ""
+},
+{
+"name": "<video> <audio>",
+"kind": "html",
+"summary": "Media with controls; muted+playsinline required for autoplay on phones.",
+"example": "<video src=\"clip.mp4\" poster=\"poster.jpg\" controls playsinline muted loop></video>",
+"notes": ""
+},
+{
+"name": "<iframe> embeds",
+"kind": "html",
+"summary": "Embed maps/videos; give a title and lazy-load.",
+"example": "<iframe src=\"https://www.youtube-nocookie.com/embed/ID\" title=\"Intro video\" loading=\"lazy\" allowfullscreen></iframe>",
+"notes": ""
+},
+{
+"name": "<table>",
+"kind": "html",
+"summary": "Tabular data only; use <th scope> and a <caption>.",
+"example": "<table><caption>Opening hours</caption><tr><th scope=\"row\">Mon</th><td>8-18</td></tr></table>",
+"notes": ""
+},
+{
+"name": "<ul> <ol> <li>",
+"kind": "html",
+"summary": "Lists. Navigation menus are usually a <ul> of links.",
+"example": "<ul class=\"menu\"><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li></ul>",
+"notes": ""
+},
+{
+"name": "Skip link",
+"kind": "html",
+"summary": "Lets keyboard users jump past the header.",
+"example": "<a class=\"skip\" href=\"#main\">Skip to content</a>\n/* .skip{position:absolute;left:-999px} .skip:focus{left:1rem;top:1rem} */",
+"notes": ""
+},
+{
+"name": "aria-label / aria-expanded",
+"kind": "html",
+"summary": "Name icon-only controls; announce open/closed state.",
+"example": "<button aria-label=\"Open menu\" aria-expanded=\"false\"><svg aria-hidden=\"true\">...</svg></button>",
+"notes": "Prefer native elements; ARIA only fills gaps."
+},
+{
+"name": "<link rel=preconnect / preload>",
+"kind": "html",
+"summary": "Speed up fonts and critical assets.",
+"example": "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"preload\" href=\"hero.jpg\" as=\"image\">",
+"notes": ""
+},
+{
+"name": "<script defer / type=module>",
+"kind": "html",
+"summary": "defer runs after parsing without blocking; modules are deferred by default.",
+"example": "<script src=\"app.js\" defer></script>\n<script type=\"module\" src=\"main.js\"></script>",
+"notes": ""
+},
+{
+"name": "favicon and theme-color",
+"kind": "html",
+"summary": "Tab icon and the phone browser's toolbar colour.",
+"example": "<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">\n<meta name=\"theme-color\" content=\"#0E1117\">",
+"notes": ""
+},
+{
+"name": "Web app manifest",
+"kind": "html",
+"summary": "Makes a site installable on a phone home screen.",
+"example": "<link rel=\"manifest\" href=\"manifest.json\">\n// manifest.json: {\"name\":\"Bean There\",\"short_name\":\"Bean\",\"start_url\":\"/\",\"display\":\"standalone\",\"icons\":[{\"src\":\"icon-512.png\",\"sizes\":\"512x512\",\"type\":\"image/png\"}]}",
+"notes": ""
+},
+{
+"name": "Custom properties (CSS variables)",
+"kind": "css",
+"summary": "Define design tokens once on :root; override per theme or component.",
+"example": ":root { --bg: #fff; --text: #111; --accent: #c45; --radius: 12px; }\nbody { background: var(--bg); color: var(--text); }",
+"notes": ""
+},
+{
+"name": "box-sizing",
+"kind": "css",
+"summary": "Make width include padding and border; set globally.",
+"example": "*, *::before, *::after { box-sizing: border-box; }",
+"notes": ""
+},
+{
+"name": "Flexbox",
+"kind": "css",
+"summary": "One-dimensional layout: rows or columns, alignment, wrapping.",
+"example": ".row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }\n.grow { flex: 1; min-width: 0; }",
+"notes": "min-width:0 lets flex children shrink and ellipsize text."
+},
+{
+"name": "Grid",
+"kind": "css",
+"summary": "Two-dimensional layout. auto-fit + minmax gives responsive cards without media queries.",
+"example": ".cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }",
+"notes": ""
+},
+{
+"name": "grid-template-areas",
+"kind": "css",
+"summary": "Name page regions and rearrange them per breakpoint.",
+"example": ".page { display:grid; grid-template-areas: \"head\" \"main\" \"foot\"; }\n@media (min-width: 900px) { .page { grid-template-areas: \"head head\" \"side main\" \"foot foot\"; grid-template-columns: 240px 1fr; } }",
+"notes": ""
+},
+{
+"name": "Media queries (mobile first)",
+"kind": "css",
+"summary": "Write phone styles first, add min-width queries for larger screens.",
+"example": ".hero h1 { font-size: 2rem; }\n@media (min-width: 640px) { .hero h1 { font-size: 3rem; } }\n@media (min-width: 1024px) { .hero h1 { font-size: 4rem; } }",
+"notes": ""
+},
+{
+"name": "Container queries",
+"kind": "css",
+"summary": "Style a component by its container's width instead of the screen's.",
+"example": ".card-wrap { container-type: inline-size; }\n@container (min-width: 400px) { .card { display: flex; } }",
+"notes": ""
+},
+{
+"name": "clamp() fluid type",
+"kind": "css",
+"summary": "Font sizes that scale with the viewport within limits.",
+"example": "h1 { font-size: clamp(2rem, 1rem + 4vw, 4rem); }",
+"notes": ""
+},
+{
+"name": "Responsive images in CSS",
+"kind": "css",
+"summary": "Keep images inside their box.",
+"example": "img, video { max-width: 100%; height: auto; display: block; }\n.cover { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }",
+"notes": ""
+},
+{
+"name": "aspect-ratio",
+"kind": "css",
+"summary": "Reserve space for media and cards.",
+"example": ".thumb { aspect-ratio: 1; object-fit: cover; }",
+"notes": ""
+},
+{
+"name": "position: sticky",
+"kind": "css",
+"summary": "Header that sticks to the top while scrolling.",
+"example": "header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(8px); }",
+"notes": ""
+},
+{
+"name": "Centering",
+"kind": "css",
+"summary": "Center anything.",
+"example": ".center { display: grid; place-items: center; min-height: 100dvh; }",
+"notes": ""
+},
+{
+"name": "100vh vs 100dvh",
+"kind": "css",
+"summary": "dvh follows the phone's visible viewport as browser bars show/hide.",
+"example": ".screen { min-height: 100dvh; }",
+"notes": ""
+},
+{
+"name": "Transitions",
+"kind": "css",
+"summary": "Animate state changes; prefer transform and opacity (cheap on phones).",
+"example": ".btn { transition: transform .15s ease, background-color .2s; }\n.btn:active { transform: scale(.97); }",
+"notes": ""
+},
+{
+"name": "@keyframes animation",
+"kind": "css",
+"summary": "Looping or one-off animations.",
+"example": "@keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }\n.reveal { animation: fade-up .5s ease both; }",
+"notes": ""
+},
+{
+"name": "prefers-reduced-motion",
+"kind": "css",
+"summary": "Respect users who turn animations off.",
+"example": "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }",
+"notes": ""
+},
+{
+"name": "prefers-color-scheme (dark mode)",
+"kind": "css",
+"summary": "Default to the system theme; toggle with a data attribute.",
+"example": ":root { --bg:#fff; --text:#111; }\n@media (prefers-color-scheme: dark) { :root { --bg:#0e1117; --text:#e8ecf2; } }\n[data-theme=\"dark\"] { --bg:#0e1117; --text:#e8ecf2; }",
+"notes": ""
+},
+{
+"name": ":focus-visible",
+"kind": "css",
+"summary": "Visible focus ring for keyboard users only.",
+"example": "a:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }",
+"notes": ""
+},
+{
+"name": ":hover on touch screens",
+"kind": "css",
+"summary": "Phones have no hover; wrap hover styles so they do not stick after a tap.",
+"example": "@media (hover: hover) { .card:hover { transform: translateY(-2px); } }",
+"notes": ""
+},
+{
+"name": "Tap targets",
+"kind": "css",
+"summary": "Make touch targets at least 44x44px.",
+"example": ".icon-btn { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; }",
+"notes": ""
+},
+{
+"name": "Text overflow / ellipsis",
+"kind": "css",
+"summary": "One-line truncation, or clamp to N lines.",
+"example": ".one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.two-lines { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }",
+"notes": ""
+},
+{
+"name": "Fonts with font-display",
+"kind": "css",
+"summary": "Avoid invisible text while web fonts load.",
+"example": "@font-face { font-family: \"Inter\"; src: url(inter.woff2) format(\"woff2\"); font-display: swap; }\nbody { font-family: \"Inter\", system-ui, sans-serif; }",
+"notes": ""
+},
+{
+"name": "Shadows and radius",
+"kind": "css",
+"summary": "Soft elevation.",
+"example": ".card { border-radius: 16px; box-shadow: 0 1px 2px rgb(0 0 0 / .06), 0 8px 24px rgb(0 0 0 / .08); }",
+"notes": ""
+},
+{
+"name": "Gradients",
+"kind": "css",
+"summary": "Linear, radial and text gradients.",
+"example": ".hero { background: linear-gradient(135deg, #1a1f4a, #f800f8); }\n.title { background: linear-gradient(90deg, #f80, #f0f); -webkit-background-clip: text; background-clip: text; color: transparent; }",
+"notes": ""
+},
+{
+"name": "color-mix()",
+"kind": "css",
+"summary": "Mix colours for tints and translucent surfaces.",
+"example": ".chip { background: color-mix(in srgb, var(--accent) 15%, transparent); }",
+"notes": ""
+},
+{
+"name": ":has() parent selector",
+"kind": "css",
+"summary": "Style a parent based on its children.",
+"example": ".field:has(input:invalid) label { color: crimson; }\nbody:has(dialog[open]) { overflow: hidden; }",
+"notes": ""
+},
+{
+"name": "scroll-snap",
+"kind": "css",
+"summary": "Swipeable carousels with no JavaScript.",
+"example": ".carousel { display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory; }\n.carousel > * { flex: 0 0 85%; scroll-snap-align: center; }",
+"notes": ""
+},
+{
+"name": "scroll-behavior / scroll-margin",
+"kind": "css",
+"summary": "Smooth anchor scrolling that does not hide under a sticky header.",
+"example": "html { scroll-behavior: smooth; }\nsection { scroll-margin-top: 80px; }",
+"notes": ""
+},
+{
+"name": "z-index and stacking",
+"kind": "css",
+"summary": "z-index only works on positioned elements; transforms create new stacking contexts.",
+"example": ".menu { position: fixed; inset: 0; z-index: 50; }",
+"notes": ""
+},
+{
+"name": "Visually hidden (sr-only)",
+"kind": "css",
+"summary": "Hide text visually but keep it for screen readers.",
+"example": ".sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }",
+"notes": ""
+},
+{
+"name": "Tailwind CDN",
+"kind": "css",
+"summary": "Use Tailwind without a build step (prototype use).",
+"example": "<script src=\"https://cdn.tailwindcss.com\"></script>\n<div class=\"max-w-md mx-auto p-6 rounded-2xl shadow bg-white\">...</div>",
+"notes": ""
+},
+{
+"name": "Units: rem, em, %, vw, ch",
+"kind": "css",
+"summary": "rem = root font size (accessible scaling); ch for readable line length.",
+"example": "p { max-width: 65ch; line-height: 1.6; }\nh2 { margin-block: 2rem 1rem; }",
+"notes": ""
+},
+{
+"name": "Logical properties",
+"kind": "css",
+"summary": "margin-inline / padding-block work for right-to-left languages.",
+"example": ".card { padding-block: 1rem; padding-inline: 1.25rem; margin-inline: auto; }",
+"notes": ""
+},
+{
+"name": "querySelector / querySelectorAll",
+"kind": "js",
+"summary": "Find elements with CSS selectors.",
+"example": "const btn = document.querySelector(\".menu-btn\");\nconst items = document.querySelectorAll(\".item\");\nitems.forEach((el) => el.classList.add(\"ready\"));",
+"notes": ""
+},
+{
+"name": "addEventListener",
+"kind": "js",
+"summary": "React to clicks, input, keys. Use event delegation for lists.",
+"example": "document.querySelector(\".list\").addEventListener(\"click\", (e) => {\n  const item = e.target.closest(\".item\");\n  if (item) item.classList.toggle(\"done\");\n});",
+"notes": ""
+},
+{
+"name": "classList / dataset",
+"kind": "js",
+"summary": "Toggle classes and read data-* attributes.",
+"example": "el.classList.toggle(\"open\", isOpen);\nconst id = el.dataset.productId; // data-product-id",
+"notes": ""
+},
+{
+"name": "Mobile menu toggle",
+"kind": "js",
+"summary": "Accessible hamburger menu.",
+"example": "const btn = document.querySelector(\"[aria-controls=menu]\");\nconst menu = document.getElementById(\"menu\");\nbtn.addEventListener(\"click\", () => {\n  const open = btn.getAttribute(\"aria-expanded\") === \"true\";\n  btn.setAttribute(\"aria-expanded\", String(!open));\n  menu.hidden = open;\n});",
+"notes": ""
+},
+{
+"name": "Dark mode toggle",
+"kind": "js",
+"summary": "Remember the choice and apply it before first paint.",
+"example": "<script>/* in <head> */document.documentElement.dataset.theme = localStorage.theme || (matchMedia(\"(prefers-color-scheme: dark)\").matches ? \"dark\" : \"light\");</script>\nbutton.onclick = () => { const t = document.documentElement.dataset.theme === \"dark\" ? \"light\" : \"dark\"; document.documentElement.dataset.theme = t; localStorage.theme = t; };",
+"notes": ""
+},
+{
+"name": "fetch()",
+"kind": "js",
+"summary": "HTTP requests; check response.ok.",
+"example": "async function load() {\n  const res = await fetch(\"/data.json\");\n  if (!res.ok) throw new Error(res.status);\n  return res.json();\n}",
+"notes": ""
+},
+{
+"name": "async / await + try/catch",
+"kind": "js",
+"summary": "Readable async code with error handling.",
+"example": "try {\n  const data = await load();\n  render(data);\n} catch (err) {\n  showError(\"Could not load the menu.\");\n}",
+"notes": ""
+},
+{
+"name": "localStorage",
+"kind": "js",
+"summary": "Persist small strings per site.",
+"example": "localStorage.setItem(\"cart\", JSON.stringify(cart));\nconst cart = JSON.parse(localStorage.getItem(\"cart\") ?? \"[]\");",
+"notes": ""
+},
+{
+"name": "Form handling",
+"kind": "js",
+"summary": "Read and validate a form without reloading.",
+"example": "form.addEventListener(\"submit\", async (e) => {\n  e.preventDefault();\n  const data = Object.fromEntries(new FormData(form));\n  if (!form.checkValidity()) return form.reportValidity();\n  await fetch(form.action, { method: \"POST\", body: new FormData(form) });\n});",
+"notes": ""
+},
+{
+"name": "IntersectionObserver",
+"kind": "js",
+"summary": "Reveal-on-scroll and lazy loading without scroll listeners.",
+"example": "const io = new IntersectionObserver((entries) => entries.forEach((e) => {\n  if (e.isIntersecting) { e.target.classList.add(\"in\"); io.unobserve(e.target); }\n}), { threshold: 0.15 });\ndocument.querySelectorAll(\".reveal\").forEach((el) => io.observe(el));",
+"notes": ""
+},
+{
+"name": "template literals and innerHTML",
+"kind": "js",
+"summary": "Build markup from data; escape user text to avoid XSS.",
+"example": "list.innerHTML = items.map((i) => `<li>${escapeHtml(i.name)}</li>`).join(\"\");\nconst escapeHtml = (s) => s.replace(/[&<>\"]/g, (c) => ({\"&\":\"&amp;\",\"<\":\"&lt;\",\">\":\"&gt;\",\"\\\"\":\"&quot;\"}[c]));",
+"notes": ""
+},
+{
+"name": "createElement / append",
+"kind": "js",
+"summary": "Build DOM safely (no HTML parsing).",
+"example": "const li = document.createElement(\"li\");\nli.textContent = name;\nlist.append(li);",
+"notes": ""
+},
+{
+"name": "Array methods",
+"kind": "js",
+"summary": "map, filter, reduce, find, some, sort.",
+"example": "const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);\nconst veg = menu.filter((m) => m.veg).map((m) => m.name);",
+"notes": ""
+},
+{
+"name": "Modules (import/export)",
+"kind": "js",
+"summary": "Split code into files with <script type=module>.",
+"example": "// utils.js\nexport const fmt = (n) => n.toFixed(2);\n// main.js\nimport { fmt } from \"./utils.js\";",
+"notes": ""
+},
+{
+"name": "setTimeout / debounce",
+"kind": "js",
+"summary": "Delay or throttle work (e.g. search as you type).",
+"example": "const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };\ninput.addEventListener(\"input\", debounce(search));",
+"notes": ""
+},
+{
+"name": "requestAnimationFrame",
+"kind": "js",
+"summary": "Smooth animation tied to the display refresh.",
+"example": "function tick(t) { el.style.transform = `translateX(${Math.sin(t / 500) * 20}px)`; requestAnimationFrame(tick); }\nrequestAnimationFrame(tick);",
+"notes": ""
+},
+{
+"name": "Date and Intl formatting",
+"kind": "js",
+"summary": "Format prices, dates and numbers for the user's locale.",
+"example": "new Intl.NumberFormat(\"pt-PT\", { style: \"currency\", currency: \"EUR\" }).format(3.5);\nnew Intl.DateTimeFormat(\"en\", { dateStyle: \"medium\" }).format(new Date());",
+"notes": ""
+},
+{
+"name": "Clipboard and share",
+"kind": "js",
+"summary": "Copy text; open the phone share sheet.",
+"example": "await navigator.clipboard.writeText(location.href);\nif (navigator.share) await navigator.share({ title: document.title, url: location.href });",
+"notes": ""
+},
+{
+"name": "Geolocation",
+"kind": "js",
+"summary": "Ask for the user's location (needs https and permission).",
+"example": "navigator.geolocation.getCurrentPosition((p) => console.log(p.coords.latitude, p.coords.longitude), (err) => console.warn(err.message));",
+"notes": ""
+},
+{
+"name": "Canvas 2D",
+"kind": "js",
+"summary": "Draw graphics and simple games.",
+"example": "const ctx = canvas.getContext(\"2d\");\nctx.fillStyle = \"#f0f\";\nctx.fillRect(10, 10, 100, 50);",
+"notes": ""
+},
+{
+"name": "Common errors",
+"kind": "js",
+"summary": "What frequent console errors mean.",
+"example": "\"Cannot read properties of null\" -> querySelector found nothing (wrong selector, or script ran before the HTML: use defer).\n\"is not defined\" -> typo or missing import.\n\"Failed to fetch\" -> network/CORS; file:// pages cannot fetch other files in some browsers.",
+"notes": ""
+},
+{
+"name": "Service worker (offline)",
+"kind": "js",
+"summary": "Cache files so a site works offline.",
+"example": "// sw.js\nself.addEventListener(\"install\", (e) => e.waitUntil(caches.open(\"v1\").then((c) => c.addAll([\"/\", \"/style.css\", \"/app.js\"]))));\nself.addEventListener(\"fetch\", (e) => e.respondWith(caches.match(e.request).then((r) => r || fetch(e.request))));\n// page: navigator.serviceWorker?.register(\"sw.js\");",
+"notes": ""
+}
+]

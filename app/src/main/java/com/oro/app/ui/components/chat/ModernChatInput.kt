@@ -44,6 +44,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
@@ -116,7 +118,11 @@ fun ModernChatInput(
     contextIsCritical: Boolean = false,
     fileTree: List<FileTreeNode> = emptyList(),
     placeholder: String = "Ask anything, or describe what to build",
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Design from a photo: opens the picker; [attachedPhotos] shows how many are attached. */
+    onAttachPhoto: (() -> Unit)? = null,
+    attachedPhotos: Int = 0,
+    onClearPhotos: () -> Unit = {}
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -156,6 +162,16 @@ fun ModernChatInput(
     val showMentionPopup = mentionQuery != null
 
     Column(modifier = modifier) {
+        if (attachedPhotos > 0) {
+            androidx.compose.material3.InputChip(
+                selected = true,
+                onClick = onClearPhotos,
+                label = { Text(if (attachedPhotos == 1) "1 photo attached" else "$attachedPhotos photos attached", maxLines = 1) },
+                leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null, Modifier.size(18.dp)) },
+                trailingIcon = { Icon(Icons.Outlined.Close, "Remove photos", Modifier.size(16.dp)) },
+                modifier = Modifier.padding(start = Space.sm, bottom = Space.xs)
+            )
+        }
         (dictationPartial ?: dictationError)?.let { line ->
             Text(
                 text = line,
@@ -267,6 +283,14 @@ fun ModernChatInput(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Space.xs)
                 ) {
+                    if (onAttachPhoto != null) {
+                        InputActionButton(
+                            icon = Icons.Outlined.AddPhotoAlternate,
+                            contentDescription = "Design from a photo",
+                            onClick = onAttachPhoto,
+                            tint = if (attachedPhotos > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     InputActionButton(
                         icon = Icons.Outlined.Tune,
                         contentDescription = "Chat settings",
@@ -321,7 +345,7 @@ fun ModernChatInput(
                     }
 
                     SendButton(
-                        canSend = textFieldValue.text.isNotBlank() && isEnabled,
+                        canSend = (textFieldValue.text.isNotBlank() || attachedPhotos > 0) && isEnabled,
                         isProcessing = isProcessing,
                         onSend = {
                             onSend()

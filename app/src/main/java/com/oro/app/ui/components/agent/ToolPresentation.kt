@@ -85,6 +85,14 @@ data class ToolPresentation(
 object ToolPresentations {
 
     private val map: Map<String, ToolPresentation> = mapOf(
+        "search_project" to ToolPresentation(
+            "Searching the project", "Searched the project", Icons.Outlined.BugReport,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
+        ),
+        "docs_lookup" to ToolPresentation(
+            "Checking the docs", "Checked the docs", Icons.Outlined.BugReport,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
         "screenshot_preview" to ToolPresentation(
             "Looking at the preview", "Looked at the preview", Icons.Outlined.BugReport,
             subjectIsPath = true, detail = ToolDetailKind.Terminal

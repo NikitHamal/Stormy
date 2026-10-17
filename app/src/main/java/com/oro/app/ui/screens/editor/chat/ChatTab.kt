@@ -135,6 +135,9 @@ fun ChatTab(
     onRestoreCheckpoint: (String) -> Unit = {},
     autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
     onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
+    attachedPhotos: Int = 0,
+    onAttachPhoto: (android.net.Uri) -> Unit = {},
+    onClearPhotos: () -> Unit = {},
     projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
@@ -377,7 +380,19 @@ fun ChatTab(
             )
         }
 
+        val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+        ) { uri -> if (uri != null) onAttachPhoto(uri) }
         ModernChatInput(
+            onAttachPhoto = {
+                photoPicker.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            },
+            attachedPhotos = attachedPhotos,
+            onClearPhotos = onClearPhotos,
             value = inputText,
             onValueChange = onInputChange,
             onSend = onSendMessage,
