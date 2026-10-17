@@ -1,0 +1,91 @@
+        /* LIGHT THEME — warm paper monochrome (Claude-Code ref, no red/orange).
+           Scoped to the phone only; preview toolbar/stage chrome stays dark.
+           Activated via html[data-theme="light"]. */
+        html #phoneFrame { transition: background-color .35s ease; }
+        html[data-theme="light"] #phoneFrame { background-color: #F4F1EB; color-scheme: light; }
+        /* m3 surfaces */
+        html[data-theme="light"] #phoneFrame .bg-m3-bg { background-color: #F4F1EB !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-bg\/60 { background-color: rgba(244,241,235,.6) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-bg\/70 { background-color: rgba(244,241,235,.7) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-bg\/90 { background-color: rgba(244,241,235,.92) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-bg\/95 { background-color: rgba(244,241,235,.95) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surface { background-color: #FFFFFF !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surfaceModal { background-color: #FFFFFF !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surfaceHigh { background-color: #ECE9E2 !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surfaceHighest { background-color: #E2DED5 !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surfaceDeep { background-color: #FAF8F4 !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surfaceDeep\/60 { background-color: rgba(250,248,244,.65) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-surfaceDeep\/50 { background-color: rgba(250,248,244,.55) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-primary { background-color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-primary\/15 { background-color: rgba(28,27,25,.1) !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-primaryContainer { background-color: #E4E0D8 !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-onPrimary { background-color: #F7F4EE !important; }
+        html[data-theme="light"] #phoneFrame .bg-m3-errorContainer { background-color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-primary { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-primaryContainer { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-primaryContainer\/60 { color: #6E6A63 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-onPrimary { color: #F7F4EE !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-onPrimaryContainer { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-onSurface { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-onSurfaceVariant { color: #5F5A52 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-error { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-onErrorContainer { color: #F7F4EE !important; }
+        html[data-theme="light"] #phoneFrame .text-m3-surfaceHighest { color: #8D877D !important; }
+        html[data-theme="light"] #phoneFrame .border-m3-outline { border-color: #D8D3C8 !important; }
+        html[data-theme="light"] #phoneFrame .border-m3-outline\/70 { border-color: rgba(150,143,130,.7) !important; }
+        html[data-theme="light"] #phoneFrame .border-m3-primary { border-color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .focus\:border-m3-primary:focus { border-color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .focus-within\:border-m3-primary\/50:focus-within { border-color: rgba(28,27,25,.45) !important; }
+        html[data-theme="light"] #phoneFrame .focus\:bg-m3-surfaceDeep:focus { background-color: #FFFFFF !important; }
+        html[data-theme="light"] #phoneFrame .focus\:ring-m3-primary\/20:focus { --tw-ring-color: rgba(28,27,25,.22) !important; }
+        /* primary text on light */
+        html[data-theme="light"] #phoneFrame .text-\[\#EDE9E2\] { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-\[\#B8B2A8\] { color: #5F5A52 !important; }
+        html[data-theme="light"] #phoneFrame .text-\[\#A8A29A\] { color: #6E6A63 !important; }
+        html[data-theme="light"] #phoneFrame .text-\[\#8D877D\] { color: #6E6A63 !important; }
+        html[data-theme="light"] #phoneFrame .text-\[\#6E6A63\] { color: #8D877D !important; }
+        html[data-theme="light"] #phoneFrame .text-white { color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .text-white\/90 { color: rgba(28,27,25,.9) !important; }
+        /* light surfaces for hardcoded dark fills */
+        html[data-theme="light"] #phoneFrame .bg-\[\#2B2823\] { background-color: #E7E3D9 !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#24211D\] { background-color: #ECE9E2 !important; }
+        html[data-theme="light"] #phoneFrame .focus-within\:bg-\[\#2B2823\]:focus-within { background-color: #FFFFFF !important; }
+        html[data-theme="light"] #phoneFrame .focus-within\:border-\[\#EDE9E2\]\/60:focus-within { border-color: rgba(28,27,25,.5) !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#211E1A\] { background-color: #E7E3D9 !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#38342D\] { background-color: #D8D3C6 !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#292622\] { background-color: #DFDACA !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#6E6A63\]\/60 { background-color: rgba(110,106,99,.45) !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#141210\] { background-color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#EDE9E2\]\/65 { background-color: #D8D3C6 !important; }
+        html[data-theme="light"] #phoneFrame .bg-white { background-color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .bg-white\/90 { background-color: rgba(28,27,25,.92) !important; }
+        html[data-theme="light"] #phoneFrame .bg-white\/80 { background-color: rgba(28,27,25,.8) !important; }
+        html[data-theme="light"] #phoneFrame .bg-white\/40 { background-color: rgba(28,27,25,.4) !important; }
+        html[data-theme="light"] #phoneFrame .bg-white\/20 { background-color: rgba(28,27,25,.16) !important; }
+        html[data-theme="light"] #phoneFrame .bg-white\/10 { background-color: rgba(28,27,25,.08) !important; }
+        html[data-theme="light"] #phoneFrame .bg-white\/5 { background-color: rgba(28,27,25,.05) !important; }
+        html[data-theme="light"] #phoneFrame .active\:bg-white\/10:active { background-color: rgba(28,27,25,.07) !important; }
+        html[data-theme="light"] #phoneFrame .active\:bg-\[\#EDE9E2\]\/15:active { background-color: rgba(28,27,25,.08) !important; }
+        /* light borders */
+        html[data-theme="light"] #phoneFrame .border-white\/5 { border-color: rgba(28,27,25,.06) !important; }
+        html[data-theme="light"] #phoneFrame .border-white\/10 { border-color: rgba(28,27,25,.1) !important; }
+        html[data-theme="light"] #phoneFrame .border-white\/20 { border-color: rgba(28,27,25,.18) !important; }
+        html[data-theme="light"] #phoneFrame .border-white\/80 { border-color: rgba(28,27,25,.8) !important; }
+        html[data-theme="light"] #phoneFrame .border-white\/\[0\.03\] { border-color: rgba(28,27,25,.05) !important; }
+        html[data-theme="light"] #phoneFrame .border-white\/\[0\.04\] { border-color: rgba(28,27,25,.06) !important; }
+        html[data-theme="light"] #phoneFrame .border-\[\#3A362F\] { border-color: #D8D3C8 !important; }
+        html[data-theme="light"] #phoneFrame .border-\[\#4E493F\] { border-color: #C9C2B2 !important; }
+        html[data-theme="light"] #phoneFrame .border-\[\#6E6A63\] { border-color: #8D877D !important; }
+        /* placeholders */
+        html[data-theme="light"] #phoneFrame .placeholder-\[\#8D877D\]::placeholder { color: #8D877D !important; opacity: 1; }
+        html[data-theme="light"] #phoneFrame .placeholder\:text-\[\#8D877D\]::placeholder { color: #8D877D !important; opacity: 1; }
+        html[data-theme="light"] #phoneFrame .placeholder-\[\#6E6A63\]::placeholder { color: #8D877D !important; opacity: 1; }
+        /* selected filter chips + search highlight */
+        html[data-theme="light"] #phoneFrame .m3-chip.selected { background-color: #1C1B19 !important; color: #F7F4EE !important; border-color: transparent !important; }
+        html[data-theme="light"] #phoneFrame .m3-chip.selected-tonal { background-color: #E4E0D8 !important; color: #1C1B19 !important; border-color: #E4E0D8 !important; }
+        html[data-theme="light"] #phoneFrame mark.m3-highlight { background-color: rgba(28,27,25,.1) !important; color: #1C1B19 !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#8D877D\]\/60 { background-color: rgba(28,27,25,.25) !important; }
+        html[data-theme="light"] #phoneFrame .bg-\[\#EDE9E2\]\/10 { background-color: rgba(28,27,25,.06) !important; }
+        html[data-theme="light"] #phoneFrame .text-\[\#141210\] { color: #F7F4EE !important; }
+        /* toast inverts in light theme (strong ink snackbar) */
+        html[data-theme="light"] #phoneFrame #phoneToast { background-color: #1C1B19 !important; color: #F7F4EE !important; border-color: transparent !important; }

@@ -60,7 +60,10 @@ class ProviderSettingsMigrationTest {
         assertThat(migrated.builtInKeys["GROQ"]!!.single().key).isEqualTo("gsk_1")
         assertThat(migrated.builtInKeys).doesNotContainKey("GEMINI")
         assertThat(migrated.builtInKeys).doesNotContainKey("CUSTOM")
-        val legacy = migrated.custom.single()
+        val legacy = migrated.custom.first { it.id == ProviderSettingsMigration.LEGACY_CUSTOM_ID }
+        // Well-known vendors are shipped ready-made, once.
+        assertThat(migrated.custom.map { it.presetId }).containsAtLeast("deepseek", "moonshot", "anthropic")
+        assertThat(migrated.seededPresets).isTrue()
         assertThat(legacy.id).isEqualTo(ProviderSettingsMigration.LEGACY_CUSTOM_ID)
         assertThat(legacy.keys.single().key).isEqualTo("local-key")
         // Idempotent: a second pass changes nothing.
@@ -70,8 +73,10 @@ class ProviderSettingsMigrationTest {
 
     @Test
     fun `an emptied key list is not re-imported`() {
-        val s = ProviderSettings(builtInKeys = mapOf("GROQ" to emptyList()))
+        val s = ProviderSettings(builtInKeys = mapOf("GROQ" to emptyList()), seededPresets = true)
         assertThat(ProviderSettingsMigration.withLegacy(s, mapOf("GROQ" to "old"), "").builtInKeys["GROQ"]).isEmpty()
+        // A removed preset is not re-added.
+        assertThat(ProviderSettingsMigration.withLegacy(s, emptyMap(), "").custom).isEmpty()
     }
 
     @Test

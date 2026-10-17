@@ -54,7 +54,9 @@ fun ChatSettingsSheet(
     reasoningEffort: ReasoningEffort,
     onReasoningEffortChange: (ReasoningEffort) -> Unit,
     currentModel: AiModel?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
+    onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -93,6 +95,37 @@ fun ChatSettingsSheet(
                 enabled = currentModel?.supportsToolCalls != false,
                 onCheckedChange = onAgentModeChange
             )
+
+            // The leash. Only meaningful when Orobi can act at all.
+            if (agentMode) {
+                Spacer(Modifier.height(Space.lg))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = OroCorners.large,
+                    color = MaterialTheme.colorScheme.surfaceContainer
+                ) {
+                    Column(Modifier.padding(Space.md)) {
+                        SegmentedPicker(
+                            label = "Autonomy",
+                            options = com.oro.app.data.ai.agent.AutonomyMode.entries.map { PickerOption(it, it.label) },
+                            selected = autonomy,
+                            onSelect = onAutonomyChange
+                        )
+                        Spacer(Modifier.height(Space.sm))
+                        Text(
+                            text = when (autonomy) {
+                                com.oro.app.data.ai.agent.AutonomyMode.LEASHED ->
+                                    "Orobi shows each change (write, edit, delete, move, MCP action) and waits for your OK."
+                                com.oro.app.data.ai.agent.AutonomyMode.UNLEASHED ->
+                                    "Orobi works on its own. It still asks before deleting folders, touching secrets " +
+                                        "or running risky MCP actions. Checkpoints let you undo any run."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             // Only for models that expose a budget; see the note on the file.
             if (currentModel?.supportsReasoningEffort == true) {

@@ -1711,6 +1711,24 @@ class EditorViewModel(
     /** Execute one tool call for the main agent. */
     private suspend fun runTool(call: ToolCallResponse): ToolResult {
         val name = ToolAliases.canonicalName(call.function.name)
+        // The leash: Leashed asks before every change; Unleashed only before
+        // the risky ones. Declining is an answer the model can work with.
+        if (com.oro.app.data.ai.agent.AutonomyPolicy.isChange(name)) {
+            val mode = preferencesRepository.autonomyMode.first()
+            val danger = com.oro.app.data.ai.agent.AutonomyPolicy.dangerReason(
+                name, call.function.arguments, _project.value?.rootPath?.let { File(it) }
+            )
+            if (mode == com.oro.app.data.ai.agent.AutonomyMode.LEASHED || danger != null) {
+                val (action, detail) = com.oro.app.data.ai.agent.AutonomyPolicy.describe(name, call.function.arguments)
+                if (!awaitApproval(danger ?: action, detail)) {
+                    return ToolResult(
+                        true,
+                        "The user declined this step (${danger ?: action}). Nothing was changed. Do not retry it; " +
+                            "continue with what you can do, or ask the user how they want it done."
+                    )
+                }
+            }
+        }
         return when {
             name == "request_approval" -> {
                 val args = DelegationHandler.parseArgs(call.function.arguments)
@@ -2498,6 +2516,13 @@ class EditorViewModel(
             approvalAnswer = null
             throw cancellation
         }
+    }
+
+    val autonomyMode: StateFlow<com.oro.app.data.ai.agent.AutonomyMode> = preferencesRepository.autonomyMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.oro.app.data.ai.agent.AutonomyMode.DEFAULT)
+
+    fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
+        viewModelScope.launch { preferencesRepository.setAutonomyMode(mode) }
     }
 
     fun setReasoningEffort(effort: ReasoningEffort) {

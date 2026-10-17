@@ -1,0 +1,195 @@
+        :root {
+            /* Material 3 Expressive Spatial & Effects Springs (Latest Spec) */
+            --m3-spring-spatial-fast: cubic-bezier(0.28, 1.38, 0.34, 1);
+            --m3-spring-spatial-default: cubic-bezier(0.22, 1.28, 0.36, 1);
+            --m3-spring-spatial-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --m3-spring-effects: cubic-bezier(0.2, 0, 0, 1);
+        }
+
+        body {
+            background-color: #0D0B09;
+            color: #EDE9E2;
+            overflow-x: hidden;
+            user-select: none;
+        }
+
+        .material-symbols-rounded {
+            font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 24;
+            transition: font-variation-settings 0.25s var(--m3-spring-effects), transform 0.3s var(--m3-spring-spatial-fast);
+        }
+
+        .material-symbols-rounded.filled {
+            font-variation-settings: 'FILL' 1, 'wght' 550, 'GRAD' 0, 'opsz' 24;
+        }
+
+        /* M3 Expressive Spring Transitions */
+        .spring-morph {
+            transition: all 0.46s var(--m3-spring-spatial-default);
+        }
+
+        .spring-fast {
+            transition: all 0.32s var(--m3-spring-spatial-fast);
+        }
+
+        .spring-bouncy {
+            transition: all 0.42s var(--m3-spring-spatial-bouncy);
+        }
+
+        /* Hide scrollbars inside mobile frame & horizontal chip strips */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* M3 Expressive Filter & Template Category Chip Shape Morphing */
+        .m3-chip {
+            border-radius: 11px;
+            transition: border-radius 0.35s var(--m3-spring-spatial-fast),
+                        background-color 0.22s ease,
+                        transform 0.22s var(--m3-spring-spatial-fast),
+                        border-color 0.22s ease;
+        }
+        .m3-chip:active {
+            transform: scale(0.92);
+            border-radius: 20px;
+        }
+        .m3-chip.selected {
+            border-radius: 22px;
+            background-color: #EDE9E2;
+            color: #141210;
+            font-weight: 600;
+            border-color: transparent;
+        }
+        .m3-chip.selected-tonal {
+            border-radius: 12px;
+            background-color: #38342D;
+            color: #EDE9E2;
+            font-weight: 600;
+            border-color: #38342D;
+        }
+
+        /* Expressive Button & FAB press physics (Android: press only, no hover, no rotate) */
+        .expressive-btn:active {
+            transform: scale(0.92);
+        }
+        .expressive-fab:active {
+            transform: scale(0.92);
+        }
+
+        /* Reference topbar organic shapes — liquid/glass edition (inset highlight + alt shape).
+           No :hover anywhere (Android press-only). */
+        .m3-flower-btn {
+            border-radius: 42% 58% 46% 54% / 54% 42% 58% 46%;
+            transition: all 0.6s var(--m3-spring-spatial-bouncy), background 0.2s ease;
+            border: none;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .m3-flower-btn-alt {
+            border-radius: 58% 42% 38% 62% / 42% 58% 62% 38%;
+        }
+        .m3-flower-btn:active {
+            transform: scale(0.92);
+            border-radius: 50%;
+        }
+        .m3-clover {
+            border-radius: 36% 64% 36% 64% / 64% 36% 64% 36%;
+            transition: all 0.6s var(--m3-spring-spatial-bouncy);
+            display: grid;
+            place-items: center;
+            border: none;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .m3-clover:active {
+            transform: scale(0.90);
+        }
+        /* compat alias (older markup used .m3-flower) */
+        .m3-flower {
+            border-radius: 42% 58% 46% 54% / 54% 42% 58% 46%;
+            transition: all 0.6s var(--m3-spring-spatial-bouncy), background 0.2s ease;
+            border: none;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .m3-flower:active {
+            transform: scale(0.92);
+            border-radius: 50%;
+        }
+        /* Reference search entrance + chip stagger entrances */
+        .search-enter {
+            animation: searchEnter 0.6s var(--m3-spring-spatial-bouncy) forwards;
+        }
+        @keyframes searchEnter {
+            0% { opacity: 0; transform: translateY(-16px) scale(0.96); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .chip-enter {
+            animation: chipPop 0.5s var(--m3-spring-spatial-bouncy) backwards;
+        }
+        @keyframes chipPop {
+            0% { opacity: 0; transform: scale(0.7) translateY(8px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        /* Android: inside the phone there is no hover — press only.
+           All hover: / group-hover: classes are stripped at runtime (see stripHoverClasses).
+           This guard kills any leftover CSS :hover visuals inside the frame. */
+        #phoneFrame *:hover {
+            /* intentionally neutral — no hover visuals on Android */
+        }
+
+        /* Speed-Dial Item Stagger Animation */
+        @keyframes speedDialPop {
+            0% {
+                opacity: 0;
+                transform: translateY(18px) scale(0.82);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        .speed-dial-item {
+            animation: speedDialPop 0.38s var(--m3-spring-spatial-default) backwards;
+        }
+
+        /* Bottom Sheet & Modal Entrance Animations */
+        @keyframes sheetSlideUp {
+            0% {
+                opacity: 0;
+                transform: translateY(100%) scale(0.97);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        @keyframes modalZoomIn {
+            0% {
+                opacity: 0;
+                transform: scale(0.90) translateY(12px);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+            }
+        }
+        .animate-sheet-up {
+            animation: sheetSlideUp 0.44s var(--m3-spring-spatial-default) forwards;
+        }
+        .animate-modal-zoom {
+            animation: modalZoomIn 0.36s var(--m3-spring-spatial-default) forwards;
+        }
+
+        /* Search Highlight */
+        mark.m3-highlight {
+            background-color: rgba(237, 233, 226, 0.22);
+            color: #EDE9E2;
+            border-radius: 4px;
+            padding: 0 3px;
+            font-weight: 600;
+        }

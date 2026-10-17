@@ -132,6 +132,11 @@ fun <T> SegmentedPicker(
                                     MaterialTheme.typography.labelLarge
                                 },
                                 textAlign = TextAlign.Center,
+                                // One line, always: a label broken mid-word
+                                // ("OpenAI-compatibl / e") reads as a bug.
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(
                                     horizontal = Space.sm,
                                     vertical = Space.md

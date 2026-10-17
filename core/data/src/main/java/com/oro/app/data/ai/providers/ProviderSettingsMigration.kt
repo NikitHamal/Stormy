@@ -39,7 +39,22 @@ object ProviderSettingsMigration {
                 )
             ) + custom
         }
-        return if (keys == stored.builtInKeys && custom === stored.custom) stored
-        else stored.copy(builtInKeys = keys, custom = custom)
+        // Ship the well-known vendors as ready-made providers (no key yet), so
+        // "Add provider" is only for servers Oro does not know.
+        var seeded = stored.seededPresets
+        if (!seeded) {
+            val have = custom.mapNotNull { it.presetId }.toSet()
+            custom = custom + ProviderPresets.all
+                .filter { !it.id.startsWith("custom-") && it.id !in have }
+                .map { p ->
+                    CustomProviderConfig(
+                        id = "preset-${p.id}", name = p.name, protocol = p.protocol, baseUrl = p.baseUrl,
+                        maxOutputTokens = p.maxOutputTokens, presetId = p.id
+                    )
+                }
+            seeded = true
+        }
+        return if (keys == stored.builtInKeys && custom === stored.custom && seeded == stored.seededPresets) stored
+        else stored.copy(builtInKeys = keys, custom = custom, seededPresets = seeded)
     }
 }

@@ -73,39 +73,50 @@ data class ProviderRowUi(
 @Composable
 fun ProvidersScreen(
     viewModel: ProvidersViewModel,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    /** Open the editor: [ProviderRoute.NEW] or a provider's route. */
+    onOpenEditor: (String) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val counts by viewModel.customModelCounts.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    var openRef by remember { mutableStateOf<ProviderRef?>(null) }
-    var adding by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { snackbar.showSnackbar(it) }
     }
 
-    val customRows = remember(state.settings.custom, state.health, counts) {
-        state.settings.custom.mapIndexed { i, c ->
-            val ref = ProviderRef.Custom(c.id)
-            val keys = state.keysOf(ref)
-            val models = counts[c.id] ?: 0
-            ProviderRowUi(
-                ref = ref,
-                title = c.name,
-                subtitle = c.protocol.label + " · " + c.normalizedBaseUrl.removePrefix("https://").removePrefix("http://"),
-                status = listOfNotNull(
-                    "$models models",
-                    keySummary(keys).takeIf { it.isNotEmpty() },
-                    "off".takeIf { !c.enabled }
-                ).joinToString(" · "),
-                ready = c.enabled && models > 0,
-                warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
-                shapeIndex = i + 3
-            )
-        }
+    // Shipped vendors (seeded presets) list with the built-ins; "Your
+    // providers" is only what the user added themselves.
+    val (seededConfigs, ownConfigs) = remember(state.settings.custom) {
+        state.settings.custom.partition { it.presetId?.startsWith("custom-") == false }
     }
-    val builtInRows = remember(state.settings.builtInKeys, state.health) {
+    fun customRow(i: Int, c: com.oro.app.data.ai.providers.CustomProviderConfig): ProviderRowUi {
+        val ref = ProviderRef.Custom(c.id)
+        val keys = state.keysOf(ref)
+        val models = counts[c.id] ?: 0
+        val needsKey = c.presetId?.let { com.oro.app.data.ai.providers.ProviderPresets.byId(it)?.needsKey } ?: false
+        return ProviderRowUi(
+            ref = ref,
+            title = c.name,
+            subtitle = c.normalizedBaseUrl.removePrefix("https://").removePrefix("http://"),
+            status = when {
+                !c.enabled -> "Off"
+                needsKey && keys.isEmpty() -> "Needs a key"
+                else -> listOfNotNull(
+                    "$models models".takeIf { models > 0 },
+                    keySummary(keys).takeIf { it.isNotEmpty() }
+                ).joinToString(" · ").ifEmpty { "Ready · fetch models" }
+            },
+            ready = c.enabled && (!needsKey || keys.isNotEmpty()),
+            warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
+            shapeIndex = i + 3
+        )
+    }
+    val seededRows = remember(seededConfigs, state.health, counts) { seededConfigs.mapIndexed { i, c -> customRow(i + 20, c) } }
+    val customRows = remember(ownConfigs, state.health, counts) {
+        ownConfigs.mapIndexed { i, c -> customRow(i, c) }
+    }
+    val builtInRows = remember(state.settings.builtInKeys, state.health, seededRows) {
         AiProvider.entries.filter { it != AiProvider.CUSTOM }.map { p ->
             val ref = ProviderRef.BuiltIn(p)
             val keys = state.keysOf(ref)
@@ -124,7 +135,7 @@ fun ProvidersScreen(
                 warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
                 shapeIndex = p.ordinal
             )
-        }.sortedBy { !it.ready }
+        }.plus(seededRows).sortedBy { !it.ready }
     }
 
     Scaffold(
@@ -141,7 +152,7 @@ fun ProvidersScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { adding = true },
+                onClick = { onOpenEditor(ProviderRoute.NEW) },
                 icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
                 text = { Text("Add provider") }
             )
@@ -165,39 +176,16 @@ fun ProvidersScreen(
             if (customRows.isNotEmpty()) {
                 item(key = "h-custom", contentType = "header") { SectionLabel("Your providers") }
                 items(customRows, key = { "c-" + it.ref.poolId }, contentType = { "row" }) { row ->
-                    ProviderListRow(row, onClick = {
-                        (row.ref as? ProviderRef.Custom)?.let { viewModel.openCustom(it.id) }
-                        openRef = row.ref
-                    })
+                    ProviderListRow(row, onClick = { onOpenEditor(ProviderRoute.of(row.ref)) })
                 }
             }
             item(key = "h-builtin", contentType = "header") { SectionLabel("Built in") }
             items(builtInRows, key = { "b-" + it.ref.poolId }, contentType = { "row" }) { row ->
-                ProviderListRow(row, onClick = { openRef = row.ref })
+                ProviderListRow(row, onClick = { onOpenEditor(ProviderRoute.of(row.ref)) })
             }
         }
     }
 
-    openRef?.let { ref ->
-        ProviderDetailSheet(
-            ref = ref,
-            state = state,
-            viewModel = viewModel,
-            onDismiss = {
-                openRef = null
-                viewModel.openCustom(null)
-            }
-        )
-    }
-    if (adding) {
-        AddProviderSheet(
-            onDismiss = { adding = false },
-            onCreate = { preset, name, protocol, url, key, headers, tools, maxTokens ->
-                viewModel.addCustomProvider(preset, name, protocol, url, key, headers, tools, maxTokens)
-                adding = false
-            }
-        )
-    }
 }
 
 /** "2 keys · 1 cooling". */

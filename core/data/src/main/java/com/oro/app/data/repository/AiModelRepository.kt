@@ -135,11 +135,14 @@ class AiModelRepository(
             onSuccess = { fetchedModels ->
                 val existingModels = aiModelDao.getAllModels()
                 val existingMap = existingModels.associateBy { it.id }
+                val seedIds = AiModels.getAllModels().map { it.id }.toSet()
 
                 val newEntities = fetchedModels.map { model ->
                     val existing = existingMap[model.id]
                     model.toEntity().copy(
-                        isEnabled = existing?.isEnabled ?: true,
+                        // New models arrive switched off; only the shipped
+                        // seeds (the ones that work out of the box) start on.
+                        isEnabled = existing?.isEnabled ?: seedIds.contains(model.id),
                         isFavorite = existing?.isFavorite ?: false,
                         alias = existing?.alias,
                         lastUsed = existing?.lastUsed,
@@ -273,7 +276,8 @@ class AiModelRepository(
             val rows = fetched.filter { it.id !in manual }.map { model ->
                 val old = existing[model.id]
                 model.toEntity().copy(
-                    isEnabled = old?.isEnabled ?: true,
+                    // Off until the user picks it: a big catalogue must not flood the picker.
+                    isEnabled = old?.isEnabled ?: false,
                     isFavorite = old?.isFavorite ?: false,
                     alias = old?.alias,
                     lastUsed = old?.lastUsed,

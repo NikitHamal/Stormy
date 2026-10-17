@@ -48,6 +48,7 @@ class PreferencesRepository(private val context: Context) {
         /** MCP servers as JSON ([com.oro.app.data.ai.mcp.McpSettings]). */
         val MCP_SETTINGS = stringPreferencesKey("mcp_servers_v1")
         val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
+        val AUTONOMY = stringPreferencesKey("autonomy_mode")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
         // AI Provider and Model settings
@@ -273,6 +274,13 @@ class PreferencesRepository(private val context: Context) {
             runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.mcp.McpSettings.serializer(), raw) }.getOrNull()
         } ?: com.oro.app.data.ai.mcp.McpSettings()
     }.distinctUntilChanged()
+
+    val autonomyMode: Flow<com.oro.app.data.ai.agent.AutonomyMode> = context.dataStore.data
+        .map { com.oro.app.data.ai.agent.AutonomyMode.fromName(it[PreferenceKeys.AUTONOMY]) }.distinctUntilChanged()
+
+    suspend fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
+        context.dataStore.edit { it[PreferenceKeys.AUTONOMY] = mode.name }
+    }
 
     val netlifyToken: Flow<String> = context.dataStore.data.map { it[PreferenceKeys.NETLIFY_TOKEN].orEmpty() }.distinctUntilChanged()
 

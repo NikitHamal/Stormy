@@ -133,6 +133,8 @@ fun ChatTab(
     /** User messages whose run left a checkpoint, i.e. can be rewound. */
     checkpointMessageIds: Set<String> = emptySet(),
     onRestoreCheckpoint: (String) -> Unit = {},
+    autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
+    onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
     projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
@@ -201,7 +203,9 @@ fun ChatTab(
             reasoningEffort = reasoningEffort,
             onReasoningEffortChange = onReasoningEffortChange,
             currentModel = currentModel,
-            onDismiss = { showChatSettings = false }
+            onDismiss = { showChatSettings = false },
+            autonomy = autonomy,
+            onAutonomyChange = onAutonomyChange
         )
     }
 
@@ -457,14 +461,8 @@ private fun WelcomeMessage(
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Agent mode toggle
-        AgentModeToggle(
-            agentMode = agentMode,
-            onToggle = onToggleAgentMode
-        )
-
+        // Chat / Agent lives in the composer's settings sheet; a second
+        // switch here only duplicated it.
         Spacer(modifier = Modifier.height(28.dp))
 
         // Starters. They fill the input rather than sending, so the user can

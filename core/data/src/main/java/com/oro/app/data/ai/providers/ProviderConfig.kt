@@ -6,10 +6,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class WireProtocol(val label: String) {
     /** `/chat/completions` + `/models`, Bearer auth. */
-    OPENAI("OpenAI-compatible"),
+    OPENAI("OpenAI"),
 
     /** Anthropic Messages API: `/v1/messages`, `x-api-key`, `anthropic-version`. */
-    ANTHROPIC("Anthropic-compatible")
+    ANTHROPIC("Anthropic")
 }
 
 /** Which key a provider with several keys uses first. */
@@ -77,7 +77,9 @@ data class ProviderSettings(
     val custom: List<CustomProviderConfig> = emptyList(),
     /** Keys for built-in providers, by `AiProvider.name`. */
     val builtInKeys: Map<String, List<ApiKeyEntry>> = emptyMap(),
-    val builtInRotation: Map<String, KeyRotation> = emptyMap()
+    val builtInRotation: Map<String, KeyRotation> = emptyMap(),
+    /** The preset providers (DeepSeek, Kimi, ...) have been added once; never re-added after the user removes one. */
+    val seededPresets: Boolean = false
 ) {
     fun customById(id: String): CustomProviderConfig? = custom.firstOrNull { it.id == id }
 }

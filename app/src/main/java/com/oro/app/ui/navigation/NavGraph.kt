@@ -44,6 +44,9 @@ sealed class Screen(val route: String) {
     data object GitSettings : Screen("git_settings")
     data object Providers : Screen("providers")
     data object Mcp : Screen("mcp")
+    data object ProviderEditor : Screen("provider_editor/{ref}") {
+        fun createRoute(ref: String) = "provider_editor/" + android.net.Uri.encode(ref)
+    }
 }
 
 @Composable
@@ -192,7 +195,17 @@ fun OroNavGraph(
             val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
             ProvidersScreen(
                 viewModel = viewModel,
-                onBackClick = { navController.popBackStack() }
+                onBackClick = { navController.popBackStack() },
+                onOpenEditor = { ref -> navController.navigate(Screen.ProviderEditor.createRoute(ref)) }
+            )
+        }
+
+        composable(Screen.ProviderEditor.route) { entry ->
+            val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
+            com.oro.app.ui.screens.providers.ProviderEditorScreen(
+                viewModel = viewModel,
+                route = entry.arguments?.getString("ref"),
+                onBack = { navController.popBackStack() }
             )
         }
 

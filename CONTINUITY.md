@@ -1,86 +1,36 @@
-# Continuity Ledger - CodeX AI Coding Agent
+# CONTINUITY.md — session ledger
 
-## Goal (incl. success criteria):
-Fix performance issues, UI/UX problems, and model compatibility in the CodeX Android app to make it production-ready.
+Update this file at the end of every working session (or before a risky step), so a new agent
+or a cut-off session can resume. Newest entry on top. Keep entries short and factual.
 
-**Success criteria**:
-- [x] Working bubble replaced with minimal indicator
-- [x] Tool calls properly rendered (not as text with emojis)
-- [x] No lag during streaming in agent mode
-- [x] All models function properly with tool calling
-- [x] Debug logs show raw unformatted server responses
+## How to resume
+1. `git log --oneline -15` on `oro-dev`, and read the latest entry below.
+2. Check the last CI run for the branch (Actions → Android CI). Fix compile errors first.
+3. Continue from "Next" of the latest entry.
 
-## Constraints/Assumptions:
-- Must maintain backward compatibility
-- Cannot break existing functionality
-- Kotlin/Jetpack Compose codebase
-- DeepInfra API provider (free, no API key required)
-- File size limits: 500-1000 lines per file maximum
+---
 
-## Key Decisions:
-1. **Debounce Interval**: Changed from 50ms to 100ms (10 FPS) for better performance
-2. **Streaming Parsing**: Simplified parsing during streaming to reduce CPU load
-3. **Tool Call Fallback**: Added text-based tool call parser for models without native function calling
-4. **Debug Logging**: Separate raw SSE log file (`.codex/raw_sse.log`) for unformatted server responses
-5. **Generating Indicator**: Minimal inline design instead of full bubble
+## 2026-10-17 — issue #28, second round (in progress)
+**Done this session**
+- Wrap fixes (one-line segmented labels, sheet buttons), provider editor as a full screen,
+  well-known vendors seeded as built-ins, fetched models default off.
+- Merged `main` (StormyWeb). Removed the duplicate Chat/Agent chip from the empty chat.
+- Autonomy: Leashed (approve every change) / Unleashed (asks only for risky steps) in Chat settings.
+- AGENTS.md + this ledger.
 
-## State:
+**In progress / next** (see the issue comment for the full list)
+- Dictation: system SpeechRecognizer + Whistle on-device STT (JNI to `libneedle.a`, model downloaded on demand).
+- Preview screenshot / responsive check / page audit tools (offscreen WebView, images to vision models).
+- MCP OAuth sign-in, project sharing (zip), skills (`.oro/skills/*.md`).
+- Offline local LLM (MediaPipe LLM Inference, Qwen 2.5 0.5B/1.5B `.task` from litert-community).
+- StormyWeb: full modular replica of the Oro app. Launch video: a real landing page in the live scene.
 
-### Done (Current Session - 2026-01-06):
-- [x] Removed Working bubble, implemented minimal generating indicator
-- [x] Fixed tool call text rendering with fallback parser (`parseTextBasedToolCalls()`)
-- [x] Improved streaming performance (debounce 100ms, simplified parsing)
-- [x] Fixed model compatibility (improved system prompt, fallback parser)
-- [x] Fixed debug logs (raw SSE logging to `.codex/raw_sse.log`)
-- [x] Created CLAUDE.md documentation
-- [x] Updated CONTINUITY.md
+## 2026-10-17 — issue #28, first round
+Caret fix, Chat split-button tab, plan docked on composer, one-line tool rows, single-stage
+editor state, ORO.md/AGENTS.md instructions, preview errors to the agent, Anthropic prompt
+caching + per-chat usage meter, checkpoints, background runs + notifications, MCP client,
+Netlify / GitHub Pages deploy. CI green at `af811ef`.
 
-### Done (Previous Session):
-- [x] Fixed build error in EditorViewModel.kt:1037
-- [x] Created CodeDiffTools.kt - Production-grade diff tools
-- [x] Created ShellToolExecutor.kt - Safe shell execution
-- [x] Created ExtendedToolExecutor.kt - Advanced tool executor
-- [x] Created ToolArgumentValidator.kt - Comprehensive validation
-- [x] Added 15+ new tool definitions
-
-### Now:
-- All requested tasks completed
-
-### Next:
-- Testing in real-world scenarios
-- Monitor for any edge cases in tool call parsing
-- Consider additional model-specific optimizations
-
-## Open Questions:
-- None currently
-
-## Working Set (Current Session):
-
-### Files Modified:
-- `app/src/main/java/com/codex/stormy/ui/components/message/AiMessageContent.kt`
-  - Added `MinimalGeneratingIndicator`, `InlineGeneratingIndicator`, `GeneratingDots`
-  - Added `parseStreamingContent()` for lightweight streaming parsing
-  - Modified `AiMessageContent()` to use conditional parsing
-
-- `app/src/main/java/com/codex/stormy/ui/screens/editor/EditorViewModel.kt`
-  - Added `parseTextBasedToolCalls()`, `parseToolCallJson()`, `parseFunctionArguments()`
-  - Added `logDebugRawSSE()` for raw SSE logging
-  - Modified streaming event handler to handle `RawSSE` events
-  - Changed debounce interval from 50ms to 100ms
-
-- `app/src/main/java/com/codex/stormy/data/ai/DeepInfraProvider.kt`
-  - Added `StreamEvent.RawSSE` event type
-  - Modified `onEvent()` to emit raw SSE data
-
-- `app/src/main/java/com/codex/stormy/data/repository/AiRepository.kt`
-  - Updated system prompt to emphasize native function calling
-
-### Files Created:
-- `CLAUDE.md` - Project knowledge base
-- `CONTINUITY.md` - Session continuity ledger (this file)
-
-### Key Classes:
-- `EditorViewModel` - Main ViewModel, handles streaming, tool execution
-- `AiMessageContent` - Composable for rendering AI messages
-- `DeepInfraProvider` - SSE streaming implementation
-- `StormyTools` - Tool definitions
+## 2026-10-17 — harness / providers / sessions overhaul
+Multi-question ask_user, K2 tool-call fixes, custom OpenAI/Anthropic providers with key
+failover, multiple chat sessions per project (Room v6), Lite mode, launch video with sound.

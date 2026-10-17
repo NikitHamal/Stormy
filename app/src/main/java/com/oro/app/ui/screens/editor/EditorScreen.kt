@@ -130,6 +130,7 @@ fun EditorScreen(
     val sessionsState by viewModel.sessionsState.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
     val checkpointIds by viewModel.checkpointMessageIds.collectAsStateWithLifecycle()
+    val autonomy by viewModel.autonomyMode.collectAsStateWithLifecycle()
 
     // Ask for notifications the first time a run starts, the moment the
     // reason is obvious: so Orobi can say when it is done while you are away.
@@ -433,6 +434,8 @@ fun EditorScreen(
                                     sessionUsage = sessionUsage,
                                     checkpointMessageIds = checkpointIds,
                                     onRestoreCheckpoint = viewModel::restoreCheckpoint,
+                                    autonomy = autonomy,
+                                    onAutonomyChange = viewModel::setAutonomyMode,
                                     projectName = uiState.project?.name,
                                     agentSessions = uiState.agentSessions,
                                     reasoningEffort = uiState.reasoningEffort,
