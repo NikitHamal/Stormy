@@ -131,8 +131,6 @@ object LocalModels {
 
     @Volatile private var engine: LlmInference? = null
     @Volatile private var loadedId: String? = null
-    /** Where the engine's single result listener sends partial text. */
-    @Volatile private var sink: ((String, Boolean) -> Unit)? = null
     private val lock = Any()
 
     private fun engineFor(spec: LocalModelSpec): LlmInference = synchronized(lock) {
@@ -143,8 +141,6 @@ object LocalModels {
             .setModelPath(file(spec).absolutePath)
             .setMaxTokens(spec.maxTokens)
             .setMaxTopK(40)
-            .setResultListener { partial, done -> sink?.invoke(partial ?: "", done) }
-            .setErrorListener { e -> sink?.invoke("\u0000" + (e.message ?: "error"), true) }
             .build()
         LlmInference.createFromOptions(ctx, options).also { engine = it; loadedId = spec.id }
     }
@@ -190,30 +186,29 @@ object LocalModels {
             }
             val s = spec!!
             trySend(StreamEvent.Started)
-            val text = StringBuilder()
-            sink = { partial, done ->
-                if (partial.startsWith("\u0000")) {
-                    trySend(StreamEvent.Error("${s.name}: ${partial.drop(1)}"))
+            val listener = com.google.mediapipe.tasks.genai.llminference.ProgressListener<String> { partial, done ->
+                // Partial results are deltas; strip the template's end marker.
+                val clean = (partial ?: "").replace("<|im_end|>", "")
+                if (clean.isNotEmpty()) trySend(StreamEvent.ContentDelta(clean))
+                if (done) {
+                    trySend(StreamEvent.FinishReason("stop"))
+                    trySend(StreamEvent.Completed)
                     close()
-                } else {
-                    // Partial results are deltas; strip the template's end marker.
-                    val clean = partial.replace("<|im_end|>", "")
-                    if (clean.isNotEmpty()) { text.append(clean); trySend(StreamEvent.ContentDelta(clean)) }
-                    if (done) {
-                        trySend(StreamEvent.FinishReason("stop"))
-                        trySend(StreamEvent.Completed)
-                        close()
-                    }
                 }
             }
             runCatching {
-                val llm = engineFor(s)
-                llm.generateResponseAsync(prompt(messages, s.maxTokens))
+                val future = engineFor(s).generateResponseAsync(prompt(messages, s.maxTokens), listener)
+                future.addListener({
+                    runCatching { future.get() }.onFailure { e ->
+                        trySend(StreamEvent.Error("${s.name}: ${e.message ?: "generation failed"}"))
+                        close()
+                    }
+                }, Runnable::run)
             }.onFailure {
                 trySend(StreamEvent.Error("${s.name} could not run: ${it.message}"))
                 close()
             }
-            awaitClose { sink = null }
+            awaitClose { }
         }.flowOn(Dispatchers.Default)
     }
 }
