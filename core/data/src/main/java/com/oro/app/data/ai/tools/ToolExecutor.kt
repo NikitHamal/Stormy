@@ -309,6 +309,11 @@ class ToolExecutor(
                         )
                 }
             }
+        } catch (e: CancellationException) {
+            // Stop pressed while a tool (e.g. ask_user) was suspended: let the
+            // cancellation through instead of turning it into a tool error the
+            // loop would carry on from.
+            throw e
         } catch (e: kotlinx.serialization.SerializationException) {
             ToolResult(
                 success = false,
