@@ -11,7 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class OnboardingUiState(
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val saveFailed: Boolean = false
 )
 
 class OnboardingViewModel(
@@ -21,9 +22,19 @@ class OnboardingViewModel(
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
-    fun completeOnboarding() {
+    fun completeOnboarding(onComplete: () -> Unit) {
+        if (_uiState.value.isLoading) return
+        _uiState.value = OnboardingUiState(isLoading = true)
         viewModelScope.launch {
-            preferencesRepository.setOnboardingCompleted(true)
+            try {
+                preferencesRepository.setOnboardingCompleted(true)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = OnboardingUiState(saveFailed = true)
+                return@launch
+            }
+            onComplete()
         }
     }
 

@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<style>*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{--bg:#0B0D12;--surface:#12151C;--line:#262C38;--on:#E8ECF2;--muted:#8A93A3;background:var(--bg);color:var(--on);font:14px system-ui,sans-serif}
+.light{--bg:#F4F5F7;--surface:#FFFFFF;--line:#D8DCE3;--on:#0E1117;--muted:#677084}
+.stage{position:relative;width:100%;height:100%;display:grid;place-items:center;background:radial-gradient(circle at 1px 1px,var(--line) 1px,transparent 0) center/20px 20px;isolation:isolate}
+.stage:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse,transparent 30%,var(--bg) 76%);z-index:-1}
+.mascot{width:74%;overflow:visible}
+.body{transform-box:fill-box;transform-origin:50% 100%;animation:breathe 3.2s ease-in-out infinite}
+.eyes{transform-box:fill-box;transform-origin:center;animation:blink 4.2s infinite}
+.shadow{fill:var(--on);opacity:.08}
+.hello{width:100%;display:grid;place-items:center;gap:26px}
+.caption{font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase}
+.prompt-stage .mascot{position:absolute;left:1%;top:40%;width:49%}
+.prompt{position:absolute;top:12%;left:5%;padding:12px 16px;border:1px solid var(--line);background:var(--surface);border-radius:24px;font-size:12px;z-index:2}
+.prompt:before{content:"✦";margin-right:9px;color:#F800F8}
+.phone{position:absolute;right:5%;top:20%;width:38%;height:71%;border:2px solid var(--on);border-radius:24px;background:var(--surface);padding:26px 10px 10px;box-shadow:0 10px 0 #8888880b}
+.notch{position:absolute;top:9px;left:38%;width:24%;height:5px;border-radius:9px;background:var(--on)}
+.nav{width:32%;height:5px;background:var(--on);border-radius:4px;margin-bottom:15px}
+.block{border:1px solid var(--line);border-radius:9px;padding:12px 8px;margin:7px 0;animation:build 11s ease infinite;animation-delay:var(--delay,0s)}
+.block.hero{height:37%;background:color-mix(in srgb,var(--on) 5%,var(--surface))}
+.line{height:5px;width:84%;border-radius:5px;background:var(--on);margin:0 0 7px;opacity:.8}
+.short{width:55%;opacity:.3}
+.pill{width:40%;height:10px;background:var(--on);border-radius:10px;margin-top:10px}
+.hot{border-color:var(--on)}
+.live{position:absolute;bottom:5%;left:5%;font-size:11px;color:var(--muted);animation:live 11s infinite}
+.live:before{content:"✓";display:inline-grid;place-items:center;width:17px;height:17px;margin-right:7px;background:#3DDC97;border-radius:50%;color:#0B0D12}
+.thinking{position:absolute;left:10%;top:50%;width:30%;overflow:visible;animation:thinking 11s infinite}
+.thinking path{fill:none;stroke:#F800F8;stroke-width:90;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24 76;animation:dash 1.6s linear infinite}
+.prompt-stage .mascot .body{animation:transformBody 11s infinite}
+.orbit{width:90%;height:90%;max-height:310px;aspect-ratio:1;position:relative;display:grid;place-items:center}
+.orbit:before{content:"";position:absolute;width:75%;height:75%;border:1px dashed var(--line);border-radius:50%}
+.orbit .mascot{width:45%}
+.node{position:absolute;left:calc(50% + var(--x)*1%);top:calc(50% + var(--y)*1%);transform:translate(-50%,-50%);padding:10px 12px;border-radius:22px;background:var(--surface);border:1px solid var(--line);font-size:11px;color:var(--muted);animation:node 4s ease-in-out infinite;animation-delay:var(--delay)}
+@keyframes breathe{50%{transform:scale(1.02,.98)}
+}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}
+95%{transform:scaleY(.1)}
+}
+@keyframes dash{to{stroke-dashoffset:-100}
+}
+@keyframes build{0%,25%{opacity:0;transform:translateY(12px)}
+42%,93%{opacity:1;transform:none}
+100%{opacity:0}
+}
+@keyframes live{0%,66%,100%{opacity:0}
+72%,93%{opacity:1}
+}
+@keyframes thinking{0%,23%,65%,100%{opacity:0}
+30%,58%{opacity:1}
+}
+@keyframes transformBody{0%,20%,68%,100%{opacity:1;transform:none}
+27%,59%{opacity:0;transform:scale(.9)}
+73%{transform:translateY(-90px) scale(.98,1.03)}
+79%{transform:scale(1.06,.94)}
+85%{transform:none}
+}
+@keyframes node{50%{border-color:var(--muted);color:var(--on)}
+}
+.still *{animation:none!important}
+.still .thinking{display:none}
+.still .block,.still .live{opacity:1}
+@media(prefers-reduced-motion:reduce){*{animation:none!important}
+.thinking{display:none}
+.block,.live{opacity:1}
+}
+
+</style>
+</head>
+<body class="ORO_THEME ORO_MOTION">
+<div class="stage">
+<div class="orbit">
+<svg xmlns="http://www.w3.org/2000/svg" class="mascot" viewBox="200 400 1200 820" role="img" aria-label="orobi, the Oro assistant">
+<defs>
+<clipPath id="bodyClip">
+<path clip-rule="evenodd" d="M810,710C760,635 650,503 520,503C370,503 256,660 256,810C256,990 380,1148 510,1148C640,1148 740,1050 810,933C880,1040 980,1148 1100,1148C1250,1148 1345,1020 1345,880C1345,760 1290,650 1190,590C1205,570 1200,520 1160,495C1140,478 1115,472 1085,472C1060,472 1040,480 1030,487L995,520C910,560 850,640 810,710ZM743,825C690,745 600,631 520,631C435,631 377,730 377,835C377,940 440,1017 520,1017C600,1017 690,905 743,825ZM880,817C940,720 1000,650 1030,632C1065,645 1110,650 1160,630C1215,690 1241,770 1241,835C1241,940 1180,1017 1115,1017C1030,1017 940,940 880,817Z"/>
+</clipPath>
+</defs>
+<ellipse class="shadow" cx="800" cy="1185" rx="370" ry="22"/>
+<g class="body">
+<path fill="#FDDFC6" fill-rule="evenodd" d="M810,710C760,635 650,503 520,503C370,503 256,660 256,810C256,990 380,1148 510,1148C640,1148 740,1050 810,933C880,1040 980,1148 1100,1148C1250,1148 1345,1020 1345,880C1345,760 1290,650 1190,590C1205,570 1200,520 1160,495C1140,478 1115,472 1085,472C1060,472 1040,480 1030,487L995,520C910,560 850,640 810,710ZM743,825C690,745 600,631 520,631C435,631 377,730 377,835C377,940 440,1017 520,1017C600,1017 690,905 743,825ZM880,817C940,720 1000,650 1030,632C1065,645 1110,650 1160,630C1215,690 1241,770 1241,835C1241,940 1180,1017 1115,1017C1030,1017 940,940 880,817Z"/>
+<g clip-path="url(#bodyClip)" fill="#F800F8">
+<path d="M553,400L553,503C515,555 487,600 477,637L470,660L420,760L390,930C400,1010 440,1090 505,1148L505,1200L317,1200L317,925Q317,850 256,815L256,803Q317,770 317,690L317,400Z"/>
+<path d="M1020,400L1020,470C1070,520 1105,580 1127,642L1150,670L1190,950L1205,965C1195,1050 1160,1110 1097,1148L1097,1200L1285,1200L1285,935Q1285,850 1340,820L1340,800Q1285,770 1285,680L1285,400Z"/>
+</g>
+<g class="eyes" fill="#1A1F4A">
+<ellipse cx="717" cy="634" rx="10" ry="13"/>
+<ellipse cx="885" cy="634" rx="10" ry="13"/>
+</g>
+</g>
+</svg>
+<span class="node" style="--x:0;--y:-38;--delay:0.0s">Gemini</span>
+<span class="node" style="--x:36;--y:-16;--delay:0.4s">Groq</span>
+<span class="node" style="--x:34;--y:25;--delay:0.8s">NVIDIA</span>
+<span class="node" style="--x:0;--y:40;--delay:1.2000000000000002s">OpenRouter</span>
+<span class="node" style="--x:-34;--y:25;--delay:1.6s">Custom</span>
+<span class="node" style="--x:-36;--y:-16;--delay:2.0s">Cerebras</span>
+</div>
+</div>
+</body>
+</html>

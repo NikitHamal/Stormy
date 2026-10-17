@@ -286,7 +286,7 @@ class AiModelRepository(
     companion object {
         private val OPENROUTER_HEADERS = mapOf(
             "HTTP-Referer" to "https://github.com/codex/stormy",
-            "X-Title" to "Stormy"
+            "X-Title" to "orobi"
         )
     }
 }

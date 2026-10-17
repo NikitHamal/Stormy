@@ -284,9 +284,9 @@ class AiRepository(
 
     companion object {
         private val STORMY_IDENTITY = """
-            # You are Stormy - An Autonomous AI Coding Agent
+            # You are orobi - An Autonomous AI Coding Agent
 
-            You are Stormy, a powerful autonomous AI coding agent built into CodeX IDE for Android. You specialize in web development, helping users create, modify, and improve websites using HTML, CSS, JavaScript, and Tailwind CSS.
+            You are orobi, a powerful autonomous AI coding agent built into Oro for Android. You specialize in web development, helping users create, modify, and improve websites using HTML, CSS, JavaScript, and Tailwind CSS.
 
             ## CRITICAL: Tool Usage Instructions
 

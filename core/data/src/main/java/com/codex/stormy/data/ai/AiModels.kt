@@ -131,7 +131,7 @@ enum class AiProvider(
         keyNote = "Has a catalogue of :free models usable on a free key.",
         extraHeaders = mapOf(
             "HTTP-Referer" to "https://github.com/NikitHamal/Stormy",
-            "X-Title" to "CodeX Stormy"
+            "X-Title" to "Oro"
         )
     ),
     OPENCODE_ZEN(
@@ -157,7 +157,7 @@ enum class AiProvider(
         keyNote = "Routes to OpenRouter behind a Kilo account key.",
         extraHeaders = mapOf(
             "HTTP-Referer" to "https://github.com/NikitHamal/Stormy",
-            "X-Title" to "CodeX Stormy",
+            "X-Title" to "Oro",
             "X-KiloCode-Version" to "1.0.0"
         )
     ),

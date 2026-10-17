@@ -472,15 +472,26 @@ private fun EmptyState(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    ExpressiveEmptyState(
-        icon = Icons.Outlined.Code,
-        title = context.getString(R.string.home_empty_title),
-        description = context.getString(R.string.home_empty_subtitle),
-        shape = EmptyStateShape.Cookie,
-        actionLabel = context.getString(R.string.home_create_project),
-        onAction = onCreateClick,
-        modifier = modifier
-    )
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(R.drawable.orobi),
+            contentDescription = null,
+            modifier = Modifier.size(width = 156.dp, height = 110.dp)
+        )
+        Spacer(Modifier.height(28.dp))
+        Text(context.getString(R.string.home_empty_title), style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(12.dp))
+        Text(context.getString(R.string.home_empty_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Spacer(Modifier.height(28.dp))
+        Button(onClick = onCreateClick) { Text(context.getString(R.string.home_create_project)) }
+    }
 }
 
 @Composable

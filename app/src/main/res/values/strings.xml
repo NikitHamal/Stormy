@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CodeX</string>
+    <string name="app_name">Oro</string>
 
     <!-- General -->
     <string name="action_cancel">Cancel</string>
@@ -20,8 +20,8 @@
 
     <!-- Home Screen -->
     <string name="home_title">Projects</string>
-    <string name="home_empty_title">No Projects Yet</string>
-    <string name="home_empty_subtitle">Create your first web project and start building with Stormy</string>
+    <string name="home_empty_title">Your next idea starts here.</string>
+    <string name="home_empty_subtitle">Create a project, open your files, and build something with orobi.</string>
     <string name="home_create_project">New Project</string>
     <string name="home_search_hint">Search projects</string>
     <string name="home_delete_project_title">Delete Project</string>
@@ -56,9 +56,9 @@
     <string name="editor_save_changes">Save changes?</string>
 
     <!-- Chat -->
-    <string name="chat_hint">Ask Stormy anything…</string>
+    <string name="chat_hint">Ask orobi anything…</string>
     <string name="chat_hint_agent">Ask me to edit, create, or search files…</string>
-    <string name="chat_welcome_title">Hi, I\'m Stormy</string>
+    <string name="chat_welcome_title">Hi, I\'m orobi</string>
     <string name="chat_welcome_message">Your AI coding assistant. Tell me what you want to build, and I\'ll help you create it.</string>
     <string name="chat_thinking">Thinking…</string>
     <string name="chat_error">Something went wrong. Please try again.</string>
@@ -129,8 +129,8 @@
     <string name="onboarding_get_started">Get Started</string>
     <string name="onboarding_title_1">Build Websites\nOn The Go</string>
     <string name="onboarding_desc_1">Create stunning websites directly from your mobile device with a powerful, optimized IDE.</string>
-    <string name="onboarding_title_2">Meet Stormy\nYour AI Assistant</string>
-    <string name="onboarding_desc_2">Just describe what you want, and Stormy will write the code for you. HTML, CSS, Tailwind, and JavaScript supported.</string>
+    <string name="onboarding_title_2">Meet orobi\nYour AI Assistant</string>
+    <string name="onboarding_desc_2">Just describe what you want, and orobi will write the code for you. HTML, CSS, Tailwind, and JavaScript supported.</string>
     <string name="onboarding_title_3">Live Preview\nInstant Results</string>
     <string name="onboarding_desc_3">See your changes in real-time with our built-in preview. Test on different screen sizes effortlessly.</string>
 
@@ -143,4 +143,18 @@
     <string name="error_no_internet">No internet connection</string>
     <string name="error_load_project">Failed to load project</string>
     <string name="error_save_file">Failed to save file</string>
+    <!-- Oro first-run experience -->
+    <string name="oro_intro_label">MEET YOUR BUILDING PARTNER</string>
+    <string name="oro_intro_title">A small idea.\nA real beginning.</string>
+    <string name="oro_intro_detail">Meet orobi, your coding companion in Oro. Bring an idea. We’ll work on the details together.</string>
+    <string name="oro_prompt_label">FROM WORDS TO WORKING PAGES</string>
+    <string name="oro_prompt_title">Say it.\nSee it take shape.</string>
+    <string name="oro_prompt_detail">Describe what you want to build. orobi helps write the code, while you preview and refine it.</string>
+    <string name="oro_models_label">YOUR TOOLS. YOUR CHOICE.</string>
+    <string name="oro_models_title">Build your way.</string>
+    <string name="oro_models_detail">Choose an AI provider, bring your own key, or start with the default. Your files and editor stay close at hand.</string>
+    <string name="oro_skip">Skip intro</string>
+    <string name="oro_continue">Continue</string>
+    <string name="oro_start">Open Oro</string>
+    <string name="oro_save_error">Could not save your setup. Please try again.</string>
 </resources>
