@@ -76,9 +76,7 @@ enum class ProviderProtocol {
     /** OpenAI-compatible `/chat/completions` + `/models`. */
     OPENAI,
     /** chat.ifm.ai guest completions, cumulative `content` frames. */
-    K2_GUEST,
-    /** A model running on this phone (MediaPipe LLM Inference). */
-    LOCAL
+    K2_GUEST
 }
 
 /** How a provider treats credentials. */
@@ -240,14 +238,6 @@ enum class AiProvider(
             "reasoning). Long inputs, no native tools. May break without notice.",
         protocol = ProviderProtocol.K2_GUEST
     ),
-    ON_DEVICE(
-        displayName = "On this phone",
-        baseUrl = "",
-        apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "Small models that run entirely on your phone: private, offline, free. " +
-            "Download one in Settings > On-device models. Best for chat and small edits.",
-        protocol = ProviderProtocol.LOCAL
-    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -353,12 +343,6 @@ object SeedModels {
         model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 131_072, tools = false, thinking = true)
     )
 
-    /** On-device models; ids match [com.oro.app.data.ai.local.LocalModels]. */
-    val onDevice = listOf(
-        model("local:qwen2.5-0.5b", "Qwen 2.5 0.5B (on device)", AiProvider.ON_DEVICE, 1_280, tools = false),
-        model("local:qwen2.5-1.5b", "Qwen 2.5 1.5B (on device)", AiProvider.ON_DEVICE, 4_096, tools = false)
-    )
-
     val nvidia = listOf(
         model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 131_072),
         model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 131_072),
@@ -414,7 +398,6 @@ object SeedModels {
         AiProvider.CEREBRAS to cerebras,
         AiProvider.MISTRAL to mistral,
         AiProvider.K2_HORIZON to k2Horizon,
-        AiProvider.ON_DEVICE to onDevice,
         AiProvider.CUSTOM to fetchedOnly
     )
 

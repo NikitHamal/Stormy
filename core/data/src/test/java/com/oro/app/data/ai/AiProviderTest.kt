@@ -36,9 +36,8 @@ class AiProviderTest {
 
     @Test
     fun `every network provider except custom has a base url`() {
-        // ON_DEVICE runs in-process (MediaPipe): there is no URL to call.
         val missing = AiProvider.entries
-            .filter { it != AiProvider.CUSTOM && it.protocol != ProviderProtocol.LOCAL && it.baseUrl.isBlank() }
+            .filter { it != AiProvider.CUSTOM && it.baseUrl.isBlank() }
             .map { it.name }
         assertThat(missing).isEmpty()
     }

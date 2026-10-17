@@ -18,8 +18,8 @@ js/screens/*.js     one module per screen; each exports { render(params) -> elem
 
 Screens: onboarding, home, editor (chat + code tabs, chats sheet, model picker, chat settings with
 Leashed/Unleashed, context + usage, publish, ask_user stepper, docked plan, restore files, mic),
-preview, settings, AI providers, provider editor, MCP servers, voice dictation, skills, on-device
-models, AI models.
+preview, settings, AI providers, provider editor, MCP servers, voice dictation, skills,
+AI models.
 
 **Keeping it in sync:** when a Compose screen changes, change its module here (and the tokens if
 a colour or size moved). Names match the Kotlin files they mirror.

@@ -18,7 +18,7 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 - Dictation: system `SpeechRecognizer` + Whistle on-device (JNI in `app/src/main/cpp`, weak `std::__hash_memory` shim for older NDK libc++).
 - `screenshot_preview` / `audit_page` (`WebViewPagePreviewer`), images to vision models (`ChatRequestMessage.images`).
 - MCP OAuth sign-in (`McpOAuth`, `oro-mcp://callback`), share project (zip / live link), skills (`use_skill`).
-- On-device LLMs (`LocalModels`, MediaPipe 0.10.27: stream with `generateResponseAsync(prompt, ProgressListener)`).
+- On-device LLMs were added then removed (MediaPipe grew the APK from ~4 MB to ~60 MB). Do not re-add without a size budget.
 - Launch video: real landing page in the live scene, re-rendered.
 
 **Unverified on a device** (CI only compiles): Whistle transcription quality, off-screen WebView capture (may draw blank on some WebView versions; metrics still work), MCP OAuth against real servers, MediaPipe model load on low-RAM phones.

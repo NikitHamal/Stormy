@@ -12,7 +12,6 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 | `app/src/main/java/com/oro/app/agent/` | `BackgroundRuns` + `AgentRunService` (foreground keep-alive, notifications) |
 | `app/src/main/java/com/oro/app/voice/` | Dictation: system speech and Whistle (on-device) |
 | `app/src/main/java/com/oro/app/preview/` | `WebViewPagePreviewer` (off-screen renders for screenshot / responsive / audit tools) |
-| `core/data/.../ai/local/` | On-device LLMs (MediaPipe LLM Inference, Qwen 2.5 `.task`) |
 | `core/data/.../ai/skills/` | Skills (Markdown playbooks, `use_skill`) |
 | `app/src/main/cpp/` | JNI bridge to the Needle/Whistle engine (`libneedle.a` per ABI) |
 | `core/data/` | Everything not UI: AI providers, agent loop, tools, Room DB, repositories |

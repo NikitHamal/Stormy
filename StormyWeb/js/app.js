@@ -10,7 +10,7 @@ import preview from './screens/preview.js';
 export const SCREENS = {
   onboarding, home, editor, preview,
   settings: settings.settingsScreen, providers: settings.providersScreen, providerEditor: settings.providerEditorScreen,
-  mcp: settings.mcpScreen, voice: settings.voiceScreen, skills: settings.skillsScreen, localModels: settings.localModelsScreen,
+  mcp: settings.mcpScreen, voice: settings.voiceScreen, skills: settings.skillsScreen,
   aiModels: settings.aiModelsScreen,
 };
 

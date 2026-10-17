@@ -29,7 +29,6 @@ export const state = {
   },
   models: [
     ['Recommended', [['K2 Horizon 375B', 'K2 Horizon · 128K ctx · text tool calls'], ['Kilo Auto', 'Kilo Code · 200K ctx']]],
-    ['On this phone', [['Qwen 2.5 1.5B (on device)', 'On this phone · 4K ctx · text tool calls']]],
     ['Free · no key', [['Qwen 3.5 122B', 'OVHcloud · 128K ctx'], ['openai-fast', 'Pollinations · 128K ctx']]],
     ['Your providers', [['llama-3.3-70b', 'Groq · 128K ctx'], ['deepseek-chat', 'DeepSeek · 64K ctx']]],
   ],

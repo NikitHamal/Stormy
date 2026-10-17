@@ -19,7 +19,7 @@ export const settingsScreen = { render() {
       <div class="row">${ic('palette', 'l')}<span class="grow"><div class="t-body-l-e">Dynamic colour</div><div class="t-body-s muted">Use your wallpaper colours</div></span>${sw(false, 'dyn')}</div>`)}
     ${section('AI', nav('auto_awesome', 'AI models', 'Turn models on or off, set the default', 'aiModels') + nav('key', 'AI providers', '14 providers · 4 ready', 'providers') +
       nav('hub', 'MCP servers', 'GitHub, Supabase, docs and more for Orobi', 'mcp') + nav('mic', 'Voice dictation', 'System or Whistle, on-device', 'voice') +
-      nav('auto_awesome', 'Skills', 'Playbooks Orobi loads when a task matches', 'skills') + nav('phone_android', 'On-device models', 'Private, offline AI on this phone', 'localModels'))}
+      nav('auto_awesome', 'Skills', 'Playbooks Orobi loads when a task matches', 'skills'))}
     ${section('Performance', `<div class="row"><span class="grow">${segmented('Lite mode', ['Auto', 'On', 'Off'], 'Auto', 'lite')}<div class="t-body-s muted" style="margin-top:8px">Auto turns it on for phones with 3 GB of RAM or less: no blur, calmer motion.</div></span></div>`)}
     ${section('Editor', `<div class="row">${ic('format_list_numbered', 'l')}<span class="grow t-body-l-e">Line numbers</span>${sw(true, 'ln')}</div><div class="row">${ic('wrap_text', 'l')}<span class="grow t-body-l-e">Word wrap</span>${sw(true, 'ww')}</div>`)}
     ${section('Git', nav('commit', 'Git settings', 'Identity, credentials & preferences', 'settings'))}
@@ -101,15 +101,6 @@ export const skillsScreen = { render() {
   const el = frame('Skills', `<p class="t-body-s muted" style="padding:8px 20px 12px">Orobi sees each skill's name and description and loads the full playbook when a task matches.</p>
     <div style="padding:0 16px">${skills.map(([n, d, src]) => `<div class="card row" style="margin-bottom:8px">${ic('auto_awesome', 'primary')}<span class="grow"><div class="t-title-s">${n}</div><div class="t-body-s muted">${d}</div><div class="t-label-s" style="color:var(--outline)">${src}</div></span><button class="iconbtn dim">${ic('share')}</button></div>`).join('')}</div>`, { fab: ['add', 'New skill'] });
   el.querySelector('[data-fab]').onclick = () => formSheet({ title: 'New skill', icon: 'auto_awesome', body: field('Name', '') + field('When to use it', '') + field('Steps', '', { area: true }) });
-  return el;
-} };
-
-export const localModelsScreen = { render() {
-  const el = frame('On-device models', `<div style="padding:8px 16px;display:flex;flex-direction:column;gap:12px">
-    <p class="t-body-s muted">These run entirely on your phone: no internet, no account, no limits. Pick them under "On this phone" in the model picker.</p>
-    ${[['Qwen 2.5 0.5B', '0.5 GB · 1.25K context', 'Fast on most phones. Short answers and small edits.', false], ['Qwen 2.5 1.5B', '1.6 GB · 4K context', 'Smarter, 4K context. Needs ~3 GB of free RAM.', true]].map(([n, m, d, ready]) => `
-      <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:8px"><div class="t-title-s">${n}</div><div class="t-label-m muted">${m}</div><div class="t-body-s muted">${d}</div>
-      ${ready ? `<div style="display:flex;align-items:center"><span class="primary" style="flex:1">Ready</span><button class="btn outlined">Remove</button></div>` : `<button class="btn filled" style="align-self:flex-start">Download</button>`}</div>`).join('')}</div>`);
   return el;
 } };
 

@@ -3,7 +3,6 @@ package com.oro.app.ui.screens.settings
 import com.oro.app.ui.theme.OroCorners
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.foundation.clickable
@@ -87,7 +86,6 @@ fun SettingsScreen(
     onNavigateToMcp: () -> Unit = {},
     onNavigateToVoice: () -> Unit = {},
     onNavigateToSkills: () -> Unit = {},
-    onNavigateToLocalModels: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -227,12 +225,6 @@ fun SettingsScreen(
                     title = "Skills",
                     subtitle = "Playbooks Orobi loads when a task matches",
                     onClick = onNavigateToSkills
-                )
-                SettingsNavItem(
-                    icon = Icons.Outlined.PhoneAndroid,
-                    title = "On-device models",
-                    subtitle = "Private, offline AI on this phone",
-                    onClick = onNavigateToLocalModels
                 )
             }
 
