@@ -214,6 +214,22 @@ object AgentTools {
         """
     )
 
+    val GET_PREVIEW_ERRORS = tool(
+        "get_preview_errors",
+        """
+        Read the errors and warnings the live preview reported: JavaScript
+        exceptions, console.error output and resources that failed to load,
+        with file and line. Call it after changing scripts or markup the user
+        is previewing, or when the user says something is broken.
+        """,
+        """
+        {"type":"object","properties":{
+          "include_warnings":{"type":"boolean","description":"Also list warnings. Default true."},
+          "clear":{"type":"boolean","description":"Forget the reported problems after reading, so the next call shows only new ones. Default false."}
+        }}
+        """
+    )
+
     val WEB_FETCH = tool(
         "web_fetch",
         """
@@ -261,7 +277,7 @@ object AgentTools {
     val all: List<Tool> = listOf(
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
-        CHECK_SYNTAX, WEB_FETCH,
+        CHECK_SYNTAX, GET_PREVIEW_ERRORS, WEB_FETCH,
         ASK_USER, SAVE_MEMORY
     )
     // run_command is deliberately not offered: on Android there is no node,
@@ -271,7 +287,7 @@ object AgentTools {
 
     /** Names of tools that never modify anything, safe to run concurrently. */
     val readOnly: Set<String> = setOf(
-        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch",
+        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors",
         // legacy names
         "search_files", "get_file_info", "recall_memory", "list_memories"
     )

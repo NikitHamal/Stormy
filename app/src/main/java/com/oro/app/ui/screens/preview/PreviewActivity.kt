@@ -861,6 +861,17 @@ private fun PreviewScreen(
                             consoleLogs.removeAt(0)
                         }
                         consoleLogs.add(entry)
+                        // Errors and warnings also go to Orobi's next turn.
+                        val level = when (entry.level) {
+                            ConsoleMessage.MessageLevel.ERROR -> com.oro.app.data.preview.PreviewDiagnostics.Level.ERROR
+                            ConsoleMessage.MessageLevel.WARNING -> com.oro.app.data.preview.PreviewDiagnostics.Level.WARNING
+                            else -> null
+                        }
+                        if (level != null) {
+                            com.oro.app.data.preview.PreviewDiagnostics.record(
+                                projectId, level, entry.message, entry.sourceId, entry.lineNumber
+                            )
+                        }
                     },
                     onElementInspected = { element, currentMode ->
                         // Route element selection based on the mode at the time of selection
@@ -2196,6 +2207,44 @@ private fun WebViewPreview(
                         request: WebResourceRequest?
                     ): Boolean {
                         return false
+                    }
+
+                    // Failed loads (a missing stylesheet, a 404 script) never reach
+                    // the console, so report them as console errors ourselves.
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: android.webkit.WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && request != null) {
+                            onConsoleMessage(
+                                ConsoleLogEntry(
+                                    message = "Failed to load ${request.url}: ${error?.description ?: "error"}",
+                                    level = ConsoleMessage.MessageLevel.ERROR,
+                                    lineNumber = 0,
+                                    sourceId = request.url?.toString().orEmpty()
+                                )
+                            )
+                        }
+                    }
+
+                    override fun onReceivedHttpError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        errorResponse: android.webkit.WebResourceResponse?
+                    ) {
+                        super.onReceivedHttpError(view, request, errorResponse)
+                        val code = errorResponse?.statusCode ?: return
+                        if (request == null || code < 400) return
+                        onConsoleMessage(
+                            ConsoleLogEntry(
+                                message = "HTTP $code loading ${request.url}",
+                                level = ConsoleMessage.MessageLevel.ERROR,
+                                lineNumber = 0,
+                                sourceId = request.url?.toString().orEmpty()
+                            )
+                        )
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {

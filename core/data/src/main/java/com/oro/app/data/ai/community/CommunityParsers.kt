@@ -36,7 +36,8 @@ class K2FrameParser {
         (obj["usage"] as? JsonObject)?.let { u ->
             val p = (u["prompt_tokens"] as? JsonPrimitive)?.intOrNull
             val c = (u["completion_tokens"] as? JsonPrimitive)?.intOrNull
-            if (p != null || c != null) out += StreamEvent.Usage(p ?: 0, c ?: 0)
+            val cached = ((u["prompt_tokens_details"] as? JsonObject)?.get("cached_tokens") as? JsonPrimitive)?.intOrNull ?: 0
+            if (p != null || c != null) out += StreamEvent.Usage(p ?: 0, c ?: 0, cached)
         }
         obj.str("content")?.let { content ->
             val (reasoning, answer) = split(content)

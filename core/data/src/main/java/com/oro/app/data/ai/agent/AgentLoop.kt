@@ -66,6 +66,8 @@ interface AgentLoopListener {
     fun onToolStarted(call: ToolCallResponse) {}
     fun onToolFinished(call: ToolCallResponse, result: ToolResult) {}
     fun onUsage(promptTokens: Int, completionTokens: Int) {}
+    /** Same report with the cache hits; defaults to [onUsage]. */
+    fun onUsage(promptTokens: Int, completionTokens: Int, cachedTokens: Int) = onUsage(promptTokens, completionTokens)
 }
 
 sealed interface AgentRunResult {
@@ -427,7 +429,7 @@ class AgentLoop(
                         }
                         is StreamEvent.ToolCalls -> toolCalls = toolCalls + event.toolCalls
                         is StreamEvent.FinishReason -> finishReason = event.reason
-                        is StreamEvent.Usage -> listener.onUsage(event.promptTokens, event.completionTokens)
+                        is StreamEvent.Usage -> listener.onUsage(event.promptTokens, event.completionTokens, event.cachedTokens)
                         is StreamEvent.Error -> { error = event; break }
                         is StreamEvent.Completed -> { completed = true; break }
                         is StreamEvent.Started, is StreamEvent.RawSSE -> Unit

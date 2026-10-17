@@ -60,7 +60,8 @@ fun ContextSheet(
     isCompacting: Boolean,
     lastSavedPercent: Int?,
     onCompact: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    usage: com.oro.app.data.ai.usage.SessionUsage = com.oro.app.data.ai.usage.SessionUsage()
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -122,6 +123,11 @@ fun ContextSheet(
                 breakdown = breakdown,
                 index = -1
             )
+
+            if (usage.requests > 0) {
+                Spacer(Modifier.height(Space.lg))
+                UsageCard(usage)
+            }
 
             Spacer(Modifier.height(Space.lg))
 
@@ -299,4 +305,47 @@ private fun formatTokens(tokens: Int): String = when {
     tokens >= 1_000_000 -> "${tokens / 100_000 / 10f}M"
     tokens >= 1_000 -> "${tokens / 1_000}k"
     else -> tokens.toString()
+}
+
+/** "This chat: 48.2K in · 31K cached (64%) · 3.1K out · $0.04". */
+@Composable
+private fun UsageCard(usage: com.oro.app.data.ai.usage.SessionUsage) {
+    val U = com.oro.app.data.ai.usage.SessionUsage
+    androidx.compose.material3.Surface(
+        shape = com.oro.app.ui.theme.OroCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(Space.md)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "This chat",
+                    style = MaterialTheme.typography.labelLargeEmphasized,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                U.formatCost(usage.costUsd)?.let {
+                    Text(it, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                buildString {
+                    append(U.formatTokens(usage.promptTokens)).append(" in")
+                    if (usage.cachedTokens > 0) append(" (").append(usage.cacheHitPercent).append("% cached)")
+                    append(" · ").append(U.formatTokens(usage.completionTokens)).append(" out")
+                    append(" · ").append(usage.requests).append(if (usage.requests == 1) " request" else " requests")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (usage.costUsd == null) {
+                Text(
+                    "Cost appears for providers that publish prices (OpenRouter, Kilo).",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }

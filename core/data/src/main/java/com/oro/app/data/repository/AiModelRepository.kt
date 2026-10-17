@@ -350,7 +350,9 @@ class AiModelRepository(
             // so persisting it would just be a column that can go stale
             // against the detection table.
             supportsReasoningEffort = ReasoningEffortSupport.supports(id),
-            isEnabled = isEnabled
+            isEnabled = isEnabled,
+            inputPricePerToken = inputPricePerToken,
+            outputPricePerToken = outputPricePerToken
         )
     }
 
@@ -365,7 +367,9 @@ class AiModelRepository(
             supportsToolCalls = supportsToolCalls,
             isThinkingModel = isThinkingModel,
             isEnabled = true,
-            isCustom = false
+            isCustom = false,
+            inputPricePerToken = inputPricePerToken,
+            outputPricePerToken = outputPricePerToken
         )
     }
 

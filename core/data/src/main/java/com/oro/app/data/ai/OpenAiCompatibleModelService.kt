@@ -239,7 +239,9 @@ class OpenAiCompatibleModelService {
             supportsStreaming = true,
             supportsToolCalls = supportsToolCalls,
             supportsReasoningEffort = ReasoningEffortSupport.supports(info.id),
-            isThinkingModel = isThinkingModel
+            isThinkingModel = isThinkingModel,
+            inputPricePerToken = info.pricing?.prompt?.toDoubleOrNull()?.takeIf { it >= 0 },
+            outputPricePerToken = info.pricing?.completion?.toDoubleOrNull()?.takeIf { it >= 0 }
         )
     }
 

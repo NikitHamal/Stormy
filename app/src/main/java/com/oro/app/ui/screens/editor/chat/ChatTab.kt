@@ -128,6 +128,7 @@ fun ChatTab(
     sessionsState: ChatSessionsUiState = ChatSessionsUiState(isLoadingSession = false),
     sessionActions: ChatSessionActions = ChatSessionActions.None,
     agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
+    sessionUsage: com.oro.app.data.ai.usage.SessionUsage = com.oro.app.data.ai.usage.SessionUsage(),
     projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
@@ -186,7 +187,8 @@ fun ChatTab(
             isCompacting = isCompacting,
             lastSavedPercent = lastCompactionSavedPercent,
             onCompact = onCompactContext,
-            onDismiss = { showContextSheet = false }
+            onDismiss = { showContextSheet = false },
+            usage = sessionUsage
         )
     }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)

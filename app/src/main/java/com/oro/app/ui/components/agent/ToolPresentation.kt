@@ -1,6 +1,7 @@
 package com.oro.app.ui.components.agent
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.ListAlt
@@ -84,6 +85,11 @@ data class ToolPresentation(
 object ToolPresentations {
 
     private val map: Map<String, ToolPresentation> = mapOf(
+        "get_preview_errors" to ToolPresentation(
+            "Checking preview", "Checked preview", Icons.Outlined.BugReport,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+
         // --- Reading ------------------------------------------------------
         "read_file" to ToolPresentation(
             "Reading", "Read", Icons.Outlined.Description, detail = ToolDetailKind.Code

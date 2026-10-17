@@ -69,6 +69,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -318,6 +321,15 @@ class EditorViewModel(
 
     /** The session on screen; null for a fresh chat not yet sent. */
     private val _currentSessionId = MutableStateFlow<String?>(null)
+
+    // Token / cost meter, per chat session, persisted in the project.
+    private var usageStore: com.oro.app.data.ai.usage.UsageStore? = null
+    private val usageBySession = MutableStateFlow<Map<String, com.oro.app.data.ai.usage.SessionUsage>>(emptyMap())
+    /** Usage of the chat on screen. */
+    val sessionUsage: StateFlow<com.oro.app.data.ai.usage.SessionUsage> =
+        combine(usageBySession, _currentSessionId) { all, id ->
+            id?.let { all[it] } ?: com.oro.app.data.ai.usage.SessionUsage()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.oro.app.data.ai.usage.SessionUsage())
     private val _isSessionLoading = MutableStateFlow(true)
     /** False until the last-opened session has been restored at startup. */
     @Volatile private var sessionRestored = false
@@ -351,87 +363,83 @@ class EditorViewModel(
         initialValue = ChatSessionsUiState()
     )
 
+    /**
+     * Dirty flag, derived on its own: it used to be an O(file size) string
+     * compare inside the state combine, so it ran on every streamed chat
+     * token even though neither string had changed. Reference equality first
+     * makes the common "nothing typed since load" case free.
+     */
+    private val _isFileModified = combine(_fileContent, _originalFileContent) { current, original ->
+        current !== original && current != original
+    }.distinctUntilChanged()
+
+    /** Recomputed only when the context breakdown changes, as before. */
+    private val _compactableCount = _contextBreakdown.map {
+        contextCompactor.partition(_messages.value).older.size
+    }.distinctUntilChanged()
+
+    /**
+     * One combine over every source, building the state once per emission.
+     *
+     * This was a chain of ~30 `.combine` stages: every streamed chunk went
+     * through each stage in turn -- a suspended coroutine hop and a full
+     * EditorUiState copy per stage -- about thirty copies of a large object
+     * per token on the main path. A single stage does it in one.
+     */
     val uiState: StateFlow<EditorUiState> = combine(
-        _project,
-        _selectedTab,
-        _fileTree,
-        _expandedFolders,
-        _openFiles,
-        _currentFileIndex,
-        _currentFile,
-        _fileContent,
-        _messages
-    ) { values ->
+        listOf<Flow<Any?>>(
+            _project, _selectedTab, _fileTree, _expandedFolders, _openFiles, _currentFileIndex,
+            _currentFile, _fileContent, _messages, _isFileModified, _chatInput, _isAiProcessing,
+            _agentMode, _currentModel, _availableModels, _isRefreshingModels,
+            preferencesRepository.lineNumbers, preferencesRepository.wordWrap, preferencesRepository.fontSize,
+            _contextTokenCount, _contextMaxTokens, _contextUsageLevel, delegationHandler.plan,
+            subagentOrchestrator.sessions, preferencesRepository.reasoningEffort, _contextBreakdown,
+            _compactableCount, _isCompacting, _lastCompactionSavedPercent, undoRedoManager.state,
+            _taskList, _largeFileWarning, _fileLoadProgress, _isCurrentFileReadOnly, _runStatus,
+            _pendingQuestion, _runError
+        )
+    ) { v ->
         @Suppress("UNCHECKED_CAST")
         EditorUiState(
-            project = values[0] as Project?,
-            selectedTab = values[1] as EditorTab,
-            fileTree = values[2] as List<FileTreeNode>,
-            expandedFolders = values[3] as Set<String>,
-            openFiles = values[4] as List<OpenFileTab>,
-            currentFileIndex = values[5] as Int,
-            currentFile = values[6] as FileTreeNode.FileNode?,
-            fileContent = values[7] as String,
-            isFileModified = values[7] as String != _originalFileContent.value,
-            messages = values[8] as List<ChatMessage>
+            project = v[0] as Project?,
+            selectedTab = v[1] as EditorTab,
+            fileTree = v[2] as List<FileTreeNode>,
+            expandedFolders = v[3] as Set<String>,
+            openFiles = v[4] as List<OpenFileTab>,
+            currentFileIndex = v[5] as Int,
+            currentFile = v[6] as FileTreeNode.FileNode?,
+            fileContent = v[7] as String,
+            messages = v[8] as List<ChatMessage>,
+            isFileModified = v[9] as Boolean,
+            chatInput = v[10] as String,
+            isAiProcessing = v[11] as Boolean,
+            agentMode = v[12] as Boolean,
+            currentModel = v[13] as AiModel?,
+            availableModels = v[14] as List<AiModel>,
+            isRefreshingModels = v[15] as Boolean,
+            showLineNumbers = v[16] as Boolean,
+            wordWrap = v[17] as Boolean,
+            fontSize = v[18] as Float,
+            contextTokenCount = v[19] as Int,
+            contextMaxTokens = v[20] as Int,
+            contextUsageLevel = v[21] as ContextUsageLevel,
+            // Null rather than an empty plan, so the UI can omit the strip.
+            agentPlan = (v[22] as com.oro.app.data.ai.agents.AgentPlan).takeIf { !it.isEmpty },
+            agentSessions = v[23] as List<com.oro.app.data.ai.agents.AgentSession>,
+            reasoningEffort = v[24] as ReasoningEffort,
+            contextBreakdown = v[25] as ContextBreakdown,
+            compactableMessageCount = v[26] as Int,
+            isCompacting = v[27] as Boolean,
+            lastCompactionSavedPercent = v[28] as Int?,
+            undoRedoState = v[29] as UndoRedoState,
+            taskList = v[30] as List<TodoItem>,
+            largeFileWarning = v[31] as LargeFileWarning?,
+            fileLoadProgress = v[32] as Float,
+            isCurrentFileReadOnly = v[33] as Boolean,
+            runStatus = v[34] as AgentStatus?,
+            pendingQuestion = v[35] as PendingQuestion?,
+            runError = v[36] as RunError?
         )
-    }.combine(_chatInput) { state, chatInput ->
-        state.copy(chatInput = chatInput)
-    }.combine(_isAiProcessing) { state, isProcessing ->
-        state.copy(isAiProcessing = isProcessing)
-    }.combine(_agentMode) { state, agentMode ->
-        state.copy(agentMode = agentMode)
-    }.combine(_currentModel) { state, currentModel ->
-        state.copy(currentModel = currentModel)
-    }.combine(_availableModels) { state, availableModels ->
-        state.copy(availableModels = availableModels)
-    }.combine(_isRefreshingModels) { state, isRefreshingModels ->
-        state.copy(isRefreshingModels = isRefreshingModels)
-    }.combine(preferencesRepository.lineNumbers) { state, lineNumbers ->
-        state.copy(showLineNumbers = lineNumbers)
-    }.combine(preferencesRepository.wordWrap) { state, wordWrap ->
-        state.copy(wordWrap = wordWrap)
-    }.combine(preferencesRepository.fontSize) { state, fontSize ->
-        state.copy(fontSize = fontSize)
-    }.combine(_contextTokenCount) { state, tokenCount ->
-        state.copy(contextTokenCount = tokenCount)
-    }.combine(_contextMaxTokens) { state, maxTokens ->
-        state.copy(contextMaxTokens = maxTokens)
-    }.combine(_contextUsageLevel) { state, usageLevel ->
-        state.copy(contextUsageLevel = usageLevel)
-    }.combine(delegationHandler.plan) { state, plan ->
-        // Null rather than an empty plan, so the UI can omit the strip entirely
-        // instead of rendering an empty container.
-        state.copy(agentPlan = plan.takeIf { !it.isEmpty })
-    }.combine(subagentOrchestrator.sessions) { state, sessions ->
-        state.copy(agentSessions = sessions)
-    }.combine(preferencesRepository.reasoningEffort) { state, effort ->
-        state.copy(reasoningEffort = effort)
-    }.combine(_contextBreakdown) { state, breakdown ->
-        state.copy(
-            contextBreakdown = breakdown,
-            compactableMessageCount = contextCompactor.partition(_messages.value).older.size
-        )
-    }.combine(_isCompacting) { state, compacting ->
-        state.copy(isCompacting = compacting)
-    }.combine(_lastCompactionSavedPercent) { state, saved ->
-        state.copy(lastCompactionSavedPercent = saved)
-    }.combine(undoRedoManager.state) { state, undoRedoState ->
-        state.copy(undoRedoState = undoRedoState)
-    }.combine(_taskList) { state, taskList ->
-        state.copy(taskList = taskList)
-    }.combine(_largeFileWarning) { state, warning ->
-        state.copy(largeFileWarning = warning)
-    }.combine(_fileLoadProgress) { state, progress ->
-        state.copy(fileLoadProgress = progress)
-    }.combine(_isCurrentFileReadOnly) { state, isReadOnly ->
-        state.copy(isCurrentFileReadOnly = isReadOnly)
-    }.combine(_runStatus) { state, status ->
-        state.copy(runStatus = status)
-    }.combine(_pendingQuestion) { state, question ->
-        state.copy(pendingQuestion = question)
-    }.combine(_runError) { state, error ->
-        state.copy(runError = error)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -545,6 +553,11 @@ class EditorViewModel(
                 _project.value = project
                 if (project != null) {
                     toolExecutor.setProjectPath(File(project.rootPath))
+                    if (usageStore == null) {
+                        val store = com.oro.app.data.ai.usage.UsageStore(File(project.rootPath))
+                        usageStore = store
+                        usageBySession.value = withContext(Dispatchers.IO) { store.load() }
+                    }
                     loadFileTree()
                 }
             }
@@ -1447,11 +1460,22 @@ class EditorViewModel(
             }.getOrDefault("")
         } else ""
         val preferencesContext = userPreferencesLearner.getPreferencesContext(projectId)
+        val instructions = _project.value?.rootPath?.let { root ->
+            withContext(Dispatchers.IO) {
+                com.oro.app.data.ai.context.ProjectInstructions.section(
+                    com.oro.app.data.ai.context.ProjectInstructions.load(File(root))
+                )
+            }
+        }.orEmpty() +
+            // Errors the live preview hit since the last run: the loop that lets
+            // Orobi fix what it broke without the user copying stack traces.
+            // Taken once per run so the system prompt stays stable across turns.
+            if (isAgentMode) com.oro.app.data.preview.PreviewDiagnostics.takeContextSummary(projectId) else ""
 
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
             val textMode = !nativeTools || forceTextTools
             val system = aiRepository.createSystemMessage(
-                projectContext = buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext),
+                projectContext = buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext) + instructions,
                 agentMode = isAgentMode,
                 nativeTools = !textMode,
                 toolList = offeredTools
@@ -1526,6 +1550,15 @@ class EditorViewModel(
                 // The provider's own count beats the estimate when it gives one.
                 if (promptTokens > 0) _contextTokenCount.value = promptTokens
             }
+
+            override fun onUsage(promptTokens: Int, completionTokens: Int, cachedTokens: Int) {
+                onUsage(promptTokens, completionTokens)
+                val session = _currentSessionId.value ?: return
+                usageBySession.update { all ->
+                    all + (session to (all[session] ?: com.oro.app.data.ai.usage.SessionUsage())
+                        .plus(model, promptTokens, completionTokens, cachedTokens))
+                }
+            }
         }
 
         logDebugToProject("RUN", "Model: ${model.id} (${model.provider.displayName}) agent=$isAgentMode nativeTools=$nativeTools")
@@ -1534,7 +1567,15 @@ class EditorViewModel(
             tools = runner,
             config = AgentLoopConfig(maxIterations = MAX_AGENT_ITERATIONS)
         )
-        val result = loop.run(_messageHistory, knownTools, listener, prepare)
+        val result = try {
+            loop.run(_messageHistory, knownTools, listener, prepare)
+        } finally {
+            // Persist the meter once per run, even when it was stopped.
+            usageStore?.let { store ->
+                val snapshot = usageBySession.value
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { store.save(snapshot) }
+            }
+        }
         logDebugToProject("RUN_END", result.toString().take(500))
         refreshContextBreakdown()
         return result

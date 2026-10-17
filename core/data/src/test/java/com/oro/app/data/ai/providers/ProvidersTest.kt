@@ -131,7 +131,9 @@ class AnthropicTest {
             ChatRequestMessage(role = "tool", content = "", toolCallId = "t2")
         )
         val body = AnthropicClient.buildBody("claude-x", messages, null, 0.7f, 1024)
-        assertThat(body["system"]!!.jsonPrimitive.content).isEqualTo("Be brief.")
+        val system = (body["system"] as JsonArray).single() as JsonObject
+        assertThat(system["text"]!!.jsonPrimitive.content).isEqualTo("Be brief.")
+        assertThat(system).containsKey("cache_control")
         val turns = (body["messages"] as JsonArray).map { it as JsonObject }
         assertThat(turns.map { it["role"]!!.jsonPrimitive.content }).containsExactly("user", "assistant", "user").inOrder()
         val assistant = turns[1]["content"] as JsonArray
@@ -141,5 +143,7 @@ class AnthropicTest {
         val results = turns[2]["content"] as JsonArray
         assertThat(results).hasSize(2)
         assertThat((results[1] as JsonObject)["content"]!!.jsonPrimitive.content).isEqualTo("(no output)")
+        // The newest user turn carries the rolling cache breakpoint.
+        assertThat(results[1] as JsonObject).containsKey("cache_control")
     }
 }

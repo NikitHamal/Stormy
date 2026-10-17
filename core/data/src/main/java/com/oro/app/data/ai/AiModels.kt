@@ -65,7 +65,10 @@ data class AiModel(
      * on the domain model rather than looked up separately so a list of models
      * and their state cannot drift apart between two queries.
      */
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    /** USD per token as the provider publishes it (OpenRouter/Kilo); null when unknown. */
+    val inputPricePerToken: Double? = null,
+    val outputPricePerToken: Double? = null
 )
 
 /** How Oro talks to a provider. */

@@ -127,6 +127,7 @@ fun EditorScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val sessionsState by viewModel.sessionsState.collectAsStateWithLifecycle()
+    val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
     val sessionActions = remember(viewModel) {
         ChatSessionActions(
             onOpen = viewModel::openSession,
@@ -399,6 +400,7 @@ fun EditorScreen(
                                     sessionsState = sessionsState,
                                     sessionActions = sessionActions,
                                     agentPlan = uiState.agentPlan,
+                                    sessionUsage = sessionUsage,
                                     projectName = uiState.project?.name,
                                     agentSessions = uiState.agentSessions,
                                     reasoningEffort = uiState.reasoningEffort,

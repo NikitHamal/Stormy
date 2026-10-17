@@ -145,6 +145,22 @@ class AnthropicClient(
 
     companion object {
         const val ANTHROPIC_VERSION = "2023-06-01"
+        private val EPHEMERAL = buildJsonObject { put("type", "ephemeral") }
+
+        /** Mark the last block of the last user turn as a cache breakpoint. */
+        private fun withCacheBreakpoint(turns: JsonArray): JsonArray {
+            val lastUser = turns.indexOfLast { (it as? JsonObject)?.get("role")?.let { r -> (r as? JsonPrimitive)?.content } == "user" }
+            if (lastUser < 0) return turns
+            return JsonArray(turns.mapIndexed { i, turn ->
+                if (i != lastUser) return@mapIndexed turn
+                val obj = turn as JsonObject
+                val blocks = obj["content"] as? JsonArray ?: return@mapIndexed turn
+                val marked = blocks.mapIndexed { j, b ->
+                    if (j == blocks.lastIndex && b is JsonObject) JsonObject(b + ("cache_control" to EPHEMERAL)) else b
+                }
+                JsonObject(obj + ("content" to JsonArray(marked)))
+            })
+        }
 
         fun buildBody(
             model: String,
@@ -158,15 +174,29 @@ class AnthropicClient(
             put("stream", true)
             temperature?.let { put("temperature", it.coerceIn(0f, 1f)) }
             val system = messages.filter { it.role == "system" }.mapNotNull { it.content }.joinToString("\n\n")
-            if (system.isNotBlank()) put("system", system)
-            put("messages", mapMessages(messages))
+            // Prompt caching: breakpoints after the tools, the system prompt
+            // and the newest user turn (3 of the 4 allowed). Tools + system are
+            // the stable prefix of every agent turn; the last-turn breakpoint
+            // lets the next turn reuse the whole conversation so far. Cache
+            // reads are billed at a tenth of input price.
+            if (system.isNotBlank()) {
+                putJsonArray("system") {
+                    addJsonObject {
+                        put("type", "text")
+                        put("text", system)
+                        put("cache_control", EPHEMERAL)
+                    }
+                }
+            }
+            put("messages", withCacheBreakpoint(mapMessages(messages)))
             if (!tools.isNullOrEmpty()) {
                 putJsonArray("tools") {
-                    tools.forEach { t ->
+                    tools.forEachIndexed { i, t ->
                         addJsonObject {
                             put("name", t.function.name)
                             put("description", t.function.description)
                             put("input_schema", t.function.parameters)
+                            if (i == tools.lastIndex) put("cache_control", EPHEMERAL)
                         }
                     }
                 }
@@ -233,6 +263,7 @@ class AnthropicStreamParser(private val name: String = "Anthropic") {
 
     private val tools = sortedMapOf<Int, PendingTool>()
     private var inputTokens = 0
+    private var cachedTokens = 0
     private var outputTokens = 0
     private var stopReason: String? = null
     var finished = false
@@ -246,6 +277,7 @@ class AnthropicStreamParser(private val name: String = "Anthropic") {
             "message_start" -> {
                 val usage = (obj["message"] as? JsonObject)?.get("usage") as? JsonObject
                 inputTokens = usage.int("input_tokens") + usage.int("cache_read_input_tokens") + usage.int("cache_creation_input_tokens")
+                cachedTokens = usage.int("cache_read_input_tokens")
             }
             "content_block_start" -> {
                 val index = obj.int("index")
@@ -301,7 +333,7 @@ class AnthropicStreamParser(private val name: String = "Anthropic") {
                 }
             )
         }
-        if (inputTokens > 0 || outputTokens > 0) out += StreamEvent.Usage(inputTokens, outputTokens)
+        if (inputTokens > 0 || outputTokens > 0) out += StreamEvent.Usage(inputTokens, outputTokens, cachedTokens)
         out += StreamEvent.Completed
         return out
     }

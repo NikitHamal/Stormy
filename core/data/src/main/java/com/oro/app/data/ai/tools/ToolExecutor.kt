@@ -177,6 +177,11 @@ class ToolExecutor(
                     }
                 }
             }
+            "get_preview_errors" -> {
+                val out = com.oro.app.data.preview.PreviewDiagnostics.report(projectId, args.getBooleanArg("include_warnings", true))
+                if (args.getBooleanArg("clear", false)) com.oro.app.data.preview.PreviewDiagnostics.clear(projectId)
+                return ToolResult(true, out)
+            }
             "ask_user" -> return executeAskUser(args)
             "finish_task" -> return executeFinishTask(args)
             "update_plan" -> return ToolResult(
