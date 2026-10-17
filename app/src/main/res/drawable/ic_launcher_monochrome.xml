@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer for Android 13+. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.05326"
+        android:scaleY="0.05326"
+        android:translateX="11.3655"
+        android:translateY="10.8595">
+        <!-- Silhouette only; the eyes are cut out so the face survives
+             themed (single-colour) icons. -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M810,710C760,635 650,503 520,503C370,503 256,660 256,810C256,990 380,1148 510,1148C640,1148 740,1050 810,933C880,1040 980,1148 1100,1148C1250,1148 1345,1020 1345,880C1345,760 1290,650 1190,590C1205,570 1200,520 1160,495C1140,478 1115,472 1085,472C1060,472 1040,480 1030,487L995,520C910,560 850,640 810,710ZM743,825C690,905 600,1017 520,1017C440,1017 377,940 377,835C377,730 435,631 520,631C600,631 690,745 743,825ZM880,817C940,720 1000,650 1030,632C1065,645 1110,650 1160,630C1215,690 1241,770 1241,835C1241,940 1180,1017 1115,1017C1030,1017 940,940 880,817ZM707,634a10,13 0,1 0,20,0a10,13 0,1 0,-20,0ZM875,634a10,13 0,1 0,20,0a10,13 0,1 0,-20,0Z" />
+    </group>
+</vector>

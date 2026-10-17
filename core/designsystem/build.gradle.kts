@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.codex.stormy.designsystem"
+    namespace = "com.oro.app.designsystem"
     compileSdk = 37
     compileSdkMinor = 2
 
@@ -25,6 +25,8 @@ android {
 dependencies {
     api(project(":core:common"))
     implementation(libs.androidx.core.ktx)
+    // Brand animation clocks pause with the screen's lifecycle.
+    implementation(libs.androidx.lifecycle.runtime.compose)
 
     // api, not implementation: consumers theme themselves with these types
     // (ColorScheme, Typography, Shape), so they must be on the compile

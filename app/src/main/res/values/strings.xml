@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CodeX</string>
+    <string name="app_name">Oro</string>
 
     <!-- General -->
     <string name="action_cancel">Cancel</string>
@@ -21,7 +21,7 @@
     <!-- Home Screen -->
     <string name="home_title">Projects</string>
     <string name="home_empty_title">No Projects Yet</string>
-    <string name="home_empty_subtitle">Create your first web project and start building with Stormy</string>
+    <string name="home_empty_subtitle">Create your first web project and start building with Orobi</string>
     <string name="home_create_project">New Project</string>
     <string name="home_search_hint">Search projects</string>
     <string name="home_delete_project_title">Delete Project</string>
@@ -56,9 +56,9 @@
     <string name="editor_save_changes">Save changes?</string>
 
     <!-- Chat -->
-    <string name="chat_hint">Ask Stormy anything…</string>
+    <string name="chat_hint">Ask Orobi anything…</string>
     <string name="chat_hint_agent">Ask me to edit, create, or search files…</string>
-    <string name="chat_welcome_title">Hi, I\'m Stormy</string>
+    <string name="chat_welcome_title">Hi, I\'m Orobi</string>
     <string name="chat_welcome_message">Your AI coding assistant. Tell me what you want to build, and I\'ll help you create it.</string>
     <string name="chat_thinking">Thinking…</string>
     <string name="chat_error">Something went wrong. Please try again.</string>
@@ -125,14 +125,24 @@
 
     <!-- Onboarding -->
     <string name="onboarding_skip">Skip</string>
-    <string name="onboarding_next">Next</string>
-    <string name="onboarding_get_started">Get Started</string>
-    <string name="onboarding_title_1">Build Websites\nOn The Go</string>
-    <string name="onboarding_desc_1">Create stunning websites directly from your mobile device with a powerful, optimized IDE.</string>
-    <string name="onboarding_title_2">Meet Stormy\nYour AI Assistant</string>
-    <string name="onboarding_desc_2">Just describe what you want, and Stormy will write the code for you. HTML, CSS, Tailwind, and JavaScript supported.</string>
-    <string name="onboarding_title_3">Live Preview\nInstant Results</string>
-    <string name="onboarding_desc_3">See your changes in real-time with our built-in preview. Test on different screen sizes effortlessly.</string>
+    <string name="onboarding_get_started">Get started</string>
+    <string name="onboarding_next">Continue</string>
+    <string name="onboarding_finish">Start building</string>
+    <string name="onboarding_back">Previous step</string>
+    <string name="onboarding_step">Step %1$d of %2$d</string>
+    <string name="onboarding_greeting">Hi, I\'m Orobi</string>
+    <string name="onboarding_mascot_hint">Orobi. Touch and drag to catch its eye, tap to make it hop.</string>
+    <string name="onboarding_title_1">Websites,\nfrom a sentence.</string>
+    <string name="onboarding_desc_1">Oro is a pocket studio for the web. Describe what you want and Orobi builds it with you.</string>
+    <string name="onboarding_title_2">Say it.\nSee it live.</string>
+    <string name="onboarding_desc_2">Ask for a page, a section or a fix. Orobi plans it, writes the HTML, CSS and JavaScript, and shows you the result as it lands.</string>
+    <string name="onboarding_title_3">Bring any\nmodel.</string>
+    <string name="onboarding_desc_3">Start free with Pollinations, no account needed. Add keys for Gemini, Groq, OpenRouter and more whenever you like.</string>
+    <string name="onboarding_title_4">Make it\nyours.</string>
+    <string name="onboarding_desc_4">Pick a look. You can change it any time in Settings.</string>
+    <string name="onboarding_theme_system">System</string>
+    <string name="onboarding_theme_light">Light</string>
+    <string name="onboarding_theme_dark">Dark</string>
 
     <!-- Crash Handler -->
     <string name="crash_title">App Crashed</string>

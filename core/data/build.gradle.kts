@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.codex.stormy.data"
+    namespace = "com.oro.app.data"
     compileSdk = 37
     compileSdkMinor = 2
 

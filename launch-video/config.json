@@ -1,0 +1,115 @@
+{
+  "meta": {
+    "title": "Oro launch film",
+    "fps": 60,
+    "duration": 15.0,
+    "poster": 14.6
+  },
+  "formats": {
+    "landscape": { "width": 1920, "height": 1080, "out": "out/oro-launch-1080p.mp4" },
+    "vertical": { "width": 1080, "height": 1920, "out": "out/oro-launch-vertical.mp4" }
+  },
+  "encode": {
+    "codec": "libx264",
+    "crf": 18,
+    "preset": "slow",
+    "pixFmt": "yuv420p",
+    "tune": "animation",
+    "workers": 2
+  },
+  "stills": [0.3, 1.2, 1.9, 2.4, 3.6, 4.6, 5.6, 7.2, 8.0, 9.6, 10.6, 11.8, 13.4, 14.6],
+
+  "palette": {
+    "dark": {
+      "bg": "#0B0D12",
+      "surface": "#12151C",
+      "surface2": "#181C25",
+      "surface3": "#222834",
+      "text": "#E8ECF2",
+      "muted": "#8A93A3",
+      "outline": "#262C38",
+      "accent": "#F2F4F7"
+    },
+    "light": {
+      "bg": "#F7F8FA",
+      "surface": "#FFFFFF",
+      "text": "#0E1117",
+      "muted": "#5A6373",
+      "outline": "#E2E5EA"
+    },
+    "mascot": {
+      "peach": "#FDDFC6",
+      "magenta": "#F800F8",
+      "ink": "#1A1F4A",
+      "apricot": "#FFB38A",
+      "success": "#3DDC97"
+    }
+  },
+
+  "fonts": {
+    "ui": "Poppins",
+    "code": "JetBrains Mono"
+  },
+
+  "scenes": [
+    {
+      "id": "wake",
+      "duration": 2.5
+    },
+    {
+      "id": "describe",
+      "duration": 3.5,
+      "headline": "Describe it.",
+      "subline": "Tell Orobi what you want to build.",
+      "prompt": "Build a portfolio for a photographer",
+      "promptPlaceholder": "Describe a website…",
+      "tokens": ["<nav>", "<h1>", "grid", "{ }", "<img>", "</>"]
+    },
+    {
+      "id": "live",
+      "duration": 4.0,
+      "headline": "See it live.",
+      "subline": "A live preview, right on your phone.",
+      "headline2": "Built with you.",
+      "subline2": "Orobi reads, writes and edits your project files.",
+      "previewLabel": "Preview",
+      "liveLabel": "Live",
+      "site": {
+        "brand": "MARA ILVES",
+        "title": "Light, kept.",
+        "kicker": "Photographer — Lisbon",
+        "galleryLabel": "Selected work",
+        "cta": "Book a shoot",
+        "email": "hello@mara.photo"
+      },
+      "agentTitle": "Orobi",
+      "agentPrompt": "Build a portfolio for a photographer",
+      "toolRun": [
+        { "icon": "read", "verb": "Read", "file": "index.html" },
+        { "icon": "edit", "verb": "Edited", "file": "style.css", "add": "+24", "del": "−3" },
+        { "icon": "write", "verb": "Wrote", "file": "gallery.html" },
+        { "icon": "git", "verb": "Committed", "file": "“Add gallery”" },
+        { "icon": "done", "verb": "Site is live", "file": "" }
+      ]
+    },
+    {
+      "id": "models",
+      "duration": 2.5,
+      "theme": "light",
+      "headline": ["Any model.", "No key."],
+      "subline": "Free models built in. Or bring your own.",
+      "freeLabel": "Free · no key",
+      "byoLabel": "Your key",
+      "free": ["Pollinations", "Kilo", "OVHcloud", "K2 Horizon"],
+      "byo": ["Gemini", "Groq", "OpenRouter", "NVIDIA", "Cerebras", "Mistral"]
+    },
+    {
+      "id": "endcard",
+      "duration": 2.5,
+      "wordmark": "Oro",
+      "tagline": "Build for the web, from a sentence.",
+      "platform": "Android",
+      "hold": 0.8
+    }
+  ]
+}

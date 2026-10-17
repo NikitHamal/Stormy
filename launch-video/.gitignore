@@ -1,0 +1,9 @@
+# The repo root ignores out/; re-include the committed deliverables here.
+!out/
+node_modules/
+# intermediate / QA frames — never commit
+out/qa/
+out/stills/
+*.png
+!out/poster.png
+!out/poster-*.png

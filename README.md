@@ -87,8 +87,8 @@ This project uses GitHub Actions for continuous integration. On every push to no
 ## Project Structure
 
 ```
-app/src/main/java/com/codex/stormy/
-├── CodeXApplication.kt       # Application class
+app/src/main/java/com/oro/app/
+├── OroApplication.kt       # Application class
 ├── MainActivity.kt           # Main entry point
 ├── crash/                    # Crash handler
 ├── data/

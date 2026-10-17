@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CodeX"
+rootProject.name = "Oro"
 
 include(":app")
 include(":core:common")

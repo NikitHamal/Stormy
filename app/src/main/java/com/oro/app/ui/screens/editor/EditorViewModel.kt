@@ -1,0 +1,2205 @@
+package com.oro.app.ui.screens.editor
+
+import com.oro.app.data.ai.context.ContextCompactor
+import com.oro.app.data.ai.context.ContextBreakdownBuilder
+import com.oro.app.data.ai.context.ContextBreakdown
+import com.oro.app.data.ai.ReasoningEffort
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CompletableDeferred
+import com.oro.app.ui.components.agent.PendingApproval
+import kotlinx.serialization.json.jsonPrimitive
+import com.oro.app.ui.components.agent.ToolPresentations
+import com.oro.app.data.ai.tools.ToolResult
+import com.oro.app.data.ai.agents.ToolCapability
+import com.oro.app.data.ai.agents.AgentStep
+import com.oro.app.data.ai.agents.AgentPhase
+import com.oro.app.data.ai.agents.AgentSession
+import com.oro.app.data.ai.agents.SubagentOrchestrator
+import com.oro.app.data.ai.agents.DelegationTools
+import com.oro.app.data.ai.agents.DelegationHandler
+import androidx.compose.runtime.Immutable
+import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
+import com.oro.app.OroApplication
+import com.oro.app.data.ai.AiModel
+import com.oro.app.data.ai.AssistantMessageWithToolCalls
+import com.oro.app.data.ai.ChatRequestMessage
+import com.oro.app.data.ai.StreamEvent
+import com.oro.app.data.ai.FunctionCall
+import com.oro.app.data.ai.ToolCallResponse
+import com.oro.app.data.ai.context.ContextUsageLevel
+import com.oro.app.data.ai.context.ContextWindowManager
+import com.oro.app.data.ai.learning.UserPreferencesLearner
+import com.oro.app.data.ai.memory.SemanticMemorySystem
+import com.oro.app.data.ai.tools.FileChangeType
+import com.oro.app.data.ai.tools.MemoryStorage
+import com.oro.app.data.ai.tools.OroTools
+import com.oro.app.data.ai.tools.TodoItem
+import com.oro.app.data.ai.tools.ToolExecutor
+import com.oro.app.data.ai.tools.ToolInteractionCallback
+import com.oro.app.data.ai.undo.UndoRedoManager
+import com.oro.app.data.ai.undo.UndoRedoState
+import com.oro.app.data.local.entity.MessageStatus
+import com.oro.app.data.repository.AiModelRepository
+import com.oro.app.data.repository.AiRepository
+import com.oro.app.data.repository.ChatRepository
+import com.oro.app.data.repository.PreferencesRepository
+import com.oro.app.data.repository.ProjectRepository
+import com.oro.app.domain.model.ChatMessage
+import com.oro.app.domain.model.FileTreeNode
+import com.oro.app.domain.model.Project
+import com.oro.app.utils.FileLoadingStrategy
+import com.oro.app.utils.FileSizeThresholds
+import com.oro.app.utils.FileUtils
+import com.oro.app.utils.LargeFileHandler
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.oro.app.data.ai.agent.AgentLoop
+import com.oro.app.data.ai.agent.AgentLoopConfig
+import com.oro.app.data.ai.agent.AgentLoopListener
+import com.oro.app.data.ai.agent.AgentModelClient
+import com.oro.app.data.ai.agent.AgentRequest
+import com.oro.app.data.ai.agent.AgentRunResult
+import com.oro.app.data.ai.agent.AgentStatus
+import com.oro.app.data.ai.agent.AgentToolRunner
+import com.oro.app.data.ai.agent.HistoryPruner
+import com.oro.app.data.ai.agent.TokenEstimator
+import com.oro.app.data.ai.tools.AgentTools
+import com.oro.app.data.ai.tools.ToolAliases
+import com.oro.app.data.ai.Tool
+import com.oro.app.ui.components.agent.PendingQuestion
+import com.oro.app.ui.components.agent.RunError
+import com.oro.app.ui.screens.editor.agent.RunTranscript
+
+/**
+ * Represents an open file tab in the editor
+ */
+data class OpenFileTab(
+    val path: String,
+    val name: String,
+    val extension: String,
+    val isModified: Boolean = false,
+    val content: String = "",
+    val fileSize: Long = 0,
+    val isReadOnly: Boolean = false,
+    val isLargeFile: Boolean = false,
+    val loadProgress: Float = 1f
+)
+
+/**
+ * Marked @Immutable because it holds List fields. Compose cannot prove a
+ * kotlin.collections.List is immutable -- the interface permits a mutable
+ * implementation -- so without this the whole state object counts as unstable
+ * and every composable reading it recomposes on each emission, even when the
+ * value it reads is unchanged. These lists are only ever replaced wholesale,
+ * never mutated, so the annotation is true.
+ */
+@Immutable
+data class EditorUiState(
+    val project: Project? = null,
+    val selectedTab: EditorTab = EditorTab.CHAT,
+    val fileTree: List<FileTreeNode> = emptyList(),
+    val expandedFolders: Set<String> = emptySet(),
+    val openFiles: List<OpenFileTab> = emptyList(),
+    val currentFileIndex: Int = -1,
+    val currentFile: FileTreeNode.FileNode? = null,
+    val fileContent: String = "",
+    val isFileModified: Boolean = false,
+    val messages: List<ChatMessage> = emptyList(),
+    val chatInput: String = "",
+    val isAiProcessing: Boolean = false,
+    val showLineNumbers: Boolean = true,
+    val wordWrap: Boolean = true,
+    val fontSize: Float = 14f,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val agentMode: Boolean = true,
+    // AI Model selection - null means no model selected (show "Select Model")
+    val currentModel: AiModel? = null,
+    val availableModels: List<AiModel> = emptyList(),
+    val isRefreshingModels: Boolean = false,
+    // Context window management
+    val contextTokenCount: Int = 0,
+    val contextMaxTokens: Int = 8000,
+    val contextUsageLevel: ContextUsageLevel = ContextUsageLevel.LOW,
+    // Undo/Redo state
+    val undoRedoState: UndoRedoState = UndoRedoState(),
+    // Task planning
+    val taskList: List<TodoItem> = emptyList(),
+    // Large file handling
+    val largeFileWarning: LargeFileWarning? = null,
+    val fileLoadProgress: Float = 1f,
+    val isCurrentFileReadOnly: Boolean = false,
+    /**
+     * The agent's published plan for the current request, or null when it has
+     * not published one. Rendered above the conversation so that long
+     * multi-step work stays legible while it happens.
+     */
+    val agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
+    /** Delegated work, live and recently finished. */
+    val agentSessions: List<com.oro.app.data.ai.agents.AgentSession> = emptyList(),
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    /** Where the context window is going, for the context sheet. */
+    val contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
+    val isCompacting: Boolean = false,
+    /** Percentage freed by the last compaction, for a one-line confirmation. */
+    val lastCompactionSavedPercent: Int? = null,
+    /** How many messages a compaction would fold into the summary. */
+    val compactableMessageCount: Int = 0,
+    /** What the running turn is doing; null when idle. */
+    val runStatus: AgentStatus? = null,
+    /** The agent's open ask_user question, while the run waits on it. */
+    val pendingQuestion: PendingQuestion? = null,
+    /** Why the last run stopped without finishing, with a retry affordance. */
+    val runError: RunError? = null
+)
+
+/**
+ * Warning shown when opening large files
+ */
+data class LargeFileWarning(
+    val filePath: String,
+    val fileName: String,
+    val fileSize: Long,
+    val formattedSize: String,
+    val lineCount: Long,
+    val warningMessage: String,
+    val estimatedLoadTime: String,
+    val canEdit: Boolean,
+    val suggestReadOnly: Boolean
+)
+
+class EditorViewModel(
+    savedStateHandle: SavedStateHandle,
+    private val projectRepository: ProjectRepository,
+    private val preferencesRepository: PreferencesRepository,
+    private val aiRepository: AiRepository,
+    private val chatRepository: ChatRepository,
+    private val aiModelRepository: AiModelRepository,
+    private val contextWindowManager: ContextWindowManager,
+    private val userPreferencesLearner: UserPreferencesLearner,
+    private val toolExecutor: ToolExecutor,
+    private val memoryStorage: MemoryStorage,
+    private val undoRedoManager: UndoRedoManager,
+    private val semanticMemorySystem: SemanticMemorySystem
+) : ViewModel() {
+
+    private val projectId: String = savedStateHandle["projectId"] ?: ""
+
+    /**
+     * Delegation state for this editor session.
+     *
+     * The orchestrator owns subagent lifecycle; the handler translates the
+     * model's delegation tool calls into it. The runner below is what actually
+     * drives a subagent -- it lives here because the model loop does.
+     */
+    private val subagentOrchestrator = SubagentOrchestrator(viewModelScope)
+
+    /**
+     * Approval the main conversation is blocked on, or null.
+     *
+     * Held as a CompletableDeferred rather than a callback so the tool call can
+     * simply *suspend* until the user answers. The agent loop then needs no
+     * resume path or saved continuation -- it is still sitting inside the tool
+     * call where it asked.
+     */
+    private val _pendingApproval = MutableStateFlow<PendingApproval?>(null)
+    val pendingApproval: StateFlow<PendingApproval?> = _pendingApproval.asStateFlow()
+
+    private var approvalAnswer: CompletableDeferred<Boolean>? = null
+
+    private val delegationHandler = DelegationHandler(
+        orchestrator = subagentOrchestrator,
+        runner = DelegationHandler.SubagentRunner { session -> launchSubagent(session) }
+    )
+
+    private val _project = MutableStateFlow<Project?>(null)
+    private val _selectedTab = MutableStateFlow(EditorTab.CHAT)
+    private val _fileTree = MutableStateFlow<List<FileTreeNode>>(emptyList())
+    private val _expandedFolders = MutableStateFlow<Set<String>>(emptySet())
+    private val _openFiles = MutableStateFlow<List<OpenFileTab>>(emptyList())
+    private val _currentFileIndex = MutableStateFlow(-1)
+    private val _currentFile = MutableStateFlow<FileTreeNode.FileNode?>(null)
+    private val _fileContent = MutableStateFlow("")
+    private val _originalFileContent = MutableStateFlow("")
+    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    private val _chatInput = MutableStateFlow("")
+    private val _isAiProcessing = MutableStateFlow(false)
+    private val _isLoading = MutableStateFlow(false)
+    private val _error = MutableStateFlow<String?>(null)
+    private val _agentMode = MutableStateFlow(true)
+    private val _currentModel = MutableStateFlow<AiModel?>(null)
+    private val _availableModels = MutableStateFlow<List<AiModel>>(emptyList())
+    private val _isRefreshingModels = MutableStateFlow(false)
+    private val _messageHistory = mutableListOf<ChatRequestMessage>()
+
+    // Context window tracking
+    private val _contextTokenCount = MutableStateFlow(0)
+    private val _contextMaxTokens = MutableStateFlow(8000) // Default, will be updated when model is selected
+    private val _contextUsageLevel = MutableStateFlow(ContextUsageLevel.LOW)
+    private val _contextBreakdown = MutableStateFlow(ContextBreakdown.Empty)
+    private val _isCompacting = MutableStateFlow(false)
+    private val _lastCompactionSavedPercent = MutableStateFlow<Int?>(null)
+
+    private val contextCompactor = ContextCompactor(contextWindowManager)
+    private val breakdownBuilder = ContextBreakdownBuilder(contextWindowManager)
+
+    // Task planning state
+    private val _taskList = MutableStateFlow<List<TodoItem>>(emptyList())
+
+    // Large file handling state
+    private val _largeFileWarning = MutableStateFlow<LargeFileWarning?>(null)
+    private val _fileLoadProgress = MutableStateFlow(1f)
+    private val _isCurrentFileReadOnly = MutableStateFlow(false)
+
+    // Agent run state
+    private var _aiGenerationJob: Job? = null
+    private val _runStatus = MutableStateFlow<AgentStatus?>(null)
+    private val _pendingQuestion = MutableStateFlow<PendingQuestion?>(null)
+    @Volatile private var questionAnswer: CompletableDeferred<String?>? = null
+    private val _runError = MutableStateFlow<RunError?>(null)
+
+    /** Transcript of the run in progress, rendered into the last assistant message. */
+    @Volatile private var transcript: RunTranscript? = null
+    @Volatile private var lastPushedRevision = -1L
+    @Volatile private var lastPushAt = 0L
+    private var pushJob: Job? = null
+
+    /** System prompt and tools of the last request, for the context breakdown. */
+    @Volatile private var lastSystemPrompt: String? = null
+    @Volatile private var lastRequestTools: List<Tool>? = null
+
+    /** Set when the provider rejected native tools; the run then uses text tool calls. */
+    @Volatile private var forceTextTools = false
+
+    val uiState: StateFlow<EditorUiState> = combine(
+        _project,
+        _selectedTab,
+        _fileTree,
+        _expandedFolders,
+        _openFiles,
+        _currentFileIndex,
+        _currentFile,
+        _fileContent,
+        _messages
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        EditorUiState(
+            project = values[0] as Project?,
+            selectedTab = values[1] as EditorTab,
+            fileTree = values[2] as List<FileTreeNode>,
+            expandedFolders = values[3] as Set<String>,
+            openFiles = values[4] as List<OpenFileTab>,
+            currentFileIndex = values[5] as Int,
+            currentFile = values[6] as FileTreeNode.FileNode?,
+            fileContent = values[7] as String,
+            isFileModified = values[7] as String != _originalFileContent.value,
+            messages = values[8] as List<ChatMessage>
+        )
+    }.combine(_chatInput) { state, chatInput ->
+        state.copy(chatInput = chatInput)
+    }.combine(_isAiProcessing) { state, isProcessing ->
+        state.copy(isAiProcessing = isProcessing)
+    }.combine(_agentMode) { state, agentMode ->
+        state.copy(agentMode = agentMode)
+    }.combine(_currentModel) { state, currentModel ->
+        state.copy(currentModel = currentModel)
+    }.combine(_availableModels) { state, availableModels ->
+        state.copy(availableModels = availableModels)
+    }.combine(_isRefreshingModels) { state, isRefreshingModels ->
+        state.copy(isRefreshingModels = isRefreshingModels)
+    }.combine(preferencesRepository.lineNumbers) { state, lineNumbers ->
+        state.copy(showLineNumbers = lineNumbers)
+    }.combine(preferencesRepository.wordWrap) { state, wordWrap ->
+        state.copy(wordWrap = wordWrap)
+    }.combine(preferencesRepository.fontSize) { state, fontSize ->
+        state.copy(fontSize = fontSize)
+    }.combine(_contextTokenCount) { state, tokenCount ->
+        state.copy(contextTokenCount = tokenCount)
+    }.combine(_contextMaxTokens) { state, maxTokens ->
+        state.copy(contextMaxTokens = maxTokens)
+    }.combine(_contextUsageLevel) { state, usageLevel ->
+        state.copy(contextUsageLevel = usageLevel)
+    }.combine(delegationHandler.plan) { state, plan ->
+        // Null rather than an empty plan, so the UI can omit the strip entirely
+        // instead of rendering an empty container.
+        state.copy(agentPlan = plan.takeIf { !it.isEmpty })
+    }.combine(subagentOrchestrator.sessions) { state, sessions ->
+        state.copy(agentSessions = sessions)
+    }.combine(preferencesRepository.reasoningEffort) { state, effort ->
+        state.copy(reasoningEffort = effort)
+    }.combine(_contextBreakdown) { state, breakdown ->
+        state.copy(
+            contextBreakdown = breakdown,
+            compactableMessageCount = contextCompactor.partition(_messages.value).older.size
+        )
+    }.combine(_isCompacting) { state, compacting ->
+        state.copy(isCompacting = compacting)
+    }.combine(_lastCompactionSavedPercent) { state, saved ->
+        state.copy(lastCompactionSavedPercent = saved)
+    }.combine(undoRedoManager.state) { state, undoRedoState ->
+        state.copy(undoRedoState = undoRedoState)
+    }.combine(_taskList) { state, taskList ->
+        state.copy(taskList = taskList)
+    }.combine(_largeFileWarning) { state, warning ->
+        state.copy(largeFileWarning = warning)
+    }.combine(_fileLoadProgress) { state, progress ->
+        state.copy(fileLoadProgress = progress)
+    }.combine(_isCurrentFileReadOnly) { state, isReadOnly ->
+        state.copy(isCurrentFileReadOnly = isReadOnly)
+    }.combine(_runStatus) { state, status ->
+        state.copy(runStatus = status)
+    }.combine(_pendingQuestion) { state, question ->
+        state.copy(pendingQuestion = question)
+    }.combine(_runError) { state, error ->
+        state.copy(runError = error)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = EditorUiState()
+    )
+
+    // Debug logging state
+    private val _debugLogsEnabled = MutableStateFlow(false)
+
+    init {
+        loadProject()
+        loadChatHistory()
+        loadAvailableModels()
+        setupToolInteractionCallback()
+        observeDebugLogsPreference()
+    }
+
+    private fun observeDebugLogsPreference() {
+        viewModelScope.launch {
+            preferencesRepository.debugLogsEnabled.collect { enabled ->
+                _debugLogsEnabled.value = enabled
+            }
+        }
+    }
+
+    /**
+     * Load available models from repository and resolve the initial model
+     * Model resolution priority:
+     * 1. Project's last used model (if exists)
+     * 2. User's default model (if set)
+     * 3. null (show "Select Model")
+     */
+    private fun loadAvailableModels() {
+        viewModelScope.launch {
+            // Observe enabled models from repository
+            aiModelRepository.observeEnabledModels().collect { models ->
+                _availableModels.value = models
+                
+                // Retry resolution if we have a project but no model yet
+                // This handles the race condition where project loads before models
+                val project = _project.value
+                if (project != null && _currentModel.value == null) {
+                    resolveInitialModel(project)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            // Wait for project to load first
+            _project.collect { project ->
+                if (project != null && _currentModel.value == null) {
+                    resolveInitialModel(project)
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolve the initial model based on project and user preferences
+     */
+    private suspend fun resolveInitialModel(project: Project) {
+        // Priority 1: Project's last used model
+        val lastUsedModelId = project.lastUsedModelId
+        if (!lastUsedModelId.isNullOrEmpty()) {
+            val projectModel = aiModelRepository.getModelById(lastUsedModelId)
+            if (projectModel != null) {
+                _currentModel.value = projectModel
+                updateContextMaxTokens(projectModel)
+                return
+            }
+        }
+
+        // Priority 2: User's global default model
+        val defaultModelId = preferencesRepository.defaultModelId.first()
+        if (defaultModelId.isNotEmpty()) {
+            val defaultModel = aiModelRepository.getModelById(defaultModelId)
+            if (defaultModel != null) {
+                _currentModel.value = defaultModel
+                updateContextMaxTokens(defaultModel)
+                return
+            }
+        }
+
+        // Priority 3: the keyless default if enabled, else the first enabled model
+        val firstModel = _availableModels.value.firstOrNull { it.id == com.oro.app.data.ai.SeedModels.default.id }
+            ?: _availableModels.value.firstOrNull()
+        if (firstModel != null) {
+            _currentModel.value = firstModel
+            updateContextMaxTokens(firstModel)
+            return
+        }
+
+        // Priority 4: null (no model selected - user must select one)
+        _currentModel.value = null
+    }
+
+    /**
+     * Update context max tokens when model changes
+     */
+    private fun updateContextMaxTokens(model: AiModel?) {
+        if (model != null) {
+            _contextMaxTokens.value = contextWindowManager.getAvailableTokens(model)
+        }
+    }
+
+    private fun loadProject() {
+        viewModelScope.launch {
+            _isLoading.value = true
+
+            projectRepository.observeProjectById(projectId).collect { project ->
+                _project.value = project
+                if (project != null) {
+                    toolExecutor.setProjectPath(File(project.rootPath))
+                    loadFileTree()
+                }
+            }
+        }
+    }
+
+    /**
+     * Set up tool interaction callback for undo/redo tracking and task planning
+     */
+    private fun setupToolInteractionCallback() {
+        toolExecutor.interactionCallback = object : ToolInteractionCallback {
+            override suspend fun askUser(question: String, options: List<String>?): String? =
+                awaitAnswer(question, options.orEmpty())
+
+            override suspend fun onTaskFinished(summary: String) {
+                // Clear task list when task is finished
+                _taskList.value = emptyList()
+            }
+
+            override suspend fun onFileChanged(
+                path: String,
+                changeType: FileChangeType,
+                oldContent: String?,
+                newContent: String?
+            ) {
+                // Record the change for undo/redo
+                undoRedoManager.recordChange(
+                    path = path,
+                    changeType = changeType,
+                    oldContent = oldContent,
+                    newContent = newContent
+                )
+                // Keep the open editor in step with the agent's edits, unless
+                // the user has unsaved changes of their own in it.
+                if (path == _currentFile.value?.path &&
+                    _fileContent.value == _originalFileContent.value &&
+                    changeType != FileChangeType.MOVED && changeType != FileChangeType.RENAMED
+                ) {
+                    val fresh = if (changeType == FileChangeType.DELETED) "" else newContent
+                    if (fresh != null) {
+                        _fileContent.value = fresh
+                        _originalFileContent.value = fresh
+                    }
+                }
+            }
+
+            override suspend fun onTodoCreated(todo: TodoItem) {
+                // Add the new todo to the task list
+                _taskList.value = _taskList.value + todo
+            }
+
+            override suspend fun onTodoUpdated(todo: TodoItem) {
+                // Update the todo in the task list
+                _taskList.value = _taskList.value.map {
+                    if (it.id == todo.id) todo else it
+                }
+            }
+        }
+    }
+
+    /**
+     * Load persisted chat history from database
+     * Uses a simpler approach: database is always the source of truth when not streaming
+     */
+    private fun loadChatHistory() {
+        viewModelScope.launch {
+            chatRepository.getMessagesForProject(projectId).collect { dbMessages ->
+                // Only update from database if we're not currently processing AI response
+                // During AI processing, the in-memory state is managed by streaming logic
+                if (!_isAiProcessing.value) {
+                    // Database is the source of truth when not streaming
+                    // Use distinctBy to prevent any duplicate IDs just in case
+                    _messages.value = dbMessages.distinctBy { it.id }
+
+                    // Rebuild message history for AI context
+                    rebuildMessageHistoryFromMessages(_messages.value)
+                }
+            }
+        }
+    }
+
+    /**
+     * Rebuild the AI message history from persisted messages
+     */
+    private fun rebuildMessageHistoryFromMessages(messages: List<ChatMessage>) {
+        _messageHistory.clear()
+        for (message in messages) {
+            when {
+                message.isUser -> {
+                    _messageHistory.add(aiRepository.createUserMessage(message.content))
+                }
+                message.isAssistant && message.status != MessageStatus.STREAMING -> {
+                    // Reasoning and tool-card markup are display-only; sending
+                    // them back wastes context and teaches the model to write
+                    // fake tool cards.
+                    val text = RunTranscript.toHistoryText(message.content)
+                    if (text.isNotBlank()) {
+                        _messageHistory.add(ChatRequestMessage(role = "assistant", content = text))
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun loadFileTree() {
+        val tree = projectRepository.getFileTree(projectId)
+        _fileTree.value = tree
+        _isLoading.value = false
+        // Don't auto-open first file - let user choose from file tree
+        // Chat tab is the default and should remain visible
+    }
+
+    private fun findFirstFile(nodes: List<FileTreeNode>): FileTreeNode.FileNode? {
+        for (node in nodes) {
+            when (node) {
+                is FileTreeNode.FileNode -> return node
+                is FileTreeNode.FolderNode -> {
+                    findFirstFile(node.children)?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    fun selectTab(tab: EditorTab) {
+        _selectedTab.value = tab
+    }
+
+    /**
+     * Public method to refresh the file tree
+     * Called when external changes are made (e.g., asset manager adds/deletes files)
+     */
+    fun refreshFileTree() {
+        viewModelScope.launch {
+            loadFileTree()
+        }
+    }
+
+    fun toggleFolder(folderPath: String) {
+        _expandedFolders.value = if (folderPath in _expandedFolders.value) {
+            _expandedFolders.value - folderPath
+        } else {
+            _expandedFolders.value + folderPath
+        }
+    }
+
+    fun openFile(relativePath: String) {
+        viewModelScope.launch {
+            saveCurrentFileIfModified()
+
+            // Check if file is already open
+            val existingIndex = _openFiles.value.indexOfFirst { it.path == relativePath }
+            if (existingIndex >= 0) {
+                // Switch to existing tab
+                switchToFileTab(existingIndex)
+                return@launch
+            }
+
+            val fileNode = findFileNode(relativePath)
+            if (fileNode == null) {
+                _error.value = "File not found: $relativePath"
+                return@launch
+            }
+
+            // Check file size and determine loading strategy
+            val project = _project.value ?: return@launch
+            val file = File(project.rootPath, relativePath)
+            val fileSize = file.length()
+            val strategy = LargeFileHandler.determineStrategy(fileSize)
+
+            when (strategy) {
+                FileLoadingStrategy.UNSUPPORTED -> {
+                    // File too large - show error
+                    _error.value = "File is too large to open (${FileUtils.formatFileSize(fileSize)}). Maximum supported size is 10 MB."
+                    return@launch
+                }
+                FileLoadingStrategy.READ_ONLY_PREVIEW -> {
+                    // Show warning for very large files
+                    val analysis = LargeFileHandler.analyzeFile(file)
+                    _largeFileWarning.value = LargeFileWarning(
+                        filePath = relativePath,
+                        fileName = fileNode.name,
+                        fileSize = fileSize,
+                        formattedSize = analysis.sizeFormatted,
+                        lineCount = analysis.lineCount,
+                        warningMessage = analysis.warningMessage ?: "",
+                        estimatedLoadTime = analysis.estimatedLoadTime,
+                        canEdit = false,
+                        suggestReadOnly = true
+                    )
+                    return@launch
+                }
+                FileLoadingStrategy.PAGINATED_LOAD -> {
+                    // Show warning for large files
+                    val analysis = LargeFileHandler.analyzeFile(file)
+                    _largeFileWarning.value = LargeFileWarning(
+                        filePath = relativePath,
+                        fileName = fileNode.name,
+                        fileSize = fileSize,
+                        formattedSize = analysis.sizeFormatted,
+                        lineCount = analysis.lineCount,
+                        warningMessage = analysis.warningMessage ?: "",
+                        estimatedLoadTime = analysis.estimatedLoadTime,
+                        canEdit = true,
+                        suggestReadOnly = false
+                    )
+                    return@launch
+                }
+                FileLoadingStrategy.CHUNKED_LOAD -> {
+                    // Load with progress for medium-large files
+                    openFileWithProgress(relativePath, fileNode, fileSize)
+                }
+                FileLoadingStrategy.FULL_LOAD -> {
+                    // Normal loading for small files
+                    openFileNormal(relativePath, fileNode, fileSize)
+                }
+            }
+        }
+    }
+
+    /**
+     * Open file with progress indicator for larger files
+     */
+    private suspend fun openFileWithProgress(
+        relativePath: String,
+        fileNode: FileTreeNode.FileNode,
+        fileSize: Long
+    ) {
+        val project = _project.value ?: return
+        val file = File(project.rootPath, relativePath)
+
+        _fileLoadProgress.value = 0f
+
+        LargeFileHandler.readFileWithProgress(file) { progress ->
+            _fileLoadProgress.value = progress
+        }.onSuccess { content ->
+            val newTab = OpenFileTab(
+                path = relativePath,
+                name = fileNode.name,
+                extension = fileNode.extension,
+                isModified = false,
+                content = content,
+                fileSize = fileSize,
+                isLargeFile = true
+            )
+            val updatedOpenFiles = _openFiles.value + newTab
+            _openFiles.value = updatedOpenFiles
+            _currentFileIndex.value = updatedOpenFiles.size - 1
+
+            _fileContent.value = content
+            _originalFileContent.value = content
+            _currentFile.value = fileNode
+            _fileLoadProgress.value = 1f
+            _selectedTab.value = EditorTab.CODE
+        }.onFailure { error ->
+            _error.value = error.message
+            _fileLoadProgress.value = 1f
+        }
+    }
+
+    /**
+     * Normal file loading for small files
+     */
+    private suspend fun openFileNormal(
+        relativePath: String,
+        fileNode: FileTreeNode.FileNode,
+        fileSize: Long
+    ) {
+        projectRepository.readFile(projectId, relativePath)
+            .onSuccess { content ->
+                val newTab = OpenFileTab(
+                    path = relativePath,
+                    name = fileNode.name,
+                    extension = fileNode.extension,
+                    isModified = false,
+                    content = content,
+                    fileSize = fileSize
+                )
+                val updatedOpenFiles = _openFiles.value + newTab
+                _openFiles.value = updatedOpenFiles
+                _currentFileIndex.value = updatedOpenFiles.size - 1
+
+                _fileContent.value = content
+                _originalFileContent.value = content
+                _currentFile.value = fileNode
+                _selectedTab.value = EditorTab.CODE
+            }
+            .onFailure { error ->
+                _error.value = error.message
+            }
+    }
+
+    /**
+     * Called when user confirms they want to open a large file
+     */
+    fun confirmOpenLargeFile(readOnly: Boolean = false) {
+        val warning = _largeFileWarning.value ?: return
+        _largeFileWarning.value = null
+
+        viewModelScope.launch {
+            val fileNode = findFileNode(warning.filePath) ?: return@launch
+
+            if (readOnly) {
+                // Open in read-only mode with preview
+                openFileReadOnly(warning.filePath, fileNode, warning.fileSize)
+            } else {
+                // Open normally with progress
+                openFileWithProgress(warning.filePath, fileNode, warning.fileSize)
+            }
+        }
+    }
+
+    /**
+     * Open file in read-only mode (for very large files)
+     */
+    private suspend fun openFileReadOnly(
+        relativePath: String,
+        fileNode: FileTreeNode.FileNode,
+        fileSize: Long
+    ) {
+        val project = _project.value ?: return
+        val file = File(project.rootPath, relativePath)
+
+        LargeFileHandler.readPreview(file).onSuccess { previewContent ->
+            val newTab = OpenFileTab(
+                path = relativePath,
+                name = fileNode.name,
+                extension = fileNode.extension,
+                isModified = false,
+                content = previewContent + "\n\n// ... (truncated - file too large to edit fully)",
+                fileSize = fileSize,
+                isReadOnly = true,
+                isLargeFile = true
+            )
+            val updatedOpenFiles = _openFiles.value + newTab
+            _openFiles.value = updatedOpenFiles
+            _currentFileIndex.value = updatedOpenFiles.size - 1
+
+            _fileContent.value = newTab.content
+            _originalFileContent.value = newTab.content
+            _currentFile.value = fileNode
+            _isCurrentFileReadOnly.value = true
+            _selectedTab.value = EditorTab.CODE
+        }.onFailure { error ->
+            _error.value = error.message
+        }
+    }
+
+    /**
+     * Dismiss large file warning without opening
+     */
+    fun dismissLargeFileWarning() {
+        _largeFileWarning.value = null
+    }
+
+    fun switchToFileTab(index: Int) {
+        if (index < 0 || index >= _openFiles.value.size) return
+
+        viewModelScope.launch {
+            saveCurrentFileIfModified()
+
+            val targetFile = _openFiles.value[index]
+            _currentFileIndex.value = index
+            _fileContent.value = targetFile.content
+            _originalFileContent.value = if (targetFile.isModified) "" else targetFile.content
+            _currentFile.value = findFileNode(targetFile.path)
+        }
+    }
+
+    fun closeFileTab(index: Int) {
+        if (index < 0 || index >= _openFiles.value.size) return
+
+        viewModelScope.launch {
+            val closingFile = _openFiles.value[index]
+
+            // Save if modified before closing
+            if (closingFile.isModified) {
+                projectRepository.writeFile(projectId, closingFile.path, closingFile.content)
+            }
+
+            val updatedOpenFiles = _openFiles.value.toMutableList()
+            updatedOpenFiles.removeAt(index)
+            _openFiles.value = updatedOpenFiles
+
+            // Adjust current index
+            when {
+                updatedOpenFiles.isEmpty() -> {
+                    _currentFileIndex.value = -1
+                    _currentFile.value = null
+                    _fileContent.value = ""
+                    _originalFileContent.value = ""
+                }
+                index >= updatedOpenFiles.size -> {
+                    switchToFileTab(updatedOpenFiles.size - 1)
+                }
+                index == _currentFileIndex.value -> {
+                    switchToFileTab(index.coerceAtMost(updatedOpenFiles.size - 1))
+                }
+                index < _currentFileIndex.value -> {
+                    _currentFileIndex.value = _currentFileIndex.value - 1
+                }
+            }
+        }
+    }
+
+    fun closeOtherTabs(keepIndex: Int) {
+        if (keepIndex < 0 || keepIndex >= _openFiles.value.size) return
+
+        viewModelScope.launch {
+            val keepFile = _openFiles.value[keepIndex]
+
+            // Save all modified files before closing
+            _openFiles.value.forEachIndexed { index, file ->
+                if (index != keepIndex && file.isModified) {
+                    projectRepository.writeFile(projectId, file.path, file.content)
+                }
+            }
+
+            _openFiles.value = listOf(keepFile)
+            _currentFileIndex.value = 0
+        }
+    }
+
+    fun closeAllTabs() {
+        viewModelScope.launch {
+            // Save all modified files
+            _openFiles.value.forEach { file ->
+                if (file.isModified) {
+                    projectRepository.writeFile(projectId, file.path, file.content)
+                }
+            }
+
+            _openFiles.value = emptyList()
+            _currentFileIndex.value = -1
+            _currentFile.value = null
+            _fileContent.value = ""
+            _originalFileContent.value = ""
+        }
+    }
+
+    private fun findFileNode(path: String): FileTreeNode.FileNode? {
+        return findFileNodeInTree(_fileTree.value, path)
+    }
+
+    private fun findFileNodeInTree(nodes: List<FileTreeNode>, path: String): FileTreeNode.FileNode? {
+        for (node in nodes) {
+            when (node) {
+                is FileTreeNode.FileNode -> {
+                    if (node.path == path) return node
+                }
+                is FileTreeNode.FolderNode -> {
+                    findFileNodeInTree(node.children, path)?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    fun updateFileContent(content: String) {
+        _fileContent.value = content
+
+        // Update the content in open files list
+        val index = _currentFileIndex.value
+        if (index >= 0 && index < _openFiles.value.size) {
+            val isModified = content != _originalFileContent.value
+            val updatedFiles = _openFiles.value.toMutableList()
+            updatedFiles[index] = updatedFiles[index].copy(
+                content = content,
+                isModified = isModified
+            )
+            _openFiles.value = updatedFiles
+        }
+    }
+
+    fun saveCurrentFile() {
+        val currentFile = _currentFile.value ?: return
+        val content = _fileContent.value
+
+        viewModelScope.launch {
+            projectRepository.writeFile(projectId, currentFile.path, content)
+                .onSuccess {
+                    _originalFileContent.value = content
+
+                    // Update modified flag in open files
+                    val index = _currentFileIndex.value
+                    if (index >= 0 && index < _openFiles.value.size) {
+                        val updatedFiles = _openFiles.value.toMutableList()
+                        updatedFiles[index] = updatedFiles[index].copy(isModified = false)
+                        _openFiles.value = updatedFiles
+                    }
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    private suspend fun saveCurrentFileIfModified() {
+        if (_fileContent.value != _originalFileContent.value) {
+            _currentFile.value?.let { file ->
+                projectRepository.writeFile(projectId, file.path, _fileContent.value)
+                    .onSuccess {
+                        _originalFileContent.value = _fileContent.value
+
+                        // Update modified flag in open files
+                        val index = _currentFileIndex.value
+                        if (index >= 0 && index < _openFiles.value.size) {
+                            val updatedFiles = _openFiles.value.toMutableList()
+                            updatedFiles[index] = updatedFiles[index].copy(isModified = false)
+                            _openFiles.value = updatedFiles
+                        }
+                    }
+            }
+        }
+    }
+
+    fun createFile(parentPath: String, fileName: String) {
+        viewModelScope.launch {
+            val fullPath = if (parentPath.isEmpty()) fileName else "$parentPath/$fileName"
+            projectRepository.createFile(projectId, fullPath)
+                .onSuccess {
+                    loadFileTree()
+                    openFile(fullPath)
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    fun createFolder(parentPath: String, folderName: String) {
+        viewModelScope.launch {
+            val fullPath = if (parentPath.isEmpty()) folderName else "$parentPath/$folderName"
+            projectRepository.createFolder(projectId, fullPath)
+                .onSuccess {
+                    loadFileTree()
+                    _expandedFolders.value = _expandedFolders.value + fullPath
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    fun deleteFile(path: String) {
+        viewModelScope.launch {
+            projectRepository.deleteFile(projectId, path)
+                .onSuccess {
+                    // Close tab if open
+                    val tabIndex = _openFiles.value.indexOfFirst { it.path == path }
+                    if (tabIndex >= 0) {
+                        val updatedFiles = _openFiles.value.toMutableList()
+                        updatedFiles.removeAt(tabIndex)
+                        _openFiles.value = updatedFiles
+
+                        // Adjust current index
+                        if (_currentFileIndex.value >= updatedFiles.size) {
+                            _currentFileIndex.value = (updatedFiles.size - 1).coerceAtLeast(-1)
+                        }
+                        if (_currentFileIndex.value >= 0) {
+                            switchToFileTab(_currentFileIndex.value)
+                        } else {
+                            _currentFile.value = null
+                            _fileContent.value = ""
+                            _originalFileContent.value = ""
+                        }
+                    }
+
+                    loadFileTree()
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    fun renameFile(oldPath: String, newName: String) {
+        viewModelScope.launch {
+            val parentPath = oldPath.substringBeforeLast("/", "")
+            val newPath = if (parentPath.isEmpty()) newName else "$parentPath/$newName"
+
+            projectRepository.renameFile(projectId, oldPath, newPath)
+                .onSuccess {
+                    // Update open tab if exists
+                    val tabIndex = _openFiles.value.indexOfFirst { it.path == oldPath }
+                    if (tabIndex >= 0) {
+                        val updatedFiles = _openFiles.value.toMutableList()
+                        val extension = newName.substringAfterLast(".", "")
+                        updatedFiles[tabIndex] = updatedFiles[tabIndex].copy(
+                            path = newPath,
+                            name = newName,
+                            extension = extension
+                        )
+                        _openFiles.value = updatedFiles
+
+                        if (_currentFileIndex.value == tabIndex) {
+                            _currentFile.value = findFileNode(newPath)
+                        }
+                    }
+
+                    loadFileTree()
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    /**
+     * Import a file from device storage into the project
+     * @param fileUri URI of the file to import
+     * @param targetPath Target folder path within the project (empty string for root)
+     */
+    fun importFile(fileUri: Uri, targetPath: String) {
+        viewModelScope.launch {
+            projectRepository.importFileToProject(projectId, fileUri, targetPath)
+                .onSuccess { importedPath ->
+                    loadFileTree()
+                    // Optionally open the imported file
+                    openFile(importedPath)
+                }
+                .onFailure { error ->
+                    _error.value = error.message ?: "Failed to import file"
+                }
+        }
+    }
+
+    /**
+     * Import a folder from device storage into the project
+     * @param folderUri URI of the folder to import (document tree URI)
+     * @param targetPath Target folder path within the project (empty string for root)
+     */
+    fun importFolder(folderUri: Uri, targetPath: String) {
+        viewModelScope.launch {
+            projectRepository.importFolderToProject(projectId, folderUri, targetPath)
+                .onSuccess { filesImported ->
+                    loadFileTree()
+                }
+                .onFailure { error ->
+                    _error.value = error.message ?: "Failed to import folder"
+                }
+        }
+    }
+
+    fun toggleAgentMode() {
+        _agentMode.value = !_agentMode.value
+    }
+
+    fun updateChatInput(input: String) {
+        _chatInput.value = input
+    }
+
+    fun sendMessage() {
+        val content = _chatInput.value.trim()
+        if (content.isEmpty() || _isAiProcessing.value) return
+
+        val userMessage = ChatMessage.createUserMessage(projectId, content)
+        _messages.value = _messages.value + userMessage
+        _chatInput.value = ""
+        _messageHistory.add(aiRepository.createUserMessage(content))
+        // A new request gets a new plan; the previous one is finished business.
+        delegationHandler.resetPlan()
+
+        startRun {
+            chatRepository.saveMessage(userMessage)
+            if (_agentMode.value) {
+                // Learning is best-effort and must never block or break a run.
+                runCatching {
+                    semanticMemorySystem.learnFromUserMessage(projectId, content, _currentFile.value?.path)
+                }
+            }
+        }
+    }
+
+    /** Resume after a failed or limited run, from the history as it stands. */
+    fun retryRun() {
+        if (_isAiProcessing.value) return
+        if (_messageHistory.none { it.role == "user" }) return
+        // After a run the history is rebuilt from the saved transcript and
+        // ends with Orobi's partial reply; ask it to pick up from there.
+        if (_messageHistory.lastOrNull()?.role != "user") {
+            _messageHistory.add(
+                aiRepository.createUserMessage(
+                    "Continue from where you stopped. Check the current state of the files first if unsure."
+                )
+            )
+        }
+        startRun()
+    }
+
+    fun dismissRunError() {
+        _runError.value = null
+    }
+
+    /** The user answered the agent's ask_user question. */
+    fun answerQuestion(answer: String) {
+        val pending = questionAnswer ?: return
+        _pendingQuestion.value = null
+        questionAnswer = null
+        pending.complete(answer)
+    }
+
+    /** The user declined to answer; the agent proceeds on its own judgement. */
+    fun skipQuestion() {
+        val pending = questionAnswer ?: return
+        _pendingQuestion.value = null
+        questionAnswer = null
+        pending.complete(null)
+    }
+
+    /**
+     * Show the agent's question and suspend until the user answers.
+     *
+     * Previously the callback returned null immediately, the tool reported
+     * success with "Waiting for user response...", and the run ended -- so the
+     * user saw a green "Ask User" card and was never asked anything.
+     */
+    private suspend fun awaitAnswer(question: String, options: List<String>): String? {
+        // One question at a time; a second concurrent ask is answered as skipped.
+        if (questionAnswer != null) return null
+        val deferred = CompletableDeferred<String?>()
+        questionAnswer = deferred
+        _pendingQuestion.value = PendingQuestion(
+            id = java.util.UUID.randomUUID().toString(),
+            question = question,
+            options = options
+        )
+        return try {
+            deferred.await()
+        } finally {
+            // Cancelled (Stop) or answered: either way the card goes.
+            if (questionAnswer === deferred) questionAnswer = null
+            _pendingQuestion.value = null
+        }
+    }
+
+    /**
+     * Stop the current run: cancels the stream, any running tool, and any
+     * open question or approval.
+     */
+    fun stopGeneration() {
+        if (!_isAiProcessing.value) return
+        _aiGenerationJob?.cancel()
+        // The job's finally block records the stop in the transcript and
+        // resets state; nothing else to do here.
+    }
+
+    /**
+     * Start an agent (or chat) run on the current history.
+     *
+     * Runs off the main thread: the loop, stream parsing and transcript
+     * rendering used to execute on Main, with a string concatenation per
+     * token, which is what made long replies stutter.
+     */
+    private fun startRun(beforeRun: suspend () -> Unit = {}) {
+        val model = _currentModel.value
+        if (model == null) {
+            _runError.value = RunError("Select a model first (tap the model name below the input).", actionLabel = "Retry")
+            return
+        }
+        _runError.value = null
+        _isAiProcessing.value = true
+        _runStatus.value = AgentStatus.Thinking
+        forceTextTools = false
+
+        val assistantMessage = ChatMessage.createAssistantMessage(
+            projectId = projectId,
+            content = "",
+            status = MessageStatus.STREAMING
+        )
+        _messages.value = _messages.value + assistantMessage
+        val run = RunTranscript()
+        transcript = run
+        lastPushedRevision = -1L
+
+        _aiGenerationJob = viewModelScope.launch(Dispatchers.Default) {
+            var finalStatus = MessageStatus.SENT
+            try {
+                beforeRun()
+                HistoryPruner.closeDanglingToolCalls(_messageHistory)
+                val result = runAgent(model, run)
+                when (result) {
+                    is AgentRunResult.Completed -> Unit
+                    is AgentRunResult.Failed -> {
+                        finalStatus = MessageStatus.ERROR
+                        if (run.render().isBlank()) run.note("⚠️ ${result.message}")
+                        _runError.value = RunError(
+                            message = result.message +
+                                if (result.retryable) "" else "\nCheck the provider settings or pick another model, then retry.",
+                            actionLabel = "Retry"
+                        )
+                    }
+                    is AgentRunResult.IterationLimit -> {
+                        run.note("_Paused after ${result.iterations} steps._")
+                        _runError.value = RunError(
+                            message = "Orobi paused after ${result.iterations} steps to check in. Continue to let it keep working.",
+                            actionLabel = "Continue",
+                            isNotice = true
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                run.closeThinking()
+                run.note("_Stopped._")
+                throw cancelled
+            } catch (e: Exception) {
+                finalStatus = MessageStatus.ERROR
+                run.note("⚠️ ${e.message ?: "Something went wrong"}")
+                _runError.value = RunError("Something went wrong: ${e.message ?: e.javaClass.simpleName}")
+            } finally {
+                withContext(NonCancellable) {
+                    run.closeThinking()
+                    pushJob?.cancel()
+                    updateLastAssistantMessage(run.render(), finalStatus)
+                    transcript = null
+                    _runStatus.value = null
+                    _pendingQuestion.value = null
+                    questionAnswer?.cancel()
+                    questionAnswer = null
+                    _isAiProcessing.value = false
+                    loadFileTree()
+                }
+            }
+        }
+    }
+
+    /** One agent run through [AgentLoop]; returns how it ended. */
+    private suspend fun runAgent(model: AiModel, run: RunTranscript): AgentRunResult {
+        val isAgentMode = _agentMode.value
+        val nativeTools = model.supportsToolCalls
+        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() else emptyList()
+        val knownTools = offeredTools.map { it.function.name }.toSet()
+
+        // Context that does not change during a run, computed once.
+        val memoryContext = if (isAgentMode) memoryStorage.getContextString(projectId) else ""
+        val semanticContext = if (isAgentMode) {
+            runCatching {
+                semanticMemorySystem.buildContextString(
+                    projectId = projectId,
+                    currentFiles = _currentFile.value?.path?.let { listOf(it) } ?: emptyList(),
+                    queryTags = emptyList(),
+                    maxTokens = 2000
+                )
+            }.getOrDefault("")
+        } else ""
+        val preferencesContext = userPreferencesLearner.getPreferencesContext(projectId)
+
+        val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
+            val textMode = !nativeTools || forceTextTools
+            val system = aiRepository.createSystemMessage(
+                projectContext = buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext),
+                agentMode = isAgentMode,
+                nativeTools = !textMode,
+                toolList = offeredTools
+            )
+            val tools = if (isAgentMode && !textMode) offeredTools else null
+            val window = contextWindowManager.getAvailableTokens(model)
+            val fixed = TokenEstimator.estimate(system) + toolTokens(tools)
+            val share = when (pressure) { 0 -> 0.9; 1 -> 0.6; else -> 0.35 }
+            val budget = ((window * share).toInt() - fixed).coerceAtLeast(2_000)
+            val pruned = HistoryPruner.prune(history, budget)
+            val messages = listOf(system) + pruned
+            lastSystemPrompt = system.content
+            lastRequestTools = tools
+            updateContextStats(messages)
+            AgentRequest(messages, tools)
+        }
+
+        val pacingStatus = AgentStatus(AgentStatus.Kind.RETRYING, "Waiting for ${model.provider.displayName}'s rate limit")
+        val onRateLimitWait: suspend () -> Unit = { _runStatus.value = pacingStatus }
+        val client = object : AgentModelClient {
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> {
+                val stream = aiRepository.streamChat(
+                    model = model,
+                    messages = request.messages,
+                    tools = request.tools,
+                    temperature = 0.5f,
+                    onRateLimitWait = onRateLimitWait
+                )
+                return if (request.tools == null) stream else detectToolRejection(stream)
+            }
+        }
+
+        val runner = AgentToolRunner { call -> runTool(call) }
+
+        val listener = object : AgentLoopListener {
+            override fun onStatus(status: AgentStatus) {
+                _runStatus.value = status
+            }
+            override fun onModelCallStarted(iteration: Int, attempt: Int) {
+                run.beginModelCall()
+                pushTranscript(force = true)
+            }
+            override fun onReasoning(delta: String) {
+                run.appendReasoning(delta)
+                pushTranscript()
+            }
+            override fun onText(delta: String) {
+                run.appendText(delta)
+                pushTranscript()
+            }
+            override fun onAttemptDiscarded(reason: String) {
+                run.discardCurrentCall()
+                pushTranscript(force = true)
+                logDebugToProject("RETRY", reason)
+            }
+            override fun onTurnComplete(visibleText: String, toolCalls: List<ToolCallResponse>) {
+                run.setCurrentCallText(visibleText)
+                pushTranscript(force = true)
+            }
+            override fun onToolStarted(call: ToolCallResponse) {
+                run.toolStarted(call)
+                pushTranscript(force = true)
+            }
+            override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
+                run.toolFinished(call, result)
+                pushTranscript(force = true)
+                if (ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly) {
+                    viewModelScope.launch { loadFileTree() }
+                }
+            }
+            override fun onUsage(promptTokens: Int, completionTokens: Int) {
+                // The provider's own count beats the estimate when it gives one.
+                if (promptTokens > 0) _contextTokenCount.value = promptTokens
+            }
+        }
+
+        logDebugToProject("RUN", "Model: ${model.id} (${model.provider.displayName}) agent=$isAgentMode nativeTools=$nativeTools")
+        val loop = AgentLoop(
+            client = client,
+            tools = runner,
+            config = AgentLoopConfig(maxIterations = MAX_AGENT_ITERATIONS)
+        )
+        val result = loop.run(_messageHistory, knownTools, listener, prepare)
+        logDebugToProject("RUN_END", result.toString().take(500))
+        refreshContextBreakdown()
+        return result
+    }
+
+    /**
+     * Some providers answer 400 when sent tools for a model they serve without
+     * tool support. Switch the run to text tool calls and let the loop retry,
+     * rather than failing the run over a capability the harness can emulate.
+     */
+    private fun detectToolRejection(stream: Flow<StreamEvent>): Flow<StreamEvent> = flow {
+        stream.collect { event ->
+            if (event is StreamEvent.Error && !forceTextTools && event.httpCode in setOf(400, 404, 422) &&
+                Regex("tool|function", RegexOption.IGNORE_CASE).containsMatchIn(event.message)
+            ) {
+                forceTextTools = true
+                emit(StreamEvent.Error("Model rejected native tools; switching to text tool calls", retryAfterMs = 500, retryable = true))
+            } else {
+                emit(event)
+            }
+        }
+    }
+
+    /** Execute one tool call for the main agent. */
+    private suspend fun runTool(call: ToolCallResponse): ToolResult {
+        val name = ToolAliases.canonicalName(call.function.name)
+        return when {
+            name == "request_approval" -> {
+                val args = DelegationHandler.parseArgs(call.function.arguments)
+                val action = args?.get("action")?.jsonPrimitive?.content
+                if (action.isNullOrBlank()) {
+                    ToolResult(false, "", "action is required")
+                } else {
+                    val detail = args["detail"]?.jsonPrimitive?.content
+                    if (awaitApproval(action, detail)) {
+                        ToolResult(true, "The user approved: $action")
+                    } else {
+                        ToolResult(
+                            true,
+                            "The user declined: $action. Do not attempt it, and do not ask again " +
+                                "for the same action. Continue with what you can do, or explain what you cannot."
+                        )
+                    }
+                }
+            }
+            name == "spawn_subagent" -> {
+                val args = DelegationHandler.parseArgs(call.function.arguments)
+                    ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
+                // Wait for the subagent and return its summary as the result.
+                // The handler used to answer "it will report back" and nothing
+                // ever did: the summary landed on a card the model never saw,
+                // and the run often finished before the subagent did.
+                val before = subagentOrchestrator.sessions.value.map { it.id }.toSet()
+                val started = delegationHandler.execute(name, args)
+                if (!started.success) return started
+                val sessionId = subagentOrchestrator.sessions.value.firstOrNull { it.id !in before }?.id
+                    ?: return started
+                val done = subagentOrchestrator.sessions
+                    .first { list -> list.none { it.id == sessionId } || list.first { it.id == sessionId }.let { !it.isLive } }
+                    .firstOrNull { it.id == sessionId }
+                when {
+                    done == null -> ToolResult(false, "", "The subagent was removed before it finished.")
+                    done.summary != null -> ToolResult(true, "Subagent \"${done.description}\" finished:\n${done.summary}")
+                    done.error != null -> ToolResult(false, "", "Subagent \"${done.description}\" failed: ${done.error}")
+                    else -> ToolResult(
+                        false, "",
+                        "Subagent \"${done.description}\" stopped (${done.phase.name.lowercase()}) without a summary. Do the work directly."
+                    )
+                }
+            }
+            delegationHandler.handles(name) -> {
+                val args = DelegationHandler.parseArgs(call.function.arguments)
+                    ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
+                delegationHandler.execute(name, args)
+            }
+            else -> {
+                undoRedoManager.beginChangeGroup("AI: ${RunTranscript.titleFor(name)}")
+                try {
+                    toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
+                } finally {
+                    undoRedoManager.endChangeGroup()
+                }
+            }
+        }
+    }
+
+    private fun toolTokens(tools: List<Tool>?): Int = tools?.sumOf {
+        TokenEstimator.estimate(it.function.name) + TokenEstimator.estimate(it.function.description) +
+            TokenEstimator.estimate(it.function.parameters.toString())
+    } ?: 0
+
+    private fun buildProjectContext(
+        isAgentMode: Boolean,
+        memoryContext: String,
+        semanticContext: String,
+        preferencesContext: String
+    ): String = buildString {
+        append("Project: ").append(_project.value?.name ?: "Untitled")
+        if (isAgentMode) append(buildFileTreeContext())
+        val file = _currentFile.value
+        val content = _fileContent.value
+        if (file != null && content.isNotEmpty()) {
+            append("\n\nThe user has ").append(file.path).append(" open in the editor")
+            if (content.length <= OPEN_FILE_CONTEXT_CHARS) {
+                append(":\n```\n").append(content).append("\n```")
+            } else {
+                append(" (").append(content.lines().size).append(" lines; read it with read_file if relevant).")
+            }
+        }
+        append(memoryContext)
+        append(semanticContext)
+        append(preferencesContext)
+    }
+
+    /**
+     * Push the transcript into the last assistant message, at most every
+     * [STREAMING_UPDATE_INTERVAL_MS] unless [force]d (structural changes such
+     * as a tool card appearing are shown at once).
+     */
+    private fun pushTranscript(force: Boolean = false) {
+        val run = transcript ?: return
+        if (run.revision == lastPushedRevision) return
+        val now = System.currentTimeMillis()
+        if (force || now - lastPushAt >= STREAMING_UPDATE_INTERVAL_MS) {
+            pushJob?.cancel()
+            lastPushAt = now
+            lastPushedRevision = run.revision
+            updateLastAssistantMessageDirect(run.render(), MessageStatus.STREAMING)
+        } else if (pushJob?.isActive != true) {
+            pushJob = viewModelScope.launch(Dispatchers.Default) {
+                delay(STREAMING_UPDATE_INTERVAL_MS)
+                transcript?.let {
+                    lastPushAt = System.currentTimeMillis()
+                    lastPushedRevision = it.revision
+                    updateLastAssistantMessageDirect(it.render(), MessageStatus.STREAMING)
+                }
+            }
+        }
+    }
+
+    /**
+     * Build a compact file tree context string for the AI
+     */
+    private fun buildFileTreeContext(): String {
+        val tree = _fileTree.value
+        if (tree.isEmpty()) return "\n\nThe project is empty."
+
+        val sb = StringBuilder("\n\nProject files:\n")
+        buildFileTreeString(tree, sb, 0)
+        return sb.toString().let { if (it.length > 6_000) it.take(6_000) + "\n… (use list_files for the rest)" else it }
+    }
+
+    private fun buildFileTreeString(nodes: List<FileTreeNode>, sb: StringBuilder, depth: Int) {
+        val indent = "  ".repeat(depth)
+        for (node in nodes) {
+            if (!com.oro.app.data.ai.tools.AgentPathPolicy.isVisible(node.name)) continue
+            when (node) {
+                is FileTreeNode.FileNode -> sb.append("$indent${node.name}\n")
+                is FileTreeNode.FolderNode -> {
+                    sb.append("$indent${node.name}/\n")
+                    if (node.name != "node_modules") buildFileTreeString(node.children, sb, depth + 1)
+                }
+            }
+        }
+    }
+
+    /**
+     * Update context window statistics for UI display
+     */
+    private fun updateContextStats(messages: List<ChatRequestMessage>) {
+        val model = _currentModel.value ?: return
+        val currentTokens = contextWindowManager.estimateTotalTokens(messages) + toolTokens(lastRequestTools)
+        val maxTokens = contextWindowManager.getAvailableTokens(model)
+        val usage = currentTokens.toFloat() / maxTokens
+
+        _contextTokenCount.value = currentTokens
+        _contextMaxTokens.value = maxTokens
+        refreshContextBreakdown()
+        _contextUsageLevel.value = when {
+            usage < 0.5f -> ContextUsageLevel.LOW
+            usage < 0.75f -> ContextUsageLevel.MEDIUM
+            usage < 0.9f -> ContextUsageLevel.HIGH
+            else -> ContextUsageLevel.CRITICAL
+        }
+    }
+
+    private fun updateLastAssistantMessage(content: String, status: MessageStatus) {
+        updateLastAssistantMessageDirect(content, status)
+    }
+
+    private fun updateLastAssistantMessageDirect(content: String, status: MessageStatus) {
+        val currentMessages = _messages.value.toMutableList()
+        if (currentMessages.isNotEmpty()) {
+            val lastMessage = currentMessages.last()
+            if (!lastMessage.isUser) {
+                val finalContent = if (status != MessageStatus.STREAMING) {
+                    sanitizeAiResponseContent(content)
+                } else {
+                    content
+                }
+                val updatedMessage = lastMessage.copy(content = finalContent, status = status)
+                currentMessages[currentMessages.lastIndex] = updatedMessage
+                _messages.value = currentMessages
+
+                if (status != MessageStatus.STREAMING) {
+                    viewModelScope.launch {
+                        if (updatedMessage.content.isBlank()) {
+                            // Nothing to keep: an empty assistant row would
+                            // render as a blank bubble after reload.
+                            _messages.value = _messages.value.filterNot { it.id == updatedMessage.id }
+                            chatRepository.deleteMessage(updatedMessage)
+                        } else {
+                            chatRepository.saveMessage(updatedMessage)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Check if content has any unclosed thinking/reasoning tags
+     * Supports multiple tag formats used by different AI providers
+     */
+    private fun hasUnclosedThinkingTag(content: String): Boolean {
+        val lowerContent = content.lowercase()
+        val tagPairs = listOf(
+            "<think>" to "</think>",
+            "<thinking>" to "</thinking>",
+            "<reasoning>" to "</reasoning>",
+            "<reason>" to "</reason>"
+        )
+
+        for ((openTag, closeTag) in tagPairs) {
+            val openCount = lowerContent.split(openTag).size - 1
+            val closeCount = lowerContent.split(closeTag).size - 1
+            if (openCount > closeCount) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Sanitize AI response content to ensure proper tag closure and remove polluted content
+     * This handles various thinking/reasoning tag formats from different AI providers
+     */
+    private fun sanitizeAiResponseContent(content: String): String {
+        var result = content
+
+        // List of thinking/reasoning tag pairs to process
+        val tagPairs = listOf(
+            "<think>" to "</think>",
+            "<thinking>" to "</thinking>",
+            "<reasoning>" to "</reasoning>",
+            "<reason>" to "</reason>"
+        )
+
+        // Close any unclosed thinking tags
+        for ((openTag, closeTag) in tagPairs) {
+            val openCount = result.lowercase().split(openTag.lowercase()).size - 1
+            val closeCount = result.lowercase().split(closeTag.lowercase()).size - 1
+
+            if (openCount > closeCount) {
+                // Add missing closing tags
+                repeat(openCount - closeCount) {
+                    result = "$result$closeTag"
+                }
+            }
+        }
+
+        // Normalize all thinking tag variants to <think></think> for consistent parsing
+        result = result
+            .replace(Regex("<thinking>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</thinking>", RegexOption.IGNORE_CASE), "</think>")
+            .replace(Regex("<reasoning>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</reasoning>", RegexOption.IGNORE_CASE), "</think>")
+            .replace(Regex("<reason>", RegexOption.IGNORE_CASE), "<think>")
+            .replace(Regex("</reason>", RegexOption.IGNORE_CASE), "</think>")
+
+        // Remove any empty thinking blocks
+        result = result.replace(Regex("<think>\\s*</think>", RegexOption.IGNORE_CASE), "")
+
+        // Clean up excessive whitespace but preserve paragraph breaks
+        result = result
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+
+        return result
+    }
+
+    fun clearChat() {
+        if (_isAiProcessing.value) stopGeneration()
+        _messages.value = emptyList()
+        _messageHistory.clear()
+        _runError.value = null
+
+        // Clear persisted messages
+        viewModelScope.launch {
+            chatRepository.clearChatHistory(projectId)
+        }
+    }
+
+    /**
+     * Export chat history to markdown file
+     */
+    fun exportChatHistory(onResult: (Result<java.io.File>) -> Unit) {
+        val projectName = _project.value?.name ?: "Unknown"
+        viewModelScope.launch {
+            val result = chatRepository.exportToMarkdown(projectId, projectName)
+            onResult(result)
+        }
+    }
+
+    fun setModel(model: AiModel) {
+        _currentModel.value = model
+        updateContextMaxTokens(model)
+
+        // Persist the last used model for this project
+        viewModelScope.launch {
+            projectRepository.updateLastUsedModelId(projectId, model.id)
+            preferencesRepository.setAiModel(model.id)
+            preferencesRepository.setAiProvider(model.provider.name)
+            aiModelRepository.recordModelUsage(model.id)
+        }
+    }
+
+    fun refreshModels() {
+        viewModelScope.launch {
+            _isRefreshingModels.value = true
+            try {
+                val apiKeys = preferencesRepository.apiKeys.first()
+
+                aiModelRepository.refreshModelsFromAllConfiguredProviders(apiKeys)
+                    .onFailure { error ->
+                        _error.value = "Failed to refresh models: ${error.message}"
+                    }
+            } finally {
+                _isRefreshingModels.value = false
+            }
+        }
+    }
+
+    fun clearError() {
+        _error.value = null
+    }
+
+    /**
+     * Undo the last AI change
+     */
+    fun undo() {
+        viewModelScope.launch {
+            undoRedoManager.undo(projectId)
+                .onSuccess { message ->
+                    // Refresh file tree and current file
+                    loadFileTree()
+                    _currentFile.value?.let { file ->
+                        projectRepository.readFile(projectId, file.path)
+                            .onSuccess { content ->
+                                _fileContent.value = content
+                                _originalFileContent.value = content
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    /**
+     * Redo the last undone AI change
+     */
+    fun redo() {
+        viewModelScope.launch {
+            undoRedoManager.redo(projectId)
+                .onSuccess { message ->
+                    // Refresh file tree and current file
+                    loadFileTree()
+                    _currentFile.value?.let { file ->
+                        projectRepository.readFile(projectId, file.path)
+                            .onSuccess { content ->
+                                _fileContent.value = content
+                                _originalFileContent.value = content
+                            }
+                    }
+                }
+                .onFailure { error ->
+                    _error.value = error.message
+                }
+        }
+    }
+
+    /**
+     * Clear undo/redo history
+     */
+    fun clearUndoHistory() {
+        undoRedoManager.clearHistory()
+    }
+
+    /**
+     * Handle AI code edit request from text selection in the code editor
+     * Creates a specialized prompt for the AI to edit the selected code
+     */
+    fun handleAiCodeEdit(request: com.oro.app.ui.screens.editor.code.AiCodeEditRequest) {
+        // Switch to chat tab to show the AI response
+        _selectedTab.value = EditorTab.CHAT
+
+        // Create a specialized prompt for code editing
+        val prompt = buildString {
+            append("Please help me edit the following code from **${request.fileName}** ")
+            append("(lines ${request.startLine + 1}-${request.endLine + 1}):\n\n")
+            append("```\n${request.selectedText}\n```\n\n")
+            append("What changes would you like me to make to this code?")
+        }
+
+        // Set the chat input with the prompt
+        _chatInput.value = prompt
+    }
+
+    companion object {
+        private const val MAX_AGENT_ITERATIONS = 40
+        private const val OPEN_FILE_CONTEXT_CHARS = 12_000
+        /** At most this often is a streaming transcript pushed to the UI. */
+        private const val STREAMING_UPDATE_INTERVAL_MS = 80L
+
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                val application = OroApplication.getInstance()
+                val savedStateHandle = extras.createSavedStateHandle()
+                return EditorViewModel(
+                    savedStateHandle = savedStateHandle,
+                    projectRepository = application.projectRepository,
+                    preferencesRepository = application.preferencesRepository,
+                    aiRepository = application.aiRepository,
+                    chatRepository = application.chatRepository,
+                    aiModelRepository = application.aiModelRepository,
+                    contextWindowManager = application.contextWindowManager,
+                    userPreferencesLearner = application.userPreferencesLearner,
+                    toolExecutor = application.toolExecutor,
+                    memoryStorage = application.memoryStorage,
+                    undoRedoManager = application.undoRedoManager,
+                    semanticMemorySystem = application.semanticMemorySystem
+                ) as T
+            }
+        }
+    }
+    /**
+     * Log raw SSE data to a separate raw log file.
+     * This provides unformatted server responses for debugging.
+     */
+    private fun logDebugRawSSE(data: String) {
+        if (!_debugLogsEnabled.value) return
+
+        val project = _project.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val logsDir = File(project.rootPath, ".oro")
+                if (!logsDir.exists()) logsDir.mkdirs()
+
+                // Use separate file for raw SSE data
+                val rawLogFile = File(logsDir, "raw_sse.log")
+                val timestamp = java.time.LocalDateTime.now().format(
+                    java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+                )
+
+                // Append raw data with minimal formatting
+                rawLogFile.appendText("[$timestamp] $data\n")
+            } catch (e: Exception) {
+                // Ignore logging errors
+            }
+        }
+    }
+
+    /**
+     * Helper to log debug info to .oro/logs.txt if enabled
+     */
+    private fun logDebugToProject(title: String, content: String) {
+        if (!_debugLogsEnabled.value) return
+
+        val project = _project.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val logsDir = File(project.rootPath, ".oro")
+                if (!logsDir.exists()) logsDir.mkdirs()
+
+                val logFile = File(logsDir, "logs.txt")
+                val timestamp = java.time.LocalDateTime.now().toString()
+
+                val output = buildString {
+                    append("\n")
+                    append("=".repeat(20))
+                    append(" $title [$timestamp] ")
+                    append("=".repeat(20))
+                    append("\n")
+                    append(content)
+                    append("\n")
+                }
+
+                logFile.appendText(output)
+            } catch (e: Exception) {
+                // Ignore logging errors to prevent detailed crashes
+            }
+        }
+    }
+    /**
+     * Drive a subagent to completion.
+     *
+     * The subagent gets its own message list seeded from its definition's
+     * system prompt and its brief -- deliberately *not* the parent
+     * conversation. That isolation is the point of delegation: the subagent
+     * works in a clean context, and only its final summary comes back, so the
+     * verbose middle never crowds the orchestrator's window.
+     *
+     * Tools are filtered to the definition's capabilities, enforced here rather
+     * than described in the prompt, so a read-only agent cannot write even if
+     * it decides it should.
+     */
+    private fun launchSubagent(session: AgentSession) {
+        val job = viewModelScope.launch {
+            try {
+                subagentOrchestrator.withSlot(session.id) {
+                    runSubagentLoop(session)
+                }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                // The user pressed stop. The orchestrator has already recorded
+                // CANCELLED; rethrow so the scope unwinds normally.
+                throw cancellation
+            } catch (e: Exception) {
+                subagentOrchestrator.fail(session.id, e.message ?: "Subagent failed")
+            }
+        }
+        subagentOrchestrator.attachJob(session.id, job)
+    }
+
+    private suspend fun runSubagentLoop(session: AgentSession) {
+        val definition = session.definition
+        val model = _currentModel.value ?: run {
+            subagentOrchestrator.fail(session.id, "No model selected")
+            return
+        }
+
+        val allowedTools = AgentTools.all.filter { tool ->
+            val capability = capabilityFor(tool.function.name)
+            capability != null && definition.allows(capability)
+        }
+        val nativeTools = model.supportsToolCalls
+        val textToolProtocol = if (!nativeTools && allowedTools.isNotEmpty()) {
+            "\n\n" + (aiRepository.createSystemMessage(
+                agentMode = true, nativeTools = false, toolList = allowedTools
+            ).content.orEmpty().substringAfter("# Calling tools", "").let { if (it.isBlank()) "" else "# Calling tools$it" }
+                .substringBefore("\n# Web guidelines"))
+        } else ""
+        val system = ChatRequestMessage(role = "system", content = definition.systemPrompt + textToolProtocol)
+        val history = mutableListOf(ChatRequestMessage(role = "user", content = session.prompt))
+        var turns = 0
+
+        val loop = AgentLoop(
+            client = { request ->
+                aiRepository.streamChat(model = model, messages = request.messages, tools = request.tools, temperature = 0.4f)
+            },
+            // Out-of-capability calls are refused, not executed, and the
+            // refusal goes back as the result so the agent can adjust.
+            tools = { call ->
+                val name = ToolAliases.canonicalName(call.function.name)
+                val capability = capabilityFor(name)
+                if (capability == null || !definition.allows(capability)) {
+                    ToolResult(false, "", "Refused: a ${definition.label} agent cannot call ${call.function.name}.")
+                } else {
+                    toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
+                }
+            },
+            config = AgentLoopConfig(maxIterations = definition.maxTurns)
+        )
+
+        val listener = object : AgentLoopListener {
+            private val started = mutableMapOf<String, Long>()
+            override fun onModelCallStarted(iteration: Int, attempt: Int) {
+                turns = iteration
+                subagentOrchestrator.advance(session.id, AgentPhase.THINKING, turnsUsed = iteration)
+            }
+            override fun onToolStarted(call: ToolCallResponse) {
+                started[call.id] = System.currentTimeMillis()
+                capabilityFor(ToolAliases.canonicalName(call.function.name))?.let {
+                    subagentOrchestrator.advance(session.id, phaseFor(it))
+                }
+            }
+            override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
+                val name = ToolAliases.canonicalName(call.function.name)
+                val phase = capabilityFor(name)?.let { phaseFor(it) } ?: AgentPhase.THINKING
+                subagentOrchestrator.advance(
+                    session.id,
+                    phase,
+                    AgentStep(
+                        index = subagentOrchestrator.session(session.id)?.steps?.size ?: 0,
+                        phase = phase,
+                        label = ToolPresentations.describe(name, subjectOf(call.function.arguments), isRunning = false),
+                        startedAt = started[call.id] ?: System.currentTimeMillis(),
+                        finishedAt = System.currentTimeMillis(),
+                        isError = !result.success
+                    )
+                )
+            }
+        }
+
+        val knownTools = allowedTools.map { it.function.name }.toSet()
+        when (val result = loop.run(history, knownTools, listener) { h, pressure ->
+            val window = contextWindowManager.getAvailableTokens(model)
+            val share = if (pressure == 0) 0.9 else 0.5
+            val tools = if (nativeTools) allowedTools.takeIf { it.isNotEmpty() } else null
+            AgentRequest(
+                listOf(system) + HistoryPruner.prune(h, (window * share).toInt() - TokenEstimator.estimate(system) - toolTokens(tools)),
+                tools
+            )
+        }) {
+            is AgentRunResult.Completed -> {
+                subagentOrchestrator.advance(session.id, AgentPhase.SUMMARISING)
+                subagentOrchestrator.complete(session.id, result.finalText.ifBlank { "Finished without a summary." })
+            }
+            is AgentRunResult.Failed -> subagentOrchestrator.fail(session.id, result.message)
+            // Out of turns. Almost always a loop rather than a task that
+            // genuinely needed more steps, so reported as such.
+            is AgentRunResult.IterationLimit ->
+                subagentOrchestrator.advance(session.id, AgentPhase.EXHAUSTED, turnsUsed = turns)
+        }
+    }
+
+    /** Which capability a tool needs, or null if it is not a known tool. */
+    private fun capabilityFor(toolName: String): ToolCapability? = AgentTools.capabilityOf(toolName)
+
+    private fun phaseFor(capability: ToolCapability): AgentPhase = when (capability) {
+        ToolCapability.READ -> AgentPhase.READING
+        ToolCapability.WRITE -> AgentPhase.EDITING
+        ToolCapability.EXECUTE -> AgentPhase.EXECUTING
+        else -> AgentPhase.THINKING
+    }
+
+    /** Best-effort subject for a step label: the path or command, if present. */
+    private fun subjectOf(rawArguments: String): String? {
+        val args = DelegationHandler.parseArgs(rawArguments) ?: return null
+        for (key in listOf("path", "file_path", "command", "query", "directory")) {
+            val value = runCatching {
+                args[key]?.jsonPrimitive?.content
+            }.getOrNull()
+            if (!value.isNullOrBlank()) return value
+        }
+        return null
+    }
+
+    /** Stop one delegated agent. */
+    fun stopSubagent(sessionId: String) = subagentOrchestrator.cancel(sessionId)
+
+    /** Stop every delegated agent still running. */
+    fun stopAllSubagents() = subagentOrchestrator.cancelAll()
+
+    /** Answer a subagent's pending approval request. */
+    fun resolveSubagentApproval(sessionId: String, approved: Boolean) =
+        subagentOrchestrator.resolveApproval(sessionId, approved)
+
+    /** Drop finished agent cards from the transcript. */
+    fun clearFinishedSubagents() = subagentOrchestrator.clearCompleted()
+
+    /**
+     * Answer the conversation-level approval.
+     *
+     * Dismissing the sheet calls this with false; there is no third state,
+     * because the agent is suspended inside the tool call until it has an
+     * answer and leaving it unanswered would hang the turn.
+     */
+    fun resolveApproval(approved: Boolean) {
+        _pendingApproval.value = null
+        approvalAnswer?.complete(approved)
+        approvalAnswer = null
+    }
+
+    /**
+     * Ask the user, and suspend until they answer.
+     *
+     * Not timed and not auto-dismissing: an approval that expires into a
+     * default is worse than no gate, because afterwards the user cannot tell
+     * whether they agreed or simply looked away.
+     */
+    private suspend fun awaitApproval(action: String, detail: String?): Boolean {
+        // A second request while one is open would orphan the first agent.
+        approvalAnswer?.let { return false }
+
+        val deferred = CompletableDeferred<Boolean>()
+        approvalAnswer = deferred
+        _pendingApproval.value = PendingApproval(
+            action = action,
+            detail = detail,
+            detailIsCode = detail?.contains('\n') == true
+        )
+        return try {
+            deferred.await()
+        } catch (cancellation: CancellationException) {
+            // Generation was stopped while the sheet was open: clear it so the
+            // next turn does not inherit a stale question.
+            _pendingApproval.value = null
+            approvalAnswer = null
+            throw cancellation
+        }
+    }
+
+    fun setReasoningEffort(effort: ReasoningEffort) {
+        viewModelScope.launch { preferencesRepository.setReasoningEffort(effort) }
+    }
+
+    /**
+     * Recompute the context breakdown.
+     *
+     * Called after each turn rather than on every token: the numbers are
+     * estimates and the sheet is not open during streaming, so recomputing per
+     * delta would burn CPU to animate a figure nobody is reading.
+     */
+    private fun refreshContextBreakdown() {
+        val model = _currentModel.value ?: return
+        // The system prompt is built per request and never stored in the
+        // history, so it is taken from the last request (it used to be looked
+        // for in the history and was therefore always missing from the sheet).
+        val systemPrompt = lastSystemPrompt
+        val tools = lastRequestTools
+        _contextBreakdown.value = breakdownBuilder.build(
+            systemPrompt = systemPrompt,
+            tools = tools,
+            messages = _messageHistory.toList(),
+            maxTokens = contextWindowManager.getAvailableTokens(model)
+        )
+    }
+
+    /**
+     * Summarise the older part of the conversation and replace it in place.
+     *
+     * Runs through the selected model with OpenCode's anchored-summary prompt.
+     * A failed compaction leaves the conversation untouched -- a half-applied
+     * compaction that dropped messages without producing a summary would lose
+     * work irrecoverably, so nothing is removed until a usable summary is in
+     * hand.
+     */
+    fun compactContext() {
+        val model = _currentModel.value ?: return
+        if (_isCompacting.value) return
+
+        val partition = contextCompactor.partition(_messages.value)
+        if (!partition.canCompact) return
+
+        viewModelScope.launch {
+            _isCompacting.value = true
+            try {
+                val previous = contextCompactor.extractPreviousSummary(_messageHistory)
+                val request = contextCompactor.buildSummaryRequest(partition.older, previous)
+
+                val completion = aiRepository.chat(
+                    model = model,
+                    messages = request,
+                    maxTokens = ContextCompactor.SUMMARY_OUTPUT_TOKENS
+                ).getOrElse { error ->
+                    _error.value = "Could not compact: ${error.message}"
+                    return@launch
+                }
+
+                val summary = completion.choices.firstOrNull()?.message?.content.orEmpty()
+                val applied = contextCompactor.applySummary(_messages.value, summary)
+                if (applied == null) {
+                    _error.value = "Compaction produced no summary; nothing was changed."
+                    return@launch
+                }
+
+                val (compactedHistory, result) = applied
+                _messageHistory.clear()
+                _messageHistory.addAll(compactedHistory)
+                _lastCompactionSavedPercent.value = result.savedPercent
+                refreshContextBreakdown()
+            } finally {
+                _isCompacting.value = false
+            }
+        }
+    }
+
+}

@@ -5,12 +5,12 @@ plugins {
 }
 
 android {
-    namespace = "com.codex.stormy"
+    namespace = "com.oro.app"
     compileSdk = 37
     compileSdkMinor = 2
 
     defaultConfig {
-        applicationId = "com.codex.stormy"
+        applicationId = "com.oro.app"
         minSdk = 24
         targetSdk = 37
         versionCode = 2
