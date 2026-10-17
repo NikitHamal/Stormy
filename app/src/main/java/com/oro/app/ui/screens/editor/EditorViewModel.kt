@@ -1537,6 +1537,7 @@ class EditorViewModel(
         // MCP servers' tools join the built-ins for this run (listing is cached).
         val mcp = if (isAgentMode) preferencesRepository.mcpSettings.first() else com.oro.app.data.ai.mcp.McpSettings()
         toolExecutor.mcpSettings = mcp
+        toolExecutor.skillsDir = File(com.oro.app.OroApplication.getInstance().filesDir, "skills")
         val mcpTools = if (mcp.servers.any { it.enabled }) {
             runCatching {
                 kotlinx.coroutines.withTimeout(15_000) { com.oro.app.data.ai.mcp.McpRegistry.tools(mcp) }
@@ -1568,7 +1569,16 @@ class EditorViewModel(
             // Errors the live preview hit since the last run: the loop that lets
             // Orobi fix what it broke without the user copying stack traces.
             // Taken once per run so the system prompt stays stable across turns.
-            if (isAgentMode) com.oro.app.data.preview.PreviewDiagnostics.takeContextSummary(projectId) else ""
+            (if (isAgentMode) com.oro.app.data.preview.PreviewDiagnostics.takeContextSummary(projectId) else "") +
+            // Skill names + descriptions only; bodies load through use_skill.
+            (if (isAgentMode) withContext(Dispatchers.IO) {
+                com.oro.app.data.ai.skills.Skills.catalogue(
+                    com.oro.app.data.ai.skills.Skills.all(
+                        File(com.oro.app.OroApplication.getInstance().filesDir, "skills"),
+                        _project.value?.rootPath?.let { File(it) }
+                    )
+                )
+            } else "")
 
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
             val textMode = !nativeTools || forceTextTools

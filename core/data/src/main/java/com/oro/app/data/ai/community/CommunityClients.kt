@@ -43,7 +43,8 @@ interface CommunityChatClient {
 object CommunityClients {
     private val clients: Map<ProviderProtocol, CommunityChatClient> by lazy {
         mapOf(
-            ProviderProtocol.K2_GUEST to K2GuestClient()
+            ProviderProtocol.K2_GUEST to K2GuestClient(),
+            ProviderProtocol.LOCAL to com.oro.app.data.ai.local.LocalModels.client
         )
     }
 

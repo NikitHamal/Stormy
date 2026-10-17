@@ -138,6 +138,7 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         trackForeground()
         // Off-screen page renderer for the agent's screenshot / audit tools.
         com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
+        com.oro.app.data.ai.local.LocalModels.init(this)
         // Refreshed MCP sign-in tokens are written back to settings.
         com.oro.app.data.ai.mcp.McpRegistry.tokenSink = { serverId, tokens ->
             applicationScope.launch {

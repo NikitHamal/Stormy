@@ -33,6 +33,8 @@ room {
 }
 
 dependencies {
+    // On-device LLMs (Qwen .task models), "On this phone" provider.
+    implementation(libs.mediapipe.tasks.genai)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     api(project(":core:common"))

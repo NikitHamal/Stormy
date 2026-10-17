@@ -9,6 +9,7 @@ package com.oro.app.data.ai
  */
 enum class ModelGroup(val title: String, val subtitle: String) {
     RECOMMENDED("Recommended", "Fast, free and ready with no setup"),
+    ON_DEVICE("On this phone", "Private and offline; download in Settings > On-device models"),
     FREE("Free · no key", "Official free tiers that need no account"),
     COMMUNITY("Community · unofficial", "Public guest chats bridged by Oro; may change or break"),
     YOUR_PROVIDERS("Your providers", "Providers you added a key or URL for");
@@ -17,6 +18,7 @@ enum class ModelGroup(val title: String, val subtitle: String) {
         fun of(model: AiModel): ModelGroup = when {
             model.provider.worksWithoutKey &&
                 AiModels.getRecommendedModels().any { it.id == model.id && it.provider == model.provider } -> RECOMMENDED
+            model.provider.protocol == ProviderProtocol.LOCAL -> ON_DEVICE
             model.provider.isCommunity -> COMMUNITY
             model.provider.apiKeyRequirement != ApiKeyRequirement.REQUIRED &&
                 model.provider != AiProvider.CUSTOM -> FREE
@@ -44,7 +46,7 @@ enum class ModelGroup(val title: String, val subtitle: String) {
             add(model.providerLabel())
             add(formatContext(model.contextLength))
             if (!model.supportsToolCalls) add("text tool calls")
-            if (model.provider.isCommunity) add("unofficial")
+            if (model.provider.isCommunity && model.provider.protocol != ProviderProtocol.LOCAL) add("unofficial")
         }.joinToString(" · ")
 
         fun formatContext(tokens: Int): String = when {

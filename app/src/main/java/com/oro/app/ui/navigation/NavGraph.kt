@@ -45,6 +45,8 @@ sealed class Screen(val route: String) {
     data object Providers : Screen("providers")
     data object Mcp : Screen("mcp")
     data object Voice : Screen("voice")
+    data object Skills : Screen("skills")
+    data object LocalModels : Screen("local_models")
     data object ProviderEditor : Screen("provider_editor/{ref}") {
         fun createRoute(ref: String) = "provider_editor/" + android.net.Uri.encode(ref)
     }
@@ -188,6 +190,14 @@ fun OroNavGraph(
             )
         }
 
+        composable(Screen.LocalModels.route) {
+            com.oro.app.ui.screens.local.LocalModelsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.Skills.route) {
+            com.oro.app.ui.screens.skills.SkillsScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(Screen.Voice.route) {
             com.oro.app.voice.VoiceSettingsScreen(onBack = { navController.popBackStack() })
         }
@@ -236,6 +246,12 @@ fun OroNavGraph(
                 },
                 onNavigateToVoice = {
                     navController.navigate(Screen.Voice.route)
+                },
+                onNavigateToSkills = {
+                    navController.navigate(Screen.Skills.route)
+                },
+                onNavigateToLocalModels = {
+                    navController.navigate(Screen.LocalModels.route)
                 }
             )
         }

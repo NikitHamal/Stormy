@@ -196,6 +196,13 @@ class ToolExecutor(
                     }
                 }
             }
+            "use_skill" -> {
+                val wanted = com.oro.app.data.ai.skills.Skills.slug(args.getStringArg("name").orEmpty())
+                val all = com.oro.app.data.ai.skills.Skills.all(skillsDir ?: File("/nonexistent"), currentProjectPath)
+                val skill = all.firstOrNull { it.name == wanted }
+                    ?: return ToolResult(false, "", "No skill named '$wanted'. Available: ${all.joinToString(", ") { it.name }}")
+                return ToolResult(true, "Skill ${skill.name}: ${skill.description}\n\n${skill.body}")
+            }
             "screenshot_preview", "audit_page" -> {
                 val previewer = com.oro.app.data.preview.PagePreviewers.instance
                     ?: return ToolResult(false, "", "Page rendering is not available here.")
@@ -244,6 +251,10 @@ class ToolExecutor(
 
     // Interaction callback for user input and notifications
     var interactionCallback: ToolInteractionCallback? = null
+
+    /** App-wide skills folder (set by the app); project skills live in .oro/skills. */
+    @Volatile
+    var skillsDir: File? = null
 
     /** MCP servers for the current run; set by the caller that offered their tools. */
     @Volatile

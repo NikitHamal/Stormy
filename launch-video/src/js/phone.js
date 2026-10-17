@@ -39,7 +39,7 @@ export function createPhone(parent, P, site, labels) {
   const ping = chrome.querySelector('.dot');
   const camera = el('div', { class: 'abs ph-pip' }, chrome);
   const viewport = box(inner, 'ph-view', { left: '0', top: '84px', width: '360px', height: '1000px', background: Lt.bg });
-  const page = box(viewport, 'ph-page', { left: '0', top: '0', width: '360px', height: '940px' });
+  const page = box(viewport, 'ph-page', { left: '0', top: '0', width: '360px', height: '1400px' });
 
   // Site blocks (design units). Each block: [el, buildDelay]
   const B = [];
@@ -49,19 +49,40 @@ export function createPhone(parent, P, site, labels) {
     B.push({ n, delay, kind });
     return n;
   };
-  add('st-nav', { left: '20px', top: '18px', width: '320px', height: '24px' },
-    `<span class="st-brand">${site.brand}</span><span class="st-burger"><i></i><i></i></span>`, 0.0);
-  add('st-photo', { left: '20px', top: '58px', width: '320px', height: '214px' }, PHOTOS.sea(320, 214), 0.12, 'photo');
-  add('st-title', { left: '20px', top: '286px', width: '320px' }, site.title, 0.24);
-  add('st-kicker', { left: '20px', top: '342px', width: '320px' }, site.kicker, 0.32);
-  add('st-label', { left: '20px', top: '388px', width: '320px' }, `<span>${site.galleryLabel}</span><i></i>`, 0.4);
+  // A real landing page, top to bottom, in 360-unit design space.
+  const ICON = {
+    cam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+    ring: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14" r="5"/><circle cx="15" cy="14" r="5"/><path d="M9 6l3-3 3 3"/></svg>',
+    mag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>',
+  };
+  add('st-nav', { left: '0', top: '0', width: '360px', height: '52px' },
+    `<span class="st-logo"><i></i>${site.brand}</span><span class="st-links"><b>Work</b><b>About</b></span><span class="st-book">Book</span>`, 0.0);
+  add('st-hero', { left: '12px', top: '60px', width: '336px', height: '300px' },
+    `${PHOTOS.sea(336, 300)}<div class="st-hero-shade"></div>
+     <div class="st-hero-copy"><span class="st-eyebrow">${site.kicker}</span><h1>${site.title}</h1>
+     <p>Portraits, weddings and editorial work in natural light.</p>
+     <div class="st-ctas"><span class="st-btn">${site.cta}</span><span class="st-btn ghost">View work</span></div></div>`, 0.1, 'photo');
+  add('st-stats', { left: '20px', top: '374px', width: '320px', height: '44px' },
+    `<span><b>12</b>years</span><span><b>300+</b>shoots</span><span><b>4.9</b>★ rating</span>`, 0.26);
+  add('st-press', { left: '20px', top: '432px', width: '320px', height: '22px' },
+    `<i>AS SEEN IN</i><b>VOGUE</b><b>Kinfolk</b><b>MONOCLE</b>`, 0.32);
+  add('st-label', { left: '20px', top: '476px', width: '320px' }, `<span>Services</span><i></i>`, 0.36);
+  [['cam', 'Portraits', 'from €350'], ['ring', 'Weddings', 'from €1,800'], ['mag', 'Editorial', 'on request']].forEach(([ic, t, price], i) =>
+    add('st-card', { left: '20px', top: `${500 + i * 62}px`, width: '320px', height: '54px' },
+      `<span class="st-ic">${ICON[ic]}</span><span class="st-card-t"><b>${t}</b><i>${['Studio or on location', 'Full day, two shooters', 'Brands and magazines'][i]}</i></span><span class="st-price">${price}</span>`,
+      0.42 + i * 0.06));
+  add('st-label', { left: '20px', top: '700px', width: '320px' }, `<span>${site.galleryLabel}</span><i></i>`, 0.6);
   const tiles = [PHOTOS.arch, PHOTOS.dunes, PHOTOS.portrait, PHOTOS.light];
-  tiles.forEach((f, i) => add('st-photo', {
-    left: `${20 + (i % 2) * 166}px`, top: `${414 + Math.floor(i / 2) * 166}px`, width: '154px', height: '154px',
-  }, f(154, 154), 0.46 + i * 0.07, 'photo'));
-  add('st-contact', { left: '20px', top: '764px', width: '320px' }, `Let’s work together.`, 0.8);
-  add('st-cta', { left: '20px', top: '812px', height: '44px' }, `${site.cta}<b>→</b>`, 0.86, 'pop');
-  add('st-mail', { left: '20px', top: '872px', width: '320px' }, site.email, 0.92);
+  const caps = ['Alfama, dusk', 'Dunes, Comporta', 'Studio portrait', 'Morning light'];
+  tiles.forEach((f, i) => add('st-photo st-tile', {
+    left: `${20 + (i % 2) * 166}px`, top: `${724 + Math.floor(i / 2) * 178}px`, width: '154px', height: '168px',
+  }, `${f(154, 140)}<span class="st-cap">${caps[i]}</span>`, 0.64 + i * 0.06, 'photo'));
+  add('st-quote', { left: '20px', top: '1086px', width: '320px', height: '104px' },
+    `<span class="st-stars">★★★★★</span><p>“Mara found the light in a grey Lisbon morning. The photos feel like us.”</p><span class="st-who"><i></i>Inês & Tom · Wedding, 2026</span>`, 0.86);
+  add('st-band', { left: '12px', top: '1206px', width: '336px', height: '150px' },
+    `<h2>Let’s work together.</h2><p>Booking spring and summer 2027.</p><span class="st-btn light">${site.cta} →</span><span class="st-mail">${site.email}</span>`, 0.92, 'pop');
+  add('st-foot', { left: '20px', top: '1372px', width: '320px', height: '20px' },
+    `<span>© 2026 ${site.brand}</span><span>Instagram · Email</span>`, 0.98);
 
   // Skeleton lines shown while "thinking" (before build)
   const skel = box(viewport, 'ph-skel', { left: '0', top: '0', width: '360px', height: '900px' });

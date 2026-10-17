@@ -88,3 +88,11 @@
     public static int v(...);
     public static int d(...);
 }
+
+# MediaPipe LLM Inference (on-device models) uses JNI and protobuf reflection.
+-keep class com.google.mediapipe.** { *; }
+-dontwarn com.google.mediapipe.**
+-keep class com.google.protobuf.** { *; }
+-dontwarn com.google.protobuf.**
+# Whistle JNI bridge
+-keep class com.oro.app.voice.WhistleNative { *; }

@@ -262,6 +262,20 @@ object AgentTools {
         """
     )
 
+    val USE_SKILL = tool(
+        "use_skill",
+        """
+        Load a skill: a playbook for a kind of task (listed under Skills in
+        your instructions). Call it before starting a task that matches one,
+        then follow its steps.
+        """,
+        """
+        {"type":"object","properties":{
+          "name":{"type":"string","description":"The skill's name, as listed."}
+        },"required":["name"]}
+        """
+    )
+
     val WEB_FETCH = tool(
         "web_fetch",
         """
@@ -310,7 +324,7 @@ object AgentTools {
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
         CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH,
-        ASK_USER, SAVE_MEMORY
+        ASK_USER, SAVE_MEMORY, USE_SKILL
     )
     // run_command is deliberately not offered: on Android there is no node,
     // npm or python, so models burned turns trying to install packages, and
@@ -319,7 +333,7 @@ object AgentTools {
 
     /** Names of tools that never modify anything, safe to run concurrently. */
     val readOnly: Set<String> = setOf(
-        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors", "screenshot_preview", "audit_page",
+        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors", "screenshot_preview", "audit_page", "use_skill",
         // legacy names
         "search_files", "get_file_info", "recall_memory", "list_memories"
     )

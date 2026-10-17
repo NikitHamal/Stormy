@@ -74,6 +74,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Add
@@ -646,10 +648,14 @@ private fun SwipeableProjectCard(
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val shareContext = androidx.compose.ui.platform.LocalContext.current
+    val shareScope = rememberCoroutineScope()
 
     if (showMenu) {
+        val liveUrl = remember(project.rootPath) { com.oro.app.share.ProjectSharing.liveUrl(java.io.File(project.rootPath)) }
         ActionSheet(
             title = project.name,
+            subtitle = liveUrl,
             onDismiss = { showMenu = false },
             actions = listOf(
                 SheetAction(
@@ -673,6 +679,25 @@ private fun SwipeableProjectCard(
                     icon = Icons.Outlined.Edit,
                     onClick = onEditClick
                 ),
+                SheetAction(
+                    label = "Share as zip",
+                    icon = Icons.Outlined.Share,
+                    description = "Every file, ready to open anywhere",
+                    onClick = {
+                        shareScope.launch {
+                            runCatching {
+                                com.oro.app.share.ProjectSharing.shareZip(shareContext, java.io.File(project.rootPath), project.name)
+                            }
+                        }
+                    }
+                ),
+                *(liveUrl?.let { url ->
+                    arrayOf(SheetAction(
+                        label = "Share live link",
+                        icon = Icons.Outlined.Link,
+                        onClick = { com.oro.app.share.ProjectSharing.shareLink(shareContext, project.name, url) }
+                    ))
+                } ?: emptyArray()),
                 SheetAction(
                     label = "Delete project",
                     icon = Icons.Outlined.Delete,

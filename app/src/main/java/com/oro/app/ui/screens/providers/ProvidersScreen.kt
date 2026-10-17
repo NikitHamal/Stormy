@@ -117,7 +117,7 @@ fun ProvidersScreen(
         ownConfigs.mapIndexed { i, c -> customRow(i, c) }
     }
     val builtInRows = remember(state.settings.builtInKeys, state.health, seededRows) {
-        AiProvider.entries.filter { it != AiProvider.CUSTOM }.map { p ->
+        AiProvider.entries.filter { it != AiProvider.CUSTOM && it != AiProvider.ON_DEVICE }.map { p ->
             val ref = ProviderRef.BuiltIn(p)
             val keys = state.keysOf(ref)
             val hasKey = keys.any { it.entry.enabled && it.entry.key.isNotBlank() }
