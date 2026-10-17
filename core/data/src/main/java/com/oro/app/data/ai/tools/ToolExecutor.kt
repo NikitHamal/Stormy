@@ -156,6 +156,16 @@ class ToolExecutor(
         args: JsonObject
     ): ToolResult? {
         val ws = workspace ?: currentProjectPath?.let { WorkspaceTools(it).also { w -> workspace = w } }
+        checkpoint?.let { rec ->
+            val paths = when (toolName) {
+                "write_file", "edit_file", "multi_edit", "delete_file" -> listOfNotNull(args.getStringArg("path"))
+                "move_file" -> listOfNotNull(args.getStringArg("source"), args.getStringArg("destination"))
+                else -> emptyList()
+            }
+            if (paths.isNotEmpty()) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) { paths.forEach { runCatching { rec.capture(it) } } }
+            }
+        }
         val outcome: ToolOutcome = when (toolName) {
             "read_file", "write_file", "edit_file", "multi_edit", "list_files",
             "glob", "grep", "delete_file", "move_file", "web_fetch" -> {
@@ -205,6 +215,10 @@ class ToolExecutor(
 
     // Interaction callback for user input and notifications
     var interactionCallback: ToolInteractionCallback? = null
+
+    /** The running agent turn's checkpoint; files are captured before their first change. */
+    @Volatile
+    var checkpoint: com.oro.app.data.ai.checkpoint.Checkpoints.Recorder? = null
 
     /**
      * Execute a tool call and return the result

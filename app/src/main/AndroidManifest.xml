@@ -4,6 +4,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Background agent runs: keep-alive notification and run updates. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Storage permissions for Oro/Projects directory -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -54,6 +58,11 @@
             android:exported="false"
             android:theme="@style/Theme.Oro"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <service
+            android:name=".agent.AgentRunService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- FileProvider for sharing files securely -->
         <provider

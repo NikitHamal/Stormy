@@ -71,6 +71,7 @@ import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -129,6 +130,9 @@ fun ChatTab(
     sessionActions: ChatSessionActions = ChatSessionActions.None,
     agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
     sessionUsage: com.oro.app.data.ai.usage.SessionUsage = com.oro.app.data.ai.usage.SessionUsage(),
+    /** User messages whose run left a checkpoint, i.e. can be rewound. */
+    checkpointMessageIds: Set<String> = emptySet(),
+    onRestoreCheckpoint: (String) -> Unit = {},
     projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
@@ -169,6 +173,27 @@ fun ChatTab(
     var showModelSelector by remember { mutableStateOf(false) }
     var showChatSettings by remember { mutableStateOf(false) }
     var showContextSheet by remember { mutableStateOf(false) }
+    var restoreTarget by remember { mutableStateOf<ChatMessage?>(null) }
+
+    restoreTarget?.let { target ->
+        com.oro.app.ui.components.expressive.FormSheet(
+            title = "Restore files?",
+            icon = androidx.compose.material.icons.Icons.Outlined.History,
+            onDismiss = { restoreTarget = null },
+            confirmLabel = "Restore",
+            destructive = true,
+            onConfirm = {
+                onRestoreCheckpoint(target.id)
+                restoreTarget = null
+            }
+        ) {
+            Text(
+                "Every file Orobi created, changed or deleted from this message on goes back to how it was " +
+                    "before it. The conversation itself is kept.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
     if (showChatSettings) {
         ChatSettingsSheet(
             agentMode = agentMode,
@@ -256,6 +281,8 @@ fun ChatTab(
                 ) { message ->
                     ChatBubble(
                         message = message,
+                        canRestore = !isLoading && message.isUser && message.id in checkpointMessageIds,
+                        onRestore = { restoreTarget = message },
                         isStreaming = isLoading && message.id == lastId && !message.isUser,
                         modifier = Modifier.animateItem()
                     )
@@ -663,6 +690,8 @@ private fun UserMessageBubble(
 @Composable
 private fun ChatBubble(
     message: ChatMessage,
+    canRestore: Boolean = false,
+    onRestore: () -> Unit = {},
     isStreaming: Boolean = false,
     modifier: Modifier = Modifier,
     onApplyChange: ((String) -> Unit)? = null
@@ -683,6 +712,22 @@ private fun ChatBubble(
                     bubbleColor = extendedColors.chatUserBubble,
                     textColor = extendedColors.chatUserText
                 )
+                if (canRestore) {
+                    // A checkpoint was taken before this message's run.
+                    androidx.compose.material3.TextButton(
+                        onClick = onRestore,
+                        contentPadding = PaddingValues(horizontal = Space.sm, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Outlined.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(Space.xs))
+                        Text("Restore files", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         } else {
             // AI message - professional IDE-style with structured content

@@ -128,6 +128,24 @@ fun EditorScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val sessionsState by viewModel.sessionsState.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
+    val checkpointIds by viewModel.checkpointMessageIds.collectAsStateWithLifecycle()
+
+    // Ask for notifications the first time a run starts, the moment the
+    // reason is obvious: so Orobi can say when it is done while you are away.
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { }
+    var askedNotifications by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val notifyContext = LocalContext.current
+    LaunchedEffect(uiState.isAiProcessing) {
+        if (uiState.isAiProcessing && !askedNotifications &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            !com.oro.app.agent.AgentNotifications.canPost(notifyContext)
+        ) {
+            askedNotifications = true
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     val sessionActions = remember(viewModel) {
         ChatSessionActions(
             onOpen = viewModel::openSession,
@@ -401,6 +419,8 @@ fun EditorScreen(
                                     sessionActions = sessionActions,
                                     agentPlan = uiState.agentPlan,
                                     sessionUsage = sessionUsage,
+                                    checkpointMessageIds = checkpointIds,
+                                    onRestoreCheckpoint = viewModel::restoreCheckpoint,
                                     projectName = uiState.project?.name,
                                     agentSessions = uiState.agentSessions,
                                     reasoningEffort = uiState.reasoningEffort,

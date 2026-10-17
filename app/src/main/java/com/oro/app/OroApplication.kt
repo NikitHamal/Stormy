@@ -34,6 +34,23 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Activities currently started; > 0 means the user can see the app. */
+    @Volatile
+    private var startedActivities = 0
+    val isInForeground: Boolean get() = startedActivities > 0
+
+    private fun trackForeground() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) { startedActivities++ }
+            override fun onActivityStopped(activity: android.app.Activity) { startedActivities = (startedActivities - 1).coerceAtLeast(0) }
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
+            override fun onActivityResumed(activity: android.app.Activity) = Unit
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) = Unit
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
+    }
+
     val database: OroDatabase by lazy {
         OroDatabase.getInstance(this)
     }
@@ -118,6 +135,7 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         // not open the database or seed models -- that is wasted work and
         // extra memory pressure at exactly the moment the device just crashed.
         if (isCrashProcess()) return
+        trackForeground()
 
         // Initialize AI models on startup to ensure models are available
         applicationScope.launch {

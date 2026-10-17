@@ -95,6 +95,8 @@ import com.oro.app.data.ai.tools.QuestionOption
 import com.oro.app.data.ai.tools.UserQuestion
 import com.oro.app.data.ai.Tool
 import com.oro.app.ui.components.agent.PendingQuestion
+import com.oro.app.agent.AgentNotifications
+import com.oro.app.agent.BackgroundRuns
 import com.oro.app.ui.components.agent.RunError
 import com.oro.app.ui.screens.editor.agent.RunTranscript
 import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
@@ -322,6 +324,49 @@ class EditorViewModel(
     /** The session on screen; null for a fresh chat not yet sent. */
     private val _currentSessionId = MutableStateFlow<String?>(null)
 
+    /** User messages of the current chat whose run left a file checkpoint. */
+    private val _checkpointMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    val checkpointMessageIds: StateFlow<Set<String>> = _checkpointMessageIds
+
+    private fun checkpoints(): com.oro.app.data.ai.checkpoint.Checkpoints? =
+        _project.value?.rootPath?.let { com.oro.app.data.ai.checkpoint.Checkpoints(File(it)) }
+
+    private fun refreshCheckpoints() {
+        val sid = _currentSessionId.value
+        viewModelScope.launch(Dispatchers.IO) {
+            _checkpointMessageIds.value = if (sid == null) emptySet() else checkpoints()?.messageIds(sid).orEmpty()
+        }
+    }
+
+    /** Put every file back to how it was before [messageId]'s run (and all later runs). */
+    fun restoreCheckpoint(messageId: String) {
+        val sid = _currentSessionId.value ?: return
+        if (_isAiProcessing.value) return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { checkpoints()?.restoreFrom(sid, messageId) }
+            if (result != null && result.files.isNotEmpty()) {
+                loadFileTree()
+                // Refresh the open editor if it shows a restored file and holds no edits of the user's.
+                val open = _currentFile.value
+                val root = _project.value?.rootPath
+                if (open != null && root != null && open.path in result.files &&
+                    _fileContent.value == _originalFileContent.value
+                ) {
+                    val text = withContext(Dispatchers.IO) { File(root, open.path).takeIf { it.isFile }?.readText().orEmpty() }
+                    _fileContent.value = text
+                    _originalFileContent.value = text
+                }
+                val n = result.files.size
+                _messageHistory += ChatRequestMessage(
+                    role = "user",
+                    content = "[The user restored $n file${if (n == 1) "" else "s"} to their state before an earlier " +
+                        "message: ${result.files.take(12).joinToString(", ")}. Re-read files before editing them.]"
+                )
+            }
+            refreshCheckpoints()
+        }
+    }
+
     // Token / cost meter, per chat session, persisted in the project.
     private var usageStore: com.oro.app.data.ai.usage.UsageStore? = null
     private val usageBySession = MutableStateFlow<Map<String, com.oro.app.data.ai.usage.SessionUsage>>(emptyMap())
@@ -373,6 +418,15 @@ class EditorViewModel(
         current !== original && current != original
     }.distinctUntilChanged()
 
+    /**
+     * True while this screen's run is live, or a run this project started
+     * from an earlier editor instance is still finishing in the background:
+     * either way the composer must not start a second one.
+     */
+    private val _isProcessingAnywhere = combine(_isAiProcessing, BackgroundRuns.active) { own, runs ->
+        own || (projectId in runs && _aiGenerationJob?.isActive != true)
+    }.distinctUntilChanged()
+
     /** Recomputed only when the context breakdown changes, as before. */
     private val _compactableCount = _contextBreakdown.map {
         contextCompactor.partition(_messages.value).older.size
@@ -389,7 +443,7 @@ class EditorViewModel(
     val uiState: StateFlow<EditorUiState> = combine(
         listOf<Flow<Any?>>(
             _project, _selectedTab, _fileTree, _expandedFolders, _openFiles, _currentFileIndex,
-            _currentFile, _fileContent, _messages, _isFileModified, _chatInput, _isAiProcessing,
+            _currentFile, _fileContent, _messages, _isFileModified, _chatInput, _isProcessingAnywhere,
             _agentMode, _currentModel, _availableModels, _isRefreshingModels,
             preferencesRepository.lineNumbers, preferencesRepository.wordWrap, preferencesRepository.fontSize,
             _contextTokenCount, _contextMaxTokens, _contextUsageLevel, delegationHandler.plan,
@@ -450,6 +504,12 @@ class EditorViewModel(
     private val _debugLogsEnabled = MutableStateFlow(false)
 
     init {
+        // Rewind markers follow the chat on screen (and appear once the project loads).
+        viewModelScope.launch {
+            combine(_currentSessionId, _project) { sid, project -> sid to project?.rootPath }
+                .distinctUntilChanged()
+                .collect { refreshCheckpoints() }
+        }
         loadProject()
         loadChatHistory()
         loadAvailableModels()
@@ -1242,6 +1302,7 @@ class EditorViewModel(
         // Before the last session is restored there is no telling which
         // session this would belong to; that window is a few milliseconds.
         if (content.isEmpty() || _isAiProcessing.value || !sessionRestored) return
+        if (projectId in BackgroundRuns.active.value) return
 
         // The first message of a fresh chat creates its session, titled from
         // that message, so an abandoned "new chat" never leaves an empty row.
@@ -1340,6 +1401,11 @@ class EditorViewModel(
             id = java.util.UUID.randomUUID().toString(),
             questions = questions
         )
+        AgentNotifications.update(
+            com.oro.app.OroApplication.getInstance(), projectId,
+            "Orobi has a question",
+            questions.first().question + if (questions.size > 1) " (+${questions.size - 1} more)" else ""
+        )
         return try {
             deferred.await()
         } finally {
@@ -1354,7 +1420,11 @@ class EditorViewModel(
      * open question or approval.
      */
     fun stopGeneration() {
-        if (!_isAiProcessing.value) return
+        if (!_isAiProcessing.value) {
+            // A run this screen did not start (the editor was reopened while it ran).
+            BackgroundRuns.cancel(projectId)
+            return
+        }
         _aiGenerationJob?.cancel()
         // The job's finally block records the stop in the transcript and
         // resets state; nothing else to do here.
@@ -1389,15 +1459,23 @@ class EditorViewModel(
         transcript = run
         lastPushedRevision = -1L
 
-        _aiGenerationJob = viewModelScope.launch(Dispatchers.Default) {
+        // Application scope, not viewModelScope: leaving the editor must not
+        // kill a run halfway through a multi-file edit. BackgroundRuns keeps a
+        // foreground service up while it lives and notifies when it ends.
+        val app = com.oro.app.OroApplication.getInstance()
+        _aiGenerationJob = app.applicationScope.launch(Dispatchers.Default, start = kotlinx.coroutines.CoroutineStart.LAZY) {
             var finalStatus = MessageStatus.SENT
+            var notice: Pair<String, String>? = null
+            val projectName = _project.value?.name ?: "your project"
             try {
                 beforeRun()
                 HistoryPruner.closeDanglingToolCalls(_messageHistory)
                 val result = runAgent(model, run)
                 when (result) {
-                    is AgentRunResult.Completed -> Unit
+                    is AgentRunResult.Completed -> notice = "Orobi finished in $projectName" to
+                        (result.finalText.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "The run is done.")
                     is AgentRunResult.Failed -> {
+                        notice = "Orobi stopped in $projectName" to result.message.take(160)
                         finalStatus = MessageStatus.ERROR
                         if (run.render().isBlank()) run.note("⚠️ ${result.message}")
                         _runError.value = RunError(
@@ -1435,8 +1513,14 @@ class EditorViewModel(
                     questionAnswer = null
                     _isAiProcessing.value = false
                     loadFileTree()
+                    BackgroundRuns.end(app, projectId)
+                    notice?.let { (title, text) -> AgentNotifications.update(app, projectId, title, text) }
                 }
             }
+        }
+        _aiGenerationJob?.let { job ->
+            BackgroundRuns.begin(app, BackgroundRuns.Run(projectId, sessionId, _project.value?.name ?: "your project", job))
+            job.start()
         }
     }
 
@@ -1567,9 +1651,20 @@ class EditorViewModel(
             tools = runner,
             config = AgentLoopConfig(maxIterations = MAX_AGENT_ITERATIONS)
         )
+        toolExecutor.checkpoint = run {
+            val sid = _currentSessionId.value
+            val userMsg = _messages.value.lastOrNull { it.isUser }
+            if (sid != null && userMsg != null) checkpoints()?.begin(sid, userMsg.id, userMsg.content) else null
+        }
         val result = try {
             loop.run(_messageHistory, knownTools, listener, prepare)
         } finally {
+            val recorder = toolExecutor.checkpoint
+            toolExecutor.checkpoint = null
+            if (recorder != null) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { recorder.finish() } }
+                refreshCheckpoints()
+            }
             // Persist the meter once per run, even when it was stopped.
             usageStore?.let { store ->
                 val snapshot = usageBySession.value
