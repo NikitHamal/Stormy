@@ -36,6 +36,28 @@ class ToolSchemaTest {
      */
     private fun allTools(): List<Tool> = OroTools.getAllTools() + DelegationTools.all
 
+    /** The retired menu: no longer offered, but its schemas must stay valid. */
+    private fun legacyTools(): List<Tool> = OroTools.legacyTools()
+
+    @Test
+    fun `legacy schemas contain no nulls either`() {
+        val offenders = legacyTools().flatMap { tool ->
+            collectNullPaths(tool.function.parameters, "").map { "${tool.function.name}$it" }
+        }
+        assertThat(offenders).isEmpty()
+    }
+
+    @Test
+    fun `the agent tool set is small and every tool has a description`() {
+        // A long menu of overlapping tools degrades tool choice; keep it tight.
+        assertThat(allTools().size).isAtMost(20)
+        allTools().forEach { assertThat(it.function.description.length).isAtLeast(40) }
+        assertThat(allTools().map { it.function.name }).containsAtLeast(
+            "read_file", "write_file", "edit_file", "multi_edit", "list_files", "glob", "grep",
+            "delete_file", "move_file", "ask_user", "update_plan", "web_fetch"
+        )
+    }
+
     @Test
     fun `no tool schema contains a null anywhere`() {
         val offenders = mutableListOf<String>()
@@ -155,7 +177,7 @@ class ToolSchemaTest {
 
     @Test
     fun `the exact tool that triggered the 400 serialises without a null enum`() {
-        val searchFiles = allTools().first { it.function.name == "search_files" }
+        val searchFiles = legacyTools().first { it.function.name == "search_files" }
         val json = searchFiles.function.parameters.toString()
         // Previously: {"type":"string","description":"...","enum":null}
         assertThat(json).doesNotContain("null")
@@ -165,7 +187,7 @@ class ToolSchemaTest {
     @Test
     fun `a tool with a real enum still carries it`() {
         // The fix omits nulls; it must not omit populated enums as well.
-        val withEnum = allTools().first { it.function.name == "generate_tests" }
+        val withEnum = legacyTools().first { it.function.name == "generate_tests" }
         val properties = (withEnum.function.parameters as JsonObject)["properties"] as JsonObject
         val framework = properties["framework"] as JsonObject
         assertThat(framework["enum"]).isInstanceOf(JsonArray::class.java)

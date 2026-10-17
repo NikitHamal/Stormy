@@ -613,9 +613,15 @@ object OroTools {
     )
 
     /**
-     * Get all tools for agent mode
+     * Tools offered to the model in agent mode: the curated [AgentTools] set.
      */
-    fun getAllTools(): List<Tool> = listOf(
+    fun getAllTools(): List<Tool> = AgentTools.all
+
+    /**
+     * The pre-2026 tool menu. No longer advertised to models; kept so the
+     * executor still understands these names in old conversations.
+     */
+    fun legacyTools(): List<Tool> = listOf(
         // Shell
         ShellTools.RUN_COMMAND,
         // File operations
@@ -668,9 +674,9 @@ object OroTools {
      * Get basic tools for non-agent mode (just read access)
      */
     fun getBasicTools(): List<Tool> = listOf(
-        READ_FILE,
-        LIST_FILES,
-        SEARCH_FILES
+        AgentTools.READ_FILE,
+        AgentTools.LIST_FILES,
+        AgentTools.GREP
     )
 
     /**

@@ -25,27 +25,22 @@ object ShellTools {
         function = FunctionDefinition(
             name = "run_command",
             description = """
-                Run a shell command in the project directory.
+                Run a command in the project directory using the phone's
+                Android shell (toybox). Rarely needed: the file tools cover
+                reading, searching and editing.
 
-                Use it for things the file tools cannot do: installing
-                dependencies, running a build or a test suite, inspecting git
-                state, checking whether a tool is available.
+                Available: basic text utilities (ls, cat, head, tail, wc, sort,
+                find, grep, sed, diff, du, date). NOT available on the device:
+                node, npm, npx, python, pip, build tools or package managers --
+                do not try to install dependencies. Oro projects are plain
+                HTML/CSS/JS that run directly in the live preview; load
+                libraries from a CDN instead.
 
-                Refused, by design: anything that deletes (rm, rmdir), changes
-                privileges (sudo, su), touches devices or partitions, kills
-                processes, or opens a network shell (ssh, nc, telnet). Delete
-                files with delete_file instead, which is undoable. Commands run
-                against an allowlist of programs -- git, npm, node, python,
-                gradle, the usual text utilities -- so an unrecognised program
-                is refused rather than attempted.
-
-                The working directory is always the project root and cannot be
-                changed; a leading `cd` will not do what you expect. Output is
-                truncated, so prefer a command that prints what you need over
-                one that prints everything.
-
-                Commands are not interactive. Anything that waits for input
-                will hit the timeout and be killed.
+                Refused, by design: deleting (use delete_file, which is
+                undoable), privilege changes, device access, killing processes,
+                network shells. The working directory is always the project
+                root. Commands are not interactive and are killed at the
+                timeout.
             """.trimIndent(),
             parameters = parameters(
                 """
