@@ -48,10 +48,34 @@ is set after the bundled fonts have loaded. N pages (`encode.workers`, default 2
 Each frame calls `renderAt(i/fps)`, then CDP `Page.captureScreenshot` (PNG). A small reorder buffer
 with bounded look-ahead writes the PNGs in order to ffmpeg's stdin (`image2pipe`). No frames
 touch the disk. ffmpeg (`ffmpeg-static`) encodes `libx264 -preset slow -crf 18 -tune animation
--pix_fmt yuv420p -movflags +faststart` (BT.709 tags). A full 900-frame 1080p60 render takes about 60s on 2 CPUs and produces about 2.3MB.
+-pix_fmt yuv420p -movflags +faststart` (BT.709 tags). A full 900-frame 1080p60 render takes about 60s on 2 CPUs and produces about 2.7MB with audio.
+
+Vertical (1080x1920) keeps key content out of the top ~8% and bottom ~15% that Reels/Shorts/TikTok cover, runs text larger (`.fmt-v` overrides in style.css), and lays the providers out as two labelled groups instead of the landscape orbit.
 
 Check an output with:
 `node_modules/ffprobe-static/bin/linux/x64/ffprobe -v error -show_entries stream=width,height,r_frame_rate,nb_frames:format=duration out/oro-launch-1080p.mp4`
+
+## Sound
+
+Everything you hear is synthesised in `scripts/audio.mjs` -- no samples, no downloads, seeded PRNG,
+so the same code always produces the same bytes. `npm run audio` writes `out/oro-launch-audio.wav`;
+every `render` regenerates it (about 5 s) and muxes it as AAC 192k in the same encode
+(`--no-audio` for picture only). `node scripts/audio.mjs --stems` also writes music/sfx stems.
+
+- **One timeline.** `src/js/cues.js` imports the `T` beat tables from every scene and maps them
+  through the scene durations in `config.json`, exactly like `renderAt`. Retime a scene and its
+  sounds move with it; add a beat and add one `add(t, kind)` line.
+- **Score.** 120 BPM in D major, bars starting at 0.5 s so the 2.5 s and 12.5 s cuts are downbeats
+  (6.0 / 10.0 land on beat three). Intro pad → light kick/hats (describe) → full groove with
+  16th arp (live, drums drop out under the whip) → half-time lift in the light scene → snare roll and
+  riser into the end-card impact, then the tonic chord rings out.
+- **Sound design.** Typing ticks per prompt character, send tap + whoosh, Orobi's gulp, hop/land,
+  wake chirp and glances, token plinks (pentatonic), page-build pops, live ping, the whip pan
+  (panned right → left with the world), per-row checks rising in pitch, a success chime, the match cut
+  shimmer, provider plucks, riser + sub-drop impact, wordmark plucks, logo chime and sparkles.
+- **Mix.** Kick side-chains the bed; the bed ducks under the SFX bus (envelope follower); shared
+  Freeverb-style reverb and a ping-pong delay; tanh saturation; two-pass ffmpeg `loudnorm` to
+  -14 LUFS integrated / -1 dBTP. Every voice has 1 ms in / 4 ms out fades (no clicks).
 
 ## Editing (for a future agent)
 
