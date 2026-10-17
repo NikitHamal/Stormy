@@ -1,3 +1,5 @@
+# The repo root ignores out/; keep the rendered album here.
+!out/
 node_modules/
 out/*.wav
 out/.*.raw.wav
