@@ -24,6 +24,7 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 | `core/designsystem/` | Theme, tokens (`Space`, `OroCorners`, `Sizes`), Orobi mascot, Expressive components (`FormSheet`, `ActionSheet`, `SegmentedPicker`) |
 | `StormyWeb/` | HTML/CSS/JS replica of the whole app for fast UI experiments (open `StormyWeb/index.html`) |
 | `launch-video/` | Deterministic 15 s launch film + procedural audio (`npm run render:all`) |
+| `music/` | Oro — Original Soundtrack: code-synthesised music engine, five scores, renders (`npm run render`) |
 | `docs/` | `NEXT.md` roadmap, `perf-notes.md`, `harness-notes.md` |
 
 ## Rules of the road
