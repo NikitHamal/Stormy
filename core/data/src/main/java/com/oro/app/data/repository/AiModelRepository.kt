@@ -4,6 +4,7 @@ import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiModels
 import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.ReasoningEffortSupport
+import com.oro.app.data.ai.ModelCapabilities
 import com.oro.app.data.ai.GeminiModelService
 import com.oro.app.data.ai.OpenAiCompatibleModelService
 import com.oro.app.data.local.dao.AiModelDao
@@ -216,6 +217,7 @@ class AiModelRepository(
                 name = name,
                 provider = provider.name,
                 contextLength = contextLength,
+                reportedContextLength = contextLength,
                 supportsStreaming = supportsStreaming,
                 supportsToolCalls = supportsToolCalls,
                 isThinkingModel = isThinkingModel,
@@ -257,7 +259,16 @@ class AiModelRepository(
             id = id,
             name = alias ?: name,
             provider = AiProvider.fromString(provider),
-            contextLength = contextLength,
+            // Resolved on read rather than trusted from the row: a stored
+            // figure that came from an older capability table (Agnes 3.0 Flash
+            // was metered at 128k this way) would otherwise never be corrected.
+            // Custom models keep exactly what the user typed.
+            contextLength = if (isCustom) {
+                contextLength
+            } else {
+                ModelCapabilities.resolveContextLength(id, reportedContextLength)
+            },
+            reportedContextLength = reportedContextLength,
             supportsStreaming = supportsStreaming,
             supportsToolCalls = supportsToolCalls,
             isThinkingModel = isThinkingModel,
@@ -275,6 +286,7 @@ class AiModelRepository(
             name = name,
             provider = provider.name,
             contextLength = contextLength,
+            reportedContextLength = reportedContextLength,
             supportsStreaming = supportsStreaming,
             supportsToolCalls = supportsToolCalls,
             isThinkingModel = isThinkingModel,

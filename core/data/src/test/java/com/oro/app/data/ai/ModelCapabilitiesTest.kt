@@ -30,9 +30,16 @@ class ModelCapabilitiesTest {
             "claude-opus-5" to 200_000,
             "qwen3-coder-480b" to 262_144,
             "deepseek-v4-pro" to 163_840,
-            "nvidia/nemotron-3-super-120b-a12b" to 131_072,
+            "nvidia/nemotron-3-super-120b-a12b" to 262_144,
             "openai/gpt-oss-120b" to 131_072,
-            "agnes-2.5-flash" to 524_288
+            "agnes-2.5-flash" to 524_288,
+            // Owner report: Agnes 3.0 Flash was metered at ~100k because it
+            // fell through to the generic "agnes" 128k entry.
+            "agnes-3.0-flash" to 524_288,
+            "Meta-Llama-3_3-70B-Instruct" to 131_072,
+            "Qwen3.5-397B-A17B" to 262_144,
+            "reflection/beam-free" to 1_048_576,
+            "kimi-k2-instruct" to 262_144
         )
         cases.forEach { (id, expected) ->
             assertThat(ModelCapabilities.contextWindowFor(id)).isEqualTo(expected)
@@ -160,5 +167,19 @@ class ProviderRateLimiterTest {
         val limiter = ProviderRateLimiter(now = { clock.now }, sleep = clock::sleep)
         limiter.acquire(AiProvider.CEREBRAS, 100)
         assertThat(limiter.remainingThisMinute(AiProvider.CEREBRAS)).isEqualTo(4)
+    }
+
+    @Test
+    fun `a plausible provider figure wins over the table`() {
+        assertThat(ModelCapabilities.resolveContextLength("agnes-3.0-flash", 1_000_000)).isEqualTo(1_000_000)
+        assertThat(ModelCapabilities.resolveContextLength("agnes-3.0-flash", null)).isEqualTo(524_288)
+        // An output cap in the context slot is ignored.
+        assertThat(ModelCapabilities.resolveContextLength("agnes-3.0-flash", 4_096)).isEqualTo(524_288)
+    }
+
+    @Test
+    fun `sizes in version numbers are not read as context sizes`() {
+        // "3.5m" style false positives: the dot-guard keeps "nemotron-3.5" a version.
+        assertThat(ModelCapabilities.contextWindowFor("nvidia/nemotron-3.5-lightning:free")).isEqualTo(1_000_000)
     }
 }

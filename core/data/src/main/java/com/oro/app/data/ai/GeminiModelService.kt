@@ -145,18 +145,15 @@ class GeminiModelService {
             // id, so matching on the word alone under-reports it.
             (versionNumber(lowerId) >= 2.5 && !lowerId.contains("flash-lite"))
 
-        val contextLength = model.inputTokenLimit ?: when {
-            lowerId.contains("1.5") -> 1_000_000
-            lowerId.contains("2.5") -> 1_000_000
-            lowerId.contains("128k") -> 131_072
-            else -> 32_768
-        }
+        val reported = model.inputTokenLimit?.toInt()
+        val contextLength = ModelCapabilities.resolveContextLength(id, reported)
 
         return AiModel(
             id = id,
             name = model.displayName?.takeIf { it.isNotBlank() } ?: id,
             provider = AiProvider.GEMINI,
             contextLength = contextLength,
+            reportedContextLength = reported,
             supportsStreaming = true,
             supportsToolCalls = true,
             isThinkingModel = isThinkingModel,

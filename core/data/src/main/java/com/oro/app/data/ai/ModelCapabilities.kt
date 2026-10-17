@@ -30,9 +30,13 @@ object ModelCapabilities {
 
     private const val K = 1_024
 
-    /** id fragment to context window, most specific first. */
+    /**
+     * id fragment to context window. Matched longest-fragment-first, so the
+     * order here is for readers, not for the matcher. Figures are the
+     * vendors' documented input windows as of October 2026.
+     */
     private val CONTEXT_WINDOWS: List<Pair<String, Int>> = listOf(
-        // --- Google Gemini: 1M from 1.5 onward, Flash-Lite included --------
+        // --- Google Gemini / Gemma ------------------------------------------
         "gemini-3" to 1_048_576,
         "gemini-2.5" to 1_048_576,
         "gemini-2.0" to 1_048_576,
@@ -40,31 +44,36 @@ object ModelCapabilities {
         "gemini-1.5" to 1_048_576,
         "gemini-exp" to 1_048_576,
         "gemini" to 32 * K,
+        "gemma-4" to 131_072,
+        "gemma-3n" to 32 * K,
+        "gemma-3" to 131_072,
+        "gemma" to 8 * K,
 
-        // --- OpenAI / GPT ---------------------------------------------------
+        // --- OpenAI ---------------------------------------------------------
         "gpt-6" to 400_000,
         "gpt-5" to 400_000,
         "codex" to 400_000,
-        "gpt-oss-120b" to 131_072,
-        "gpt-oss-20b" to 131_072,
+        "gpt-oss" to 131_072,
         "gpt-4.1" to 1_047_576,
         "gpt-4o" to 128_000,
+        "o4-mini" to 200_000,
         "o3" to 200_000,
         "o1" to 200_000,
 
         // --- Anthropic ------------------------------------------------------
-        "claude-opus" to 200_000,
-        "claude-sonnet" to 200_000,
-        "claude-haiku" to 200_000,
-        "claude-fable" to 200_000,
+        "claude" to 200_000,
 
         // --- Qwen -----------------------------------------------------------
         "qwen3-coder" to 262_144,
         "qwen3.8" to 262_144,
         "qwen3.6" to 262_144,
         "qwen3.5" to 262_144,
+        "qwen3-max" to 262_144,
+        "qwen3-next" to 262_144,
         "qwen3" to 131_072,
+        "qwen2.5-vl" to 32 * K,
         "qwen2.5" to 131_072,
+        "qwq" to 131_072,
         "qwen" to 32 * K,
 
         // --- DeepSeek -------------------------------------------------------
@@ -76,43 +85,87 @@ object ModelCapabilities {
         // --- Meta Llama -----------------------------------------------------
         "llama-4" to 1_048_576,
         "llama-3.3" to 131_072,
+        "llama-3.2" to 131_072,
         "llama-3.1" to 131_072,
         "llama-3" to 8 * K,
 
         // --- NVIDIA Nemotron ------------------------------------------------
-        "nemotron-3" to 131_072,
+        "nemotron-3.5" to 1_000_000,
+        "nemotron-3-ultra" to 1_000_000,
+        "nemotron-3" to 262_144,
         "nemotron" to 131_072,
 
+        // --- Mistral --------------------------------------------------------
+        "mistral-large" to 131_072,
+        "mistral-medium" to 131_072,
+        "mistral-small-3" to 131_072,
+        "mistral-nemo" to 131_072,
+        "magistral" to 131_072,
+        "devstral" to 131_072,
+        "codestral" to 262_144,
+        "mixtral" to 65_536,
+        "mistral" to 32 * K,
+
+        // --- Agnes AI -------------------------------------------------------
+        // 3.0 Flash is documented at 512K input / 65,536 output
+        // (wiki.agnes-ai.com/en/docs/agnes-30-flash, checked 2026-10-17).
+        "agnes-3" to 524_288,
+        "agnes-2.5" to 524_288,
+        "agnes" to 131_072,
+
         // --- Others ---------------------------------------------------------
-        "kimi-k2" to 131_072,
         "kimi-k3" to 262_144,
+        "kimi-k2" to 262_144,
         "glm-5" to 200_000,
+        "glm-4.6" to 200_000,
         "glm-4" to 131_072,
         "minimax-m" to 1_000_000,
         "grok-4" to 256_000,
+        "grok-code" to 256_000,
         "grok" to 131_072,
-        "mistral-large" to 131_072,
-        "devstral" to 131_072,
-        "mixtral" to 65_536,
-        "mistral" to 32 * K,
-        "agnes-2.5" to 524_288,
-        "agnes" to 131_072,
-        "phi-4" to 16 * K,
-        "gemma-3" to 131_072,
-        "gemma" to 8 * K
+        "laguna" to 262_144,
+        "beam" to 1_048_576,
+        "kilo-auto" to 256_000,
+        "phi-4" to 16 * K
     ).sortedByDescending { it.first.length }
 
     /** Used when nothing matches: a modern small model, not a 2023 one. */
     const val DEFAULT_CONTEXT = 32_768
 
     /**
-     * Best-known context window for [modelId].
+     * Below this, a "reported" context is almost certainly an output cap or a
+     * placeholder (several gateways put `max_tokens` = 4096 in that slot).
+     */
+    const val MIN_PLAUSIBLE_REPORTED = 8_192
+
+    /**
+     * Resolve a model's context window, in priority order:
+     *  1. a plausible figure reported by the provider (`/models`) or the user,
+     *  2. an explicit size in the id ("-128k"),
+     *  3. the family table above,
+     *  4. [DEFAULT_CONTEXT].
+     */
+    fun resolveContextLength(modelId: String, reported: Int?): Int {
+        reported?.takeIf { it >= MIN_PLAUSIBLE_REPORTED }?.let { return it }
+        return contextWindowFor(modelId)
+    }
+
+    /** True when the table (or the id itself) knows this model's window. */
+    fun isKnown(modelId: String): Boolean {
+        val id = normalise(modelId)
+        return explicitSizeIn(id) != null ||
+            CONTEXT_WINDOWS.any { (fragment, _) -> id.contains(fragment) }
+    }
+
+    /**
+     * Best-known context window for [modelId], ignoring anything a provider
+     * reported.
      *
      * An explicit size in the id always wins -- a provider serving a
      * "…-64k" variant of a 1M model means it.
      */
     fun contextWindowFor(modelId: String): Int {
-        val id = modelId.lowercase()
+        val id = normalise(modelId)
 
         explicitSizeIn(id)?.let { return it }
         CONTEXT_WINDOWS.firstOrNull { (fragment, _) -> id.contains(fragment) }
@@ -121,12 +174,22 @@ object ModelCapabilities {
         return DEFAULT_CONTEXT
     }
 
+    /**
+     * Lowercase, and treat `_` and spaces as the separators they stand in for:
+     * OVH serves "Meta-Llama-3_3-70B-Instruct", which must match "llama-3.3"
+     * rather than falling through to the 8k "llama-3" entry.
+     */
+    private fun normalise(modelId: String): String =
+        modelId.lowercase()
+            .replace(Regex("""(\d)_(\d)"""), "$1.$2")
+            .replace(' ', '-')
+
     /** Reads "-128k", "1m", "32k" out of an id when the provider states one. */
     private fun explicitSizeIn(id: String): Int? {
-        Regex("""(\d+)\s*m\b""").find(id)?.let { match ->
+        Regex("""(?<![a-z0-9.])(\d+)\s*m\b""").find(id)?.let { match ->
             return match.groupValues[1].toIntOrNull()?.times(1_000_000)
         }
-        Regex("""(\d+)\s*k\b""").find(id)?.let { match ->
+        Regex("""(?<![a-z0-9.])(\d+)\s*k\b""").find(id)?.let { match ->
             return match.groupValues[1].toIntOrNull()?.times(K)
         }
         return null
@@ -183,8 +246,12 @@ object RateLimits {
         AiProvider.MISTRAL to RateLimit(requestsPerMinute = 10, tokensPerMinute = 50_000),
         AiProvider.NVIDIA to RateLimit(requestsPerMinute = 38, tokensPerMinute = 100_000),
         AiProvider.OPENROUTER to RateLimit(requestsPerMinute = 18, tokensPerMinute = 50_000, requestsPerDay = 950),
-        // Anonymous tier; no published figures, so paced gently.
-        AiProvider.POLLINATIONS to RateLimit(requestsPerMinute = 12, tokensPerMinute = 40_000)
+        // Anonymous tiers, measured 2026-10-17. Pollinations answers about one
+        // request per 30 s per IP (402 FREE_LIMIT beyond that); OVH allows 2
+        // requests/min per model; Kilo's free pool about 200/hour.
+        AiProvider.POLLINATIONS to RateLimit(requestsPerMinute = 2, tokensPerMinute = 100_000),
+        AiProvider.OVHCLOUD to RateLimit(requestsPerMinute = 2, tokensPerMinute = 200_000),
+        AiProvider.KILOCODE to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000, requestsPerDay = 4_000)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */

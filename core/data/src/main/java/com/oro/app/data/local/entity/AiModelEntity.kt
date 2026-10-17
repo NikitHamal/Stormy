@@ -14,6 +14,12 @@ data class AiModelEntity(
     val alias: String? = null, // User-defined alias
     val provider: String, // AiProvider.name
     val contextLength: Int = 4096,
+    /**
+     * Context window as reported by the provider (or seed / user), null when
+     * it said nothing. The effective window is resolved from this on read, so
+     * rows written before a capability-table fix pick the fix up.
+     */
+    val reportedContextLength: Int? = null,
     val supportsStreaming: Boolean = true,
     val supportsToolCalls: Boolean = true,
     val isThinkingModel: Boolean = false,

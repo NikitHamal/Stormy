@@ -37,7 +37,14 @@ data class AiModel(
     val id: String,
     val name: String,
     val provider: AiProvider,
-    val contextLength: Int = 4096,
+    /** Effective window, already resolved (see [ModelCapabilities.resolveContextLength]). */
+    val contextLength: Int = ModelCapabilities.DEFAULT_CONTEXT,
+    /**
+     * What the provider's `/models` (or the seed, or the user) stated, kept
+     * separately so a later table update can still correct models whose
+     * provider said nothing.
+     */
+    val reportedContextLength: Int? = null,
     val supportsStreaming: Boolean = true,
     val supportsToolCalls: Boolean = true,
     val isThinkingModel: Boolean = false,
@@ -81,12 +88,20 @@ enum class ApiKeyRequirement {
  * exhaustive `when` blocks and the settings screen. [extraHeaders] covers the
  * providers that want attribution or browser-ish headers.
  *
- * On key requirements, verified against the live endpoints in October 2026:
- * only Pollinations currently answers with no credentials. OpenCode Zen's free
- * tier is gated to the OpenCode client itself ("can only be used from within
- * OpenCode"), so it is not a keyless option either. The rest are free to sign
- * up for without billing details, which is a different thing from keyless and
- * is labelled as such in the UI.
+ * On key requirements, verified with live chat completions (streaming and
+ * native tool calls) from a plain HTTP client on 2026-10-17:
+ *  - Pollinations (`text.pollinations.ai/openai`, model `openai-fast`) answers
+ *    anonymously; roughly one reply per 30 s per IP, over that it answers
+ *    HTTP 402 `FREE_LIMIT` with a retry hint.
+ *  - OVHcloud AI Endpoints answers anonymously on its documented free tier;
+ *    2 requests/min per model per IP, HTTP 429 when exceeded.
+ *  - Kilo's gateway (`api.kilo.ai/api/gateway`) serves its `:free` / `isFree`
+ *    models without a key (about 200 requests/hour per IP); a key unlocks the
+ *    rest of the catalogue.
+ * OpenCode Zen's free tier is gated to the OpenCode client itself ("can only
+ * be used from within OpenCode"), so it is not a keyless option. The rest are
+ * free to sign up for without billing details, which is a different thing
+ * from keyless and is labelled as such in the UI.
  *
  * DeepInfra was removed outright: its anonymous endpoint was retired, which
  * left it as one more key to manage for models every other provider here also
@@ -107,7 +122,15 @@ enum class AiProvider(
         displayName = "Pollinations",
         baseUrl = "https://text.pollinations.ai/openai",
         apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "No account needed. Anonymous tier, tool calling supported."
+        keyNote = "No account needed. Anonymous tier (about one reply every 30 s), tool calling supported."
+    ),
+    OVHCLOUD(
+        displayName = "OVHcloud AI Endpoints",
+        baseUrl = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+        apiKeyRequirement = ApiKeyRequirement.OPTIONAL,
+        apiKeyUrl = "https://endpoints.ai.cloud.ovh.net",
+        keyNote = "No account needed. Anonymous tier is 2 requests/min per model; " +
+            "a key raises it. Qwen 3.5/3.8, gpt-oss, Llama 3.3 with tool calling."
     ),
     GEMINI(
         displayName = "Google Gemini",
@@ -150,11 +173,12 @@ enum class AiProvider(
         keyNote = "Free tier with no stated end date, rate limited to ~20 RPM."
     ),
     KILOCODE(
-        displayName = "Kilo Code",
-        baseUrl = "https://kilocode.ai/api/openrouter",
-        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
-        apiKeyUrl = "https://app.kilocode.ai/api/profile",
-        keyNote = "Routes to OpenRouter behind a Kilo account key.",
+        displayName = "Kilo Gateway",
+        baseUrl = "https://api.kilo.ai/api/gateway",
+        apiKeyRequirement = ApiKeyRequirement.OPTIONAL,
+        apiKeyUrl = "https://app.kilo.ai/profile",
+        keyNote = "Free models work with no key (about 200 requests/hour); some " +
+            "free upstreams may log prompts. A Kilo key unlocks the full catalogue.",
         extraHeaders = mapOf(
             "HTTP-Referer" to "https://github.com/NikitHamal/Stormy",
             "X-Title" to "Oro",
@@ -224,9 +248,8 @@ object SeedModels {
         name: String,
         provider: AiProvider,
         /**
-         * Only used when the capability table has nothing for this id. Keeping
-         * one source of truth stops a seed entry from disagreeing with the
-         * same model once it is discovered live.
+         * The window the provider documents for this id, checked when the
+         * seed was written. Treated like a provider-reported figure.
          */
         context: Int,
         tools: Boolean = true,
@@ -235,8 +258,8 @@ object SeedModels {
         id = id,
         name = name,
         provider = provider,
-        contextLength = ModelCapabilities.contextWindowFor(id)
-            .takeIf { it != ModelCapabilities.DEFAULT_CONTEXT } ?: context,
+        contextLength = ModelCapabilities.resolveContextLength(id, reported = context),
+        reportedContextLength = context,
         supportsStreaming = true,
         supportsToolCalls = tools,
         isThinkingModel = thinking
@@ -248,7 +271,29 @@ object SeedModels {
      * is what makes it viable as the no-setup default for an agentic editor.
      */
     val pollinations = listOf(
-        model("openai-fast", "GPT-OSS 20B (free, no key)", AiProvider.POLLINATIONS, 32_768)
+        model("openai-fast", "GPT-OSS 20B (free, no key)", AiProvider.POLLINATIONS, 131_072)
+    )
+
+    /**
+     * Verified keyless with native tool calls, 2026-10-17. OVH also serves
+     * `gpt-oss-120b`, left out of the seed only because the id collides with
+     * the Cerebras seed (model ids are the table's primary key); a refresh
+     * still discovers it.
+     */
+    val ovhcloud = listOf(
+        model("Qwen3.5-397B-A17B", "Qwen3.5 397B (free, no key)", AiProvider.OVHCLOUD, 262_144),
+        model("Qwen3.8-27B", "Qwen3.8 27B (free, no key)", AiProvider.OVHCLOUD, 262_144),
+        model("Meta-Llama-3_3-70B-Instruct", "Llama 3.3 70B (free, no key)", AiProvider.OVHCLOUD, 131_072)
+    )
+
+    /**
+     * Kilo's free pool rotates; these were live and tool-capable without a key
+     * on 2026-10-17. `kilo-auto/free` is the router and the most durable id.
+     */
+    val kilo = listOf(
+        model("kilo-auto/free", "Kilo Auto (free, no key)", AiProvider.KILOCODE, 256_000),
+        model("reflection/beam-free", "Reflection Beam (free, no key)", AiProvider.KILOCODE, 1_048_576),
+        model("poolside/laguna-s-2.1:free", "Laguna S 2.1 (free, no key)", AiProvider.KILOCODE, 262_144)
     )
 
     val nvidia = listOf(
@@ -259,6 +304,7 @@ object SeedModels {
     )
 
     val agnes = listOf(
+        model("agnes-3.0-flash", "Agnes 3.0 Flash", AiProvider.AGNES, 524_288),
         model("agnes-2.5-flash", "Agnes 2.5 Flash", AiProvider.AGNES, 524_288),
         model("agnes-2.0-flash", "Agnes 2.0 Flash", AiProvider.AGNES, 131_072)
     )
@@ -287,20 +333,20 @@ object SeedModels {
 
     /**
      * Providers whose catalogue is fetched and which have no useful seed. An
-     * empty list here is correct, not a gap: OpenRouter and Kilo Code both
-     * front hundreds of models that change weekly, and Gemini's ids move fast
+     * empty list here is correct, not a gap: OpenRouter fronts hundreds of models that change weekly, and Gemini's ids move fast
      * enough that shipping them guarantees stale entries.
      */
     private val fetchedOnly = emptyList<AiModel>()
 
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
         AiProvider.POLLINATIONS to pollinations,
+        AiProvider.OVHCLOUD to ovhcloud,
         AiProvider.GEMINI to fetchedOnly,
         AiProvider.NVIDIA to nvidia,
         AiProvider.OPENROUTER to fetchedOnly,
         AiProvider.OPENCODE_ZEN to openCodeZen,
         AiProvider.AGNES to agnes,
-        AiProvider.KILOCODE to fetchedOnly,
+        AiProvider.KILOCODE to kilo,
         AiProvider.GROQ to groq,
         AiProvider.CEREBRAS to cerebras,
         AiProvider.MISTRAL to mistral,
@@ -336,6 +382,8 @@ object AiModels {
     /** Models worth suggesting for code work, best-first. */
     fun getRecommendedModels(): List<AiModel> = listOf(
         SeedModels.default,
+        SeedModels.ovhcloud.first(),
+        SeedModels.kilo.first(),
         SeedModels.cerebras.first(),
         SeedModels.groq.first(),
         SeedModels.nvidia.first()

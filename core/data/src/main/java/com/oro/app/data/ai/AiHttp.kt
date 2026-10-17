@@ -21,6 +21,8 @@ import java.util.concurrent.TimeUnit
  */
 object AiHttp {
 
+    const val STREAM_READ_TIMEOUT_SECONDS = 300L
+
     val json: Json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -53,13 +55,18 @@ object AiHttp {
 
     /**
      * Client for SSE streams. Shares the connection pool and dispatcher with
-     * [client] (that is what `newBuilder()` preserves) but drops the read
+     * [client] (that is what `newBuilder()` preserves) but uses a long read
      * timeout, because a model that thinks for ninety seconds before its first
      * token is normal and must not be treated as a dead connection.
+     *
+     * Not infinite, though: it used to be 0 (no timeout), and a stream that
+     * stalled after the headers then hung the agent run forever with the
+     * "Thinking" indicator gone. Five minutes of silence on one socket read is
+     * a dead connection; the agent loop also has its own idle watchdog.
      */
     val streaming: OkHttpClient by lazy {
         client.newBuilder()
-            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .readTimeout(STREAM_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .connectTimeout(45, TimeUnit.SECONDS)
             .build()
     }
@@ -77,7 +84,21 @@ sealed class StreamEvent {
     data class ReasoningDelta(val reasoning: String) : StreamEvent()
     data class ToolCalls(val toolCalls: List<ToolCallResponse>) : StreamEvent()
     data class FinishReason(val reason: String) : StreamEvent()
-    data class Error(val message: String) : StreamEvent()
+
+    /**
+     * The request failed. [retryable] marks transient failures (rate limits,
+     * 5xx, dropped connections) that the agent loop should retry with backoff;
+     * [retryAfterMs] is the server's own hint when it gave one.
+     */
+    data class Error(
+        val message: String,
+        val httpCode: Int? = null,
+        val retryAfterMs: Long? = null,
+        val retryable: Boolean = false
+    ) : StreamEvent()
+
+    /** Token usage reported by the provider, when it reports any. */
+    data class Usage(val promptTokens: Int, val completionTokens: Int) : StreamEvent()
     data object Completed : StreamEvent()
 
     /** Unparsed SSE payload, forwarded for the debug log. */
