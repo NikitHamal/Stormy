@@ -1,5 +1,11 @@
 package com.oro.app.ui.screens.onboarding
 
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.drawscope.clipPath
+import com.oro.app.ui.brand.OrobiRenderCache
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
@@ -208,7 +214,7 @@ private fun WelcomeIllustration(active: Boolean) {
     val haptics = LocalHapticFeedback.current
     val colors = orobiColors()
     val dot = MaterialTheme.colorScheme.onSurface
-    val scratch = remember { Path() }
+    val scratch = remember { OrobiRenderCache() }
     val sparkle = remember { Path() }
 
     // Gaze, in artwork units, and how much it overrides the idle glance.
@@ -232,7 +238,8 @@ private fun WelcomeIllustration(active: Boolean) {
                             val eyes = Offset(mascot.center.x, mascot.top + mascot.height * 0.3f)
                             val dx = (at.x - eyes.x) / mascot.width
                             val dy = (at.y - eyes.y) / mascot.height
-                            val target = Offset((dx * 70f).coerceIn(-26f, 26f), (dy * 40f).coerceIn(-12f, 10f))
+                            // Inside the eyes' travel; see OrobiGeometry.MaxLookX.
+                            val target = Offset((dx * 40f).coerceIn(-10f, 10f), (dy * 24f).coerceIn(-2.5f, 6f))
                             scope.launch { gaze.animateTo(target, spring(dampingRatio = 0.7f, stiffness = 420f)) }
                         }
                         look(down.position)
@@ -260,46 +267,58 @@ private fun WelcomeIllustration(active: Boolean) {
                         }
                     }
                 }
-                .drawBehind {
-                    val t = if (reduced) OrobiMotion.EntranceDuration + 1f else clock.value
-                    val mascot = mascotRect(size.width, size.height)
-
-                    drawDotHalo(mascot.center, size.minDimension * 0.62f, dot)
-
-                    // Entrance, then idle. The idle clock starts from zero at the
-                    // hand-off so it begins on the rest pose the entrance ends on.
-                    val base = if (t < OrobiMotion.EntranceDuration) {
-                        OrobiMotion.entrance(t)
-                    } else {
-                        OrobiMotion.idle(t - OrobiMotion.EntranceDuration)
-                    }
-                    val w = gazeWeight.value
-                    val looked = base.copy(
-                        lookX = base.lookX * (1f - w) + gaze.value.x * w,
-                        lookY = base.lookY * (1f - w) + gaze.value.y * w,
+                // The dot halo is static, so it is rasterised once per size
+                // rather than redrawn as ~400 circles every frame.
+                .drawWithCache {
+                    val haloBox = mascotRect(size.width, size.height)
+                    val halo = ImageBitmap(
+                        size.width.toInt().coerceAtLeast(1),
+                        size.height.toInt().coerceAtLeast(1),
                     )
-                    val pose = OrobiMotion.hop(looked, t - hopAt)
-
-                    // The loader pops in before it starts to run.
-                    val appear = OrobiMotion.backOut(OrobiMotion.ramp(t, 0.05f, 0.5f))
-                    val appearAlpha = OrobiMotion.easeOut(OrobiMotion.ramp(t, 0.05f, 0.35f))
-                    val k = 0.7f + 0.3f * appear
-                    scale(k, k, pivot = mascot.center) {
-                        drawOrobi(pose, colors, scratch, bounds = mascot, alpha = appearAlpha)
+                    CanvasDrawScope().draw(this, layoutDirection, androidx.compose.ui.graphics.Canvas(halo), size) {
+                        drawDotHalo(haloBox.center, size.minDimension * 0.62f, dot)
                     }
+                    onDrawBehind {
+                        val t = if (reduced) OrobiMotion.EntranceDuration + 1f else clock.value
+                        val mascot = mascotRect(size.width, size.height)
 
-                    // Sparkles burst on a hop, and once as Orobi lands from the entrance.
-                    val burst = stronger(
-                        sparkleBurst(t - hopAt - 0.45f),
-                        sparkleBurst(t - 1.55f),
-                    )
-                    if (burst.first > 0f) {
-                        val r = mascot.width
-                        val c = mascot.center
-                        drawSparkle(Offset(c.x - r * 0.52f, c.y - r * 0.18f), r * 0.07f, OroBrand.Magenta, sparkle, burst.first, burst.second)
-                        drawSparkle(Offset(c.x + r * 0.5f, c.y - r * 0.26f), r * 0.055f, OroBrand.Apricot, sparkle, burst.first, burst.second)
-                        drawSparkle(Offset(c.x + r * 0.44f, c.y + r * 0.2f), r * 0.04f, OroBrand.Magenta, sparkle, burst.first, burst.second)
-                        drawSparkle(Offset(c.x - r * 0.42f, c.y + r * 0.24f), r * 0.035f, OroBrand.Apricot, sparkle, burst.first, burst.second)
+                        drawImage(halo)
+
+                        // Entrance, then idle. The idle clock starts from zero at the
+                        // hand-off so it begins on the rest pose the entrance ends on.
+                        val base = if (t < OrobiMotion.EntranceDuration) {
+                            OrobiMotion.entrance(t)
+                        } else {
+                            OrobiMotion.idle(t - OrobiMotion.EntranceDuration)
+                        }
+                        val w = gazeWeight.value
+                        val looked = base.copy(
+                            lookX = base.lookX * (1f - w) + gaze.value.x * w,
+                            lookY = base.lookY * (1f - w) + gaze.value.y * w,
+                        )
+                        val pose = OrobiMotion.hop(looked, t - hopAt)
+
+                        // The loader pops in before it starts to run.
+                        val appear = OrobiMotion.backOut(OrobiMotion.ramp(t, 0.05f, 0.5f))
+                        val appearAlpha = OrobiMotion.easeOut(OrobiMotion.ramp(t, 0.05f, 0.35f))
+                        val k = 0.7f + 0.3f * appear
+                        scale(k, k, pivot = mascot.center) {
+                            drawOrobi(pose, colors, scratch, bounds = mascot, alpha = appearAlpha)
+                        }
+
+                        // Sparkles burst on a hop, and once as Orobi lands from the entrance.
+                        val burst = stronger(
+                            sparkleBurst(t - hopAt - 0.45f),
+                            sparkleBurst(t - 1.55f),
+                        )
+                        if (burst.first > 0f) {
+                            val r = mascot.width
+                            val c = mascot.center
+                            drawSparkle(Offset(c.x - r * 0.52f, c.y - r * 0.18f), r * 0.07f, OroBrand.Magenta, sparkle, burst.first, burst.second)
+                            drawSparkle(Offset(c.x + r * 0.5f, c.y - r * 0.26f), r * 0.055f, OroBrand.Apricot, sparkle, burst.first, burst.second)
+                            drawSparkle(Offset(c.x + r * 0.44f, c.y + r * 0.2f), r * 0.04f, OroBrand.Magenta, sparkle, burst.first, burst.second)
+                            drawSparkle(Offset(c.x - r * 0.42f, c.y + r * 0.24f), r * 0.035f, OroBrand.Apricot, sparkle, burst.first, burst.second)
+                        }
                     }
                 }
         ) {}
@@ -527,7 +546,11 @@ private fun ThemeTile(
     val reduced = rememberReducedMotion()
     val clock = rememberAnimationClock(running = playing && !reduced)
     var hopAt by remember { mutableFloatStateOf(-10f) }
-    val scratch = remember { Path() }
+    val scratch = remember { OrobiRenderCache() }
+    // The System tile shows both variants, one each side of its diagonal,
+    // so it needs a second cache: each keeps its own rasterised colours.
+    val scratchAlt = remember { OrobiRenderCache() }
+    val diagonal = remember { Path() }
 
     // Hop when chosen, and again when the user finishes onboarding with it.
     LaunchedEffect(selected, playing) {
@@ -565,13 +588,14 @@ private fun ThemeTile(
                         ThemeMode.LIGHT -> drawRect(TileLight)
                         ThemeMode.DARK -> drawRect(TileDark)
                         ThemeMode.SYSTEM -> {
-                            // Day into night on a diagonal.
-                            drawRect(
-                                Brush.linearGradient(
-                                    0.499f to TileLight, 0.501f to TileDark,
-                                    start = Offset(0f, 0f), end = Offset(size.width, size.height),
-                                )
-                            )
+                            // Day into night on the tile's diagonal.
+                            diagonal.reset()
+                            diagonal.moveTo(0f, 0f)
+                            diagonal.lineTo(size.width, 0f)
+                            diagonal.lineTo(0f, size.height)
+                            diagonal.close()
+                            drawRect(TileDark)
+                            drawPath(diagonal, TileLight)
                         }
                     }
                     val w = size.width * 0.62f
@@ -581,13 +605,23 @@ private fun ThemeTile(
                         (size.width + w) / 2f, size.height * 0.56f + h / 2f,
                     )
                     val t = clock.value
-                    val shadow = if (choice.mode == ThemeMode.LIGHT) Color.Black else Color.White
-                    drawOrobi(
-                        OrobiMotion.hop(OrobiMotion.idle(t + choice.mode.ordinal * 0.9f, look = false), t - hopAt),
-                        OrobiColors(shadow = shadow),
-                        scratch,
-                        bounds = bounds,
+                    val pose = OrobiMotion.hop(
+                        OrobiMotion.idle(t + choice.mode.ordinal * 0.9f, look = false),
+                        t - hopAt,
                     )
+                    when (choice.mode) {
+                        ThemeMode.LIGHT -> drawOrobi(pose, OrobiColors.OnLight, scratch, bounds = bounds)
+                        ThemeMode.DARK -> drawOrobi(pose, OrobiColors.OnDark, scratch, bounds = bounds)
+                        ThemeMode.SYSTEM -> {
+                            // Each half shows the variant that belongs on it.
+                            clipPath(diagonal) {
+                                drawOrobi(pose, OrobiColors.OnLight, scratch, bounds = bounds)
+                            }
+                            clipPath(diagonal, clipOp = ClipOp.Difference) {
+                                drawOrobi(pose, OrobiColors.OnDark, scratchAlt, bounds = bounds)
+                            }
+                        }
+                    }
                 }
                 .border(ring, ringColor, shape),
         ) {

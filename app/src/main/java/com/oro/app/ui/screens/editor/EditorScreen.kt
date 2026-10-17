@@ -1,5 +1,8 @@
 package com.oro.app.ui.screens.editor
 
+import com.oro.app.ui.brand.OrobiColors
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.material3.LocalContentColor
 import com.oro.app.ui.brand.OrobiMascot
 import com.oro.app.ui.brand.OrobiPose
 import com.oro.app.ui.theme.OroCorners
@@ -582,8 +585,13 @@ private fun EditorTabs(
                 label = context.getString(R.string.editor_tab_chat),
                 // The chat is Orobi, so its tab is Orobi -- in colour, at rest.
                 iconContent = {
+                    // The selected segment inverts its container, so pick the
+                    // variant from the content colour: dark content means a
+                    // light container, which wants the ink-bodied Orobi.
+                    val onLight = LocalContentColor.current.luminance() < 0.5f
                     OrobiMascot(
                         pose = { OrobiPose.Rest },
+                        colors = if (onLight) OrobiColors.OnLight else OrobiColors.OnDark,
                         showShadow = false,
                         contentDescription = null,
                         modifier = Modifier.width(22.dp)

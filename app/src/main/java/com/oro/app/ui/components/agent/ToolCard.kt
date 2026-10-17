@@ -1,5 +1,6 @@
 package com.oro.app.ui.components.agent
 
+import androidx.compose.ui.graphics.Color
 import com.oro.app.ui.brand.OrobiLoader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
@@ -146,27 +147,16 @@ fun ToolCard(
     val additions = if (entry.additions > 0) entry.additions else diff?.additions ?: 0
     val deletions = if (entry.deletions > 0) entry.deletions else diff?.deletions ?: 0
 
+    // A row in the transcript, not a card. Boxed and bordered, a run of a
+    // dozen calls turned the thread into a stack of form fields; as plain
+    // rows they read as a log of what Orobi did, and only the detail a user
+    // opens gets a surface of its own.
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = OroCorners.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        shape = OroCorners.medium,
+        color = Color.Transparent
     ) {
-        Column(
-            // A hairline rather than elevation: these stack several deep in a
-            // run, and tonal elevation on each one turns the thread into a
-            // gradient with no readable edges.
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = Sizes.hairline,
-                    color = if (isError) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.outlineVariant
-                    },
-                    shape = OroCorners.large
-                )
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             ToolCardHeader(
                 presentation = presentation,
                 entry = entry,
@@ -192,9 +182,6 @@ fun ToolCard(
                 )
             }
 
-            if (running) {
-                ToolCardRunningBar()
-            }
         }
     }
 
@@ -236,12 +223,12 @@ private fun ToolCardHeader(
                 onClickLabel = if (expanded) "Hide result" else "Show result",
                 onClick = onToggle
             )
-            .padding(horizontal = Space.md, vertical = Space.sm),
+            .padding(horizontal = Space.xs, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
         ToolIconBadge(presentation = presentation, running = running, isError = isError)
 
-        Spacer(Modifier.width(Space.md))
+        Spacer(Modifier.width(Space.md - Space.xxs))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -310,52 +297,19 @@ private fun ToolIconBadge(
     running: Boolean,
     isError: Boolean
 ) {
-    val shape = when (presentation.detail) {
-        ToolDetailKind.Diff -> ExpressiveShapes.cookie4()
-        ToolDetailKind.Code -> ExpressiveShapes.square()
-        ToolDetailKind.Listing -> ExpressiveShapes.arch()
-        ToolDetailKind.Terminal -> ExpressiveShapes.slanted()
-        ToolDetailKind.Prose -> ExpressiveShapes.clover4()
-    }
-
-    val infinite = rememberInfiniteTransition(label = "toolBadge")
-    val pulse by infinite.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.12f,
-        // Infinite, so it cannot come from the motion scheme -- those specs
-        // are finite by type.
-        animationSpec = infiniteRepeatable(tween(620), repeatMode = RepeatMode.Reverse),
-        label = "toolBadgePulse"
-    )
-
-    Surface(
-        modifier = Modifier
-            .size(Sizes.avatar)
-            .graphicsLayer {
-                if (running) {
-                    scaleX = pulse
-                    scaleY = pulse
-                }
+    // Just the glyph: the status on the right already says running/failed,
+    // so the icon only has to say what kind of thing happened.
+    Box(modifier = Modifier.size(Sizes.icon), contentAlignment = Alignment.Center) {
+        Icon(
+            imageVector = presentation.icon,
+            contentDescription = null,
+            tint = when {
+                isError -> MaterialTheme.colorScheme.error
+                running -> MaterialTheme.colorScheme.onSurface
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
-        shape = shape,
-        color = when {
-            isError -> MaterialTheme.colorScheme.errorContainer
-            running -> MaterialTheme.colorScheme.secondaryContainer
-            else -> MaterialTheme.colorScheme.surfaceContainerHighest
-        }
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = presentation.icon,
-                contentDescription = null,
-                tint = when {
-                    isError -> MaterialTheme.colorScheme.onErrorContainer
-                    running -> MaterialTheme.colorScheme.onSecondaryContainer
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
-                modifier = Modifier.size(Sizes.iconSmall)
-            )
-        }
+            modifier = Modifier.size(Sizes.iconSmall)
+        )
     }
 }
 
@@ -383,33 +337,6 @@ private fun StatusGlyph(status: ToolCallStatus) {
             contentDescription = "Failed",
             tint = MaterialTheme.colorScheme.error,
             modifier = Modifier.size(Sizes.iconSmall)
-        )
-    }
-}
-
-/** A thin indeterminate line along the card's bottom edge while it runs. */
-@Composable
-private fun ToolCardRunningBar() {
-    val infinite = rememberInfiniteTransition(label = "toolBar")
-    val sweep by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1_100), repeatMode = RepeatMode.Reverse),
-        label = "toolBarSweep"
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Space.md, vertical = Space.xs)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.25f + sweep * 0.6f)
-                .height(2.dp)
-                .background(
-                    color = MaterialTheme.colorScheme.secondary,
-                    shape = OroCorners.pill
-                )
         )
     }
 }

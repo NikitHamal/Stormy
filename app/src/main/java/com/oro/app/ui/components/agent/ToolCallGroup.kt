@@ -1,5 +1,6 @@
 package com.oro.app.ui.components.agent
 
+import androidx.compose.ui.graphics.Color
 import com.oro.app.ui.brand.OroSparkle
 import com.oro.app.ui.brand.OrobiLoader
 import androidx.compose.animation.AnimatedVisibility
@@ -123,7 +124,7 @@ fun ToolCallGroup(
             )
             if (anyRunning) {
                 Spacer(Modifier.width(Space.sm))
-                RunningDots()
+                OrobiLoader(modifier = Modifier.width(18.dp), contentDescription = null)
             }
             Spacer(Modifier.weight(1f))
             // The icons of the calls in the run, collapsed. Gives the shape of
@@ -142,7 +143,7 @@ fun ToolCallGroup(
         ) {
             Column(
                 modifier = Modifier.padding(top = Space.xs),
-                verticalArrangement = Arrangement.spacedBy(Space.sm)
+                verticalArrangement = Arrangement.spacedBy(Space.xxs)
             ) {
                 reasoning?.let { ReasoningCard(it) }
                 entries.forEach { entry ->
@@ -218,10 +219,11 @@ private fun ReasoningCard(reasoning: ReasoningEntry) {
     }
     val hasMore = reasoning.text.trim() != firstLine
 
+    // Flat, like the tool rows around it: no container, no outline.
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = OroCorners.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        shape = OroCorners.medium,
+        color = Color.Transparent
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -231,19 +233,11 @@ private fun ReasoningCard(reasoning: ReasoningEntry) {
                         enabled = hasMore,
                         onClickLabel = if (expanded) "Hide reasoning" else "Show reasoning"
                     ) { expanded = !expanded }
-                    .padding(horizontal = Space.md, vertical = Space.sm),
+                    .padding(horizontal = Space.xs, vertical = Space.sm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    modifier = Modifier.size(Sizes.avatar),
-                    shape = ExpressiveShapes.cookie6(),
-                    color = if (reasoning.isActive) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHighest
-                    }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.width(Sizes.icon)) {
+                    Box(modifier = Modifier.align(Alignment.Center)) {
                         if (reasoning.isActive) {
                             OrobiLoader(
                                 modifier = Modifier.width(Sizes.icon),
@@ -258,7 +252,7 @@ private fun ReasoningCard(reasoning: ReasoningEntry) {
                     }
                 }
 
-                Spacer(Modifier.width(Space.md))
+                Spacer(Modifier.width(Space.md - Space.xxs))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -275,11 +269,6 @@ private fun ReasoningCard(reasoning: ReasoningEntry) {
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
-
-                if (reasoning.isActive) {
-                    RunningDots()
-                    Spacer(Modifier.width(Space.xs))
                 }
 
                 if (hasMore) {
@@ -306,7 +295,7 @@ private fun ReasoningCard(reasoning: ReasoningEntry) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(
-                        start = Space.md,
+                        start = Space.xs + Sizes.icon + Space.md - Space.xxs,
                         end = Space.md,
                         bottom = Space.md
                     )
@@ -378,39 +367,6 @@ private fun ChangedFileChips(entries: List<ToolCallEntry>) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = Space.xs)
             )
-        }
-    }
-}
-
-/** Three dots that fade in sequence while a run is in flight. */
-@Composable
-internal fun RunningDots() {
-    val transition = rememberInfiniteTransition(label = "toolDots")
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        repeat(3) { index ->
-            val alpha by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                // Infinite, so it cannot come from the motion scheme -- those
-                // specs are finite by type. Offset per dot so they chase.
-                animationSpec = infiniteRepeatable(
-                    animation = tween(560, delayMillis = index * 160),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "toolDot$index"
-            )
-            Box(
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .size(4.dp)
-                    .alpha(alpha)
-            ) {
-                Surface(
-                    shape = OroCorners.pill,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    content = {}
-                )
-            }
         }
     }
 }

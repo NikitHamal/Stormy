@@ -1,5 +1,6 @@
 package com.oro.app.ui.screens.onboarding
 
+import com.oro.app.ui.brand.OrobiRenderCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.MaterialTheme
@@ -68,7 +69,7 @@ fun ModelOrbit(
         )
         Nodes.map { measurer.measure(it.label, style) }
     }
-    val scratch = remember { Path() }
+    val scratch = remember { OrobiRenderCache() }
     val nodeFill = scheme.surfaceContainerLow
     val outline = scheme.outlineVariant
     val orobiColors = OrobiColors(shadow = Color.Transparent)
@@ -81,6 +82,7 @@ fun ModelOrbit(
             }
     ) {
         val t = if (reduced) 0f else clock.value
+        val pxPerUnit = minOf(size.width, size.height) / 220f
         inViewBox(Rect(0f, 0f, 220f, 220f), Rect(Offset.Zero, size)) {
             val center = Offset(110f, 110f)
 
@@ -131,6 +133,7 @@ fun ModelOrbit(
                 scratch,
                 bounds = Rect(85f, 93f, 135f, 127f),
                 showShadow = false,
+                canvasScale = pxPerUnit,
             )
         }
     }

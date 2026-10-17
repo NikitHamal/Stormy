@@ -11,6 +11,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
+import android.app.ActivityManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -74,9 +78,12 @@ object OrobiMotion {
     private const val LookPeriod = 5f
     const val LoaderPeriod = 1.6f
 
-    private val LookTimes = floatArrayOf(0f, .14f, .20f, .38f, .46f, .64f, .72f, 1f)
-    private val LookX = floatArrayOf(0f, 0f, -22f, -22f, 24f, 24f, 0f, 0f)
-    private val LookY = floatArrayOf(0f, 0f, 4f, 4f, -8f, -8f, 0f, 0f)
+    // Glances are saccades, the way real eyes move: a quick jump (~150ms)
+    // and a hold, never a slow drift. Travel stays inside the clamp in
+    // drawEyes so the eyes never crowd the edge of the head.
+    private val LookTimes = floatArrayOf(0f, .30f, .33f, .47f, .50f, .66f, .69f, 1f)
+    private val LookX = floatArrayOf(0f, 0f, -8f, -8f, 8f, 8f, 0f, 0f)
+    private val LookY = floatArrayOf(0f, 0f, 3f, 3f, -2f, -2f, 0f, 0f)
 
     private val BlinkTimes = floatArrayOf(0f, .92f, .95f, 1f)
     private val BlinkValues = floatArrayOf(1f, 1f, .1f, 1f)
@@ -194,19 +201,46 @@ object OrobiMotion {
  * Read the returned state inside a draw lambda, not in composition: that way a
  * running animation invalidates only the draw pass and never recomposes.
  * When [restartKey] changes the clock starts again from zero.
+ *
+ * Two economies, neither visible:
+ *  - It only ticks while the screen is at least STARTED. A mascot on a screen
+ *    under another one, or in a backgrounded app, costs nothing.
+ *  - On low-RAM devices it ticks at most 30 times a second. The brand motion
+ *    is all slow easing, where 30fps and 60fps are indistinguishable, and it
+ *    halves the draw work on exactly the phones that need it.
  */
 @Composable
 fun rememberAnimationClock(running: Boolean = true, restartKey: Any? = Unit): State<Float> {
     val time = remember(restartKey) { mutableFloatStateOf(0f) }
-    LaunchedEffect(running, restartKey) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val minFrameNanos = if (rememberLowEndDevice()) 33_000_000L else 0L
+    LaunchedEffect(running, restartKey, lifecycle, minFrameNanos) {
         if (!running) return@LaunchedEffect
-        val base = time.floatValue
-        val start = withFrameNanos { it }
-        while (true) {
-            withFrameNanos { now -> time.floatValue = base + (now - start) / 1_000_000_000f }
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            val base = time.floatValue
+            val start = withFrameNanos { it }
+            var last = start
+            while (true) {
+                withFrameNanos { now ->
+                    if (now - last >= minFrameNanos) {
+                        last = now
+                        time.floatValue = base + (now - start) / 1_000_000_000f
+                    }
+                }
+            }
         }
     }
     return time
+}
+
+/** True on devices Android itself classes as low-RAM. */
+@Composable
+fun rememberLowEndDevice(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? ActivityManager)
+            ?.isLowRamDevice == true
+    }
 }
 
 /**

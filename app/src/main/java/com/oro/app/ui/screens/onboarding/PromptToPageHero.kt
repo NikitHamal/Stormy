@@ -1,5 +1,6 @@
 package com.oro.app.ui.screens.onboarding
 
+import com.oro.app.ui.brand.OrobiRenderCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.MaterialTheme
@@ -103,7 +104,7 @@ fun PromptToPageHero(
         )
     }
     val scratch = remember { HeroScratch() }
-    val orobiColors = OrobiColors(shadow = scheme.onSurface)
+    val orobiColors = OrobiColors.forBackground(scheme.background).copy(shadow = scheme.onSurface)
 
     Canvas(
         modifier
@@ -114,6 +115,7 @@ fun PromptToPageHero(
             }
     ) {
         val t = if (reduced) 10f else clock.value.mod(Duration)
+        scratch.pxPerUnit = minOf(size.width / 400f, size.height / 300f)
         inViewBox(Rect(0f, 0f, 400f, 300f), Rect(Offset.Zero, size)) {
             drawScene(t, palette, texts, scratch, orobiColors)
         }
@@ -141,7 +143,8 @@ private class HeroTexts(
 )
 
 private class HeroScratch {
-    val path = Path()
+    val orobi = OrobiRenderCache()
+    var pxPerUnit = 1f
     val sparkle = Path()
     val segment = Path()
     val phoneClip = Path().apply {
@@ -218,8 +221,9 @@ private fun DrawScope.drawScene(
     val squash = swallow * .06f + land * .12f + anticipate * .1f
     val breath = .012f * sin(t * 1.9f)
     // Eyes follow the story: to the prompt while it is typed, then to the phone.
-    val lookX = lean * -12f + lean * typed * 20f + build * 26f
-    val lookY = lean * -11f + build * -5f
+    // Scaled into the eyes' small travel (see OrobiGeometry.MaxLookX).
+    val lookX = (lean * -12f + lean * typed * 20f + build * 26f) * 0.38f
+    val lookY = (lean * -11f + build * -5f) * 0.5f
 
     val pose = OrobiPose(
         lift = hop * 160f,
@@ -254,7 +258,7 @@ private fun DrawScope.drawScene(
         )
     }
 
-    drawOrobi(pose, orobiColors, s.path, bounds = Rect(16f, 108f, 206f, 238f))
+    drawOrobi(pose, orobiColors, s.orobi, bounds = Rect(16f, 108f, 206f, 238f), canvasScale = s.pxPerUnit)
 
     // --- Phone -----------------------------------------------------------
     val winE = beat.e(.5f, .9f)

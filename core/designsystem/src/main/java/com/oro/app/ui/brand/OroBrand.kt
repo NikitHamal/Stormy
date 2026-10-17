@@ -58,8 +58,23 @@ object OrobiGeometry {
 
     val LeftEye = Offset(717f, 634f)
     val RightEye = Offset(885f, 634f)
-    const val EyeRadiusX = 10f
-    const val EyeRadiusY = 13f
+    // A touch larger than the artwork's 10x13, which at app-icon sizes
+    // dropped below a pixel and read as specks.
+    const val EyeRadiusX = 11.5f
+    const val EyeRadiusY = 14.5f
+
+    /** Catchlight: up and to the right of each eye's centre. */
+    const val GlintRadius = 3.6f
+    val GlintOffset = Offset(3.4f, -5.2f)
+
+    /**
+     * How far the eyes may travel from rest. Small on purpose: the right eye
+     * sits near the edge of the head, and anything beyond ~10 units sideways
+     * reads as the eye sliding off the face rather than looking.
+     */
+    const val MaxLookX = 10f
+    const val MaxLookUp = 2.5f
+    const val MaxLookDown = 6f
 
     val ShadowCenter = Offset(800f, 1185f)
     const val ShadowRadiusX = 400f

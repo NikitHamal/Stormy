@@ -3,7 +3,7 @@
     <item android:drawable="@color/splash_background_light" />
     <!-- Orobi at rest, the same mark as the launcher icon. -->
     <item
-        android:drawable="@drawable/ic_oro_mark"
+        android:drawable="@drawable/ic_oro_mark_ink"
         android:gravity="center"
         android:width="112dp"
         android:height="70dp" />

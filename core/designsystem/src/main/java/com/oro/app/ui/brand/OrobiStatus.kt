@@ -1,11 +1,9 @@
 package com.oro.app.ui.brand
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -14,11 +12,9 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -57,33 +53,47 @@ fun OrobiWorking(
     }
 }
 
-/** Text with a highlight travelling left to right, like light along a line. */
+/**
+ * Text with a highlight travelling left to right, like light along a line.
+ *
+ * The sweep is applied in the draw phase -- the text is laid out and composed
+ * once, and only a gradient band is redrawn over it each frame -- so a label
+ * that shimmers for a whole agent run costs no recomposition.
+ */
 @Composable
 fun ShimmerText(text: String, style: TextStyle = MaterialTheme.typography.bodyMedium) {
     val base = MaterialTheme.colorScheme.onSurfaceVariant
     val highlight = MaterialTheme.colorScheme.onSurface
     val reduced = rememberReducedMotion()
-    if (reduced) {
-        Text(text, style = style, color = base)
-        return
-    }
-    val sweep by rememberInfiniteTransition(label = "shimmer").animateFloat(
-        initialValue = -1f,
-        targetValue = 2f,
-        animationSpec = infiniteRepeatable(tween(1_800, easing = LinearEasing), RepeatMode.Restart),
-        label = "shimmerSweep",
-    )
-    // In pixels relative to a nominal 160px span; the text is short, so a
-    // fixed span keeps the band the same width whatever the label.
-    val span = 160f
+    val clock = rememberAnimationClock(running = !reduced)
     Text(
         text = text,
-        style = style.copy(
-            brush = Brush.linearGradient(
-                0f to base, 0.4f to base, 0.5f to highlight, 0.6f to base, 1f to base,
-                start = Offset(sweep * span - span, 0f),
-                end = Offset(sweep * span + span, 0f),
-            )
-        ),
+        style = style,
+        color = base,
+        modifier = if (reduced) {
+            Modifier
+        } else {
+            Modifier
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    val band = size.width.coerceAtLeast(80f) * 0.5f
+                    val p = (clock.value / SweepSeconds).mod(1f)
+                    val x = -band + (size.width + band * 2f) * p
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            0f to Color.Transparent,
+                            0.5f to highlight,
+                            1f to Color.Transparent,
+                            startX = x - band,
+                            endX = x + band,
+                        ),
+                        // Only where there is already text.
+                        blendMode = BlendMode.SrcAtop,
+                    )
+                }
+        },
     )
 }
+
+private const val SweepSeconds = 1.8f

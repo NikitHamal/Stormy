@@ -1,5 +1,7 @@
 package com.oro.app.ui.components.chat
 
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.outlined.Lightbulb
 import com.oro.app.ui.theme.Space
 import com.oro.app.ui.theme.Sizes
@@ -321,8 +323,10 @@ private fun SendButton(
     Surface(
         onClick = { if (isProcessing) onStop?.invoke() else onSend() },
         enabled = isProcessing || canSend,
+        // Same 40dp as the context meter beside it, so the row's controls
+        // share one height instead of the send button towering over them.
         modifier = Modifier
-            .size(Sizes.minTouchTarget)
+            .size(Sizes.minTouchTarget - Space.sm)
             .expressivePress(interaction),
         shape = ExpressiveShapes.circle(),
         color = container,
@@ -332,9 +336,9 @@ private fun SendButton(
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = if (isProcessing) {
-                    Icons.Outlined.Stop
+                    Icons.Rounded.Stop
                 } else {
-                    Icons.AutoMirrored.Filled.Send
+                    Icons.Rounded.ArrowUpward
                 },
                 contentDescription = if (isProcessing) "Stop generating" else "Send message",
                 modifier = Modifier.size(Sizes.icon)
