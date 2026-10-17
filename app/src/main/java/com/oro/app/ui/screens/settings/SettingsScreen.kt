@@ -3,6 +3,7 @@ package com.oro.app.ui.screens.settings
 import com.oro.app.ui.theme.OroCorners
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -82,6 +83,7 @@ fun SettingsScreen(
     onNavigateToGitSettings: () -> Unit,
     onNavigateToProviders: () -> Unit = {},
     onNavigateToMcp: () -> Unit = {},
+    onNavigateToVoice: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -209,6 +211,12 @@ fun SettingsScreen(
                     title = "MCP servers",
                     subtitle = "GitHub, Supabase, docs and more for Orobi",
                     onClick = onNavigateToMcp
+                )
+                SettingsNavItem(
+                    icon = Icons.Outlined.Mic,
+                    title = "Voice dictation",
+                    subtitle = "System or Whistle, on-device",
+                    onClick = onNavigateToVoice
                 )
             }
 

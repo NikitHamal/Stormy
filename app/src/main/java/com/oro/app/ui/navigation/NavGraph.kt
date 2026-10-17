@@ -44,6 +44,7 @@ sealed class Screen(val route: String) {
     data object GitSettings : Screen("git_settings")
     data object Providers : Screen("providers")
     data object Mcp : Screen("mcp")
+    data object Voice : Screen("voice")
     data object ProviderEditor : Screen("provider_editor/{ref}") {
         fun createRoute(ref: String) = "provider_editor/" + android.net.Uri.encode(ref)
     }
@@ -187,6 +188,10 @@ fun OroNavGraph(
             )
         }
 
+        composable(Screen.Voice.route) {
+            com.oro.app.voice.VoiceSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(Screen.Mcp.route) {
             com.oro.app.ui.screens.mcp.McpScreen(onBackClick = { navController.popBackStack() })
         }
@@ -228,6 +233,9 @@ fun OroNavGraph(
                 },
                 onNavigateToMcp = {
                     navController.navigate(Screen.Mcp.route)
+                },
+                onNavigateToVoice = {
+                    navController.navigate(Screen.Voice.route)
                 }
             )
         }

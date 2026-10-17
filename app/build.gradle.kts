@@ -21,6 +21,22 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // On-device dictation (Whistle). Only ARM: that is what the engine
+        // ships for and what phones run; elsewhere dictation falls back to the
+        // system recogniser.
+        externalNativeBuild {
+            cmake {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+                arguments += listOf("-DANDROID_STL=c++_static")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
     }
 
     // Release signing comes from the environment when present (CI secrets /

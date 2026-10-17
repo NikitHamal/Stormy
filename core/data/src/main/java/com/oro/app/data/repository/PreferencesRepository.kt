@@ -49,6 +49,7 @@ class PreferencesRepository(private val context: Context) {
         val MCP_SETTINGS = stringPreferencesKey("mcp_servers_v1")
         val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
         val AUTONOMY = stringPreferencesKey("autonomy_mode")
+        val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
         // AI Provider and Model settings
@@ -280,6 +281,14 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
         context.dataStore.edit { it[PreferenceKeys.AUTONOMY] = mode.name }
+    }
+
+    /** "SYSTEM" or "WHISTLE" (the app's DictationEngine names). */
+    val dictationEngineName: Flow<String> = context.dataStore.data
+        .map { it[PreferenceKeys.DICTATION_ENGINE] ?: "SYSTEM" }.distinctUntilChanged()
+
+    suspend fun setDictationEngineName(name: String) {
+        context.dataStore.edit { it[PreferenceKeys.DICTATION_ENGINE] = name }
     }
 
     val netlifyToken: Flow<String> = context.dataStore.data.map { it[PreferenceKeys.NETLIFY_TOKEN].orEmpty() }.distinctUntilChanged()

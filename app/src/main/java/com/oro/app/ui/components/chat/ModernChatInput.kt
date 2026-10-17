@@ -121,6 +121,12 @@ fun ModernChatInput(
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     var showContextActions by remember { mutableStateOf(false) }
+    // Live words while dictating, and the last dictation problem.
+    var dictationPartial by remember { mutableStateOf<String?>(null) }
+    var dictationError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(dictationError) {
+        if (dictationError != null) { kotlinx.coroutines.delay(4_000); dictationError = null }
+    }
 
     // @ mention state
     // Keyed on nothing: remember(value) rebuilt the state on every keystroke
@@ -150,6 +156,15 @@ fun ModernChatInput(
     val showMentionPopup = mentionQuery != null
 
     Column(modifier = modifier) {
+        (dictationPartial ?: dictationError)?.let { line ->
+            Text(
+                text = line,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (dictationPartial != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                maxLines = 2,
+                modifier = Modifier.padding(start = Space.md, end = Space.md, bottom = Space.xs)
+            )
+        }
         // @ mention popup (above the input)
         FileMentionPopup(
             isVisible = showMentionPopup,
@@ -288,6 +303,20 @@ fun ModernChatInput(
                             percent = contextPercent,
                             isCritical = contextIsCritical,
                             onClick = onContextClick
+                        )
+                    }
+
+                    if (!isProcessing) {
+                        com.oro.app.voice.DictationButton(
+                            onText = { spoken ->
+                                val current = textFieldValue.text
+                                val joined = if (current.isBlank()) spoken else current.trimEnd() + " " + spoken
+                                textFieldValue = TextFieldValue(joined, selection = TextRange(joined.length))
+                                noteTyped(joined)
+                                onValueChange(joined)
+                            },
+                            onPartial = { dictationPartial = it },
+                            onError = { dictationError = it }
                         )
                     }
 
