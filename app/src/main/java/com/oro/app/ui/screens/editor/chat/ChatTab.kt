@@ -118,9 +118,7 @@ import com.oro.app.ui.components.toUiCodeChange
 import com.oro.app.ui.theme.OroTheme
 import com.oro.app.ui.screens.editor.sessions.ChatSessionActions
 import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
-import com.oro.app.ui.screens.editor.sessions.SessionBar
 import com.oro.app.ui.screens.editor.sessions.SessionUndoBar
-import com.oro.app.ui.screens.editor.sessions.SessionsSheet
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,6 +127,7 @@ fun ChatTab(
     messages: List<ChatMessage>,
     sessionsState: ChatSessionsUiState = ChatSessionsUiState(isLoadingSession = false),
     sessionActions: ChatSessionActions = ChatSessionActions.None,
+    agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
     projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
@@ -169,19 +168,6 @@ fun ChatTab(
     var showModelSelector by remember { mutableStateOf(false) }
     var showChatSettings by remember { mutableStateOf(false) }
     var showContextSheet by remember { mutableStateOf(false) }
-    var showSessions by remember { mutableStateOf(false) }
-
-    if (showSessions) {
-        SessionsSheet(
-            state = sessionsState,
-            projectName = projectName,
-            isRunActive = isLoading,
-            onStopRun = onStopGeneration,
-            actions = sessionActions,
-            onDismiss = { showSessions = false }
-        )
-    }
-
     if (showChatSettings) {
         ChatSettingsSheet(
             agentMode = agentMode,
@@ -230,24 +216,6 @@ fun ChatTab(
             .fillMaxSize()
             .imePadding()
     ) {
-        SessionBar(
-            title = sessionsState.currentTitle,
-            sessionCount = sessionsState.sessions.size,
-            isRunActive = isLoading,
-            // Disabled in a fresh, empty chat: there is nothing to leave.
-            newChatEnabled = !isLoading && !(sessionsState.isDraft && messages.isEmpty()),
-            onOpenSessions = { showSessions = true },
-            onNewChat = sessionActions.onNewChat
-        )
-
-        // Task planning panel - show when there are active tasks
-        AnimatedVisibility(
-            visible = taskList.isNotEmpty(),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            TaskPlanningPanel(tasks = taskList)
-        }
 
         if (messages.isEmpty() && sessionsState.isLoadingSession) {
             // Between choosing a session and its rows arriving (a few ms):
@@ -350,6 +318,32 @@ fun ChatTab(
             modifier = Modifier.padding(start = Space.lg, end = Space.lg, top = Space.sm)
         )
 
+        // The plan docks on the composer, like the run it describes: it is
+        // about what Orobi is doing *now*, so it sits where the user is
+        // looking, not at the top of a transcript that scrolls away.
+        AnimatedVisibility(
+            visible = agentPlan != null && !agentPlan.isEmpty,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            agentPlan?.let {
+                com.oro.app.ui.components.agent.PlanTimeline(
+                    plan = it,
+                    modifier = Modifier.padding(start = Space.lg, end = Space.lg, top = Space.sm)
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = taskList.isNotEmpty(),
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            TaskPlanningPanel(
+                tasks = taskList,
+                outerPadding = PaddingValues(start = Space.lg, end = Space.lg, top = Space.sm)
+            )
+        }
+
         ModernChatInput(
             value = inputText,
             onValueChange = onInputChange,
@@ -367,7 +361,10 @@ fun ChatTab(
             fileTree = fileTree,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Space.lg)
+                .padding(
+                    start = Space.lg, end = Space.lg, bottom = Space.lg,
+                    top = if (taskList.isNotEmpty() || (agentPlan != null && !agentPlan.isEmpty)) Space.xs + Space.xxs else Space.lg
+                )
         )
     }
 

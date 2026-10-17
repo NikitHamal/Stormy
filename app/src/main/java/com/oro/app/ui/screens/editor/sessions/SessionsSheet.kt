@@ -78,7 +78,7 @@ import com.oro.app.ui.theme.Sizes
 import com.oro.app.ui.theme.Space
 
 /** Search appears once the list is long enough that scanning stops working. */
-private const val SEARCH_THRESHOLD = 6
+private const val SEARCH_THRESHOLD = 4
 
 /**
  * The project's chat sessions, as a bottom sheet.
@@ -129,41 +129,37 @@ fun SessionsSheet(
                 .navigationBarsPadding()
         ) {
             Column(modifier = Modifier.padding(horizontal = Space.xl)) {
-                Text(
-                    text = "Chats",
-                    style = MaterialTheme.typography.titleLargeEmphasized,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = sheetSubtitle(state.sessions.size, projectName),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(Modifier.height(Space.lg))
-
-                // Full width and filled: it is the reason most people open
-                // this sheet, so it is the first and largest target in it.
-                Button(
-                    onClick = {
-                        actions.onNewChat()
-                        onDismiss()
-                    },
-                    enabled = !isRunActive,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = Sizes.minTouchTarget),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Icon(
-                        Icons.Outlined.AddComment,
-                        contentDescription = null,
-                        modifier = Modifier.size(Sizes.icon)
-                    )
-                    Spacer(Modifier.width(Space.sm))
-                    Text("New chat", style = MaterialTheme.typography.labelLargeEmphasized)
+                // Title and the one action most people open this for, on one
+                // row: the full-width button it replaces cost a whole row of
+                // list on a small phone.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Chats",
+                            style = MaterialTheme.typography.titleLargeEmphasized,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = sheetSubtitle(state.sessions.size, projectName),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    androidx.compose.material3.FilledTonalButton(
+                        onClick = {
+                            actions.onNewChat()
+                            onDismiss()
+                        },
+                        enabled = !isRunActive && !(state.isDraft),
+                        shape = OroCorners.pill,
+                        contentPadding = PaddingValues(start = Space.md, end = Space.lg)
+                    ) {
+                        Icon(Icons.Outlined.AddComment, contentDescription = null, modifier = Modifier.size(Sizes.icon))
+                        Spacer(Modifier.width(Space.sm))
+                        Text("New chat", style = MaterialTheme.typography.labelLargeEmphasized)
+                    }
                 }
 
                 AnimatedVisibility(
@@ -398,50 +394,45 @@ private fun SessionRow(
     modifier: Modifier = Modifier
 ) {
     val session = entry.session
-    // The current chat is marked by its container, not a checkmark: the
-    // tint reads at a glance from across the list, a 16dp glyph does not.
-    val container = if (isCurrent) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-    val onContainer = if (isCurrent) {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-    val secondary = if (isCurrent) {
-        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val scheme = MaterialTheme.colorScheme
+    // The current chat is marked by its container and a filled badge, not a
+    // checkmark: the tint reads at a glance, a 16dp glyph does not.
+    val container = if (isCurrent) scheme.secondaryContainer else Color.Transparent
+    val onContainer = if (isCurrent) scheme.onSecondaryContainer else scheme.onSurface
+    val secondary = if (isCurrent) scheme.onSecondaryContainer.copy(alpha = 0.75f) else scheme.onSurfaceVariant
+    val preview = session.preview?.takeIf { !it.startsWith(session.title.removeSuffix("…"), ignoreCase = true) }
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = OroCorners.large,
-        color = container
-    ) {
+    Surface(modifier = modifier.fillMaxWidth(), shape = OroCorners.large, color = container) {
         Row(
             modifier = Modifier
                 .combinedClickable(
                     enabled = enabled,
                     onClickLabel = "Open chat",
                     onLongClickLabel = "Chat actions",
-                    // combinedClickable gives the long-press haptic itself.
                     onLongClick = onShowActions,
                     onClick = onClick
                 )
                 .alpha(if (enabled) 1f else 0.38f)
-                .padding(start = Space.md, top = Space.md, bottom = Space.md),
+                .padding(start = Space.md, top = Space.sm + Space.xxs, bottom = Space.sm + Space.xxs),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Surface(
+                modifier = Modifier.size(Sizes.avatarLarge),
+                shape = OroCorners.medium,
+                color = if (isCurrent) scheme.primary else scheme.surfaceContainerHighest,
+                contentColor = if (isCurrent) scheme.onPrimary else scheme.onSurfaceVariant
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (session.isPinned) Icons.Filled.PushPin else Icons.Outlined.ChatBubbleOutline,
+                        contentDescription = if (session.isPinned) "Pinned" else null,
+                        modifier = Modifier.size(Sizes.iconSmall + 2.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(Space.md))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (session.isPinned) {
-                        Icon(
-                            Icons.Filled.PushPin,
-                            contentDescription = "Pinned",
-                            modifier = Modifier.size(Sizes.iconSmall - 2.dp),
-                            tint = secondary
-                        )
-                        Spacer(Modifier.width(Space.xs))
-                    }
                     Text(
                         text = session.title,
                         style = MaterialTheme.typography.bodyLarge,
@@ -449,40 +440,19 @@ private fun SessionRow(
                         color = onContainer,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f)
                     )
+                    Spacer(Modifier.width(Space.sm))
+                    Text(text = entry.relativeTime, style = MaterialTheme.typography.labelSmall, color = secondary)
                 }
-                Spacer(Modifier.height(Space.xxs))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = entry.relativeTime,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = secondary
-                    )
-                    Dot(color = secondary)
-                    Text(
-                        text = SessionGrouping.messageCountLabel(session.messageCount),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = secondary,
-                        maxLines = 1
-                    )
-                    session.preview?.let { preview ->
-                        // Only when it says something the title does not.
-                        if (!preview.startsWith(session.title.removeSuffix("…"), ignoreCase = true)) {
-                            Dot(color = secondary)
-                            Text(
-                                text = preview,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = secondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = preview ?: SessionGrouping.messageCountLabel(session.messageCount),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-
             // Long-press is not discoverable on its own, so the overflow is
             // always there. Not disabled during a run: renaming or pinning
             // another chat does not touch the one that is running.

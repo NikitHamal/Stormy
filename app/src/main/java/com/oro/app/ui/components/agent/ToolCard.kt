@@ -52,6 +52,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -207,80 +209,104 @@ private fun ToolCardHeader(
 ) {
     val running = entry.status == ToolCallStatus.Running
     val isError = entry.status == ToolCallStatus.Error
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
-        label = "toolChevron"
-    )
+    val scheme = MaterialTheme.colorScheme
+    val accent = toolAccent(entry.toolName, scheme.primary)
+    val meta = remember(entry.output, presentation.detail, entry.status) { metaFor(presentation.detail, entry) }
 
+    // One line per call: coloured glyph, verb, subject, and what came of it
+    // ("124 lines", "+38 -2"). A log of work, readable at a glance; tapping
+    // the row discloses the result.
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(OroCorners.small)
             .clickable(
                 enabled = entry.hasDetail,
-                // Names the consequence: the row is a disclosure, not a
-                // button called "expand".
                 onClickLabel = if (expanded) "Hide result" else "Show result",
                 onClick = onToggle
             )
-            .padding(horizontal = Space.xs, vertical = Space.sm),
+            .padding(horizontal = Space.xs, vertical = Space.xs + Space.xxs),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ToolIconBadge(presentation = presentation, running = running, isError = isError)
-
+        Icon(
+            imageVector = if (isError) Icons.Outlined.ErrorOutline else presentation.icon,
+            contentDescription = null,
+            tint = if (isError) scheme.error else accent,
+            modifier = Modifier.size(Sizes.iconSmall + 2.dp)
+        )
         Spacer(Modifier.width(Space.md - Space.xxs))
-
-        Column(modifier = Modifier.weight(1f)) {
+        Text(
+            text = if (running) presentation.running else presentation.done,
+            style = MaterialTheme.typography.labelLargeEmphasized,
+            color = scheme.onSurface,
+            maxLines = 1
+        )
+        if (shortSubject != null) {
+            Spacer(Modifier.width(Space.sm))
             Text(
-                // Tense carries the status: "Writing" while it runs, "Wrote"
-                // once done -- more reliable than a colour, which the eye
-                // skips. Emphasized rather than larger while running, so the
-                // list does not reflow as each call completes.
-                text = if (running) presentation.running else presentation.done,
-                style = if (running) {
-                    MaterialTheme.typography.labelLargeEmphasized
-                } else {
-                    MaterialTheme.typography.labelLarge
-                },
-                color = MaterialTheme.colorScheme.onSurface,
+                text = shortSubject,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = if (presentation.subjectIsPath) FontFamily.Monospace else FontFamily.Default
+                ),
+                color = scheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-            if (shortSubject != null) {
-                Text(
-                    text = shortSubject,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontFamily = if (presentation.subjectIsPath) {
-                            FontFamily.Monospace
-                        } else {
-                            FontFamily.Default
-                        }
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.width(Space.sm))
+        when {
+            running -> OrobiLoader(modifier = Modifier.width(Sizes.iconLarge), contentDescription = "Running")
+            isError -> Text("Failed", style = MaterialTheme.typography.labelMedium, color = scheme.error)
+            additions > 0 || deletions > 0 -> Row {
+                if (additions > 0) Text(
+                    "+$additions", style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = DiffAdd
+                )
+                if (additions > 0 && deletions > 0) Spacer(Modifier.width(Space.xs))
+                if (deletions > 0) Text(
+                    "−$deletions", style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = DiffDel
                 )
             }
+            meta != null -> Text(meta, style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         }
+    }
+}
 
-        if (additions > 0 || deletions > 0) {
-            Spacer(Modifier.width(Space.sm))
-            DiffSummaryBadge(additions = additions, deletions = deletions)
-        }
+private val READ_HEADER = Regex("""^File: .*\((?:(\d+) lines|lines \d+-\d+ of (\d+))\)""")
+private val DiffAdd = Color(0xFF3DBE7A)
+private val DiffDel = Color(0xFFE5534B)
 
-        Spacer(Modifier.width(Space.xs))
-        StatusGlyph(entry.status)
+/** A muted hue per kind of work, so a run of calls is scannable by colour before it is read. */
+private fun toolAccent(toolName: String, fallback: Color): Color {
+    val n = com.oro.app.data.ai.tools.ToolAliases.canonicalName(toolName)
+    return when {
+        n.startsWith("read") || n == "list_files" || n == "glob" || n == "project_tree" -> Color(0xFF6E8CF7)
+        n.contains("edit") || n.startsWith("write") || n.startsWith("create") || n == "apply_patch" -> Color(0xFFF0965A)
+        n == "grep" || n.contains("search") -> Color(0xFFB285F2)
+        n.startsWith("delete") || n.startsWith("move") || n.startsWith("rename") -> Color(0xFFE5737B)
+        n.startsWith("web") || n.contains("fetch") || n.startsWith("mcp") -> Color(0xFF4FC1B6)
+        n.startsWith("git") || n.startsWith("deploy") -> Color(0xFF8BC34A)
+        else -> fallback
+    }
+}
 
-        if (entry.hasDetail) {
-            Icon(
-                imageVector = Icons.Outlined.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(Sizes.icon)
-                    .rotate(chevronRotation)
-            )
-        }
+/** "124 lines" / "12 items" from a finished call's output, when it says something useful. */
+private fun metaFor(kind: ToolDetailKind, entry: ToolCallEntry): String? {
+    if (entry.status != ToolCallStatus.Success) return null
+    val out = entry.output?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    // read_file states the true size in its header; the body is truncated.
+    READ_HEADER.find(out.lineSequence().first())?.let { m ->
+        return m.groupValues[2].ifEmpty { m.groupValues[1] }.let { "$it lines" }
+    }
+    val lines = out.lineSequence().count { it.isNotBlank() }
+    return when (kind) {
+        ToolDetailKind.Code -> if (lines == 1) "1 line" else "$lines lines"
+        ToolDetailKind.Listing -> if (lines == 1) "1 item" else "$lines items"
+        else -> null
     }
 }
 

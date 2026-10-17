@@ -53,7 +53,10 @@ import com.oro.app.data.ai.tools.TodoStatus
 @Composable
 fun TaskPlanningPanel(
     tasks: List<TodoItem>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Space around the card; zero when it is docked on the composer. */
+    outerPadding: androidx.compose.foundation.layout.PaddingValues =
+        androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp)
 ) {
     var isExpanded by remember { mutableStateOf(true) }
 
@@ -71,7 +74,7 @@ fun TaskPlanningPanel(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(outerPadding),
         shape = OroCorners.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 1.dp

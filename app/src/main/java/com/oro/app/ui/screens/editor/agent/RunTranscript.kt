@@ -231,6 +231,8 @@ class RunTranscript(initial: String = "") {
             "edit_file", "multi_edit", "write_file", "move_file", "delete_file" ->
                 lines.drop(1).joinToString("\n").take(6_000)
             "ask_user" -> ""
+            // Keep the "File: a.css (124 lines)" header: the row shows the count.
+            "read_file" -> output.take(1_600).let { if (output.length > 1_600) "$it\n…" else it }
             else -> {
                 val rest = lines.drop(1).joinToString("\n")
                 if (rest.length > 1_500) rest.take(1_500) + "\n…" else rest

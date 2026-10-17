@@ -63,6 +63,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,9 +123,27 @@ fun ModernChatInput(
     var showContextActions by remember { mutableStateOf(false) }
 
     // @ mention state
-    var textFieldValue by remember(value) {
+    // Keyed on nothing: remember(value) rebuilt the state on every keystroke
+    // (the parent echoes each edit back as `value`, a frame or more later)
+    // with the caret forced to the end, so typing in the middle of a prompt
+    // jumped the caret to the last letter. Echoes of what was typed here are
+    // recognised and ignored; only an outside change (field cleared after
+    // send, a restored draft, a session switch) replaces the text.
+    var textFieldValue by remember {
         mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
     }
+    val typed = remember { ArrayDeque<String>() }
+    fun noteTyped(text: String) {
+        typed.addLast(text)
+        while (typed.size > 48) typed.removeFirst()
+    }
+    LaunchedEffect(value) {
+        if (value != textFieldValue.text && (value.isEmpty() || value !in typed)) {
+            textFieldValue = TextFieldValue(text = value, selection = TextRange(value.length))
+            typed.clear()
+        }
+    }
+
     val mentionQuery = remember(textFieldValue) {
         extractMentionQuery(textFieldValue.text, textFieldValue.selection.start)
     }
@@ -146,6 +165,7 @@ fun ModernChatInput(
                     text = newText,
                     selection = TextRange(newCursor)
                 )
+                noteTyped(newText)
                 onValueChange(newText)
             },
             onDismiss = { },
@@ -179,6 +199,7 @@ fun ModernChatInput(
                 BasicTextField(
                     value = textFieldValue,
                     onValueChange = { newValue ->
+                        if (newValue.text != textFieldValue.text) noteTyped(newValue.text)
                         textFieldValue = newValue
                         onValueChange(newValue.text)
                     },
