@@ -58,6 +58,7 @@ fun OnboardingScreen(
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(insets)) {
             val wide = maxWidth > 650.dp
+            val artworkHeight = (maxHeight * .43f).coerceIn(170.dp, 350.dp)
             Column(Modifier.fillMaxSize().widthIn(max = 1000.dp).align(Alignment.Center)) {
                 Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 16.dp, top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -76,7 +77,7 @@ fun OnboardingScreen(
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp)) {
                             Artwork(page.asset, pager.currentPage == index,
                                 Modifier.fillMaxWidth().heightIn(min = 170.dp, max = 350.dp)
-                                    .height((maxHeight * .43f).coerceIn(170.dp, 350.dp)))
+                                    .height(artworkHeight))
                             PageCopy(page, Modifier.padding(top = 20.dp, bottom = 12.dp))
                         }
                     }
