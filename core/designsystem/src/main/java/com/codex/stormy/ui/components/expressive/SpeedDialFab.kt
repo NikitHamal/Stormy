@@ -1,8 +1,5 @@
 package com.codex.stormy.ui.components.expressive
 
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
@@ -167,29 +164,15 @@ fun SpeedDialFab(
         }
 
         val triggerInteraction = remember { MutableInteractionSource() }
-        val glow = MaterialTheme.colorScheme.primary
 
         Surface(
             onClick = { onExpandedChange(!expanded) },
             modifier = Modifier
                 .size(size)
-                // A soft halo in the FAB's own colour.
-                //
-                // Material's elevation shadow is a neutral drop shadow, which
-                // on a near-black surface reads as a smudge rather than as
-                // lift. A coloured ambient glow is what separates the control
-                // from the background here, and it is the effect in the
-                // reference. Alpha is low on purpose: visible as a presence,
-                // never as a ring.
-                .drawBehind {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(glow.copy(alpha = 0.34f), Color.Transparent),
-                            radius = this.size.minDimension * 0.85f
-                        ),
-                        radius = this.size.minDimension * 0.85f
-                    )
-                }
+                // No halo. A glow reads as an effect applied to the button
+                // rather than as the button; the squircle's silhouette and
+                // its full-contrast fill already make it the strongest thing
+                // on screen.
                 .expressivePress(triggerInteraction)
                 .semantics {
                     contentDescription = if (expanded) "Close actions" else collapsedDescription

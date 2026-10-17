@@ -77,7 +77,7 @@ import com.codex.stormy.ui.brand.drawSparkle
 import com.codex.stormy.ui.brand.orobiColors
 import com.codex.stormy.ui.brand.rememberAnimationClock
 import com.codex.stormy.ui.brand.rememberReducedMotion
-import com.codex.stormy.ui.brand.sparklePath
+import com.codex.stormy.ui.brand.OroSparkle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -177,15 +177,6 @@ internal fun Modifier.reveal(active: Boolean, order: Int): Modifier {
         val p = progress.value
         alpha = p.coerceIn(0f, 1f)
         translationY = (1f - p) * 22.dp.toPx()
-    }
-}
-
-/** Orobi's sparkle as a glyph, in the current content colour. */
-@Composable
-internal fun SparkleGlyph(modifier: Modifier = Modifier, color: Color = LocalContentColor.current) {
-    val path = remember { Path() }
-    Canvas(modifier) {
-        drawPath(sparklePath(center, size.minDimension / 2f, into = path), color)
     }
 }
 
@@ -400,7 +391,7 @@ private fun GreetingPill(active: Boolean, reduced: Boolean) {
             .padding(start = 14.dp, end = 18.dp, top = 9.dp, bottom = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SparkleGlyph(Modifier.size(14.dp), color = MaterialTheme.colorScheme.primary)
+        OroSparkle(Modifier.size(14.dp), color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.size(10.dp))
         Box {
             // Full text, invisible, holds the width so the pill never resizes
@@ -466,15 +457,6 @@ internal fun ModelsPage(active: Boolean, offset: () -> Float) {
                 modifier = Modifier
                     .fillMaxWidth(0.78f)
                     .widthIn(max = 360.dp),
-            )
-        },
-        footer = {
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.onboarding_providers),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.reveal(active, order = 2),
             )
         },
     )

@@ -1,5 +1,9 @@
 package com.codex.stormy.ui.components.message
 
+import com.codex.stormy.ui.brand.OrobiLoader
+import com.codex.stormy.ui.brand.OrobiWorking
+import com.codex.stormy.ui.brand.OroSparkle
+import com.codex.stormy.ui.brand.ShimmerText
 import com.codex.stormy.ui.components.agent.ToolCallEntry
 import com.codex.stormy.ui.components.agent.ToolCallGroup
 import com.codex.stormy.ui.components.agent.ToolCallStatus
@@ -696,95 +700,30 @@ private fun parseStreamingContent(content: String): List<MessageContentBlock> {
 }
 
 /**
- * Minimal generating indicator - shown when AI is generating but no content yet
- * Clean, modern design similar to popular AI chat apps
+ * Shown while a reply has started but nothing readable has arrived yet:
+ * Orobi's loader and a label, the same indicator as everywhere the assistant
+ * is busy.
  */
 @Composable
 private fun MinimalGeneratingIndicator(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = "Generating",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        GeneratingDots()
-    }
+    OrobiWorking(label = "Thinking", modifier = modifier.padding(vertical = 4.dp))
 }
 
-/**
- * Inline generating indicator - shown at the end of content when streaming
- * Very subtle, just shows that more content is coming
- */
+/** At the tail of a reply that is still streaming: just the loader. */
 @Composable
 private fun InlineGeneratingIndicator(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.padding(top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        GeneratingDots(dotSize = 4.dp)
-    }
+    OrobiLoader(
+        modifier = modifier
+            .padding(top = 4.dp)
+            .width(22.dp),
+        contentDescription = "Still writing"
+    )
 }
 
-/**
- * Animated dots for generating indicator
- * Smooth, minimal animation that doesn't distract
- */
+/** Small running indicator for section headers (thinking, active code). */
 @Composable
-private fun GeneratingDots(
-    modifier: Modifier = Modifier,
-    dotSize: androidx.compose.ui.unit.Dp = 5.dp
-) {
-    val infinite = rememberInfiniteTransition(label = "generating_dots")
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { index ->
-            val alpha by infinite.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 500, delayMillis = index * 120),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "generating_dot_alpha_$index"
-            )
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 1.5.dp)
-                    .size(dotSize)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-            )
-        }
-    }
-}
-
-@Composable
-private fun PulsingDots(modifier: Modifier = Modifier) {
-    val infinite = rememberInfiniteTransition(label = "dots")
-    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        repeat(3) { index ->
-            val alpha by infinite.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 600, delayMillis = index * 150),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "dot_alpha_$index"
-            )
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 2.dp)
-                    .size(4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.tertiary.copy(alpha = alpha))
-            )
-        }
-    }
+private fun ActiveLoader(modifier: Modifier = Modifier) {
+    OrobiLoader(modifier = modifier.width(18.dp), contentDescription = null)
 }
 
 @Composable
@@ -801,7 +740,6 @@ private fun ResponseSection(markdown: String, modifier: Modifier = Modifier) {
 private fun ThinkingSection(content: String, isActive: Boolean, modifier: Modifier = Modifier) {
     CollapsibleInsightSection(
         title = "Thinking",
-        icon = Icons.Outlined.Psychology,
         content = content,
         isActive = isActive,
         modifier = modifier
@@ -812,7 +750,6 @@ private fun ThinkingSection(content: String, isActive: Boolean, modifier: Modifi
 private fun ReasoningSection(content: String, isActive: Boolean, modifier: Modifier = Modifier) {
     CollapsibleInsightSection(
         title = "Reasoning",
-        icon = Icons.Outlined.Psychology,
         content = content,
         isActive = isActive,
         modifier = modifier
@@ -822,7 +759,6 @@ private fun ReasoningSection(content: String, isActive: Boolean, modifier: Modif
 @Composable
 private fun CollapsibleInsightSection(
     title: String,
-    icon: ImageVector,
     content: String,
     isActive: Boolean,
     modifier: Modifier = Modifier
@@ -847,18 +783,31 @@ private fun CollapsibleInsightSection(
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                // Orobi's loader while the model is still thinking, its
+                // sparkle once the thought is complete.
+                Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) {
+                    if (isActive) {
+                        ActiveLoader()
+                    } else {
+                        OroSparkle(
+                            modifier = Modifier.size(12.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 Spacer(Modifier.width(10.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
                 if (isActive) {
-                    Spacer(Modifier.width(8.dp))
-                    PulsingDots()
+                    Box(Modifier.weight(1f)) {
+                        ShimmerText(title, MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold))
+                    }
+                } else {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
                 Icon(
                     imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
@@ -917,7 +866,7 @@ private fun CodeSection(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isActive) {
-                        PulsingDots()
+                        ActiveLoader()
                         Spacer(Modifier.width(8.dp))
                     }
                     IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) {

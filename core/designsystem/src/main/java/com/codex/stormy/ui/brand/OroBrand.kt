@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.vector.PathParser
 
@@ -67,11 +68,15 @@ object OrobiGeometry {
     /** The infinity loader's viewBox. */
     val LoopViewBox = Rect(250f, 500f, 1360f, 1150f)
 
-    // The two eye-holes are wound opposite to the outline, so the silhouette
-    // cuts out correctly under the default non-zero fill rule as well as
-    // even-odd. That matters for clipping: a clip path ignores fill type on
-    // some renderers, and a band clipped to a hole-less body paints magenta
-    // inside the loops.
+    // Both loop holes are wound opposite to the outline, so the silhouette
+    // cuts out correctly under the non-zero rule as well as even-odd. That
+    // matters for clipping: a clip path ignores fill type on some renderers
+    // (VectorDrawable's <clip-path> among them), and a band clipped to a
+    // hole-less body paints over the loops.
+    //
+    // The artwork's left hole runs the same way as the outline and is reversed
+    // here; its right hole already runs the other way and is kept as drawn.
+    // Reversing both re-fills the right loop.
     const val BODY =
         "M810,710C760,635 650,503 520,503C370,503 256,660 256,810C256,990 380,1148 510,1148" +
             "C640,1148 740,1050 810,933C880,1040 980,1148 1100,1148C1250,1148 1345,1020 1345,880" +
@@ -79,8 +84,8 @@ object OrobiGeometry {
             "C1060,472 1040,480 1030,487L995,520C910,560 850,640 810,710Z" +
             "M743,825C690,905 600,1017 520,1017C440,1017 377,940 377,835C377,730 435,631 520,631" +
             "C600,631 690,745 743,825Z" +
-            "M880,817C940,940 1030,1017 1115,1017C1180,1017 1241,940 1241,835C1241,770 1215,690 1160,630" +
-            "C1110,650 1065,645 1030,632C1000,650 940,720 880,817Z"
+            "M880,817C940,720 1000,650 1030,632C1065,645 1110,650 1160,630C1215,690 1241,770 1241,835" +
+            "C1241,940 1180,1017 1115,1017C1030,1017 940,940 880,817Z"
 
     const val BAND_LEFT =
         "M553,400L553,503C515,555 487,600 477,637L470,660L420,760L390,930" +
@@ -112,7 +117,10 @@ internal object OrobiPaths {
     val loop: Path by lazy { parse(OrobiGeometry.LOOP) }
     val loopMeasure: PathMeasure by lazy { PathMeasure().apply { setPath(loop, false) } }
 
-    private fun parse(d: String): Path = PathParser().parsePathString(d).toPath()
+    // Even-odd as well, matching the artwork's fill-rule: belt and braces
+    // against a future edit to the path that gets a winding wrong again.
+    private fun parse(d: String): Path =
+        PathParser().parsePathString(d).toPath().apply { fillType = PathFillType.EvenOdd }
 }
 
 /**

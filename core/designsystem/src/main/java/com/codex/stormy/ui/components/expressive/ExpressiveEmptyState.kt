@@ -75,7 +75,12 @@ fun ExpressiveEmptyState(
     shape: EmptyStateShape = EmptyStateShape.Cookie,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
-    markSize: Dp = 96.dp
+    markSize: Dp = 96.dp,
+    /**
+     * Replaces the shaped icon badge, e.g. with Orobi. Gets the same entrance
+     * scale; its own idle motion is its business.
+     */
+    illustration: (@Composable () -> Unit)? = null
 ) {
     // --- idle motion ------------------------------------------------------
     val transition = rememberInfiniteTransition(label = "emptyState")
@@ -125,25 +130,32 @@ fun ExpressiveEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            modifier = Modifier
-                .size(markSize)
-                // Rotation is applied to the container only, so the glyph
-                // inside stays upright -- a rotating icon reads as broken.
-                .rotate(rotation)
-                .scale(breath * markEnter.value),
-            shape = shape.toShape(),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(markSize / 2.6f)
-                        .rotate(-rotation),
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
+        if (illustration != null) {
+            Box(
+                modifier = Modifier.scale(markEnter.value),
+                contentAlignment = Alignment.Center
+            ) { illustration() }
+        } else {
+            Surface(
+                modifier = Modifier
+                    .size(markSize)
+                    // Rotation is applied to the container only, so the glyph
+                    // inside stays upright -- a rotating icon reads as broken.
+                    .rotate(rotation)
+                    .scale(breath * markEnter.value),
+                shape = shape.toShape(),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(markSize / 2.6f)
+                            .rotate(-rotation),
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
 

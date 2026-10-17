@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.screens.editor
 
+import com.codex.stormy.ui.brand.OrobiMascot
+import com.codex.stormy.ui.brand.OrobiPose
 import com.codex.stormy.ui.theme.CodeXCorners
 import com.codex.stormy.ui.components.agent.ApprovalSheet
 import com.codex.stormy.ui.theme.Space
@@ -35,7 +37,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Forum
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.components.expressive.SheetAction
 import com.codex.stormy.ui.components.expressive.ActionSheet
@@ -579,7 +580,15 @@ private fun EditorTabs(
             ToggleOption(
                 id = EditorTab.CHAT.name,
                 label = context.getString(R.string.editor_tab_chat),
-                icon = Icons.Outlined.Forum
+                // The chat is Orobi, so its tab is Orobi -- in colour, at rest.
+                iconContent = {
+                    OrobiMascot(
+                        pose = { OrobiPose.Rest },
+                        showShadow = false,
+                        contentDescription = null,
+                        modifier = Modifier.width(22.dp)
+                    )
+                }
             ),
             ToggleOption(
                 id = EditorTab.CODE.name,

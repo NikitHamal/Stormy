@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.chat
 
+import com.codex.stormy.ui.brand.OrobiIdle
 import com.codex.stormy.ui.theme.CodeXCorners
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.components.expressive.PickerOption
@@ -169,11 +170,10 @@ fun ModelSelectorSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Outlined.SmartToy,
+                        OrobiIdle(
+                            look = false,
                             contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            modifier = Modifier.width(96.dp)
                         )
                         Text(
                             text = "No models available",

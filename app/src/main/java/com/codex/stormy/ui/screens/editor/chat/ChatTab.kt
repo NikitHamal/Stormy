@@ -1,5 +1,12 @@
 package com.codex.stormy.ui.screens.editor.chat
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.codex.stormy.ui.brand.OroBrand
+import com.codex.stormy.ui.brand.OroSparkle
+import com.codex.stormy.ui.brand.OrobiIdle
+import com.codex.stormy.ui.brand.OrobiWorking
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.components.chat.ModernChatInput
 import com.codex.stormy.ui.components.chat.ContextSheet
@@ -191,6 +198,7 @@ fun ChatTab(
             WelcomeMessage(
                 agentMode = agentMode,
                 onToggleAgentMode = onToggleAgentMode,
+                onSuggestion = onInputChange,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -290,29 +298,22 @@ fun ChatTab(
 private fun WelcomeMessage(
     agentMode: Boolean,
     onToggleAgentMode: () -> Unit,
+    onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
+    // Centred when it fits, scrollable when it does not (keyboard up, small
+    // phone): a Box around a scrolling column does both.
+    Box(modifier, contentAlignment = Alignment.Center) {
     Column(
-        modifier = modifier.padding(32.dp),
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.SmartToy,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
+        OrobiIdle(modifier = Modifier.width(150.dp))
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -338,6 +339,56 @@ private fun WelcomeMessage(
             agentMode = agentMode,
             onToggle = onToggleAgentMode
         )
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // Starters. They fill the input rather than sending, so the user can
+        // adjust the wording first -- a sent prompt they did not quite mean
+        // costs a whole agent run to undo.
+        Column(
+            modifier = Modifier.widthIn(max = 420.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StarterPrompts.forEach { prompt ->
+                StarterPrompt(text = prompt, onClick = { onSuggestion(prompt) })
+            }
+        }
+    }
+    }
+}
+
+private val StarterPrompts = listOf(
+    "Build a landing page for a coffee shop",
+    "Add a responsive navbar with a mobile menu",
+    "Review this project and suggest improvements"
+)
+
+@Composable
+private fun StarterPrompt(text: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CodeXCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OroSparkle(
+                modifier = Modifier.size(12.dp),
+                color = OroBrand.Magenta
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -558,39 +609,10 @@ private fun ChatBubble(
     }
 }
 
+/** Between sending and the first token: Orobi is on it. */
 @Composable
 private fun TypingIndicator() {
-    val infiniteTransition = rememberInfiniteTransition(label = "typing")
-
-    Row(
-        modifier = Modifier
-            .clip(CodeXCorners.large)
-            .background(CodeXTheme.extendedColors.chatAssistantBubble)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        repeat(3) { index ->
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 0.3f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(600, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 200)
-                ),
-                label = "dot_alpha_$index"
-            )
-
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .graphicsLayer { this.alpha = alpha }
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-        }
-    }
+    OrobiWorking(label = "Thinking", modifier = Modifier.padding(vertical = 4.dp))
 }
 
 @Composable

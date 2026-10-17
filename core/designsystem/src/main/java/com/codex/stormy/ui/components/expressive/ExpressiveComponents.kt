@@ -92,7 +92,12 @@ fun ExpressiveProgressIndicator(
 data class ToggleOption(
     val id: String,
     val label: String,
-    val icon: ImageVector? = null
+    val icon: ImageVector? = null,
+    /**
+     * Drawn instead of [icon] when set -- for marks that are not single-colour
+     * glyphs, such as Orobi on the chat tab.
+     */
+    val iconContent: (@Composable () -> Unit)? = null
 )
 
 /**
@@ -125,7 +130,7 @@ fun ExpressiveToggleGroup(
                 checked = checked,
                 label = if (showLabels) option.label else "",
                 onCheckedChange = { isChecked -> if (isChecked) onSelect(option.id) },
-                icon = option.icon?.let { icon ->
+                icon = option.iconContent ?: option.icon?.let { icon ->
                     {
                         Icon(
                             imageVector = icon,

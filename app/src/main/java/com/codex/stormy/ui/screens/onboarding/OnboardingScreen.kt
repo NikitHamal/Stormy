@@ -67,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codex.stormy.R
 import com.codex.stormy.ui.brand.OroBrand
+import com.codex.stormy.ui.brand.OroSparkle
 import com.codex.stormy.ui.components.expressive.expressivePress
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -310,7 +311,7 @@ private fun PrimaryButton(page: Int, onClick: () -> Unit) {
             ) { last ->
                 if (last) {
                     // Orobi's sparkle: the last step hands over to the assistant.
-                    SparkleGlyph(Modifier.size(18.dp))
+                    OroSparkle(Modifier.size(18.dp))
                 } else {
                     Icon(
                         Icons.AutoMirrored.Rounded.ArrowForward,

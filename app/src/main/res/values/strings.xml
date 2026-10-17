@@ -138,7 +138,6 @@
     <string name="onboarding_desc_2">Ask for a page, a section or a fix. Orobi plans it, writes the HTML, CSS and JavaScript, and shows you the result as it lands.</string>
     <string name="onboarding_title_3">Bring any\nmodel.</string>
     <string name="onboarding_desc_3">Start free with Pollinations, no account needed. Add keys for Gemini, Groq, OpenRouter and more whenever you like.</string>
-    <string name="onboarding_providers">Pollinations · Gemini · NVIDIA · Groq · Cerebras · OpenRouter</string>
     <string name="onboarding_title_4">Make it\nyours.</string>
     <string name="onboarding_desc_4">Pick a look. You can change it any time in Settings.</string>
     <string name="onboarding_theme_system">System</string>

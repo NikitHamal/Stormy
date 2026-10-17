@@ -1,5 +1,7 @@
 package com.codex.stormy.ui.components.agent
 
+import com.codex.stormy.ui.brand.OroSparkle
+import com.codex.stormy.ui.brand.OrobiLoader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -242,16 +244,17 @@ private fun ReasoningCard(reasoning: ReasoningEntry) {
                     }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Outlined.Psychology,
-                            contentDescription = null,
-                            tint = if (reasoning.isActive) {
-                                MaterialTheme.colorScheme.onSecondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                            modifier = Modifier.size(Sizes.iconSmall)
-                        )
+                        if (reasoning.isActive) {
+                            OrobiLoader(
+                                modifier = Modifier.width(Sizes.icon),
+                                contentDescription = null
+                            )
+                        } else {
+                            OroSparkle(
+                                modifier = Modifier.size(Sizes.iconSmall - 4.dp),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
 

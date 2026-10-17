@@ -1,5 +1,11 @@
 package com.codex.stormy.ui.screens.home
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import com.codex.stormy.ui.brand.OrobiIdle
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.draw.blur
+import androidx.compose.animation.core.animateDpAsState
 import com.codex.stormy.ui.components.expressive.SortOption
 import com.codex.stormy.ui.components.expressive.FilterTuneButton
 import com.codex.stormy.ui.components.expressive.AdvancedFilterPanel
@@ -216,71 +222,155 @@ fun HomeScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            Column {
-                ExpressiveSearchTopBar(
-                    searchActive = searchExpanded,
-                    onSearchActiveChange = { searchExpanded = it },
-                    query = uiState.searchQuery,
-                    onQueryChange = viewModel::updateSearchQuery,
-                    placeholder = "Search projects",
-                    searchTrailing = {
-                        FilterTuneButton(
-                            active = filterPanelOpen,
-                            activeCount = if (selectedFilter != ProjectFilterAll) 1 else 0,
-                            icon = Icons.Outlined.Tune,
-                            onClick = { filterPanelOpen = !filterPanelOpen }
-                        )
-                    },
-                    title = {
-                        Text(
-                            text = context.getString(R.string.home_title),
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    },
-                    actions = {
-                        FlowerIconButton(
-                            icon = Icons.Outlined.Search,
-                            contentDescription = "Search projects",
-                            onClick = { searchExpanded = true }
-                        )
-                        FlowerIconButton(
-                            icon = Icons.Outlined.Settings,
-                            contentDescription = context.getString(R.string.action_settings),
-                            onClick = onSettingsClick,
-                            // The alternate lean, so two adjacent blobs read as
-                            // deliberate rather than as a rendering artefact.
-                            alternate = true
+    // While the speed dial is open, everything except the dial recedes:
+    // blurred (API 31+) and dimmed by the scrim. The scrim used to sit inside
+    // the Scaffold body *underneath* the content, and the top bar was outside
+    // it entirely, so cards, the empty-state badge and the top-bar buttons
+    // stayed bright above it -- the dial was competing with the very things it
+    // is meant to sit in front of.
+    val backdropBlur by animateDpAsState(
+        targetValue = if (showFabMenu) 6.dp else 0.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "speedDialBlur"
+    )
+
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.then(
+                if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier
+            ),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                Column {
+                    ExpressiveSearchTopBar(
+                        searchActive = searchExpanded,
+                        onSearchActiveChange = { searchExpanded = it },
+                        query = uiState.searchQuery,
+                        onQueryChange = viewModel::updateSearchQuery,
+                        placeholder = "Search projects",
+                        searchTrailing = {
+                            FilterTuneButton(
+                                active = filterPanelOpen,
+                                activeCount = if (selectedFilter != ProjectFilterAll) 1 else 0,
+                                icon = Icons.Outlined.Tune,
+                                onClick = { filterPanelOpen = !filterPanelOpen }
+                            )
+                        },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Orobi as the app mark, alive but quiet: it
+                                // breathes and blinks, it does not glance about.
+                                OrobiIdle(
+                                    look = false,
+                                    showShadow = false,
+                                    contentDescription = null,
+                                    modifier = Modifier.width(34.dp)
+                                )
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    text = context.getString(R.string.home_title),
+                                    style = MaterialTheme.typography.headlineSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        letterSpacing = (-0.4).sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        },
+                        actions = {
+                            FlowerIconButton(
+                                icon = Icons.Outlined.Search,
+                                contentDescription = "Search projects",
+                                onClick = { searchExpanded = true }
+                            )
+                            FlowerIconButton(
+                                icon = Icons.Outlined.Settings,
+                                contentDescription = context.getString(R.string.action_settings),
+                                onClick = onSettingsClick,
+                                // The alternate lean, so two adjacent blobs read as
+                                // deliberate rather than as a rendering artefact.
+                                alternate = true
+                            )
+                        }
+                    )
+
+                    // The chip strip belongs to search: it filters what search is
+                    // showing, so it arrives with the pill and leaves with it.
+                    FilterChipStrip(
+                        items = ProjectFilters,
+                        selectedId = selectedFilter,
+                        onSelect = { selectedFilter = it },
+                        visible = searchExpanded
+                    )
+
+                    AdvancedFilterPanel(
+                        visible = searchExpanded && filterPanelOpen,
+                        sortOptions = ProjectSorts,
+                        selectedSortId = selectedSort,
+                        onSortSelected = { selectedSort = it },
+                        onReset = {
+                            selectedFilter = ProjectFilterAll
+                            selectedSort = ProjectSortRecent
+                        },
+                        activeFilterCount = if (selectedFilter != ProjectFilterAll) 1 else 0
+                    )
+                }
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+
+                when {
+                    uiState.projects.isEmpty() && uiState.searchQuery.isEmpty() -> {
+                        EmptyState(
+                            onCreateClick = { showCreateDialog = true },
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
-                )
-
-                // The chip strip belongs to search: it filters what search is
-                // showing, so it arrives with the pill and leaves with it.
-                FilterChipStrip(
-                    items = ProjectFilters,
-                    selectedId = selectedFilter,
-                    onSelect = { selectedFilter = it },
-                    visible = searchExpanded
-                )
-
-                AdvancedFilterPanel(
-                    visible = searchExpanded && filterPanelOpen,
-                    sortOptions = ProjectSorts,
-                    selectedSortId = selectedSort,
-                    onSortSelected = { selectedSort = it },
-                    onReset = {
-                        selectedFilter = ProjectFilterAll
-                        selectedSort = ProjectSortRecent
-                    },
-                    activeFilterCount = if (selectedFilter != ProjectFilterAll) 1 else 0
-                )
+                    uiState.projects.isEmpty() && uiState.searchQuery.isNotEmpty() -> {
+                        EmptySearchState(
+                            query = uiState.searchQuery,
+                            onClear = { viewModel.updateSearchQuery("") },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    else -> {
+                        ProjectsList(
+                            projects = visibleProjects,
+                            onProjectClick = { project ->
+                                viewModel.openProject(project.id)
+                                onProjectClick(project.id)
+                            },
+                            onDeleteClick = { project ->
+                                projectToDelete = project
+                            },
+                            onEditClick = { project ->
+                                projectToEdit = project
+                            },
+                            onPinClick = { project ->
+                                viewModel.setProjectPinned(project.id, !project.isPinned)
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
-        },
-        floatingActionButton = {
+        }
+
+        // Above the blurred Scaffold, so it covers the top bar too; the FAB is
+        // drawn after it and stays sharp.
+        SpeedDialScrim(expanded = showFabMenu, onDismiss = { showFabMenu = false })
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(Space.lg),
+            contentAlignment = Alignment.BottomEnd
+        ) {
             // A speed dial rather than an extended FAB plus a dropdown. The old
             // control showed one action and hid the other two behind a menu, so
             // cloning a repository -- the way a lot of real work starts -- was
@@ -304,52 +394,6 @@ fun HomeScreen(
                     ) { showImportDialog = true }
                 )
             )
-        }
-    ) { innerPadding ->
-        // Dismiss layer for the expanded speed dial. Inside the Scaffold body
-        // so it covers the list but never the FAB itself.
-        SpeedDialScrim(expanded = showFabMenu, onDismiss = { showFabMenu = false })
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-
-            when {
-                uiState.projects.isEmpty() && uiState.searchQuery.isEmpty() -> {
-                    EmptyState(
-                        onCreateClick = { showCreateDialog = true },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                uiState.projects.isEmpty() && uiState.searchQuery.isNotEmpty() -> {
-                    EmptySearchState(
-                        query = uiState.searchQuery,
-                        onClear = { viewModel.updateSearchQuery("") },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                else -> {
-                    ProjectsList(
-                        projects = visibleProjects,
-                        onProjectClick = { project ->
-                            viewModel.openProject(project.id)
-                            onProjectClick(project.id)
-                        },
-                        onDeleteClick = { project ->
-                            projectToDelete = project
-                        },
-                        onEditClick = { project ->
-                            projectToEdit = project
-                        },
-                        onPinClick = { project ->
-                            viewModel.setProjectPinned(project.id, !project.isPinned)
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
         }
     }
 
@@ -479,7 +523,10 @@ private fun EmptyState(
         shape = EmptyStateShape.Cookie,
         actionLabel = context.getString(R.string.home_create_project),
         onAction = onCreateClick,
-        modifier = modifier
+        modifier = modifier,
+        illustration = {
+            OrobiIdle(modifier = Modifier.width(168.dp))
+        }
     )
 }
 
@@ -508,7 +555,8 @@ private fun ProjectsList(
 ) {
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        // Bottom clearance for the speed dial, which floats over the list.
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 104.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(

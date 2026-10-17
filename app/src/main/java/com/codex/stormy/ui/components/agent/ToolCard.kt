@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.agent
 
+import com.codex.stormy.ui.brand.OrobiLoader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -361,8 +362,11 @@ private fun ToolIconBadge(
 @Composable
 private fun StatusGlyph(status: ToolCallStatus) {
     when (status) {
-        ToolCallStatus.Running -> ExpressiveLoadingIndicator(
-            modifier = Modifier.size(Sizes.iconSmall)
+        // Orobi's loader, sized to the row's glyph slot so a running row
+        // and a finished one line up.
+        ToolCallStatus.Running -> OrobiLoader(
+            modifier = Modifier.width(Sizes.iconLarge),
+            contentDescription = "Running"
         )
 
         ToolCallStatus.Success -> Icon(

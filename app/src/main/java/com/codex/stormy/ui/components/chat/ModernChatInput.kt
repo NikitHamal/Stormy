@@ -1,5 +1,6 @@
 package com.codex.stormy.ui.components.chat
 
+import androidx.compose.material.icons.outlined.Lightbulb
 import com.codex.stormy.ui.theme.Space
 import com.codex.stormy.ui.theme.Sizes
 import com.codex.stormy.ui.theme.ExpressiveShapes
@@ -235,12 +236,16 @@ fun ModernChatInput(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    ModelChip(
-                        model = currentModel,
-                        onClick = onModelClick
-                    )
-
-                    Spacer(Modifier.weight(1f))
+                    // The chip takes whatever the fixed controls leave and no
+                    // more. A long model id ("org/model-name-instruct:free")
+                    // used to be measured at full width, which pushed the
+                    // context meter and the send button off the right edge.
+                    Box(Modifier.weight(1f)) {
+                        ModelChip(
+                            model = currentModel,
+                            onClick = onModelClick
+                        )
+                    }
 
                     // Context meter. A ring rather than a number alone: it is
                     // glanceable at this size, and it only earns its place on
@@ -424,7 +429,7 @@ private fun ModelChip(
             // Model type icon
             Icon(
                 imageVector = when {
-                    model.isThinkingModel -> Icons.Outlined.Psychology
+                    model.isThinkingModel -> Icons.Outlined.Lightbulb
                     // A wrench for tool use, a bolt for plain completion.
                     // Both used to be the same sparkle, which made the icon
                     // decorative rather than informative.
@@ -439,9 +444,11 @@ private fun ModelChip(
                 }
             )
 
-            // Model name
+            // Model name. Weighted so it is the part that gives way: the
+            // chevron stays visible however long the name is.
             Text(
-                text = model.name,
+                text = model.shortName(),
+                modifier = Modifier.weight(1f, fill = false),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -555,3 +562,10 @@ private fun InputActionButton(
         )
     }
 }
+
+/**
+ * The name to show in the compact chip. Model ids from routers carry an
+ * owner prefix ("meta-llama/") that tells the user nothing at this size.
+ */
+private fun AiModel.shortName(): String =
+    name.substringAfterLast('/').ifBlank { name }
