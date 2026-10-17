@@ -276,13 +276,17 @@ fun ChatTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Compared by id: `message == last` was a full content compare
+                // of every bubble on every streamed frame.
+                val lastId = messages.lastOrNull()?.id
                 items(
                     items = messages,
-                    key = { it.id }
+                    key = { it.id },
+                    contentType = { if (it.isUser) "user" else "ai" }
                 ) { message ->
                     ChatBubble(
                         message = message,
-                        isStreaming = isLoading && message == messages.lastOrNull() && !message.isUser,
+                        isStreaming = isLoading && message.id == lastId && !message.isUser,
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -294,7 +298,8 @@ fun ChatTab(
                 if (agentSessions.isNotEmpty()) {
                     items(
                         items = agentSessions,
-                        key = { it.id }
+                        key = { it.id },
+                        contentType = { "agent" }
                     ) { session ->
                         AgentActivityCard(
                             session = session,

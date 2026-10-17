@@ -260,6 +260,7 @@ class RunTranscript(initial: String = "") {
         private val THINK = Regex("(?is)<think>.*?(</think>|$)")
         private val TOOL_BLOCK = Regex("""(?m)^🔧\s*\*\*(.+?)\*\*[ \t]*\r?\n(✅|❌|⏳)[^\n]*(?:\n[^\n]+)*""")
         private val DIFF = Regex("(?s)```diff\\n.*?```")
+        private val BLANK_RUNS = Regex("\n{3,}")
 
         /**
          * A persisted transcript reduced to what is worth sending back to the
@@ -269,7 +270,7 @@ class RunTranscript(initial: String = "") {
         fun toHistoryText(content: String): String {
             var s = content.replace(THINK, "").replace(DIFF, "")
             s = s.replace(TOOL_BLOCK) { m -> "[${m.groupValues[1].trim()}: ${if (m.groupValues[2] == "❌") "failed" else "done"}]" }
-            return s.replace(Regex("\n{3,}"), "\n\n").trim()
+            return s.replace(BLANK_RUNS, "\n\n").trim()
         }
     }
 }
