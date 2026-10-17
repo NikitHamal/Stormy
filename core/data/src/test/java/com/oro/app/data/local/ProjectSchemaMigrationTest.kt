@@ -76,7 +76,24 @@ class ProjectSchemaMigrationTest {
             "ALTER TABLE projects ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0"
         )
         assertThat(source).contains("Migration(3, 4)")
-        assertThat(source).contains("version = 4")
+        assertThat(source).contains("Migration(4, 5)")
+        assertThat(source).contains("version = 5")
+    }
+
+    @Test
+    fun `ai_models reportedContextLength is added as a nullable integer`() {
+        fun aiModelsField(version: Int, name: String): JsonObject? {
+            val root = Json.parseToJsonElement(File(schemaDir, "$version.json").readText()).jsonObject
+            return root["database"]!!.jsonObject["entities"]!!.jsonArray.map { it.jsonObject }
+                .first { it["tableName"]!!.jsonPrimitive.content == "ai_models" }["fields"]!!.jsonArray
+                .map { it.jsonObject }.firstOrNull { it["columnName"]!!.jsonPrimitive.content == name }
+        }
+        assertThat(aiModelsField(4, "reportedContextLength")).isNull()
+        val field = aiModelsField(5, "reportedContextLength")!!
+        assertThat(field["affinity"]!!.jsonPrimitive.content).isEqualTo("INTEGER")
+        assertThat(field["notNull"]?.jsonPrimitive?.content ?: "false").isEqualTo("false")
+        val source = File("src/main/java/com/oro/app/data/local/database/OroDatabase.kt").readText()
+        assertThat(source).contains("ALTER TABLE ai_models ADD COLUMN reportedContextLength INTEGER\"")
     }
 
     @Test

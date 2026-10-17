@@ -103,8 +103,7 @@ class DelegationHandler(
             success = true,
             output = buildString {
                 append("Started ${definition.label} agent \"$description\" (id ${session.id}). ")
-                append("It runs in its own context and will report a summary when it finishes. ")
-                append("Do not wait for it or repeat its work; continue with what you can do now.")
+                append("It runs in its own context; its summary is returned when it finishes.")
             }
         )
     }

@@ -393,7 +393,14 @@ fun EditorScreen(
                                     onToggleAgentMode = viewModel::toggleAgentMode,
                                     onModelChange = viewModel::setModel,
                                     onRefreshModels = viewModel::refreshModels,
-                                    isRefreshingModels = uiState.isRefreshingModels
+                                    isRefreshingModels = uiState.isRefreshingModels,
+                                    workingLabel = uiState.runStatus?.label,
+                                    pendingQuestion = uiState.pendingQuestion,
+                                    onAnswerQuestion = viewModel::answerQuestion,
+                                    onSkipQuestion = viewModel::skipQuestion,
+                                    runError = uiState.runError,
+                                    onRetryRun = viewModel::retryRun,
+                                    onDismissRunError = viewModel::dismissRunError
                                 )
                                 EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
                                     // File tabs row

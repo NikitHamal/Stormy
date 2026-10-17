@@ -120,8 +120,66 @@ class ToolExecutor(
      */
     fun setProjectPath(path: File) {
         currentProjectPath = path
+        workspace = WorkspaceTools(path)
         shellExecutor = ShellToolExecutor(defaultWorkingDir = path)
         advancedToolExecutor.setProjectPath(path)
+    }
+
+    /** Root the workspace tools operate on; rebuilt when the project changes. */
+    private var workspace: WorkspaceTools? = null
+
+    private suspend fun ensureProjectRoot(projectId: String) {
+        val project = projectRepository.getProjectById(projectId) ?: return
+        val root = File(project.rootPath)
+        if (currentProjectPath?.path != root.path) setProjectPath(root)
+    }
+
+    /**
+     * The canonical agent tools. Returns null for names handled by the legacy
+     * dispatch below.
+     */
+    private suspend fun executeCanonical(
+        projectId: String,
+        toolName: String,
+        args: JsonObject
+    ): ToolResult? {
+        val ws = workspace ?: currentProjectPath?.let { WorkspaceTools(it).also { w -> workspace = w } }
+        val outcome: ToolOutcome = when (toolName) {
+            "read_file", "write_file", "edit_file", "multi_edit", "list_files",
+            "glob", "grep", "delete_file", "move_file", "web_fetch" -> {
+                if (ws == null) {
+                    return ToolResult(false, "", "No project is open, so there are no files to work with.")
+                }
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    when (toolName) {
+                        "read_file" -> ws.readFile(args)
+                        "write_file" -> ws.writeFile(args)
+                        "edit_file" -> ws.editFile(args)
+                        "multi_edit" -> ws.multiEdit(args)
+                        "list_files" -> ws.listFiles(args)
+                        "glob" -> ws.glob(args)
+                        "grep" -> ws.grep(args)
+                        "delete_file" -> ws.deleteFile(args)
+                        "move_file" -> ws.moveFile(args)
+                        else -> ws.webFetch(args)
+                    }
+                }
+            }
+            "ask_user" -> return executeAskUser(args)
+            "finish_task" -> return executeFinishTask(args)
+            "update_plan" -> return ToolResult(
+                false, "",
+                "update_plan is handled by the agent runtime and is not available here."
+            )
+            else -> return null
+        }
+        for (change in outcome.changes) {
+            interactionCallback?.onFileChanged(change.path, change.type, change.oldContent, change.newContent)
+            if (change.newContent != null && change.type != FileChangeType.MOVED) {
+                triggerAutoLearning(projectId, change.path, change.newContent)
+            }
+        }
+        return outcome.result
     }
 
     // Session-based todo storage
@@ -140,31 +198,45 @@ class ToolExecutor(
     ): ToolResult {
         return try {
             // Parse arguments with robust error handling
-            val arguments = parseToolArguments(toolCall.function.arguments)
+            val parsed = parseToolArguments(toolCall.function.arguments)
                 ?: return ToolResult(
                     success = false,
                     output = "",
-                    error = "Failed to parse tool arguments. The AI sent malformed JSON."
+                    error = "Could not parse the arguments as a JSON object. Send the " +
+                        "arguments as valid JSON matching the tool's schema " +
+                        "(strings quoted and escaped, no trailing commas)."
                 )
+
+            // Map aliases (patch_file, str_replace, search_files, ...) onto the
+            // canonical tools so models trained on other harnesses still work.
+            val (toolName, arguments) = ToolAliases.normalise(toolCall.function.name, parsed)
+
+            // The project root must be known before any path is checked. It was
+            // previously only set by a setProjectPath() nobody called, which
+            // left AgentPathPolicy with a null root -- i.e. no containment at
+            // all -- and every shell and git tool reporting "no project".
+            ensureProjectRoot(projectId)
 
             // Path containment and the reserved-directory rule are enforced
             // before anything else and are NOT behind enableArgumentValidation.
             // That flag exists to trade strictness for permissiveness on
             // argument shapes; a security boundary must not be switchable.
             AgentPathPolicy.denyIfAnyPathBlocked(arguments, currentProjectPath)?.let { reason ->
-                android.util.Log.w(TAG, "Blocked ${toolCall.function.name}: $reason")
+                android.util.Log.w(TAG, "Blocked $toolName: $reason")
                 return ToolResult(success = false, output = "", error = reason)
             }
+
+            executeCanonical(projectId, toolName, arguments)?.let { return it }
 
             // Validate arguments if validation is enabled
             if (enableArgumentValidation) {
                 val validationResult = ToolArgumentValidator.validate(
-                    toolName = toolCall.function.name,
+                    toolName = toolName,
                     args = arguments,
                     projectRoot = currentProjectPath
                 )
                 if (!validationResult.isValid) {
-                    android.util.Log.w(TAG, "Tool argument validation failed for ${toolCall.function.name}: ${validationResult.errors}")
+                    android.util.Log.w(TAG, "Tool argument validation failed for $toolName: ${validationResult.errors}")
                     return ToolResult(
                         success = false,
                         output = "",
@@ -173,7 +245,7 @@ class ToolExecutor(
                 }
             }
 
-            when (toolCall.function.name) {
+            when (toolName) {
                 // File operations
                 "read_file" -> executeReadFile(projectId, arguments)
                 "write_file" -> executeWriteFile(projectId, arguments)
@@ -228,14 +300,20 @@ class ToolExecutor(
 
                 else -> {
                     // Try advanced tools executor
-                    advancedToolExecutor.execute(projectId, toolCall.function.name, arguments)
+                    advancedToolExecutor.execute(projectId, toolName, arguments)
                         ?: ToolResult(
                             success = false,
                             output = "",
-                            error = "Unknown tool: ${toolCall.function.name}"
+                            error = "Unknown tool: ${toolCall.function.name}. Available tools: " +
+                                AgentTools.all.joinToString(", ") { it.function.name }
                         )
                 }
             }
+        } catch (e: CancellationException) {
+            // Stop pressed while a tool (e.g. ask_user) was suspended: let the
+            // cancellation through instead of turning it into a tool error the
+            // loop would carry on from.
+            throw e
         } catch (e: kotlinx.serialization.SerializationException) {
             ToolResult(
                 success = false,
@@ -1129,22 +1207,63 @@ class ToolExecutor(
 
     // ==================== Agent Control ====================
 
+    /**
+     * Ask the user and wait for the answer.
+     *
+     * This used to return success with "Waiting for user response..." when no
+     * answer came back -- and the view model's callback always returned null --
+     * so the chat showed a green "Ask User" card, the run ended, and the user
+     * was never asked anything. Now the callback suspends until the user
+     * answers, and every path that does not produce an answer says so plainly
+     * so the model does not proceed as if it had one.
+     */
     private suspend fun executeAskUser(args: JsonObject): ToolResult {
-        val question = args.getStringArg("question")
+        val question = args.getStringArg("question")?.trim()?.takeIf { it.isNotEmpty() }
             ?: return ToolResult(false, "", "Missing required argument: question")
-        val optionsStr = args.getStringArg("options")
-        val options = optionsStr?.split(",")?.map { it.trim() }
+        val options = parseOptions(args)
 
         val callback = interactionCallback
-            ?: return ToolResult(true, "Question for user: $question" +
-                (options?.let { "\nOptions: ${it.joinToString(", ")}" } ?: ""))
+            ?: return ToolResult(
+                false, "",
+                "No one is available to answer questions right now. Make the most " +
+                    "reasonable assumption, state it in your reply, and continue."
+            )
 
-        val answer = callback.askUser(question, options)
-        return if (answer != null) {
-            ToolResult(true, "User response: $answer")
-        } else {
-            ToolResult(true, "Waiting for user response...")
+        val answer = callback.askUser(question, options)?.trim()
+        return when {
+            answer == null -> ToolResult(
+                true,
+                "The user dismissed the question without answering. Do not ask it " +
+                    "again; proceed with your best judgement and state any assumption " +
+                    "you make, or stop and explain what you need."
+            )
+            answer.isEmpty() -> ToolResult(true, "The user replied with an empty answer.")
+            else -> ToolResult(true, "User answered: $answer")
         }
+    }
+
+    /** `options` as a JSON array, a JSON-array string, or a comma list. */
+    private fun parseOptions(args: JsonObject): List<String>? {
+        val element = args["options"] ?: return null
+        val list = when (element) {
+            is kotlinx.serialization.json.JsonArray -> element.mapNotNull {
+                (it as? kotlinx.serialization.json.JsonPrimitive)?.content
+            }
+            is kotlinx.serialization.json.JsonPrimitive -> {
+                val raw = element.content.trim()
+                if (raw.startsWith("[")) {
+                    runCatching {
+                        (Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonArray)
+                            .map { (it as kotlinx.serialization.json.JsonPrimitive).content }
+                    }.getOrElse { raw.trim('[', ']').split(",") }
+                } else {
+                    raw.split(",")
+                }
+            }
+            else -> emptyList()
+        }
+        return list.map { it.trim().trim('"') }.filter { it.isNotEmpty() }.distinct().take(6)
+            .takeIf { it.isNotEmpty() }
     }
 
     private suspend fun executeFinishTask(args: JsonObject): ToolResult {

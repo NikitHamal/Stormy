@@ -19,7 +19,7 @@ import com.oro.app.data.local.entity.ProjectEntity
         ChatMessageEntity::class,
         AiModelEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class OroDatabase : RoomDatabase() {
@@ -40,6 +40,17 @@ abstract class OroDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds `ai_models.reportedContextLength`. Nullable with no default,
+         * which is exactly what Room expects for an `Int?` column; existing
+         * rows read as "provider said nothing" and resolve from the table.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE ai_models ADD COLUMN reportedContextLength INTEGER")
+            }
+        }
+
         @Volatile
         private var INSTANCE: OroDatabase? = null
 
@@ -50,7 +61,7 @@ abstract class OroDatabase : RoomDatabase() {
                     OroDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                     // Still the fallback for the older unversioned schemas,
                     // but 3 -> 4 is migrated properly: by this point users
                     // have real projects in here, and dropping the table to

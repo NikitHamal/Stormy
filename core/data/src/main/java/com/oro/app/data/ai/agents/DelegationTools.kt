@@ -36,6 +36,9 @@ object DelegationTools {
                 only context it gets. If you cannot write a clear brief, you do
                 not understand the task well enough to hand it off.
 
+                The call returns the subagent's summary when it finishes.
+                Several spawn_subagent calls in one turn run concurrently.
+
                 Types: explore (read-only search), plan (research, no edits),
                 build (implement a scoped change), review (find defects),
                 general (anything else).

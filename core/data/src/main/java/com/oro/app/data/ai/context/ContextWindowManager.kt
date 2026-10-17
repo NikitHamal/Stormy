@@ -61,13 +61,10 @@ class ContextWindowManager(
     /**
      * Estimate total tokens for a list of messages
      */
-    fun estimateTotalTokens(messages: List<ChatRequestMessage>): Int {
-        return messages.sumOf { message ->
-            val contentTokens = estimateTokens(message.content ?: "")
-            val roleTokens = 4 // Overhead for role markers
-            contentTokens + roleTokens
-        }
-    }
+    fun estimateTotalTokens(messages: List<ChatRequestMessage>): Int =
+        // Includes tool-call arguments: a write_file call carries the whole
+        // file, and leaving it out metered big agent runs as nearly free.
+        com.oro.app.data.ai.agent.TokenEstimator.estimate(messages)
 
     /**
      * Get available tokens for the conversation (excluding reserved output tokens)
