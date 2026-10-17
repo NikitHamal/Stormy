@@ -13,14 +13,23 @@ import androidx.room.PrimaryKey
             parentColumns = ["id"],
             childColumns = ["projectId"],
             onDelete = ForeignKey.CASCADE
+        ),
+        // Deleting a session takes its messages with it.
+        ForeignKey(
+            entity = ChatSessionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["projectId"])]
+    indices = [Index(value = ["projectId"]), Index(value = ["sessionId"])]
 )
 data class ChatMessageEntity(
     @PrimaryKey
     val id: String,
     val projectId: String,
+    /** The [ChatSessionEntity] this message belongs to. */
+    val sessionId: String,
     val role: String,
     val content: String,
     val timestamp: Long,

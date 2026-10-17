@@ -2,9 +2,14 @@ package com.oro.app.data.repository
 
 import android.content.Context
 import com.oro.app.data.local.dao.ChatMessageDao
-import com.oro.app.data.local.entity.ChatMessageEntity
+import com.oro.app.data.local.dao.ChatSessionDao
+import com.oro.app.data.local.entity.ChatSessionEntity
 import com.oro.app.data.local.entity.MessageStatus
+import com.oro.app.data.local.entity.ProjectSessionStats
 import com.oro.app.domain.model.ChatMessage
+import com.oro.app.domain.model.ChatSession
+import com.oro.app.domain.model.DeletedSessionSnapshot
+import com.oro.app.domain.model.SessionTitles
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
@@ -14,48 +19,134 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * Repository for managing chat message persistence.
- * Handles saving, loading, and exporting conversation history per project.
+ * Repository for chat sessions and their messages.
+ *
+ * A project holds many sessions; every message belongs to exactly one. All
+ * conversation reads are session-scoped -- the agent's history, the export
+ * and "clear" each act on one thread, never on the whole project.
  */
 class ChatRepository(
     private val chatMessageDao: ChatMessageDao,
+    private val chatSessionDao: ChatSessionDao,
     private val context: Context
 ) {
+    // ---- Sessions ---------------------------------------------------------
+
+    /** The project's sessions, pinned first, then most recently active. */
+    fun observeSessions(projectId: String): Flow<List<ChatSession>> =
+        chatSessionDao.observeSessionsWithStats(projectId)
+            .map { rows -> rows.map { ChatSession.fromEntity(it) } }
+
+    /** Session count and last activity per project, keyed by project id. */
+    fun observeProjectSessionStats(): Flow<Map<String, ProjectSessionStats>> =
+        chatSessionDao.observeProjectSessionStats()
+            .map { rows -> rows.associateBy { it.projectId } }
+
+    /** The session to reopen for a project, or null if it has none yet. */
+    suspend fun getLastOpenedSessionId(projectId: String): String? =
+        chatSessionDao.getLastOpenedSession(projectId)?.id
+
+    suspend fun sessionExists(sessionId: String): Boolean =
+        chatSessionDao.getSession(sessionId) != null
+
     /**
-     * Get all messages for a project as a Flow for reactive updates
+     * Create a session titled from its first message. A no-op if [sessionId]
+     * already exists, so a retried send cannot wipe a session.
      */
-    fun getMessagesForProject(projectId: String): Flow<List<ChatMessage>> {
-        return chatMessageDao.getMessagesByProjectId(projectId)
+    suspend fun createSession(
+        sessionId: String,
+        projectId: String,
+        firstMessage: String?,
+        now: Long = System.currentTimeMillis()
+    ) {
+        chatSessionDao.insertSession(
+            ChatSessionEntity(
+                id = sessionId,
+                projectId = projectId,
+                title = SessionTitles.fromFirstMessage(firstMessage),
+                createdAt = now,
+                updatedAt = now,
+                lastOpenedAt = now,
+                isPinned = false
+            )
+        )
+    }
+
+    /** Returns false when [title] is blank and nothing was changed. */
+    suspend fun renameSession(sessionId: String, title: String): Boolean {
+        val clean = SessionTitles.sanitizeUserTitle(title) ?: return false
+        chatSessionDao.updateTitle(sessionId, clean)
+        return true
+    }
+
+    suspend fun setSessionPinned(sessionId: String, pinned: Boolean) {
+        chatSessionDao.setPinned(sessionId, pinned)
+    }
+
+    suspend fun markSessionOpened(sessionId: String, now: Long = System.currentTimeMillis()) {
+        chatSessionDao.markOpened(sessionId, now)
+    }
+
+    /**
+     * Delete a session and its messages, returning what is needed to undo
+     * it, or null if it no longer existed.
+     */
+    suspend fun deleteSession(sessionId: String): DeletedSessionSnapshot? {
+        val session = chatSessionDao.getSession(sessionId) ?: return null
+        val messages = chatMessageDao.getAllMessagesForSession(sessionId)
+        chatSessionDao.deleteSession(sessionId) // cascades to its messages
+        return DeletedSessionSnapshot(session, messages)
+    }
+
+    /** Put a deleted session back exactly as it was. */
+    suspend fun restoreSession(snapshot: DeletedSessionSnapshot) {
+        chatSessionDao.insertSession(snapshot.session)
+        if (snapshot.messages.isNotEmpty()) {
+            chatMessageDao.insertMessages(snapshot.messages)
+        }
+    }
+
+    // ---- Messages ---------------------------------------------------------
+
+    /** All messages of a session, oldest first, as a live Flow. */
+    fun getMessagesForSession(sessionId: String): Flow<List<ChatMessage>> {
+        return chatMessageDao.getMessagesBySessionId(sessionId)
             .map { entities -> entities.map { ChatMessage.fromEntity(it) } }
     }
 
     /**
-     * Get recent messages for a project (for context window management)
+     * Get recent messages of a session (for context window management)
      */
-    suspend fun getRecentMessages(projectId: String, limit: Int): List<ChatMessage> {
-        return chatMessageDao.getRecentMessages(projectId, limit)
+    suspend fun getRecentMessages(sessionId: String, limit: Int): List<ChatMessage> {
+        return chatMessageDao.getRecentMessagesForSession(sessionId, limit)
             .map { ChatMessage.fromEntity(it) }
             .reversed() // Return in chronological order
     }
 
     /**
-     * Save a single message to the database
+     * Save a message and mark its session as active now.
      */
     suspend fun saveMessage(message: ChatMessage) {
+        requireSession(message)
         chatMessageDao.insertMessage(message.toEntity())
+        chatSessionDao.touch(message.sessionId, System.currentTimeMillis())
     }
 
     /**
      * Save multiple messages to the database
      */
     suspend fun saveMessages(messages: List<ChatMessage>) {
+        messages.forEach(::requireSession)
         chatMessageDao.insertMessages(messages.map { it.toEntity() })
+        val now = System.currentTimeMillis()
+        messages.map { it.sessionId }.distinct().forEach { chatSessionDao.touch(it, now) }
     }
 
     /**
      * Update an existing message (e.g., when streaming completes)
      */
     suspend fun updateMessage(message: ChatMessage) {
+        requireSession(message)
         chatMessageDao.updateMessage(message.toEntity())
     }
 
@@ -74,26 +165,31 @@ class ChatRepository(
     }
 
     /**
-     * Clear all chat history for a project
+     * Clear the messages of one session. The session itself stays, with its
+     * title, so "clear" does not also make the thread vanish from the list.
      */
-    suspend fun clearChatHistory(projectId: String) {
-        chatMessageDao.deleteAllMessagesForProject(projectId)
+    suspend fun clearChatHistory(sessionId: String) {
+        chatMessageDao.deleteAllMessagesForSession(sessionId)
     }
 
     /**
-     * Export chat history to markdown format
+     * Export one session to markdown format
      */
-    suspend fun exportToMarkdown(projectId: String, projectName: String): Result<File> {
+    suspend fun exportToMarkdown(
+        sessionId: String,
+        projectName: String,
+        sessionTitle: String? = null
+    ): Result<File> {
         return try {
-            val messages = chatMessageDao.getRecentMessages(projectId, Int.MAX_VALUE)
+            val messages = chatMessageDao.getAllMessagesForSession(sessionId)
                 .map { ChatMessage.fromEntity(it) }
-                .reversed()
 
             if (messages.isEmpty()) {
                 return Result.failure(IllegalStateException("No messages to export"))
             }
 
-            val markdown = buildMarkdownExport(projectName, messages)
+            val heading = if (sessionTitle.isNullOrBlank()) projectName else "$projectName — $sessionTitle"
+            val markdown = buildMarkdownExport(heading, messages)
 
             val exportDir = File(context.filesDir, "exports")
             if (!exportDir.exists()) {
@@ -110,6 +206,16 @@ class ChatRepository(
             Result.success(exportFile)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * A message with no session would fail the foreign key with an opaque
+     * SQLite error; this names the actual mistake.
+     */
+    private fun requireSession(message: ChatMessage) {
+        require(message.sessionId.isNotEmpty()) {
+            "ChatMessage ${message.id} has no sessionId; create it with the current session's id"
         }
     }
 
@@ -162,18 +268,18 @@ class ChatRepository(
     }
 
     /**
-     * Get total message count for a project
+     * Get total message count for a session
      */
-    suspend fun getMessageCount(projectId: String): Int {
-        return chatMessageDao.getRecentMessages(projectId, Int.MAX_VALUE).size
+    suspend fun getMessageCount(sessionId: String): Int {
+        return chatMessageDao.getAllMessagesForSession(sessionId).size
     }
 
     /**
      * Get estimated token count for context window management
      * Uses a simple heuristic: ~4 characters per token
      */
-    suspend fun getEstimatedTokenCount(projectId: String): Int {
-        val messages = chatMessageDao.getRecentMessages(projectId, Int.MAX_VALUE)
+    suspend fun getEstimatedTokenCount(sessionId: String): Int {
+        val messages = chatMessageDao.getAllMessagesForSession(sessionId)
         val totalChars = messages.sumOf { it.content.length }
         return totalChars / 4
     }
@@ -182,12 +288,11 @@ class ChatRepository(
      * Get messages within token budget for context window
      */
     suspend fun getMessagesWithinTokenBudget(
-        projectId: String,
+        sessionId: String,
         maxTokens: Int
     ): List<ChatMessage> {
-        val allMessages = chatMessageDao.getRecentMessages(projectId, Int.MAX_VALUE)
+        val allMessages = chatMessageDao.getAllMessagesForSession(sessionId)
             .map { ChatMessage.fromEntity(it) }
-            .reversed()
 
         if (allMessages.isEmpty()) return emptyList()
 

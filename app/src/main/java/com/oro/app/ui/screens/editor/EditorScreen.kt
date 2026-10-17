@@ -94,6 +94,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.R
 import com.oro.app.ui.screens.editor.assets.AssetManagerDrawer
 import com.oro.app.ui.screens.editor.chat.ChatTab
+import com.oro.app.ui.screens.editor.sessions.ChatSessionActions
 import com.oro.app.ui.screens.editor.code.AiCodeEditRequest
 import com.oro.app.ui.screens.editor.code.CodeTab
 import com.oro.app.ui.screens.editor.filetree.FileTreeDrawer
@@ -119,6 +120,18 @@ fun EditorScreen(
     )
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val sessionsState by viewModel.sessionsState.collectAsStateWithLifecycle()
+    val sessionActions = remember(viewModel) {
+        ChatSessionActions(
+            onOpen = viewModel::openSession,
+            onNewChat = viewModel::startNewChat,
+            onRename = viewModel::renameSession,
+            onSetPinned = viewModel::setSessionPinned,
+            onDelete = viewModel::deleteSession,
+            onUndoDelete = viewModel::undoDeleteSession,
+            onDismissUndo = viewModel::dismissSessionUndo
+        )
+    }
     val context = LocalContext.current
     // Read once in composable scope: AnimatedContent's transitionSpec lambda
     // is not @Composable, so MaterialTheme cannot be read inside it.
@@ -369,6 +382,9 @@ fun EditorScreen(
                         ) { tab ->
                             when (tab) {
                                 EditorTab.CHAT -> ChatTab(
+                                    sessionsState = sessionsState,
+                                    sessionActions = sessionActions,
+                                    projectName = uiState.project?.name,
                                     agentSessions = uiState.agentSessions,
                                     reasoningEffort = uiState.reasoningEffort,
                                     onReasoningEffortChange = viewModel::setReasoningEffort,

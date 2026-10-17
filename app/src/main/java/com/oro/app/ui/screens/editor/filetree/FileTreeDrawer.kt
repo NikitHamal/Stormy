@@ -1,10 +1,7 @@
 package com.oro.app.ui.screens.editor.filetree
 
 import com.oro.app.ui.theme.OroCorners
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.oro.app.ui.theme.OroTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -176,12 +174,30 @@ fun FileTreeDrawer(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // The tree is flattened to the rows that are actually visible and
+            // each row is its own lazy item. Previously each top-level node was
+            // one item that composed its whole expanded subtree recursively, so
+            // opening a big folder (node_modules, assets) composed and measured
+            // every descendant at once and nothing below the fold was lazy.
+            val visibleRows = remember(fileTree, expandedFolders) {
+                flattenVisibleTree(fileTree, expandedFolders)
+            }
+            val animateRows = !OroTheme.liteMode
             LazyColumn(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                items(fileTree) { node ->
+                items(
+                    items = visibleRows,
+                    key = { it.node.path },
+                    contentType = { if (it.node is FileTreeNode.FolderNode) "folder" else "file" }
+                ) { row ->
                     FileTreeItem(
-                        node = node,
+                        node = row.node,
+                        depth = row.depth,
+                        // Expand/collapse used to animate via AnimatedVisibility
+                        // around the children; with flat rows the same feel
+                        // comes from item placement/fade animations.
+                        modifier = if (animateRows) Modifier.animateItem() else Modifier,
                         expandedFolders = expandedFolders,
                         selectedFilePath = selectedFilePath,
                         onFileClick = onFileClick,
@@ -273,7 +289,8 @@ private fun FileTreeItem(
     onDelete: (FileTreeNode) -> Unit,
     onImportFile: (parentPath: String) -> Unit,
     onImportFolder: (parentPath: String) -> Unit,
-    depth: Int = 0
+    depth: Int = 0,
+    modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -285,7 +302,7 @@ private fun FileTreeItem(
                 label = "folder_rotation"
             )
 
-            Column {
+            Column(modifier = modifier) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -371,30 +388,8 @@ private fun FileTreeItem(
                     }
                 }
 
-                AnimatedVisibility(
-                    visible = isExpanded,
-                    enter = expandVertically(),
-                    exit = shrinkVertically()
-                ) {
-                    Column {
-                        node.children.forEach { child ->
-                            FileTreeItem(
-                                node = child,
-                                expandedFolders = expandedFolders,
-                                selectedFilePath = selectedFilePath,
-                                onFileClick = onFileClick,
-                                onFolderToggle = onFolderToggle,
-                                onCreateFile = onCreateFile,
-                                onCreateFolder = onCreateFolder,
-                                onRename = onRename,
-                                onDelete = onDelete,
-                                onImportFile = onImportFile,
-                                onImportFolder = onImportFolder,
-                                depth = depth + 1
-                            )
-                        }
-                    }
-                }
+                // Children are rendered as their own rows by the drawer's
+                // LazyColumn; see flattenVisibleTree.
             }
         }
 
@@ -402,7 +397,7 @@ private fun FileTreeItem(
             val isSelected = node.path == selectedFilePath
 
             Row(
-                modifier = Modifier
+                modifier = modifier
                     .fillMaxWidth()
                     .then(
                         if (isSelected) {
@@ -476,6 +471,27 @@ private fun FileTreeItem(
             }
         }
     }
+}
+
+/** One visible row of the file tree: a node and its indentation level. */
+private data class VisibleTreeRow(val node: FileTreeNode, val depth: Int)
+
+/** Depth-first list of the nodes whose ancestors are all expanded. */
+private fun flattenVisibleTree(
+    roots: List<FileTreeNode>,
+    expandedFolders: Set<String>
+): List<VisibleTreeRow> {
+    val out = ArrayList<VisibleTreeRow>()
+    fun visit(nodes: List<FileTreeNode>, depth: Int) {
+        for (node in nodes) {
+            out.add(VisibleTreeRow(node, depth))
+            if (node is FileTreeNode.FolderNode && node.path in expandedFolders) {
+                visit(node.children, depth + 1)
+            }
+        }
+    }
+    visit(roots, 0)
+    return out
 }
 
 @Composable

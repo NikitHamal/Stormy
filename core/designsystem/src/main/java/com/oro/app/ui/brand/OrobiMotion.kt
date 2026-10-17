@@ -15,6 +15,7 @@ import android.app.ActivityManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.oro.app.ui.theme.LocalLiteMode
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -233,14 +234,20 @@ fun rememberAnimationClock(running: Boolean = true, restartKey: Any? = Unit): St
     return time
 }
 
-/** True on devices Android itself classes as low-RAM. */
+/**
+ * True when brand motion should economise: on devices Android classes as
+ * low-RAM, and whenever Lite mode is on (which covers budget phones the
+ * low-RAM flag misses, and users who simply want a lighter UI).
+ */
 @Composable
 fun rememberLowEndDevice(): Boolean {
     val context = LocalContext.current
-    return remember(context) {
+    val liteMode = LocalLiteMode.current
+    val lowRam = remember(context) {
         (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? ActivityManager)
             ?.isLowRamDevice == true
     }
+    return liteMode || lowRam
 }
 
 /**

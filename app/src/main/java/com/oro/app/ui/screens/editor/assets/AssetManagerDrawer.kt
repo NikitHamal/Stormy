@@ -731,10 +731,15 @@ private fun AssetGridItem(
             ) {
                 if (asset.type == AssetType.IMAGE) {
                     AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(File(asset.path))
-                            .crossfade(true)
-                            .build(),
+                        model = remember(asset.path) {
+                            // Remembered: a new request per recomposition makes Coil
+                            // re-resolve (and can restart) the load on every frame of a
+                            // scroll or animation.
+                            ImageRequest.Builder(context)
+                                .data(File(asset.path))
+                                .crossfade(true)
+                                .build()
+                        },
                         contentDescription = asset.name,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -825,10 +830,15 @@ private fun AssetListItem(
         ) {
             if (asset.type == AssetType.IMAGE) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(File(asset.path))
-                        .crossfade(true)
-                        .build(),
+                    model = remember(asset.path) {
+                        // Remembered: a new request per recomposition makes Coil
+                        // re-resolve (and can restart) the load on every frame of a
+                        // scroll or animation.
+                        ImageRequest.Builder(context)
+                            .data(File(asset.path))
+                            .crossfade(true)
+                            .build()
+                    },
                     contentDescription = asset.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop

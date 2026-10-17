@@ -28,10 +28,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableFloatStateOf
+import com.oro.app.ui.theme.LocalLiteMode
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -83,29 +84,41 @@ fun ExpressiveEmptyState(
     illustration: (@Composable () -> Unit)? = null
 ) {
     // --- idle motion ------------------------------------------------------
-    val transition = rememberInfiniteTransition(label = "emptyState")
+    // Both values are State objects read only inside graphicsLayer {} below,
+    // so the idle loop invalidates the layer each frame instead of
+    // recomposing the whole empty state 60 times a second. In Lite mode the
+    // loop is not started at all: the badge simply sits still.
+    val liteMode = LocalLiteMode.current
+    val rotation: State<Float>
+    val breath: State<Float>
+    if (liteMode) {
+        rotation = remember { mutableFloatStateOf(0f) }
+        breath = remember { mutableFloatStateOf(1f) }
+    } else {
+        val transition = rememberInfiniteTransition(label = "emptyState")
 
-    // One rotation every 40 seconds. Fast enough that the shape is never
-    // quite where it was, slow enough that it is never seen moving.
-    val rotation by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(40_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "emptyRotation"
-    )
+        // One rotation every 40 seconds. Fast enough that the shape is never
+        // quite where it was, slow enough that it is never seen moving.
+        rotation = transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(40_000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "emptyRotation"
+        )
 
-    val breath by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2_600),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "emptyBreath"
-    )
+        breath = transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.05f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2_600),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "emptyBreath"
+        )
+    }
 
     // --- entrance ---------------------------------------------------------
     val markEnter = remember { Animatable(0f) }
@@ -132,7 +145,10 @@ fun ExpressiveEmptyState(
     ) {
         if (illustration != null) {
             Box(
-                modifier = Modifier.scale(markEnter.value),
+                modifier = Modifier.graphicsLayer {
+                    scaleX = markEnter.value
+                    scaleY = markEnter.value
+                },
                 contentAlignment = Alignment.Center
             ) { illustration() }
         } else {
@@ -141,8 +157,12 @@ fun ExpressiveEmptyState(
                     .size(markSize)
                     // Rotation is applied to the container only, so the glyph
                     // inside stays upright -- a rotating icon reads as broken.
-                    .rotate(rotation)
-                    .scale(breath * markEnter.value),
+                    .graphicsLayer {
+                        rotationZ = rotation.value
+                        val s = breath.value * markEnter.value
+                        scaleX = s
+                        scaleY = s
+                    },
                 shape = shape.toShape(),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest
             ) {
@@ -152,7 +172,7 @@ fun ExpressiveEmptyState(
                         contentDescription = null,
                         modifier = Modifier
                             .size(markSize / 2.6f)
-                            .rotate(-rotation),
+                            .graphicsLayer { rotationZ = -rotation.value },
                         tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
@@ -164,7 +184,11 @@ fun ExpressiveEmptyState(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .scale(0.96f + 0.04f * textEnter.value),
+                .graphicsLayer {
+                    val s = 0.96f + 0.04f * textEnter.value
+                    scaleX = s
+                    scaleY = s
+                },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -186,7 +210,11 @@ fun ExpressiveEmptyState(
             Spacer(Modifier.height(Space.xl))
             Button(
                 onClick = onAction,
-                modifier = Modifier.scale(0.9f + 0.1f * actionEnter.value),
+                modifier = Modifier.graphicsLayer {
+                    val s = 0.9f + 0.1f * actionEnter.value
+                    scaleX = s
+                    scaleY = s
+                },
                 shape = OroCorners.pill,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,

@@ -11,6 +11,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.ReasoningEffort
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -49,13 +50,34 @@ class PreferencesRepository(private val context: Context) {
 
         // Beta Features
         val DEBUG_LOGS_ENABLED = booleanPreferencesKey("debug_logs_enabled")
+
+        // Performance
+        val LITE_MODE = stringPreferencesKey("lite_mode")
     }
 
+    // distinctUntilChanged: every DataStore edit re-emits the whole
+    // Preferences object, so without it an unrelated write (an API key, the
+    // font size slider) would push a "new" theme through the activity root.
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
         try {
             ThemeMode.valueOf(preferences[PreferenceKeys.THEME_MODE] ?: ThemeMode.SYSTEM.name)
         } catch (e: IllegalArgumentException) {
             ThemeMode.SYSTEM
+        }
+    }.distinctUntilChanged()
+
+    /**
+     * Lite mode: trades decorative effects (backdrop blur, idle loops, springy
+     * motion) for smoothness. [LiteMode.AUTO] lets the app decide from the
+     * device's RAM class; see `isLowEndDevice` in the design system.
+     */
+    val liteMode: Flow<LiteMode> = context.dataStore.data.map { preferences ->
+        LiteMode.fromName(preferences[PreferenceKeys.LITE_MODE])
+    }.distinctUntilChanged()
+
+    suspend fun setLiteMode(mode: LiteMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.LITE_MODE] = mode.name
         }
     }
 
@@ -241,4 +263,24 @@ enum class ThemeMode {
     SYSTEM,
     LIGHT,
     DARK
+}
+
+/** User choice for [PreferencesRepository.liteMode]. */
+enum class LiteMode {
+    /** On for low-RAM / low-memory-class devices, off otherwise. */
+    AUTO,
+    ON,
+    OFF;
+
+    /** Resolves the choice against the device classification. */
+    fun isEnabled(lowEndDevice: Boolean): Boolean = when (this) {
+        AUTO -> lowEndDevice
+        ON -> true
+        OFF -> false
+    }
+
+    companion object {
+        fun fromName(value: String?): LiteMode =
+            entries.find { it.name == value } ?: AUTO
+    }
 }

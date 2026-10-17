@@ -55,6 +55,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import com.oro.app.ui.theme.OroTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -116,6 +123,16 @@ sealed class MessageContentBlock {
 }
 
 enum class ToolStatus { RUNNING, SUCCESS, ERROR }
+
+/** Inputs of one parse; see AiMessageContent. */
+private data class ParseInput(val content: String, val isStreaming: Boolean)
+
+/** The synchronous first parse, reused if the inputs come back unchanged. */
+private class FirstParse(
+    val content: String,
+    val isStreaming: Boolean,
+    val blocks: List<MessageContentBlock>
+)
 
 /**
  * Fold runs of two or more adjacent tool calls into a single block.
@@ -320,6 +337,10 @@ private val CLOSE_THINKING_REGEX = Regex("""(?i)</\s*(thinking|think)\s*>""")
 private val CLOSE_REASONING_REGEX = Regex("""(?i)</\s*(reasoning|reason)\s*>""")
 
 // Code-fence start: at line-start, optional indentation, then ``` or ~~~, optional language, then newline.
+private val FENCE_END_REGEXES: Map<String, Regex> = listOf("```", "~~~").associateWith { fence ->
+    Regex("""(?m)^\s*${Regex.escape(fence)}\s*$""")
+}
+
 private val FENCE_START_REGEX = Regex("""(?m)^\s*(```|~~~)\s*([\w.+-]+)?\s*\r?\n""")
 
 private fun processTextSegment(
@@ -339,9 +360,26 @@ private fun processTextSegment(
         }
     }
 
+    // The next fence / tag match at or after i, cached. The loop used to call
+    // find(content, i) for both patterns at *every character*, and each call
+    // scans ahead to the next match (or the end of the message) -- quadratic
+    // in the message length, re-run on every streamed chunk, and the main
+    // source of chat lag on long replies. A match found from an earlier
+    // position is still the first match at or after i as long as it starts at
+    // or after i, so it only needs refreshing once i moves past it.
+    var nextFence: MatchResult? = FENCE_START_REGEX.find(content, 0)
+    var nextOpen: MatchResult? = OPEN_TAG_REGEX.find(content, 0)
+
     while (i < content.length) {
+        if (nextFence != null && nextFence.range.first < i) {
+            nextFence = FENCE_START_REGEX.find(content, i)
+        }
+        if (nextOpen != null && nextOpen.range.first < i) {
+            nextOpen = OPEN_TAG_REGEX.find(content, i)
+        }
+
         // 1) Code fences (outside thinking/reasoning only)
-        val fenceStart = FENCE_START_REGEX.find(content, i)
+        val fenceStart = nextFence
         if (fenceStart != null && fenceStart.range.first == i) {
             flushText()
 
@@ -349,7 +387,8 @@ private fun processTextSegment(
             val language = fenceStart.groupValues.getOrNull(2)?.trim()?.takeIf { it.isNotBlank() }
             val codeStart = fenceStart.range.last + 1
 
-            val fenceEndRegex = Regex("""(?m)^\s*${Regex.escape(fence)}\s*$""")
+            val fenceEndRegex = FENCE_END_REGEXES[fence]
+                ?: Regex("""(?m)^\s*${Regex.escape(fence)}\s*$""")
             val fenceEnd = fenceEndRegex.find(content, codeStart)
 
             if (fenceEnd == null) {
@@ -371,7 +410,7 @@ private fun processTextSegment(
         }
 
         // 2) <thinking>/<reasoning> tags
-        val open = OPEN_TAG_REGEX.find(content, i)
+        val open = nextOpen
         if (open != null && open.range.first == i) {
             val tag = open.groupValues[1].lowercase(Locale.ROOT)
             val kind = when (tag) {
@@ -411,9 +450,15 @@ private fun processTextSegment(
             }
         }
 
-        // 3) Default: consume one char
-        buf.append(content[i])
-        i++
+        // 3) Default: plain text up to the next possible fence/tag start.
+        // Neither cached match starts at i here, and both start after i, so
+        // this always advances.
+        val stop = minOf(
+            fenceStart?.range?.first ?: content.length,
+            open?.range?.first ?: content.length
+        )
+        buf.append(content, i, stop)
+        i = stop
     }
 
     flushText()
@@ -450,18 +495,39 @@ private fun coalesceTextBlocks(blocks: List<MessageContentBlock>): List<MessageC
     return out
 }
 
+// Compiled once. These used to be built inside the extract* helpers, i.e.
+// recompiled for every tool call of every message on every streamed chunk.
+private val TOOL_NAME_SEPARATORS_REGEX = Regex("""[_\-\s]+""")
+private val FILE_TOOL_NAMES = listOf(
+    "readfile", "writefile", "createfile", "deletefile", "patchfile", "editfile", "modifyfile", "updatefile"
+)
+private val EXPLICIT_PATH_REGEX = Regex("""(?im)^\s*(?:file|path)\s*[:=]\s*([^\s]+)\s*$""")
+private val DIFF_PATH_REGEX = Regex("""(?m)^\s*(?:\+\+\+|---)\s+[ab]/([^\s]+)\s*$""")
+private val PATH_CANDIDATE_REGEXES = listOf(
+    Regex("""["']([^"'\r\n]+\.[a-zA-Z0-9]{1,10})["']"""),
+    Regex("""`([^`\r\n]+\.[a-zA-Z0-9]{1,10})`"""),
+    Regex("""(?i)(?:^|[\s:(])([a-z0-9_\-./\\]+?\.[a-z0-9]{1,10})(?:$|[\s),.])""")
+)
+private val FENCED_DIFF_REGEX = Regex("""(?is)```diff\s*\r?\n(.*?)\r?\n```""")
+private val LABELLED_CONTENT_REGEXES: Map<String, Regex> =
+    listOf("old", "before", "original", "new", "after", "updated").associateWith { label ->
+        Regex(
+            pattern = """(?is)\b$label(?:_content)?\b\s*[:=]\s*```[^\n]*\r?\n(.*?)\r?\n```""",
+            options = setOf(RegexOption.IGNORE_CASE)
+        )
+    }
+private val STREAM_FENCE_REGEX = Regex("""```(\w+)?\n([\s\S]*?)```""")
+private val STREAM_UNCLOSED_FENCE_REGEX = Regex("""```(\w+)?\n([\s\S]*)$""")
+
 /**
  * Best-effort extraction of a file path referenced by a file-related tool call.
  * Also tries unified-diff headers (---/+++).
  */
 private fun extractFilePath(toolName: String, output: String): String? {
-    val normalized = toolName.lowercase(Locale.ROOT).replace(Regex("""[_\-\s]+"""), "")
-    val fileTools = listOf(
-        "readfile", "writefile", "createfile", "deletefile", "patchfile", "editfile", "modifyfile", "updatefile"
-    )
-    val looksLikeFileTool = fileTools.any { normalized.contains(it) }
+    val normalized = toolName.lowercase(Locale.ROOT).replace(TOOL_NAME_SEPARATORS_REGEX, "")
+    val looksLikeFileTool = FILE_TOOL_NAMES.any { normalized.contains(it) }
 
-    val explicitPath = Regex("""(?im)^\s*(?:file|path)\s*[:=]\s*([^\s]+)\s*$""")
+    val explicitPath = EXPLICIT_PATH_REGEX
         .find(output)
         ?.groupValues
         ?.getOrNull(1)
@@ -470,7 +536,7 @@ private fun extractFilePath(toolName: String, output: String): String? {
 
     if (explicitPath != null) return explicitPath
 
-    val diffPath = Regex("""(?m)^\s*(?:\+\+\+|---)\s+[ab]/([^\s]+)\s*$""")
+    val diffPath = DIFF_PATH_REGEX
         .find(output)
         ?.groupValues
         ?.getOrNull(1)
@@ -480,13 +546,7 @@ private fun extractFilePath(toolName: String, output: String): String? {
     if (diffPath != null) return diffPath
     if (!looksLikeFileTool) return null
 
-    val candidates = listOf(
-        Regex("""["']([^"'\r\n]+\.[a-zA-Z0-9]{1,10})["']"""),
-        Regex("""`([^`\r\n]+\.[a-zA-Z0-9]{1,10})`"""),
-        Regex("""(?i)(?:^|[\s:(])([a-z0-9_\-./\\]+?\.[a-z0-9]{1,10})(?:$|[\s),.])""")
-    )
-
-    return candidates.asSequence()
+    return PATH_CANDIDATE_REGEXES.asSequence()
         .mapNotNull { rx -> rx.find(output)?.groupValues?.getOrNull(1)?.trim() }
         .firstOrNull { it.isNotBlank() && !it.startsWith("http", ignoreCase = true) }
 }
@@ -510,7 +570,7 @@ private fun computeUnifiedDiffSummary(output: String?): Pair<Int, Int> {
 }
 
 private fun extractDiffText(output: String): String? {
-    val fenced = Regex("""(?is)```diff\s*\r?\n(.*?)\r?\n```""")
+    val fenced = FENCED_DIFF_REGEX
         .find(output)
         ?.groupValues
         ?.getOrNull(1)
@@ -527,10 +587,7 @@ private fun extractDiffText(output: String): String? {
  */
 private fun extractOldNewContent(output: String): Pair<String?, String?> {
     fun extract(label: String): String? {
-        val rx = Regex(
-            pattern = """(?is)\b$label(?:_content)?\b\s*[:=]\s*```[^\n]*\r?\n(.*?)\r?\n```""",
-            options = setOf(RegexOption.IGNORE_CASE)
-        )
+        val rx = LABELLED_CONTENT_REGEXES.getValue(label)
         return rx.find(output)?.groupValues?.getOrNull(1)?.trim()
     }
 
@@ -564,24 +621,53 @@ fun AiMessageContent(
     // as raw text for the entire length of any real agent run and only
     // snapped into cards once streaming stopped. The parse is memoised on
     // content, so it runs once per emitted chunk rather than per frame.
-    val shouldDoFullParsing = true
-
-    val parsedBlocks = remember(content, isStreaming, shouldDoFullParsing) {
-        if (shouldDoFullParsing) {
-            parseAiMessageContent(content, isStreaming)
-        } else {
-            // During streaming with large content, just do minimal parsing
-            parseStreamingContent(content)
-        }
+    //
+    // The first parse is synchronous, so a message scrolled into view (or
+    // restored from history) appears fully formed with its final height and
+    // the list does not jump. Every later change -- i.e. each streamed chunk
+    // -- is parsed on Dispatchers.Default: the parse is a dozen regex passes
+    // over the *whole* message, so on a long agent reply it grew to many
+    // milliseconds of main-thread work per chunk. conflate() rather than
+    // collectLatest: if chunks arrive faster than a parse completes, the
+    // newest content is parsed next instead of every parse being cancelled
+    // and the message freezing until streaming stops.
+    val firstParse = remember {
+        FirstParse(content, isStreaming, parseAiMessageContent(content, isStreaming))
+    }
+    var parsedBlocks by remember { mutableStateOf(firstParse.blocks) }
+    val latestInput = rememberUpdatedState(ParseInput(content, isStreaming))
+    LaunchedEffect(Unit) {
+        snapshotFlow { latestInput.value }
+            .conflate()
+            .collect { input ->
+                parsedBlocks = if (
+                    input.content == firstParse.content && input.isStreaming == firstParse.isStreaming
+                ) {
+                    firstParse.blocks
+                } else {
+                    withContext(Dispatchers.Default) {
+                        parseAiMessageContent(input.content, input.isStreaming)
+                    }
+                }
+            }
     }
 
     // Check if content is empty/minimal (only show generating indicator when truly empty)
-    val hasSubstantialContent = content.trim().length > 10 || parsedBlocks.isNotEmpty()
+    // (Memoised: trim() copies the whole message, and this ran per recomposition.)
+    val hasSubstantialContent = remember(content) { content.trim().length > 10 } ||
+        parsedBlocks.isNotEmpty()
 
+    // Lite mode drops the size animation: while streaming it restarts on
+    // every chunk, so the message re-measures on every frame of the reply.
+    val sizeAnimation = if (OroTheme.liteMode) {
+        Modifier
+    } else {
+        Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+            .then(sizeAnimation),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Show minimal generating indicator only when streaming with no substantial content
@@ -600,8 +686,9 @@ fun AiMessageContent(
         grouped.forEach { block ->
             when (block) {
                 is MessageContentBlock.ToolRunBlock -> {
-                    ToolCallGroup(
-                        entries = block.calls.map { call ->
+                    // Mapped once per block rather than on every recomposition
+                    // of the message, so the group can skip when unchanged.
+                    val entries = remember(block) { block.calls.map { call ->
                             ToolCallEntry(
                                 toolName = call.toolName,
                                 subject = call.filePath,
@@ -614,7 +701,9 @@ fun AiMessageContent(
                                 oldContent = call.oldContent,
                                 newContent = call.newContent
                             )
-                        },
+                        } }
+                    ToolCallGroup(
+                        entries = entries,
                         // Expanded while anything is still running, so the user
                         // can watch; collapsed once the run finishes, so the
                         // answer is what remains on screen.
@@ -674,10 +763,9 @@ private fun parseStreamingContent(content: String): List<MessageContentBlock> {
     val blocks = mutableListOf<MessageContentBlock>()
 
     // Simple check for code fences
-    val fencePattern = Regex("""```(\w+)?\n([\s\S]*?)```""")
     var lastEnd = 0
 
-    fencePattern.findAll(content).forEach { match ->
+    STREAM_FENCE_REGEX.findAll(content).forEach { match ->
         // Add text before code block
         if (match.range.first > lastEnd) {
             val text = content.substring(lastEnd, match.range.first).trim()
@@ -699,7 +787,7 @@ private fun parseStreamingContent(content: String): List<MessageContentBlock> {
         val remaining = content.substring(lastEnd).trim()
         if (remaining.isNotEmpty()) {
             // Check if we have an unclosed code fence (streaming)
-            val unclosedFence = Regex("""```(\w+)?\n([\s\S]*)$""").find(remaining)
+            val unclosedFence = STREAM_UNCLOSED_FENCE_REGEX.find(remaining)
             if (unclosedFence != null) {
                 val textBefore = remaining.substring(0, unclosedFence.range.first).trim()
                 if (textBefore.isNotEmpty()) {

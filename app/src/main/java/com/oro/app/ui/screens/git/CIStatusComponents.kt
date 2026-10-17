@@ -44,10 +44,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
+import androidx.compose.ui.graphics.graphicsLayer
+import com.oro.app.ui.theme.OroTheme
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -77,16 +79,25 @@ fun CIStatusBadge(
         CIStatus.UNKNOWN -> Triple(Icons.Outlined.HourglassEmpty, Color(0xFF9E9E9E), "Unknown")
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "ci_status")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
+    // Only a running badge spins, so only a running badge pays for the
+    // transition: previously every badge (passing, failing, ...) ran an
+    // infinite animation and recomposed on each frame. The angle is read in
+    // graphicsLayer {}, so the spin redraws the icon's layer without
+    // recomposition. Lite mode keeps the hourglass still.
+    val spinning = status == CIStatus.IN_PROGRESS && !OroTheme.liteMode
+    val rotation: State<Float>? = if (spinning) {
+        rememberInfiniteTransition(label = "ci_status").animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "rotation"
+        )
+    } else {
+        null
+    }
 
     Surface(
         modifier = modifier,
@@ -105,8 +116,11 @@ fun CIStatusBadge(
                 modifier = Modifier
                     .size(14.dp)
                     .then(
-                        if (status == CIStatus.IN_PROGRESS) Modifier.rotate(rotation)
-                        else Modifier
+                        if (rotation != null) {
+                            Modifier.graphicsLayer { rotationZ = rotation.value }
+                        } else {
+                            Modifier
+                        }
                     )
             )
             Text(
@@ -251,7 +265,7 @@ fun CIPanelContent(
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(summary.recentRuns) { run ->
+                    items(summary.recentRuns, key = { it.id }) { run ->
                         WorkflowRunCard(
                             run = run,
                             onClick = { onRunClick(run) },

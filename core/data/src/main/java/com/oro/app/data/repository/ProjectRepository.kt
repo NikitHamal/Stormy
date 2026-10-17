@@ -471,17 +471,30 @@ class ProjectRepository(
         val files = directory.listFiles() ?: return emptyList()
 
         // Show all files including hidden ones (starting with .)
-        // Sort: folders first, then alphabetically
+        // Sort: folders first, then alphabetically.
+        //
+        // isDirectory is a stat() call; it is read once per entry here instead
+        // of inside the comparator, which called it O(n log n) times per
+        // folder, and the lowercase sort key is likewise computed once.
         return files
-            .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-            .map { file ->
-                if (file.isDirectory) {
+            .map { file -> Triple(file, file.isDirectory, file.name.lowercase()) }
+            .sortedWith(compareBy({ !it.second }, { it.third }))
+            .map { (file, isDirectory, _) ->
+                if (isDirectory) {
                     FileTreeNode.FolderNode(
                         name = file.name,
                         path = file.absolutePath.removePrefix(basePath).trimStart(File.separatorChar),
                         depth = depth,
                         isExpanded = false,
-                        children = buildFileTree(file, basePath, depth + 1)
+                        // .git is listed but not walked: its object store runs
+                        // to thousands of binary files nobody edits by hand,
+                        // and walking it dominated tree loading (time and
+                        // memory) for every cloned project.
+                        children = if (file.name == ".git") {
+                            emptyList()
+                        } else {
+                            buildFileTree(file, basePath, depth + 1)
+                        }
                     )
                 } else {
                     FileTreeNode.FileNode(

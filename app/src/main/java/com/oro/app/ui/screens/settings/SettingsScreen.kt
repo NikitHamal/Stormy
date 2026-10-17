@@ -46,6 +46,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.outlined.Speed
+import com.oro.app.data.repository.LiteMode
+import com.oro.app.ui.theme.DevicePerformance
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -78,6 +84,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lowEndDevice = remember(context) { DevicePerformance.isLowEndDevice(context) }
 
     Scaffold(
         topBar = {
@@ -125,6 +132,15 @@ fun SettingsScreen(
                 // over every surface and silently undoes the monochrome
                 // direction -- in practice a blue wallpaper turned the whole
                 // app blue. See the note in OroTheme.
+            }
+
+            // Performance Section
+            SettingsSection(title = "Performance") {
+                LiteModeSelector(
+                    current = uiState.liteMode,
+                    lowEndDevice = lowEndDevice,
+                    onSelected = viewModel::setLiteMode
+                )
             }
 
             // Editor Section
@@ -420,6 +436,10 @@ private fun FontSizeSetting(
     currentSize: Float,
     onSizeChange: (Float) -> Unit
 ) {
+    // The slider tracks a local value while dragging and persists once on
+    // release. Writing through on every onValueChange meant a DataStore disk
+    // write (and a full settings-state re-emission) per drag event.
+    var draftSize by remember(currentSize) { mutableFloatStateOf(currentSize) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -447,7 +467,7 @@ private fun FontSizeSetting(
                 )
             }
             Text(
-                text = "${currentSize.toInt()}sp",
+                text = "${draftSize.toInt()}sp",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
@@ -457,8 +477,9 @@ private fun FontSizeSetting(
         Spacer(modifier = Modifier.height(8.dp))
 
         Slider(
-            value = currentSize,
-            onValueChange = onSizeChange,
+            value = draftSize,
+            onValueChange = { draftSize = it },
+            onValueChangeFinished = { onSizeChange(draftSize) },
             valueRange = 10f..24f,
             steps = 13,
             colors = SliderDefaults.colors(
@@ -688,6 +709,85 @@ private fun GitSettingsNavItem(
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier.size(20.dp)
         )
+    }
+}
+
+/**
+ * Lite mode: Auto / On / Off. Auto follows the device class, and the caption
+ * says what Auto resolved to so the choice is never a guess.
+ */
+@Composable
+private fun LiteModeSelector(
+    current: LiteMode,
+    lowEndDevice: Boolean,
+    onSelected: (LiteMode) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Speed,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Lite mode",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = when (current) {
+                        LiteMode.AUTO -> if (lowEndDevice) {
+                            "On for this device: no blur, calmer motion"
+                        } else {
+                            "Off for this device; turns on for low-memory phones"
+                        }
+                        LiteMode.ON -> "No blur, calmer motion, lighter animations"
+                        LiteMode.OFF -> "Full effects and expressive motion"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LiteMode.entries.forEach { mode ->
+                val selected = mode == current
+                Surface(
+                    onClick = { onSelected(mode) },
+                    shape = OroCorners.medium,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    }
+                ) {
+                    Text(
+                        text = when (mode) {
+                            LiteMode.AUTO -> "Auto"
+                            LiteMode.ON -> "On"
+                            LiteMode.OFF -> "Off"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

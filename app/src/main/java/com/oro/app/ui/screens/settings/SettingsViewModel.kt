@@ -9,6 +9,7 @@ import com.oro.app.OroApplication
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.repository.AiModelRepository
 import com.oro.app.data.repository.PreferencesRepository
+import com.oro.app.data.repository.LiteMode
 import com.oro.app.data.repository.ThemeMode
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +42,8 @@ data class SettingsUiState(
      * provider needs no change to this state class or the combine() below.
      */
     val apiKeys: Map<AiProvider, String> = emptyMap(),
-    val customBaseUrl: String = ""
+    val customBaseUrl: String = "",
+    val liteMode: LiteMode = LiteMode.AUTO
 )
 
 class SettingsViewModel(
@@ -60,7 +62,8 @@ class SettingsViewModel(
         preferencesRepository.aiModel,
         preferencesRepository.apiKeys,
         preferencesRepository.customBaseUrl,
-        aiModelRepository.observeEnabledModels()
+        aiModelRepository.observeEnabledModels(),
+        preferencesRepository.liteMode
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val keys = values[8] as Map<AiProvider, String>
@@ -77,7 +80,8 @@ class SettingsViewModel(
             aiModel = values[7] as String,
             apiKeys = keys,
             customBaseUrl = values[9] as String,
-            availableModels = models
+            availableModels = models,
+            liteMode = values[11] as LiteMode
         )
     }.stateIn(
         scope = viewModelScope,
@@ -88,6 +92,12 @@ class SettingsViewModel(
     fun setDebugLogsEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setDebugLogsEnabled(enabled)
+        }
+    }
+
+    fun setLiteMode(mode: LiteMode) {
+        viewModelScope.launch {
+            preferencesRepository.setLiteMode(mode)
         }
     }
 

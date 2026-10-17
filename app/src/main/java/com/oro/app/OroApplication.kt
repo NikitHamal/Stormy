@@ -1,6 +1,7 @@
 package com.oro.app
 
 import android.app.Application
+import android.os.Build
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.PlatformContext
@@ -50,7 +51,7 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
     }
 
     val chatRepository: ChatRepository by lazy {
-        ChatRepository(database.chatMessageDao(), this)
+        ChatRepository(database.chatMessageDao(), database.chatSessionDao(), this)
     }
 
     val geminiModelService: GeminiModelService by lazy {
@@ -112,11 +113,21 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         instance = this
         CrashHandler.initialize(this)
 
+        // CrashActivity runs in its own ":crash_handler" process, which also
+        // creates an OroApplication. It only shows a stack trace, so it must
+        // not open the database or seed models -- that is wasted work and
+        // extra memory pressure at exactly the moment the device just crashed.
+        if (isCrashProcess()) return
+
         // Initialize AI models on startup to ensure models are available
         applicationScope.launch {
             aiModelRepository.initializeModelsIfEmpty()
         }
     }
+
+    private fun isCrashProcess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            Application.getProcessName().endsWith(":crash_handler")
 
     /**
      * Coil 3 singleton loader. SVG decoding is registered explicitly; network

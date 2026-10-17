@@ -15,6 +15,13 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages WHERE projectId = :projectId ORDER BY timestamp ASC")
     fun getMessagesByProjectId(projectId: String): Flow<List<ChatMessageEntity>>
 
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    fun getMessagesBySessionId(sessionId: String): Flow<List<ChatMessageEntity>>
+
+    /** One-shot read of a whole session, oldest first: export and delete-undo snapshots. */
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp ASC")
+    suspend fun getAllMessagesForSession(sessionId: String): List<ChatMessageEntity>
+
     @Query("SELECT * FROM chat_messages WHERE id = :messageId")
     suspend fun getMessageById(messageId: String): ChatMessageEntity?
 
@@ -32,6 +39,12 @@ interface ChatMessageDao {
 
     @Delete
     suspend fun deleteMessage(message: ChatMessageEntity)
+
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sessionId ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentMessagesForSession(sessionId: String, limit: Int): List<ChatMessageEntity>
+
+    @Query("DELETE FROM chat_messages WHERE sessionId = :sessionId")
+    suspend fun deleteAllMessagesForSession(sessionId: String)
 
     @Query("DELETE FROM chat_messages WHERE projectId = :projectId")
     suspend fun deleteAllMessagesForProject(projectId: String)

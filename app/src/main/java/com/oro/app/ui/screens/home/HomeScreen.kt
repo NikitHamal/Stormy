@@ -4,8 +4,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import com.oro.app.ui.brand.OrobiIdle
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.ui.draw.blur
-import androidx.compose.animation.core.animateDpAsState
+import android.os.Build
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import com.oro.app.ui.theme.OroTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.oro.app.ui.components.expressive.SortOption
 import com.oro.app.ui.components.expressive.FilterTuneButton
 import com.oro.app.ui.components.expressive.AdvancedFilterPanel
@@ -144,6 +149,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val sessionCounts by viewModel.sessionCounts.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -157,10 +163,24 @@ fun HomeScreen(
     var selectedSort by remember { mutableStateOf(ProjectSortRecent) }
     var filterPanelOpen by remember { mutableStateOf(false) }
 
+    // Which projects are git repositories, probed on the IO dispatcher and only
+    // while the "Has Git" filter is active. This used to be a File.exists() per
+    // project inside the remember block below, i.e. disk I/O on the main
+    // thread on every recomposition that touched the list.
+    val gitProjectIds by produceState<Set<String>?>(null, uiState.projects, selectedFilter) {
+        if (selectedFilter != "git") return@produceState
+        val projects = uiState.projects
+        value = withContext(Dispatchers.IO) {
+            projects
+                .filter { java.io.File(it.rootPath, ".git").exists() }
+                .mapTo(HashSet()) { it.id }
+        }
+    }
+
     // Quick filter and sort applied here rather than in the view model: both
     // are view concerns that do not survive leaving the screen, and routing
     // them through state would mean a round trip for every chip tap.
-    val visibleProjects = remember(uiState.projects, selectedFilter, selectedSort) {
+    val visibleProjects = remember(uiState.projects, selectedFilter, selectedSort, gitProjectIds) {
         val now = System.currentTimeMillis()
         uiState.projects
             .filter { project ->
@@ -170,7 +190,7 @@ fun HomeScreen(
                     // Detected from the working tree: Project carries no git
                     // flag, and adding one would mean a schema migration for a
                     // value that can go stale the moment the user runs init.
-                    "git" -> java.io.File(project.rootPath, ".git").exists()
+                    "git" -> gitProjectIds?.contains(project.id) == true
                     else -> true
                 }
             }
@@ -228,8 +248,17 @@ fun HomeScreen(
     // it entirely, so cards, the empty-state badge and the top-bar buttons
     // stayed bright above it -- the dial was competing with the very things it
     // is meant to sit in front of.
-    val backdropBlur by animateDpAsState(
-        targetValue = if (showFabMenu) 6.dp else 0.dp,
+    //
+    // The blur radius is read only inside graphicsLayer {}, so the animation
+    // redraws one layer per frame instead of recomposing the whole Scaffold
+    // (top bar, list and all) on every frame as it did when the animated Dp
+    // was read here. In Lite mode there is no blur at all -- a full-screen
+    // RenderEffect is among the most expensive things a budget GPU can be
+    // asked to do -- and the scrim alone carries the "recede" effect.
+    val blurSupported = !OroTheme.liteMode &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val backdropBlur = animateFloatAsState(
+        targetValue = if (showFabMenu && blurSupported) SpeedDialBlurDp else 0f,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "speedDialBlur"
     )
@@ -237,7 +266,18 @@ fun HomeScreen(
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.then(
-                if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier
+                if (blurSupported) {
+                    Modifier.graphicsLayer {
+                        val radius = backdropBlur.value.dp.toPx()
+                        renderEffect = if (radius > 0f) {
+                            BlurEffect(renderEffect = null, radiusX = radius, radiusY = radius)
+                        } else {
+                            null
+                        }
+                    }
+                } else {
+                    Modifier
+                }
             ),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -340,6 +380,7 @@ fun HomeScreen(
                     else -> {
                         ProjectsList(
                             projects = visibleProjects,
+                            sessionCounts = sessionCounts,
                             onProjectClick = { project ->
                                 viewModel.openProject(project.id)
                                 onProjectClick(project.id)
@@ -547,6 +588,7 @@ private fun EmptySearchState(
 @Composable
 private fun ProjectsList(
     projects: List<Project>,
+    sessionCounts: Map<String, Int>,
     onProjectClick: (Project) -> Unit,
     onDeleteClick: (Project) -> Unit,
     onEditClick: (Project) -> Unit,
@@ -565,6 +607,7 @@ private fun ProjectsList(
         ) { project ->
             SwipeableProjectCard(
                 project = project,
+                chatCount = sessionCounts[project.id] ?: 0,
                 onClick = { onProjectClick(project) },
                 onDeleteClick = { onDeleteClick(project) },
                 onEditClick = { onEditClick(project) },
@@ -595,6 +638,7 @@ private fun ProjectsList(
 @Composable
 private fun SwipeableProjectCard(
     project: Project,
+    chatCount: Int,
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onEditClick: () -> Unit,
@@ -777,7 +821,14 @@ private fun SwipeableProjectCard(
                         }
                         Spacer(modifier = Modifier.height(Space.xxs))
                         Text(
-                            text = project.formattedLastOpened,
+                            // How much conversation lives in the project is
+                            // worth a glance before opening it; zero says
+                            // nothing, so it is left out.
+                            text = when (chatCount) {
+                                0 -> project.formattedLastOpened
+                                1 -> "${project.formattedLastOpened} · 1 chat"
+                                else -> "${project.formattedLastOpened} · $chatCount chats"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -805,6 +856,9 @@ private fun SwipeableProjectCard(
  * AgentVisuals/ExpressiveShapes so colour and silhouette stay paired.
  */
 private const val ProjectAccentCount = 5
+
+/** Backdrop blur behind the open speed dial, in dp. */
+private const val SpeedDialBlurDp = 6f
 
 /** Quick filters offered beside the project search. */
 private const val ProjectFilterAll = "all"

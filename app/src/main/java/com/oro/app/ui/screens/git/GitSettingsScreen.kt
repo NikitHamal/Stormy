@@ -51,7 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,8 +80,8 @@ fun GitSettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Collect git identity from credentials manager
-    val userName by credentialsManager.gitUserName.collectAsState(initial = "")
-    val userEmail by credentialsManager.gitUserEmail.collectAsState(initial = "")
+    val userName by credentialsManager.gitUserName.collectAsStateWithLifecycle(initialValue = "")
+    val userEmail by credentialsManager.gitUserEmail.collectAsStateWithLifecycle(initialValue = "")
 
     // Local state for editing
     var editName by remember(userName) { mutableStateOf(userName) }
@@ -216,7 +216,7 @@ fun GitSettingsScreen(
             // Repository Credentials Section
             GitSettingsSection(title = "Repository Credentials") {
                 // Saved Credentials List
-                val savedHosts by credentialsManager.savedHosts.collectAsState(initial = emptySet())
+                val savedHosts by credentialsManager.savedHosts.collectAsStateWithLifecycle(initialValue = emptySet())
                 
                 if (savedHosts.isNotEmpty()) {
                     Column(

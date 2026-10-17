@@ -67,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -667,13 +668,28 @@ private fun GitChangesSection(
             exit = shrinkVertically() + fadeOut()
         ) {
             Column {
-                files.forEach { file ->
-                    GitChangedFileItem(
-                        file = file,
-                        isStaged = isStaged,
-                        onToggleStage = { onToggleStage(file.path) },
-                        onViewDiff = { onViewDiff(file.path) },
-                        onDiscard = { onDiscard(file.path) }
+                // Capped: this section sits inside one LazyColumn item, so
+                // every row here is composed and measured at once. A fresh
+                // clone or an un-ignored build/node_modules folder can report
+                // thousands of changes, which froze the panel on open.
+                val shownFiles = remember(files) { files.take(MaxVisibleChangedFiles) }
+                shownFiles.forEach { file ->
+                    key(file.path) {
+                        GitChangedFileItem(
+                            file = file,
+                            isStaged = isStaged,
+                            onToggleStage = { onToggleStage(file.path) },
+                            onViewDiff = { onViewDiff(file.path) },
+                            onDiscard = { onDiscard(file.path) }
+                        )
+                    }
+                }
+                if (files.size > shownFiles.size) {
+                    Text(
+                        text = "+${files.size - shownFiles.size} more files",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
                 }
             }
@@ -1260,6 +1276,9 @@ private fun CommitItem(
         }
     }
 }
+
+/** Changed-file rows rendered per section; see GitChangesSection. */
+private const val MaxVisibleChangedFiles = 200
 
 private fun formatTimestamp(timestamp: Long): String {
     val now = System.currentTimeMillis()

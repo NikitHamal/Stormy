@@ -7,6 +7,13 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+/**
+ * Shared, thread-safe formatter. The getters below run for every visible card
+ * on every recomposition of the project list, and DateTimeFormatter.ofPattern
+ * parses the pattern afresh each call.
+ */
+private val ProjectDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy")
+
 data class Project(
     val id: String,
     val name: String,
@@ -33,7 +40,7 @@ data class Project(
                 diffDays == 0L -> "Today"
                 diffDays == 1L -> "Yesterday"
                 diffDays < 7 -> "$diffDays days ago"
-                else -> dateTime.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))
+                else -> dateTime.format(ProjectDateFormatter)
             }
         }
 
@@ -43,7 +50,7 @@ data class Project(
                 Instant.ofEpochMilli(createdAt),
                 ZoneId.systemDefault()
             )
-            return dateTime.format(DateTimeFormatter.ofPattern("MMM d, yyyy"))
+            return dateTime.format(ProjectDateFormatter)
         }
 
     fun toEntity(): ProjectEntity = ProjectEntity(

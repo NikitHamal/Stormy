@@ -116,12 +116,20 @@ import com.oro.app.ui.components.message.AiMessageContent
 import com.oro.app.domain.model.FileTreeNode
 import com.oro.app.ui.components.toUiCodeChange
 import com.oro.app.ui.theme.OroTheme
+import com.oro.app.ui.screens.editor.sessions.ChatSessionActions
+import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
+import com.oro.app.ui.screens.editor.sessions.SessionBar
+import com.oro.app.ui.screens.editor.sessions.SessionUndoBar
+import com.oro.app.ui.screens.editor.sessions.SessionsSheet
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatTab(
     messages: List<ChatMessage>,
+    sessionsState: ChatSessionsUiState = ChatSessionsUiState(isLoadingSession = false),
+    sessionActions: ChatSessionActions = ChatSessionActions.None,
+    projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
     agentMode: Boolean,
@@ -161,6 +169,18 @@ fun ChatTab(
     var showModelSelector by remember { mutableStateOf(false) }
     var showChatSettings by remember { mutableStateOf(false) }
     var showContextSheet by remember { mutableStateOf(false) }
+    var showSessions by remember { mutableStateOf(false) }
+
+    if (showSessions) {
+        SessionsSheet(
+            state = sessionsState,
+            projectName = projectName,
+            isRunActive = isLoading,
+            onStopRun = onStopGeneration,
+            actions = sessionActions,
+            onDismiss = { showSessions = false }
+        )
+    }
 
     if (showChatSettings) {
         ChatSettingsSheet(
@@ -188,10 +208,20 @@ fun ChatTab(
     // Trailing items after messages and agent cards: the working indicator /
     // question while a run is live, or the error card after one failed.
     val trailingItems = (if (isLoading) 1 else 0) + (if (!isLoading && runError != null) 1 else 0)
+    // The session whose transcript the list was last scrolled for. Opening
+    // another session jumps straight to its end; animating would scroll
+    // visibly through a conversation the user did not ask to read.
+    var scrolledSession by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messages.size, agentSessions.size, pendingQuestion?.id, runError, isLoading) {
         val lastIndex = messages.size + agentSessions.size + trailingItems - 1
         if (lastIndex >= 0) {
-            listState.animateScrollToItem(lastIndex)
+            val session = sessionsState.currentSessionId
+            if (messages.isNotEmpty() && session != scrolledSession) {
+                scrolledSession = session
+                listState.scrollToItem(lastIndex)
+            } else {
+                listState.animateScrollToItem(lastIndex)
+            }
         }
     }
 
@@ -200,6 +230,16 @@ fun ChatTab(
             .fillMaxSize()
             .imePadding()
     ) {
+        SessionBar(
+            title = sessionsState.currentTitle,
+            sessionCount = sessionsState.sessions.size,
+            isRunActive = isLoading,
+            // Disabled in a fresh, empty chat: there is nothing to leave.
+            newChatEnabled = !isLoading && !(sessionsState.isDraft && messages.isEmpty()),
+            onOpenSessions = { showSessions = true },
+            onNewChat = sessionActions.onNewChat
+        )
+
         // Task planning panel - show when there are active tasks
         AnimatedVisibility(
             visible = taskList.isNotEmpty(),
@@ -209,7 +249,16 @@ fun ChatTab(
             TaskPlanningPanel(tasks = taskList)
         }
 
-        if (messages.isEmpty()) {
+        if (messages.isEmpty() && sessionsState.isLoadingSession) {
+            // Between choosing a session and its rows arriving (a few ms):
+            // blank, rather than flashing the welcome for a chat that has
+            // history.
+            Spacer(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+        } else if (messages.isEmpty()) {
             WelcomeMessage(
                 agentMode = agentMode,
                 onToggleAgentMode = onToggleAgentMode,
@@ -288,6 +337,13 @@ fun ChatTab(
                 }
             }
         }
+
+        SessionUndoBar(
+            title = sessionsState.undoTitle,
+            onUndo = sessionActions.onUndoDelete,
+            onDismiss = sessionActions.onDismissUndo,
+            modifier = Modifier.padding(start = Space.lg, end = Space.lg, top = Space.sm)
+        )
 
         ModernChatInput(
             value = inputText,

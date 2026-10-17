@@ -113,9 +113,22 @@ android {
 
 
 composeCompiler {
-    // Emits a report of which composables are skippable/restartable so that
-    // recomposition regressions are visible in CI artifacts.
-    includeSourceInformation.set(true)
+    // Models from core:data / the JDK are compiled without the Compose
+    // compiler, so Compose cannot infer their stability and would treat them
+    // as unstable -- every screen taking a Project, GitCommit or List<...>
+    // would recompose on every emission. The shared config declares the ones
+    // that are immutable in practice. (Strong skipping is the default from
+    // Kotlin 2.0.20 on, so it needs no flag here.)
+    stabilityConfigurationFiles.add(
+        rootProject.layout.projectDirectory.file("compose-stability.conf")
+    )
+    // includeSourceInformation is left at the plugin default: forcing it on
+    // put per-call-site source metadata into release builds as well. Pass
+    // -PcomposeReports=true to get skippability/stability reports instead.
+    if (providers.gradleProperty("composeReports").orNull == "true") {
+        reportsDestination.set(layout.buildDirectory.dir("compose_compiler"))
+        metricsDestination.set(layout.buildDirectory.dir("compose_compiler"))
+    }
 }
 
 dependencies {
@@ -151,8 +164,10 @@ dependencies {
     implementation(libs.coil.svg)
     implementation(libs.coil.network.okhttp)
 
+    // Only the core editor: highlighting is done by SimpleLanguageFactory, so
+    // the TextMate language module (and its grammar/regex engine) was dead
+    // weight in the APK and in class loading.
     implementation(libs.sora.editor)
-    implementation(libs.sora.editor.language.textmate)
 
     implementation(libs.markwon.core)
     implementation(libs.markwon.html)

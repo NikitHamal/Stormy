@@ -96,7 +96,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -138,6 +141,8 @@ import com.oro.app.ui.components.inspector.StyleChangeRequest
 import com.oro.app.ui.components.inspector.TextChangeRequest
 import com.oro.app.ui.components.inspector.VisualElementInspector
 import com.oro.app.data.preview.FrameworkType
+import com.oro.app.data.repository.LiteMode
+import com.oro.app.ui.theme.DevicePerformance
 import com.oro.app.data.preview.PreviewServerManager
 import com.oro.app.data.preview.PreviewServerState
 import com.oro.app.ui.theme.OroTheme
@@ -174,7 +179,12 @@ class PreviewActivity : ComponentActivity() {
         projectPath = intent.getStringExtra(EXTRA_PROJECT_PATH) ?: ""
 
         setContent {
-            OroTheme {
+            // Same Lite mode resolution as MainActivity, so the preview's
+            // chrome is as light as the rest of the app on a budget phone.
+            val liteModeChoice by OroApplication.getInstance().preferencesRepository.liteMode
+                .collectAsStateWithLifecycle(initialValue = LiteMode.AUTO)
+            val lowEndDevice = remember { DevicePerformance.isLowEndDevice(applicationContext) }
+            OroTheme(liteMode = liteModeChoice.isEnabled(lowEndDevice)) {
                 PreviewScreen(
                     projectId = projectId,
                     projectPath = projectPath,
@@ -183,6 +193,19 @@ class PreviewActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    // Pausing the WebView while the activity is in the background stops the
+    // page's timers, animations and media from burning CPU/battery behind
+    // another app. (Per-WebView pause, not pauseTimers(), which is global.)
+    override fun onPause() {
+        webView?.onPause()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView?.onResume()
     }
 
     override fun onDestroy() {
@@ -195,6 +218,9 @@ class PreviewActivity : ComponentActivity() {
     }
 
     companion object {
+        /** Console entries kept in memory; older ones are dropped first. */
+        const val MAX_CONSOLE_LOGS = 500
+
         const val EXTRA_PROJECT_ID = "extra_project_id"
         const val EXTRA_PROJECT_PATH = "extra_project_path"
 
@@ -369,12 +395,18 @@ private fun PreviewScreen(
 
     // Embedded dev server for framework projects
     val serverManager = remember { PreviewServerManager.getInstance() }
-    val serverState by serverManager.serverState.collectAsState()
+    val serverState by serverManager.serverState.collectAsStateWithLifecycle()
     var previewUrl by remember { mutableStateOf<String?>(null) }
 
-    // Detect framework type
-    val frameworkType = remember(projectPath) {
-        FrameworkType.detect(File(projectPath))
+    // Detect framework type. Off the main thread: detection reads
+    // package.json and, failing that, walks the whole project tree (up to
+    // three times, node_modules included), which used to block the first
+    // frame of the preview for seconds on a slow phone with a big project.
+    val frameworkType by produceState(FrameworkType.VANILLA, projectPath) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { FrameworkType.detect(File(projectPath)) }
+                .getOrDefault(FrameworkType.VANILLA)
+        }
     }
 
     // Start server for framework projects
@@ -414,7 +446,7 @@ private fun PreviewScreen(
             scope = scope
         )
     }
-    val editStatus by previewEditService.status.collectAsState()
+    val editStatus by previewEditService.status.collectAsStateWithLifecycle()
 
     // Direct edit service for manual editing (Edit mode - no AI required)
     val directEditService = remember {
@@ -423,7 +455,7 @@ private fun PreviewScreen(
             scope = scope
         )
     }
-    val directEditStatus by directEditService.status.collectAsState()
+    val directEditStatus by directEditService.status.collectAsStateWithLifecycle()
 
     // Show snackbar on AI edit status changes
     LaunchedEffect(editStatus) {
@@ -822,6 +854,12 @@ private fun PreviewScreen(
                         pageTitle = title.ifEmpty { "Preview" }
                     },
                     onConsoleMessage = { entry ->
+                        // Bounded: a page logging in a requestAnimationFrame
+                        // loop would otherwise grow this list (and the
+                        // console's LazyColumn) without limit.
+                        while (consoleLogs.size >= PreviewActivity.MAX_CONSOLE_LOGS) {
+                            consoleLogs.removeAt(0)
+                        }
                         consoleLogs.add(entry)
                     },
                     onElementInspected = { element, currentMode ->
@@ -1524,7 +1562,7 @@ private fun ConsolePanel(
                     state = listState,
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(logs) { log ->
+                    items(logs, contentType = { "log" }) { log ->
                         ConsoleLogItem(log)
                     }
                 }

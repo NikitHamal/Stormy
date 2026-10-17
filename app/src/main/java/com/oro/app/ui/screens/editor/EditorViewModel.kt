@@ -92,6 +92,11 @@ import com.oro.app.data.ai.Tool
 import com.oro.app.ui.components.agent.PendingQuestion
 import com.oro.app.ui.components.agent.RunError
 import com.oro.app.ui.screens.editor.agent.RunTranscript
+import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
+import com.oro.app.domain.model.DeletedSessionSnapshot
+import com.oro.app.domain.model.SessionTitles
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Represents an open file tab in the editor
@@ -293,6 +298,56 @@ class EditorViewModel(
 
     /** Set when the provider rejected native tools; the run then uses text tool calls. */
     @Volatile private var forceTextTools = false
+
+    // ---- Chat sessions ------------------------------------------------------
+    //
+    // A project has many chat sessions; exactly one is on screen. Everything
+    // conversational -- _messages, _messageHistory (what the agent sees), the
+    // run, clear and export -- is scoped to it.
+    //
+    // Switching is refused while a run is live rather than cancelling it or
+    // letting it continue in the background. The run is bound to the screen,
+    // not just to a session id: its streaming transcript is written into the
+    // last on-screen message, and its ask_user question and approvals are
+    // shown in this chat and suspend the run until answered. A background run
+    // would block on a question nobody can see; a silent cancel would throw
+    // away work the user did not ask to stop. So the switcher says a run is in
+    // progress and offers Stop, and the user decides.
+
+    /** The session on screen; null for a fresh chat not yet sent. */
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+    private val _isSessionLoading = MutableStateFlow(true)
+    /** False until the last-opened session has been restored at startup. */
+    @Volatile private var sessionRestored = false
+    /** Set on a switch so the context sheet is recomputed for the new history. */
+    private var breakdownStale = false
+
+    private class PendingUndo(val snapshot: DeletedSessionSnapshot, val wasCurrent: Boolean)
+    private val _pendingUndo = MutableStateFlow<PendingUndo?>(null)
+    private var undoExpiryJob: Job? = null
+
+    /** Unsent input per session, so switching away does not lose a half-typed prompt. */
+    private val inputDrafts = HashMap<String, String>()
+
+    val sessionsState: StateFlow<ChatSessionsUiState> = combine(
+        chatRepository.observeSessions(projectId),
+        _currentSessionId,
+        _isSessionLoading,
+        _pendingUndo
+    ) { sessions, currentId, loading, undo ->
+        ChatSessionsUiState(
+            sessions = sessions,
+            currentSessionId = currentId,
+            currentTitle = sessions.firstOrNull { it.id == currentId }?.title
+                ?: SessionTitles.DEFAULT_TITLE,
+            isLoadingSession = loading,
+            undoTitle = undo?.snapshot?.title
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ChatSessionsUiState()
+    )
 
     val uiState: StateFlow<EditorUiState> = combine(
         _project,
@@ -551,21 +606,43 @@ class EditorViewModel(
     /**
      * Load persisted chat history from database
      * Uses a simpler approach: database is always the source of truth when not streaming
+     *
+     * Restores the session the user was last in first, then follows whichever
+     * session is current: a switch re-points the message Flow, so the
+     * transcript and the agent's history are always those of one session.
      */
     private fun loadChatHistory() {
         viewModelScope.launch {
-            chatRepository.getMessagesForProject(projectId).collect { dbMessages ->
-                // Only update from database if we're not currently processing AI response
-                // During AI processing, the in-memory state is managed by streaming logic
-                if (!_isAiProcessing.value) {
-                    // Database is the source of truth when not streaming
-                    // Use distinctBy to prevent any duplicate IDs just in case
-                    _messages.value = dbMessages.distinctBy { it.id }
+            val restored = runCatching { chatRepository.getLastOpenedSessionId(projectId) }.getOrNull()
+            // compareAndSet: never override a choice made while this ran.
+            _currentSessionId.compareAndSet(null, restored)
+            sessionRestored = true
 
-                    // Rebuild message history for AI context
-                    rebuildMessageHistoryFromMessages(_messages.value)
+            _currentSessionId
+                .flatMapLatest { sessionId ->
+                    if (sessionId == null) {
+                        flowOf(emptyList<ChatMessage>())
+                    } else {
+                        chatRepository.getMessagesForSession(sessionId)
+                    }
                 }
-            }
+                .collect { dbMessages ->
+                    _isSessionLoading.value = false
+                    // Only update from database if we're not currently processing AI response
+                    // During AI processing, the in-memory state is managed by streaming logic
+                    if (!_isAiProcessing.value) {
+                        // Database is the source of truth when not streaming
+                        // Use distinctBy to prevent any duplicate IDs just in case
+                        _messages.value = dbMessages.distinctBy { it.id }
+
+                        // Rebuild message history for AI context
+                        rebuildMessageHistoryFromMessages(_messages.value)
+                        if (breakdownStale) {
+                            breakdownStale = false
+                            refreshContextBreakdown()
+                        }
+                    }
+                }
         }
     }
 
@@ -1142,17 +1219,45 @@ class EditorViewModel(
 
     fun sendMessage() {
         val content = _chatInput.value.trim()
-        if (content.isEmpty() || _isAiProcessing.value) return
+        // Before the last session is restored there is no telling which
+        // session this would belong to; that window is a few milliseconds.
+        if (content.isEmpty() || _isAiProcessing.value || !sessionRestored) return
 
-        val userMessage = ChatMessage.createUserMessage(projectId, content)
+        // The first message of a fresh chat creates its session, titled from
+        // that message, so an abandoned "new chat" never leaves an empty row.
+        val existingSessionId = _currentSessionId.value
+        val sessionId = existingSessionId ?: java.util.UUID.randomUUID().toString()
+        val userMessage = ChatMessage.createUserMessage(projectId, content, sessionId = sessionId)
         _messages.value = _messages.value + userMessage
         _chatInput.value = ""
+        inputDrafts.remove(existingSessionId ?: DRAFT_KEY)
         _messageHistory.add(aiRepository.createUserMessage(content))
         // A new request gets a new plan; the previous one is finished business.
         delegationHandler.resetPlan()
 
-        startRun {
-            chatRepository.saveMessage(userMessage)
+        // Persisted independently of the run, so the message is kept even if
+        // the run never starts (no model selected).
+        val persisted = viewModelScope.launch {
+            try {
+                if (existingSessionId == null) {
+                    chatRepository.createSession(sessionId, projectId, content)
+                }
+                chatRepository.saveMessage(userMessage)
+                // Only now does the draft become the session. Switching
+                // earlier would point the message Flow at a session with no
+                // rows yet and blank the message just shown.
+                if (existingSessionId == null) {
+                    _currentSessionId.compareAndSet(null, sessionId)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Could not save message", e)
+            }
+        }
+
+        startRun(sessionId) {
+            persisted.join()
             if (_agentMode.value) {
                 // Learning is best-effort and must never block or break a run.
                 runCatching {
@@ -1165,6 +1270,7 @@ class EditorViewModel(
     /** Resume after a failed or limited run, from the history as it stands. */
     fun retryRun() {
         if (_isAiProcessing.value) return
+        val sessionId = _currentSessionId.value ?: return
         if (_messageHistory.none { it.role == "user" }) return
         // After a run the history is rebuilt from the saved transcript and
         // ends with Orobi's partial reply; ask it to pick up from there.
@@ -1175,7 +1281,7 @@ class EditorViewModel(
                 )
             )
         }
-        startRun()
+        startRun(sessionId)
     }
 
     fun dismissRunError() {
@@ -1242,7 +1348,7 @@ class EditorViewModel(
      * rendering used to execute on Main, with a string concatenation per
      * token, which is what made long replies stutter.
      */
-    private fun startRun(beforeRun: suspend () -> Unit = {}) {
+    private fun startRun(sessionId: String, beforeRun: suspend () -> Unit = {}) {
         val model = _currentModel.value
         if (model == null) {
             _runError.value = RunError("Select a model first (tap the model name below the input).", actionLabel = "Retry")
@@ -1256,7 +1362,8 @@ class EditorViewModel(
         val assistantMessage = ChatMessage.createAssistantMessage(
             projectId = projectId,
             content = "",
-            status = MessageStatus.STREAMING
+            status = MessageStatus.STREAMING,
+            sessionId = sessionId
         )
         _messages.value = _messages.value + assistantMessage
         val run = RunTranscript()
@@ -1713,6 +1820,7 @@ class EditorViewModel(
         return result
     }
 
+    /** Clear the current session's messages; the session itself stays. */
     fun clearChat() {
         if (_isAiProcessing.value) stopGeneration()
         _messages.value = emptyList()
@@ -1720,20 +1828,125 @@ class EditorViewModel(
         _runError.value = null
 
         // Clear persisted messages
+        val sessionId = _currentSessionId.value ?: return
         viewModelScope.launch {
-            chatRepository.clearChatHistory(projectId)
+            chatRepository.clearChatHistory(sessionId)
         }
     }
 
     /**
-     * Export chat history to markdown file
+     * Export the current session to a markdown file
      */
     fun exportChatHistory(onResult: (Result<java.io.File>) -> Unit) {
         val projectName = _project.value?.name ?: "Unknown"
+        val sessionId = _currentSessionId.value
+        if (sessionId == null) {
+            onResult(Result.failure(IllegalStateException("No messages to export")))
+            return
+        }
+        val title = sessionsState.value.currentTitle
         viewModelScope.launch {
-            val result = chatRepository.exportToMarkdown(projectId, projectName)
+            val result = chatRepository.exportToMarkdown(sessionId, projectName, title)
             onResult(result)
         }
+    }
+
+    // ---- Chat sessions ------------------------------------------------------
+
+    /** Switch to another session of this project. Refused while a run is live. */
+    fun openSession(sessionId: String) {
+        if (_isAiProcessing.value || sessionId == _currentSessionId.value) return
+        switchToSession(sessionId)
+        viewModelScope.launch { chatRepository.markSessionOpened(sessionId) }
+    }
+
+    /**
+     * Start a fresh chat. Nothing is written until its first message is
+     * sent, so tapping New chat and backing out leaves no empty session.
+     */
+    fun startNewChat() {
+        if (_isAiProcessing.value) return
+        if (_currentSessionId.value == null && _messages.value.isEmpty()) return
+        switchToSession(null)
+    }
+
+    fun renameSession(sessionId: String, title: String) {
+        viewModelScope.launch { chatRepository.renameSession(sessionId, title) }
+    }
+
+    fun setSessionPinned(sessionId: String, pinned: Boolean) {
+        viewModelScope.launch { chatRepository.setSessionPinned(sessionId, pinned) }
+    }
+
+    /**
+     * Delete a session, offering undo for [UNDO_WINDOW_MS]. Deleting the
+     * session on screen lands in a fresh chat rather than in some other old
+     * thread, which is predictable when tidying up several in a row.
+     */
+    fun deleteSession(sessionId: String) {
+        val wasCurrent = sessionId == _currentSessionId.value
+        if (wasCurrent && _isAiProcessing.value) return
+        viewModelScope.launch {
+            if (wasCurrent && _currentSessionId.value == sessionId) {
+                switchToSession(null)
+            }
+            inputDrafts.remove(sessionId)
+            val snapshot = chatRepository.deleteSession(sessionId) ?: return@launch
+            _pendingUndo.value = PendingUndo(snapshot, wasCurrent)
+            undoExpiryJob?.cancel()
+            undoExpiryJob = viewModelScope.launch {
+                delay(UNDO_WINDOW_MS)
+                _pendingUndo.value = null
+            }
+        }
+    }
+
+    fun undoDeleteSession() {
+        val pending = _pendingUndo.value ?: return
+        _pendingUndo.value = null
+        undoExpiryJob?.cancel()
+        viewModelScope.launch {
+            chatRepository.restoreSession(pending.snapshot)
+            // Back into it, if the user was in it and has not moved on since.
+            if (pending.wasCurrent &&
+                !_isAiProcessing.value &&
+                _currentSessionId.value == null &&
+                _messages.value.isEmpty()
+            ) {
+                switchToSession(pending.snapshot.id)
+            }
+        }
+    }
+
+    fun dismissSessionUndo() {
+        _pendingUndo.value = null
+        undoExpiryJob?.cancel()
+    }
+
+    /**
+     * Point the chat at [sessionId] (null: a fresh chat), resetting
+     * everything that belonged to the previous conversation. The message
+     * Flow follows [_currentSessionId] and refills the transcript and the
+     * agent's history.
+     */
+    private fun switchToSession(sessionId: String?) {
+        val leaving = _currentSessionId.value ?: DRAFT_KEY
+        val unsent = _chatInput.value
+        if (unsent.isNotBlank()) inputDrafts[leaving] = unsent else inputDrafts.remove(leaving)
+        _chatInput.value = inputDrafts.remove(sessionId ?: DRAFT_KEY).orEmpty()
+
+        // Blank rather than showing the previous conversation under the new
+        // title; the chat shows neither it nor the welcome until rows arrive.
+        _isSessionLoading.value = sessionId != null
+        _messages.value = emptyList()
+        _messageHistory.clear()
+        _runError.value = null
+        _taskList.value = emptyList()
+        _lastCompactionSavedPercent.value = null
+        delegationHandler.resetPlan()
+        subagentOrchestrator.clearCompleted()
+        breakdownStale = true
+        _currentSessionId.value = sessionId
     }
 
     fun setModel(model: AiModel) {
@@ -1847,6 +2060,10 @@ class EditorViewModel(
         private const val OPEN_FILE_CONTEXT_CHARS = 12_000
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L
+        /** How long a deleted session can be restored. */
+        private const val UNDO_WINDOW_MS = 6_000L
+        /** inputDrafts key for the fresh, unsaved chat. */
+        private const val DRAFT_KEY = ""
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -2169,6 +2386,7 @@ class EditorViewModel(
         val partition = contextCompactor.partition(_messages.value)
         if (!partition.canCompact) return
 
+        val sessionAtStart = _currentSessionId.value
         viewModelScope.launch {
             _isCompacting.value = true
             try {
@@ -2185,6 +2403,9 @@ class EditorViewModel(
                 }
 
                 val summary = completion.choices.firstOrNull()?.message?.content.orEmpty()
+                // The user switched chats while this ran: the summary is of a
+                // conversation that is no longer the agent's history.
+                if (_currentSessionId.value != sessionAtStart) return@launch
                 val applied = contextCompactor.applySummary(_messages.value, summary)
                 if (applied == null) {
                     _error.value = "Compaction produced no summary; nothing was changed."

@@ -693,20 +693,31 @@ data class GitUiState(
     val isCILoading: Boolean = false,
     val ciStatus: CIStatusSummary? = null
 ) {
-    val stagedFiles: List<GitChangedFile>
-        get() = changedFiles.filter { it.isStaged }
+    // Derived once per state instance rather than on every read: the panel
+    // reads these several times per recomposition, and each getter used to
+    // allocate a fresh filtered list -- which also defeated skipping, since
+    // a new list instance had to be compared element by element. Lazy fields
+    // are outside the data-class equals/copy, and the state is immutable, so
+    // caching is safe.
+    val stagedFiles: List<GitChangedFile> by lazy(LazyThreadSafetyMode.NONE) {
+        changedFiles.filter { it.isStaged }
+    }
 
-    val unstagedFiles: List<GitChangedFile>
-        get() = changedFiles.filter { !it.isStaged }
+    val unstagedFiles: List<GitChangedFile> by lazy(LazyThreadSafetyMode.NONE) {
+        changedFiles.filter { !it.isStaged }
+    }
 
-    val currentBranch: GitBranch?
-        get() = branches.find { it.isCurrent }
+    val currentBranch: GitBranch? by lazy(LazyThreadSafetyMode.NONE) {
+        branches.find { it.isCurrent }
+    }
 
-    val localBranches: List<GitBranch>
-        get() = branches.filter { it.isLocal }
+    val localBranches: List<GitBranch> by lazy(LazyThreadSafetyMode.NONE) {
+        branches.filter { it.isLocal }
+    }
 
-    val remoteBranches: List<GitBranch>
-        get() = branches.filter { it.isRemote }
+    val remoteBranches: List<GitBranch> by lazy(LazyThreadSafetyMode.NONE) {
+        branches.filter { it.isRemote }
+    }
 }
 
 /**
