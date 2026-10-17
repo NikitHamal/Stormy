@@ -3,132 +3,120 @@ package com.codex.stormy.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ============================================================================
-// CODEX MONOCHROME PALETTE
+// ORO MONOCHROME PALETTE
 //
-// Greyscale with a faintly warm cast, and no brand hue at all. The previous
-// palette carried a blue primary, an emerald tertiary and slate greys with a
-// cool (blue-leaning) cast, which meant three competing hues before any content
-// was drawn.
+// Greyscale with a faint cool (ink-blue) cast, and no brand hue in the chrome.
+// The brand's colour lives in Orobi -- peach, magenta, ink, see OroBrand -- and
+// the interface stays out of its way, so the mascot is always the most
+// colourful thing on screen.
 //
 // Two rules hold this together:
 //
 //  1. *Emphasis is tonal, not chromatic.* The primary is near-black in light
 //     and near-white in dark, so a primary button is the highest-contrast thing
-//     on screen rather than the most colourful. That is what makes a monochrome
-//     UI read as deliberate instead of unfinished.
+//     on screen rather than the most colourful.
 //
 //  2. *Error keeps its hue.* It is the one place where colour carries meaning
 //     that tone cannot: a grey "failed" state is indistinguishable from a
-//     disabled one, and no amount of shape or weight fixes that. It is muted to
-//     sit inside the palette rather than shout against it.
+//     disabled one.
 //
-// The neutrals are warm (a few points more red than blue) because a pure-neutral
-// greyscale reads as cold and slightly clinical on OLED, which is the opposite
-// of the intent here.
+// The neutrals lean towards Orobi's ink (#1A1F4A) rather than to pure grey, so
+// the mascot's eyes and the UI's darkest tones read as the same family.
 // ============================================================================
 
 // ----------------------------------------------------------------------------
 // LIGHT
 // ----------------------------------------------------------------------------
-val LightPrimary = Color(0xFF1C1917)           // Near-black, warm
-val LightOnPrimary = Color(0xFFFAFAF9)
-val LightPrimaryContainer = Color(0xFFE7E5E4)  // Light warm grey
-val LightOnPrimaryContainer = Color(0xFF1C1917)
+val LightPrimary = Color(0xFF12151C)           // Near-black, ink cast
+val LightOnPrimary = Color(0xFFFFFFFF)
+val LightPrimaryContainer = Color(0xFFE1E4E9)
+val LightOnPrimaryContainer = Color(0xFF0E1117)
 
-val LightSecondary = Color(0xFF57534E)         // Mid warm grey
-val LightOnSecondary = Color(0xFFFAFAF9)
-val LightSecondaryContainer = Color(0xFFF5F5F4)
-val LightOnSecondaryContainer = Color(0xFF292524)
+val LightSecondary = Color(0xFF4E5666)
+val LightOnSecondary = Color(0xFFFFFFFF)
+val LightSecondaryContainer = Color(0xFFEDEFF2)
+val LightOnSecondaryContainer = Color(0xFF181C25)
 
-// Tertiary is neutral too. It marks success/completion, which in this UI is
-// carried by shape and by an explicit check glyph -- see ExpressiveStatusDot --
-// so it does not need a hue of its own.
-val LightTertiary = Color(0xFF44403C)
-val LightOnTertiary = Color(0xFFFAFAF9)
-val LightTertiaryContainer = Color(0xFFEDEBE9)
-val LightOnTertiaryContainer = Color(0xFF1C1917)
+// Tertiary is neutral too. Success is carried by shape and an explicit check
+// glyph -- see ExpressiveStatusDot -- so it does not need a hue of its own.
+val LightTertiary = Color(0xFF3A4150)
+val LightOnTertiary = Color(0xFFFFFFFF)
+val LightTertiaryContainer = Color(0xFFE6E9EE)
+val LightOnTertiaryContainer = Color(0xFF12151C)
 
-val LightError = Color(0xFFB4342A)             // Muted brick, not a signal red
+val LightError = Color(0xFFD93F3F)
 val LightOnError = Color(0xFFFFFFFF)
-val LightErrorContainer = Color(0xFFF7E0DE)
-val LightOnErrorContainer = Color(0xFF5C1710)
+val LightErrorContainer = Color(0xFFFBE3E3)
+val LightOnErrorContainer = Color(0xFF5C1414)
 
-val LightBackground = Color(0xFFFCFCFB)        // Warm off-white, not pure
-val LightOnBackground = Color(0xFF1C1917)
-val LightSurface = Color(0xFFFCFCFB)
-val LightOnSurface = Color(0xFF1C1917)
-val LightSurfaceVariant = Color(0xFFF0EFED)
-val LightOnSurfaceVariant = Color(0xFF57534E)
-// Measured, not eyeballed. The previous outline sat at 1.45:1 against the
-// surface, which is below the 3:1 WCAG asks for non-text UI -- borders and
-// dividers were effectively invisible, which is why cards read as floating
-// text rather than as containers.
-val LightOutline = Color(0xFF8C8681)        // 3.5:1 on surface
-val LightOutlineVariant = Color(0xFFC7C2BB) // 1.7:1, a visible hairline
-val LightInverseSurface = Color(0xFF292524)
-val LightInverseOnSurface = Color(0xFFF5F5F4)
-val LightInversePrimary = Color(0xFFD6D3D1)
+val LightBackground = Color(0xFFF7F8FA)        // Cool off-white, not pure
+val LightOnBackground = Color(0xFF0E1117)
+val LightSurface = Color(0xFFF7F8FA)
+val LightOnSurface = Color(0xFF0E1117)
+val LightSurfaceVariant = Color(0xFFEDEFF2)
+val LightOnSurfaceVariant = Color(0xFF5A6273) // 6.0:1 on surface
+// Measured, not eyeballed: outline clears the 3:1 WCAG asks of non-text UI,
+// outline variant is a visible hairline.
+val LightOutline = Color(0xFF7C8494)        // 3.6:1 on surface
+val LightOutlineVariant = Color(0xFFD3D7DE) // hairline
+val LightInverseSurface = Color(0xFF181C25)
+val LightInverseOnSurface = Color(0xFFEDEFF2)
+val LightInversePrimary = Color(0xFFD9DDE4)
 
-// Surface levels. The steps are deliberately small: M3 separates surfaces
-// tonally rather than with shadow, and in a monochrome palette a large step
-// reads as a different colour rather than a different height.
-// The ramp was far too tight: every step sat between 1.06 and 1.20 against
-// the background, so a card was indistinguishable from the page behind it.
-// These are spaced to roughly 1.1 / 1.2 / 1.3 / 1.5, which separates the
-// levels without turning the surface grey.
+// Surface levels, spaced to roughly 1.1 / 1.2 / 1.3 / 1.5 against the page,
+// which separates the levels without turning the surface grey.
 val LightSurfaceContainerLowest = Color(0xFFFFFFFF)
-val LightSurfaceContainerLow = Color(0xFFF5F2ED)     // 1.09:1
-val LightSurfaceContainer = Color(0xFFECE9E4)        // 1.18:1
-val LightSurfaceContainerHigh = Color(0xFFE1DED9)    // 1.31:1
-val LightSurfaceContainerHighest = Color(0xFFD4D1CC) // 1.48:1
-val LightSurfaceDim = Color(0xFFE1DED9)
+val LightSurfaceContainerLow = Color(0xFFF0F2F5)
+val LightSurfaceContainer = Color(0xFFE9ECF0)
+val LightSurfaceContainerHigh = Color(0xFFE1E4E9)
+val LightSurfaceContainerHighest = Color(0xFFD6DAE1)
+val LightSurfaceDim = Color(0xFFE1E4E9)
 val LightSurfaceBright = Color(0xFFFFFFFF)
 
 // ----------------------------------------------------------------------------
 // DARK
 // ----------------------------------------------------------------------------
-val DarkPrimary = Color(0xFFF5F5F4)            // Near-white, warm
-val DarkOnPrimary = Color(0xFF1C1917)
-val DarkPrimaryContainer = Color(0xFF373330)
-val DarkOnPrimaryContainer = Color(0xFFF5F5F4)
+val DarkPrimary = Color(0xFFF2F4F7)            // Near-white, cool
+val DarkOnPrimary = Color(0xFF0B0D12)
+val DarkPrimaryContainer = Color(0xFF2A303C)
+val DarkOnPrimaryContainer = Color(0xFFE8ECF2)
 
-val DarkSecondary = Color(0xFFA8A29E)
-val DarkOnSecondary = Color(0xFF1C1917)
-val DarkSecondaryContainer = Color(0xFF2C2825)
-val DarkOnSecondaryContainer = Color(0xFFE7E5E4)
+val DarkSecondary = Color(0xFF9AA3B2)
+val DarkOnSecondary = Color(0xFF0B0D12)
+val DarkSecondaryContainer = Color(0xFF222834)
+val DarkOnSecondaryContainer = Color(0xFFE1E5EC)
 
-val DarkTertiary = Color(0xFFD6D3D1)
-val DarkOnTertiary = Color(0xFF1C1917)
-val DarkTertiaryContainer = Color(0xFF332F2C)
-val DarkOnTertiaryContainer = Color(0xFFEDEBE9)
+val DarkTertiary = Color(0xFFCDD3DD)
+val DarkOnTertiary = Color(0xFF0B0D12)
+val DarkTertiaryContainer = Color(0xFF262C38)
+val DarkOnTertiaryContainer = Color(0xFFE8ECF2)
 
-val DarkError = Color(0xFFE88B81)              // Lifted for contrast on black
-val DarkOnError = Color(0xFF42100B)
-val DarkErrorContainer = Color(0xFF5C1710)
-val DarkOnErrorContainer = Color(0xFFF7E0DE)
+val DarkError = Color(0xFFFF6B6B)
+val DarkOnError = Color(0xFF3D0B0B)
+val DarkErrorContainer = Color(0xFF5C1717)
+val DarkOnErrorContainer = Color(0xFFFFDADA)
 
-// True black background: on OLED this is an actual power saving, and it is the
-// look the monochrome direction is after. The surfaces above it carry the
-// hierarchy.
-val DarkBackground = Color(0xFF0C0B0A)
-val DarkOnBackground = Color(0xFFF5F5F4)
-val DarkSurface = Color(0xFF0C0B0A)
-val DarkOnSurface = Color(0xFFF5F5F4)
-val DarkSurfaceVariant = Color(0xFF2C2825)
-val DarkOnSurfaceVariant = Color(0xFFC9C3BD)
-val DarkOutline = Color(0xFF908981)        // 5.7:1 on surface
-val DarkOutlineVariant = Color(0xFF453F3A) // 1.9:1
-val DarkInverseSurface = Color(0xFFF5F5F4)
-val DarkInverseOnSurface = Color(0xFF292524)
-val DarkInversePrimary = Color(0xFF44403C)
+// Near-black with an ink cast. Not pure black: pure black against the
+// mascot's peach is harsh, and the surfaces above it carry the hierarchy.
+val DarkBackground = Color(0xFF0B0D12)
+val DarkOnBackground = Color(0xFFE8ECF2)
+val DarkSurface = Color(0xFF0B0D12)
+val DarkOnSurface = Color(0xFFE8ECF2)
+val DarkSurfaceVariant = Color(0xFF222834)
+val DarkOnSurfaceVariant = Color(0xFF9AA3B2)   // 7.4:1 on surface
+val DarkOutline = Color(0xFF6B7486)            // 4.0:1 on surface
+val DarkOutlineVariant = Color(0xFF2A303C)     // hairline
+val DarkInverseSurface = Color(0xFFE8ECF2)
+val DarkInverseOnSurface = Color(0xFF181C25)
+val DarkInversePrimary = Color(0xFF3A4150)
 
-val DarkSurfaceContainerLowest = Color(0xFF060504)
-val DarkSurfaceContainerLow = Color(0xFF17140F)     // 1.07:1
-val DarkSurfaceContainer = Color(0xFF211E19)        // 1.18:1
-val DarkSurfaceContainerHigh = Color(0xFF2D2A25)    // 1.38:1
-val DarkSurfaceContainerHighest = Color(0xFF3A3732) // 1.66:1
-val DarkSurfaceDim = Color(0xFF0C0B0A)
-val DarkSurfaceBright = Color(0xFF484540)
+val DarkSurfaceContainerLowest = Color(0xFF06080B)
+val DarkSurfaceContainerLow = Color(0xFF12151C)
+val DarkSurfaceContainer = Color(0xFF181C25)
+val DarkSurfaceContainerHigh = Color(0xFF222834)
+val DarkSurfaceContainerHighest = Color(0xFF2B3240)
+val DarkSurfaceDim = Color(0xFF0B0D12)
+val DarkSurfaceBright = Color(0xFF353C4A)
 
 // ============================================================================
 // SYNTAX HIGHLIGHTING COLORS - One Dark Pro inspired
@@ -155,14 +143,14 @@ object SyntaxColors {
     val Constant = Color(0xFFB08968)
 
     // Editor backgrounds - Clean and professional
-    val EditorBackgroundLight = Color(0xFFFCFCFB)
-    val EditorBackgroundDark = Color(0xFF0C0B0A)
+    val EditorBackgroundLight = Color(0xFFF7F8FA)
+    val EditorBackgroundDark = Color(0xFF0B0D12)
     val LineNumberLight = Color(0xFFBFB9B4)
     val LineNumberDark = Color(0xFF5C5650)
-    val CurrentLineLight = Color(0xFFF5F5F4)
-    val CurrentLineDark = Color(0xFF191716)
-    val SelectionLight = Color(0xFFE7E5E4)
-    val SelectionDark = Color(0xFF373330)
+    val CurrentLineLight = Color(0xFFEDEFF2)
+    val CurrentLineDark = Color(0xFF151922)
+    val SelectionLight = Color(0xFFDDE1E8)
+    val SelectionDark = Color(0xFF2A303C)
 
     // Search and match highlights
     val SearchHighlight = Color(0xFFFEF3C7)        // Amber-100
@@ -197,18 +185,18 @@ object ChatColors {
     // monochrome theme the strongest available signal for "this is you" is full
     // tonal inversion, and it stays legible in both schemes without a second
     // palette.
-    val UserBubbleLight = Color(0xFF1C1917)
-    val UserBubbleDark = Color(0xFFF5F5F4)
-    val UserTextLight = Color(0xFFFAFAF9)
-    val UserTextDark = Color(0xFF1C1917)
+    val UserBubbleLight = Color(0xFF12151C)
+    val UserBubbleDark = Color(0xFFF2F4F7)
+    val UserTextLight = Color(0xFFFFFFFF)
+    val UserTextDark = Color(0xFF0B0D12)
 
     // Assistant text sits directly on the surface with no bubble tint, so the
     // response reads as the page rather than as a quoted block. These values
     // back the few places that still need an explicit container.
-    val AssistantBubbleLight = Color(0xFFF5F5F4)
-    val AssistantBubbleDark = Color(0xFF191716)
-    val AssistantTextLight = Color(0xFF1C1917)
-    val AssistantTextDark = Color(0xFFF5F5F4)
+    val AssistantBubbleLight = Color(0xFFEDEFF2)
+    val AssistantBubbleDark = Color(0xFF12151C)
+    val AssistantTextLight = Color(0xFF0E1117)
+    val AssistantTextDark = Color(0xFFE8ECF2)
 
     val SystemBubbleLight = Color(0xFFEDEBE9)
     val SystemBubbleDark = Color(0xFF221F1D)

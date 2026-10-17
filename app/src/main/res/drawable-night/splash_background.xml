@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/splash_background_dark" />
+    <!-- Orobi at rest, the same mark as the launcher icon. -->
     <item
-        android:drawable="@drawable/ic_launcher_foreground"
+        android:drawable="@drawable/ic_oro_mark"
         android:gravity="center"
-        android:width="144dp"
-        android:height="144dp" />
+        android:width="112dp"
+        android:height="70dp" />
 </layer-list>

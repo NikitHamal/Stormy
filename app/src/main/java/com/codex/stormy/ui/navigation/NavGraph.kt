@@ -102,7 +102,14 @@ fun CodeXNavGraph(
         popEnterTransition = popEnter,
         popExitTransition = popExit
     ) {
-        composable(Screen.Onboarding.route) {
+        // Leaving onboarding is not a push -- there is nothing to go back to.
+        // The onboarding fades itself out as Orobi hops; Home then rises in
+        // from slightly smaller, so the hand-off reads as arriving rather
+        // than as navigating sideways.
+        composable(
+            route = Screen.Onboarding.route,
+            exitTransition = { fadeOut(exitFade) }
+        ) {
             OnboardingScreen(
                 onComplete = {
                     navController.navigate(Screen.Home.route) {
@@ -112,7 +119,16 @@ fun CodeXNavGraph(
             )
         }
 
-        composable(Screen.Home.route) {
+        composable(
+            route = Screen.Home.route,
+            enterTransition = {
+                if (initialState.destination.route == Screen.Onboarding.route) {
+                    scaleIn(scaleSpec, initialScale = ArriveScale) + fadeIn(enterFade)
+                } else {
+                    pushEnter(this)
+                }
+            }
+        ) {
             HomeScreen(
                 onProjectClick = { projectId ->
                     navController.navigate(Screen.Editor.createRoute(projectId))
@@ -241,3 +257,6 @@ private const val OpenIntoScale = 0.92f
 
 /** The list behind it, which grows past the viewport rather than shrinking. */
 private const val PushPastScale = 1.06f
+
+/** Home's first appearance, straight after onboarding. */
+private const val ArriveScale = 0.96f

@@ -166,7 +166,7 @@ class AiRepository(
     }
 
     /**
-     * Create a comprehensive system message for Stormy agent
+     * Create a comprehensive system message for the Orobi agent
      */
     fun createSystemMessage(
         projectContext: String = "",
@@ -284,9 +284,9 @@ class AiRepository(
 
     companion object {
         private val STORMY_IDENTITY = """
-            # You are Stormy - An Autonomous AI Coding Agent
+            # You are Orobi - An Autonomous AI Coding Agent
 
-            You are Stormy, a powerful autonomous AI coding agent built into CodeX IDE for Android. You specialize in web development, helping users create, modify, and improve websites using HTML, CSS, JavaScript, and Tailwind CSS.
+            You are Orobi, a powerful autonomous AI coding agent built into Oro, a web studio for Android. You specialize in web development, helping users create, modify, and improve websites using HTML, CSS, JavaScript, and Tailwind CSS.
 
             ## CRITICAL: Tool Usage Instructions
 

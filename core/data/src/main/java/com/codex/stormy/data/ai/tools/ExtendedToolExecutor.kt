@@ -238,7 +238,7 @@ class ExtendedToolExecutor(
                 connection.requestMethod = method
                 connection.connectTimeout = timeout.coerceIn(1000, 60_000)
                 connection.readTimeout = timeout.coerceIn(1000, 60_000)
-                connection.setRequestProperty("User-Agent", "CodeX-Stormy/1.0")
+                connection.setRequestProperty("User-Agent", "Oro/1.0")
 
                 headers?.let { headerStr ->
                     try {

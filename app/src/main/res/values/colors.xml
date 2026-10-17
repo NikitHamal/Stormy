@@ -5,12 +5,17 @@
       screen and the launcher icon background. Everything else reads from the
       Compose colour scheme in Color.kt, which is the single source of truth.
 
-      Warm neutrals, matching the Compose palette exactly so the splash does
-      not flash a different white before the app draws.
+      Matched to the Compose palette exactly so the splash does not flash a
+      different white before the app draws.
     -->
-    <color name="codex_ink">#1C1917</color>
-    <color name="codex_chalk">#FCFCFB</color>
+    <color name="codex_ink">#12151C</color>
+    <color name="codex_chalk">#F7F8FA</color>
 
-    <color name="splash_background_light">#FCFCFB</color>
-    <color name="splash_background_dark">#0C0B0A</color>
+    <!-- Orobi. Fixed in every theme. -->
+    <color name="oro_peach">#FDDFC6</color>
+    <color name="oro_magenta">#F800F8</color>
+    <color name="oro_ink">#1A1F4A</color>
+
+    <color name="splash_background_light">#F7F8FA</color>
+    <color name="splash_background_dark">#0B0D12</color>
 </resources>
