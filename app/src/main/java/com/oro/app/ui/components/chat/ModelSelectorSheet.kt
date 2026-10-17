@@ -1,5 +1,8 @@
 package com.oro.app.ui.components.chat
 
+import com.oro.app.data.ai.ModelGroup
+import androidx.compose.runtime.remember
+
 import com.oro.app.ui.brand.OrobiIdle
 import com.oro.app.ui.theme.OroCorners
 import com.oro.app.ui.theme.Space
@@ -51,8 +54,7 @@ import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiProvider
 
 /**
- * Minimal model selector bottom sheet
- * Shows all available models in a clean, flat list without category filtering
+ * Model selector bottom sheet, grouped by [ModelGroup].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,12 +71,10 @@ fun ModelSelectorSheet(
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier
 ) {
-    // Sort models: selected first (if any), then by provider, then by name
-    val sortedModels = models.sortedWith(
-        compareBy<AiModel> { selectedModel == null || it.id != selectedModel.id }
-            .thenBy { it.provider.ordinal }
-            .thenBy { it.name }
-    )
+    // Grouped by what it takes to use a model: recommended keyless picks,
+    // other free tiers, unofficial community bridges, then keyed providers.
+    val groups = remember(models) { ModelGroup.grouped(models) }
+    val sortedModels = remember(groups) { groups.flatMap { it.second } }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -208,19 +208,44 @@ fun ModelSelectorSheet(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(
-                        items = sortedModels,
-                        key = { it.id }
-                    ) { model ->
-                        CompactModelCard(
-                            model = model,
-                            isSelected = selectedModel != null && model.id == selectedModel.id,
-                            onClick = { onModelSelected(model) }
-                        )
+                    groups.forEach { (group, groupModels) ->
+                        item(key = "header-${group.name}") {
+                            ModelGroupHeader(group)
+                        }
+                        items(
+                            items = groupModels,
+                            key = { "${it.provider.name}/${it.id}" }
+                        ) { model ->
+                            CompactModelCard(
+                                model = model,
+                                isSelected = selectedModel != null && model.id == selectedModel.id,
+                                onClick = { onModelSelected(model) }
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModelGroupHeader(group: ModelGroup) {
+    Column(modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 2.dp)) {
+        Text(
+            text = group.title,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (group == ModelGroup.COMMUNITY) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
+        )
+        Text(
+            text = group.subtitle,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -280,6 +305,13 @@ private fun CompactModelCard(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = ModelGroup.caption(model),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

@@ -458,8 +458,9 @@ class EditorViewModel(
             }
         }
 
-        // Priority 3: First available enabled model
-        val firstModel = _availableModels.value.firstOrNull()
+        // Priority 3: the keyless default if enabled, else the first enabled model
+        val firstModel = _availableModels.value.firstOrNull { it.id == com.oro.app.data.ai.SeedModels.default.id }
+            ?: _availableModels.value.firstOrNull()
         if (firstModel != null) {
             _currentModel.value = firstModel
             updateContextMaxTokens(firstModel)

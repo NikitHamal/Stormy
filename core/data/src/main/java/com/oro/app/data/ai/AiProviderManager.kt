@@ -52,6 +52,10 @@ class AiProviderManager(
         reasoningEffort: ReasoningEffort? = null
     ): Flow<StreamEvent> {
         configurationError(model.provider)?.let { return flowOf(StreamEvent.Error(it)) }
+        // Community bridges speak their own protocols and take no tools.
+        if (model.provider.isCommunity) {
+            return com.oro.app.data.ai.community.CommunityClients.stream(model, messages)
+        }
         return clientFor(model.provider)
             .streamChatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort)
     }
@@ -67,6 +71,7 @@ class AiProviderManager(
         configurationError(model.provider)?.let {
             return Result.failure(IllegalStateException(it))
         }
+        if (model.provider.isCommunity) return collectCommunity(model, messages)
         return clientFor(model.provider)
             .chatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort)
     }
@@ -84,8 +89,33 @@ class AiProviderManager(
         else -> null
     }
 
+    /** Non-streaming call on a community bridge: collect its stream. */
+    private suspend fun collectCommunity(
+        model: AiModel,
+        messages: List<ChatRequestMessage>
+    ): Result<ChatCompletionResponse> {
+        val text = StringBuilder()
+        var error: String? = null
+        com.oro.app.data.ai.community.CommunityClients.stream(model, messages).collect { event ->
+            when (event) {
+                is StreamEvent.ContentDelta -> text.append(event.content)
+                is StreamEvent.Error -> error = event.message
+                else -> Unit
+            }
+        }
+        error?.takeIf { text.isEmpty() }?.let { return Result.failure(java.io.IOException(it)) }
+        return Result.success(
+            ChatCompletionResponse(
+                model = model.id,
+                choices = listOf(Choice(message = ResponseMessage(role = "assistant", content = text.toString())))
+            )
+        )
+    }
+
     suspend fun fetchModelsForProvider(provider: AiProvider): Result<List<AiModel>> {
         configurationError(provider)?.let { return Result.failure(IllegalStateException(it)) }
+        // Community bridges have no model listing; their catalogue is the seed.
+        if (provider.isCommunity) return Result.success(AiModels.getModelsForProvider(provider))
 
         val viaOpenAi = modelService.fetchAvailableModels(
             provider = provider,

@@ -107,6 +107,9 @@ class AiModelRepository(
             )
         }
 
+        // Community bridges have no model listing; their catalogue is the seed.
+        if (provider.isCommunity) return Result.success(AiModels.getModelsForProvider(provider))
+
         val result = openAiCompatibleModelService.fetchAvailableModels(
             provider = provider,
             apiKey = apiKey
@@ -173,7 +176,23 @@ class AiModelRepository(
         val count = aiModelDao.getModelCount()
         if (count == 0) {
             seedDefaultModels()
+        } else {
+            addMissingKeylessSeeds()
         }
+    }
+
+    /**
+     * Existing installs only got the seed list once, so providers added since
+     * (OVHcloud, Kilo's keyless pool, K2 Horizon) would stay invisible until a
+     * manual refresh. Insert keyless seeds that are missing; never touch rows
+     * the user already has (enabled state, aliases, favourites).
+     */
+    private suspend fun addMissingKeylessSeeds() {
+        val existing = aiModelDao.getAllModels().map { it.id }.toSet()
+        val missing = AiModels.getAllModels()
+            .filter { it.provider.worksWithoutKey && it.id !in existing }
+            .map { it.toEntity().copy(isEnabled = true, addedAt = System.currentTimeMillis()) }
+        if (missing.isNotEmpty()) aiModelDao.insertModels(missing)
     }
 
     /** Enable or disable every model from one provider. */

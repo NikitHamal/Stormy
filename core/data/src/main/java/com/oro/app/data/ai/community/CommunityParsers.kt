@@ -1,0 +1,85 @@
+package com.oro.app.data.ai.community
+
+import com.oro.app.data.ai.AiHttp
+import com.oro.app.data.ai.StreamEvent
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+
+private fun JsonObject.str(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+/**
+ * chat.ifm.ai guest frames. Each `{"content": ...}` frame carries the
+ * *cumulative* text so far: a `<details type="reasoning">` block (lines
+ * `> `-quoted) followed by the answer. Deltas are computed against the
+ * previous frame. `{"done": true}` ends the stream; `{"detail": "..."}` is an
+ * error; `task_id`, `choices` and `usage`-only frames carry nothing new.
+ */
+class K2FrameParser {
+    private var prevReasoning = ""
+    private var prevAnswer = ""
+    var finished = false
+        private set
+    var sawOutput = false
+        private set
+
+    fun onData(data: String): List<StreamEvent> {
+        if (finished) return emptyList()
+        if (data == "[DONE]") return finish()
+        val obj = runCatching { AiHttp.json.parseToJsonElement(data) as? JsonObject }.getOrNull() ?: return emptyList()
+        val out = mutableListOf<StreamEvent>()
+        obj.str("detail")?.takeIf { !obj.containsKey("content") }?.let { detail ->
+            finished = true
+            return listOf(StreamEvent.Error("K2 Horizon: ${detail.take(300)}", retryable = detail.contains("busy", true)))
+        }
+        (obj["usage"] as? JsonObject)?.let { u ->
+            val p = (u["prompt_tokens"] as? JsonPrimitive)?.intOrNull
+            val c = (u["completion_tokens"] as? JsonPrimitive)?.intOrNull
+            if (p != null || c != null) out += StreamEvent.Usage(p ?: 0, c ?: 0)
+        }
+        obj.str("content")?.let { content ->
+            val (reasoning, answer) = split(content)
+            if (reasoning.length > prevReasoning.length && reasoning.startsWith(prevReasoning)) {
+                out += StreamEvent.ReasoningDelta(reasoning.substring(prevReasoning.length))
+            }
+            prevReasoning = reasoning
+            val delta = if (answer.startsWith(prevAnswer)) answer.substring(prevAnswer.length) else ""
+            if (delta.isNotEmpty()) {
+                sawOutput = true
+                out += StreamEvent.ContentDelta(delta)
+            }
+            if (answer.startsWith(prevAnswer)) prevAnswer = answer
+        }
+        if ((obj["done"] as? JsonPrimitive)?.contentOrNull == "true") out += finish()
+        return out
+    }
+
+    fun finish(): List<StreamEvent> {
+        if (finished) return emptyList()
+        finished = true
+        return listOf(StreamEvent.Completed)
+    }
+
+    companion object {
+        private val DETAILS_OPEN = Regex("<details\\b[^>]*>")
+        private val SUMMARY = Regex("(?s)<summary\\b[^>]*>.*?</summary>")
+
+        /** (reasoning, answer) from cumulative content. */
+        fun split(content: String): Pair<String, String> {
+            val close = content.lastIndexOf("</details>")
+            return if (close < 0) {
+                // Still inside the reasoning block, or no reasoning at all.
+                if (DETAILS_OPEN.containsMatchIn(content)) strip(content) to "" else "" to content
+            } else {
+                strip(content.substring(0, close)) to content.substring(close + "</details>".length).trimStart('\n')
+            }
+        }
+
+        private fun strip(text: String): String = text
+            .replace(DETAILS_OPEN, "")
+            .replace(SUMMARY, "")
+            .lines().joinToString("\n") { if (it.startsWith("> ")) it.substring(2) else if (it == ">") "" else it }
+            .trim()
+    }
+}

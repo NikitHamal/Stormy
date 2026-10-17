@@ -68,6 +68,14 @@ data class AiModel(
     val isEnabled: Boolean = true
 )
 
+/** How Oro talks to a provider. */
+enum class ProviderProtocol {
+    /** OpenAI-compatible `/chat/completions` + `/models`. */
+    OPENAI,
+    /** chat.ifm.ai guest completions, cumulative `content` frames. */
+    K2_GUEST
+}
+
 /** How a provider treats credentials. */
 enum class ApiKeyRequirement {
     /** Works with no credentials at all. */
@@ -99,7 +107,18 @@ enum class ApiKeyRequirement {
  *    models without a key (about 200 requests/hour per IP); a key unlocks the
  *    rest of the catalogue.
  * OpenCode Zen's free tier is gated to the OpenCode client itself ("can only
- * be used from within OpenCode"), so it is not a keyless option. The rest are
+ * be used from within OpenCode"); re-tested 2026-10-17 with the
+ * `Bearer public` + `User-Agent: opencode/1.0` headers some tools use, every
+ * listed free model still answered FreeTierError (or "Model is unavailable"
+ * for retired ids), so it is not a keyless option -- and passing as their
+ * client would be impersonation anyway.
+ *
+ * Community providers ([ProviderProtocol] other than OPENAI) are public guest
+ * web chats bridged by their own protocol clients in `ai/community`. They are
+ * unofficial: no SLA, may change or disappear, no native tool calling (Orobi
+ * uses text tool calls). Only guest endpoints that answer a plain HTTPS client
+ * are included -- nothing that needs a browser fingerprint, a WAF/captcha
+ * token, signing SDKs or a user's cookies. The rest are
  * free to sign up for without billing details, which is a different thing
  * from keyless and is labelled as such in the UI.
  *
@@ -116,7 +135,9 @@ enum class AiProvider(
     val apiKeyUrl: String = "",
     /** Short note shown under the key field in Settings. */
     val keyNote: String = "",
-    val extraHeaders: Map<String, String> = emptyMap()
+    val extraHeaders: Map<String, String> = emptyMap(),
+    /** Wire protocol. Anything but OPENAI is a community web-chat bridge. */
+    val protocol: ProviderProtocol = ProviderProtocol.OPENAI
 ) {
     POLLINATIONS(
         displayName = "Pollinations",
@@ -206,6 +227,14 @@ enum class AiProvider(
         apiKeyUrl = "https://console.mistral.ai/api-keys",
         keyNote = "Free experiment tier on signup."
     ),
+    K2_HORIZON(
+        displayName = "K2 Horizon (community)",
+        baseUrl = "https://chat.ifm.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to MBZUAI IFM's guest chat (K2 Horizon 375B, " +
+            "reasoning). Long inputs, no native tools. May break without notice.",
+        protocol = ProviderProtocol.K2_GUEST
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -219,6 +248,9 @@ enum class AiProvider(
     /** True when the provider can be used right now with no setup. */
     val worksWithoutKey: Boolean get() = apiKeyRequirement != ApiKeyRequirement.REQUIRED
 
+    /** Unofficial guest web-chat bridge rather than a documented API. */
+    val isCommunity: Boolean get() = protocol != ProviderProtocol.OPENAI
+
     companion object {
         fun fromString(value: String): AiProvider =
             entries.find { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
@@ -227,7 +259,7 @@ enum class AiProvider(
          * Provider used before the user configures anything. Must be one that
          * works with no key, otherwise a fresh install cannot send a message.
          */
-        val DEFAULT = POLLINATIONS
+        val DEFAULT = K2_HORIZON
     }
 }
 
@@ -293,7 +325,19 @@ object SeedModels {
     val kilo = listOf(
         model("kilo-auto/free", "Kilo Auto (free, no key)", AiProvider.KILOCODE, 256_000),
         model("reflection/beam-free", "Reflection Beam (free, no key)", AiProvider.KILOCODE, 1_048_576),
-        model("poolside/laguna-s-2.1:free", "Laguna S 2.1 (free, no key)", AiProvider.KILOCODE, 262_144)
+        model("poolside/laguna-s-2.1:free", "Laguna S 2.1 (free, no key)", AiProvider.KILOCODE, 262_144),
+        // OpenRouter's own free router, served through Kilo; tool calls verified.
+        model("openrouter/free", "OpenRouter Free router (free, no key)", AiProvider.KILOCODE, 200_000)
+    )
+
+    /**
+     * Community providers. Ids are namespaced ("k2:...") because model
+     * ids are the table's primary key and these upstream ids also exist on
+     * the OpenAI-style gateways; the client strips the prefix. All verified
+     * live on 2026-10-17 with a real completion.
+     */
+    val k2Horizon = listOf(
+        model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 131_072, tools = false, thinking = true)
     )
 
     val nvidia = listOf(
@@ -350,6 +394,7 @@ object SeedModels {
         AiProvider.GROQ to groq,
         AiProvider.CEREBRAS to cerebras,
         AiProvider.MISTRAL to mistral,
+        AiProvider.K2_HORIZON to k2Horizon,
         AiProvider.CUSTOM to fetchedOnly
     )
 
@@ -357,8 +402,17 @@ object SeedModels {
 
     val all: List<AiModel> = byProvider.values.flatten()
 
-    /** The model a fresh install starts on: free, keyless, tool-capable. */
-    val default: AiModel = pollinations.first()
+    /**
+     * The model a fresh install starts on. Chosen by measurement, 2026-10-17:
+     * the same two agent tasks (edit two files; create a page and link it
+     * from both) were run end to end on every keyless option. K2 Horizon
+     * finished each in ~3-4 s with no failed tool calls (4/4 runs, text tool
+     * mode); Kilo Auto took 10-16 s (4/4, native tools); OVH Qwen3.5 ~5 s but
+     * is paced to 2 requests/min; Pollinations hit its 30 s free limit and did
+     * not finish. K2 is a community endpoint, so the error card and
+     * [AiModels.getRecommendedModels] keep Kilo one tap away.
+     */
+    val default: AiModel = k2Horizon.first()
 }
 
 /**
@@ -382,8 +436,9 @@ object AiModels {
     /** Models worth suggesting for code work, best-first. */
     fun getRecommendedModels(): List<AiModel> = listOf(
         SeedModels.default,
-        SeedModels.ovhcloud.first(),
         SeedModels.kilo.first(),
+        SeedModels.ovhcloud.first(),
+        SeedModels.pollinations.first(),
         SeedModels.cerebras.first(),
         SeedModels.groq.first(),
         SeedModels.nvidia.first()
