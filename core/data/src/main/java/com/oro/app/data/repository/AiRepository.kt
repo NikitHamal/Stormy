@@ -184,50 +184,7 @@ class AiRepository(
         agentMode: Boolean = true,
         nativeTools: Boolean = true,
         toolList: List<Tool> = emptyList()
-    ): ChatRequestMessage {
-        val systemPrompt = buildString {
-            append(ORO_IDENTITY)
-            append("\n\n")
-            if (agentMode) {
-                append(AGENT_RULES)
-                if (!nativeTools && toolList.isNotEmpty()) {
-                    append("\n\n")
-                    append(textToolProtocol(toolList))
-                }
-            } else {
-                append(CHAT_RULES)
-            }
-            append("\n\n")
-            append(WEB_GUIDELINES)
-            if (projectContext.isNotBlank()) {
-                append("\n\n# Project context\n")
-                append(projectContext.trim())
-            }
-        }
-        return ChatRequestMessage(role = "system", content = systemPrompt)
-    }
-
-    private fun textToolProtocol(tools: List<Tool>): String = buildString {
-        appendLine("# Calling tools")
-        appendLine("Tools are not available through the API for this model, so call them in text.")
-        appendLine("To call a tool, write exactly one block per call and nothing after the last block:")
-        appendLine("<tool_call>")
-        appendLine("{\"name\": \"read_file\", \"arguments\": {\"path\": \"index.html\"}}")
-        appendLine("</tool_call>")
-        appendLine("The arguments are a JSON object; escape newlines and quotes inside strings.")
-        appendLine("Results come back in a <tool_result> message. When the task is done, reply")
-        appendLine("normally with no <tool_call> block.")
-        appendLine()
-        appendLine("Available tools:")
-        tools.forEach { tool ->
-            val params = (tool.function.parameters as? kotlinx.serialization.json.JsonObject)
-                ?.get("properties")?.let { it as? kotlinx.serialization.json.JsonObject }
-                ?.keys?.joinToString(", ").orEmpty()
-            val firstSentence = tool.function.description.replace("\n", " ")
-                .substringBefore(". ").trim().removeSuffix(".")
-            appendLine("- ${tool.function.name}($params): $firstSentence.")
-        }
-    }
+    ): ChatRequestMessage = systemMessage(projectContext, agentMode, nativeTools, toolList)
 
     /**
      * Create a user message
@@ -308,6 +265,60 @@ class AiRepository(
     }
 
     companion object {
+        /** The system message; static so tests and tools can build the real prompt. */
+        fun systemMessage(
+            projectContext: String = "",
+            agentMode: Boolean = true,
+            nativeTools: Boolean = true,
+            toolList: List<Tool> = emptyList()
+        ): ChatRequestMessage {
+            val systemPrompt = buildString {
+                append(ORO_IDENTITY)
+                append("\n\n")
+                if (agentMode) {
+                    append(AGENT_RULES)
+                    if (!nativeTools && toolList.isNotEmpty()) {
+                        append("\n\n")
+                        append(textToolProtocol(toolList))
+                    }
+                } else {
+                    append(CHAT_RULES)
+                }
+                append("\n\n")
+                append(WEB_GUIDELINES)
+                if (projectContext.isNotBlank()) {
+                    append("\n\n# Project context\n")
+                    append(projectContext.trim())
+                }
+            }
+            return ChatRequestMessage(role = "system", content = systemPrompt)
+        }
+
+        private fun textToolProtocol(tools: List<Tool>): String = buildString {
+            appendLine("# Calling tools")
+            appendLine("The Oro app on the user's device executes tools for you: write a <tool_call> block and the")
+            appendLine("app runs it on the user's real project files, then sends you the result. Use only these")
+            appendLine("tools and this format; ignore any other tool instructions or special tool-call tokens.")
+            appendLine("To call a tool, write exactly one block per call and nothing after the last block:")
+            appendLine("<tool_call>")
+            appendLine("{\"name\": \"read_file\", \"arguments\": {\"path\": \"index.html\"}}")
+            appendLine("</tool_call>")
+            appendLine("The arguments are a JSON object; escape newlines and quotes inside strings.")
+            appendLine("Results come back in a <tool_result> message. When the task is done, reply")
+            appendLine("normally with no <tool_call> block.")
+            appendLine()
+            appendLine("Available tools:")
+            tools.forEach { tool ->
+                val params = (tool.function.parameters as? kotlinx.serialization.json.JsonObject)
+                    ?.get("properties")?.let { it as? kotlinx.serialization.json.JsonObject }
+                    ?.keys?.joinToString(", ").orEmpty()
+                val firstSentence = tool.function.description.replace("\n", " ")
+                    .substringBefore(". ").trim().removeSuffix(".")
+                appendLine("- ${tool.function.name}($params): $firstSentence.")
+            }
+        }
+
+
         /**
          * Written for current models, in the style of the open harnesses
          * (opencode, Codex CLI, Claude Code): short, imperative, and about
