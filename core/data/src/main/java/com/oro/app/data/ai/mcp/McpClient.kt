@@ -28,7 +28,9 @@ data class McpServerConfig(
     val url: String,
     /** Sent with every request; typically Authorization: Bearer <token>. */
     val headers: Map<String, String> = emptyMap(),
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    /** Set after browser sign-in; sent as the bearer token. */
+    val oauth: McpOAuthTokens? = null
 )
 
 @Serializable
@@ -69,7 +71,12 @@ object McpNames {
  * tools/call. Remote servers only -- there is no way to spawn a stdio server
  * on Android.
  */
-class McpClient(private val config: McpServerConfig) {
+class McpClient(
+    private val config: McpServerConfig,
+    /** Persist refreshed tokens (the registry wires this to settings). */
+    private val onTokens: (McpOAuthTokens) -> Unit = {}
+) {
+    @Volatile private var tokens: McpOAuthTokens? = config.oauth
 
     private val ids = AtomicInteger(1)
     @Volatile private var sessionId: String? = null
@@ -143,7 +150,13 @@ class McpClient(private val config: McpServerConfig) {
         runCatching { http.newCall(request(body)).execute().close() }
     }
 
-    private fun rpc(method: String, params: JsonObject): JsonObject {
+    private fun rpc(method: String, params: JsonObject): JsonObject = try {
+        rpcOnce(method, params)
+    } catch (e: java.io.IOException) {
+        if (e.message?.endsWith("retry") == true) rpcOnce(method, params) else throw e
+    }
+
+    private fun rpcOnce(method: String, params: JsonObject): JsonObject {
         val id = ids.getAndIncrement()
         val body = buildJsonObject {
             put("jsonrpc", "2.0"); put("id", id); put("method", method); put("params", params)
@@ -151,6 +164,15 @@ class McpClient(private val config: McpServerConfig) {
         http.newCall(request(body)).execute().use { r ->
             r.header("Mcp-Session-Id")?.let { sessionId = it }
             val text = r.body?.string().orEmpty()
+            if (r.code == 401 && tokens != null) {
+                val fresh = McpOAuth.refresh(tokens!!)
+                if (fresh != null) {
+                    tokens = fresh
+                    onTokens(fresh)
+                    throw java.io.IOException("${config.name}: token refreshed, retry")
+                }
+                throw java.io.IOException("${config.name}: sign-in expired. Sign in again in Settings > MCP servers.")
+            }
             if (r.code == 404 && sessionId != null) {
                 // Session expired on the server: start over once.
                 sessionId = null; initialized = false
@@ -181,6 +203,7 @@ class McpClient(private val config: McpServerConfig) {
             .header("MCP-Protocol-Version", PROTOCOL_VERSION)
         sessionId?.let { b.header("Mcp-Session-Id", it) }
         config.headers.forEach { (k, v) -> if (k.isNotBlank()) b.header(k, v) }
+        tokens?.let { b.header("Authorization", "Bearer ${it.accessToken}") }
         return b.build()
     }
 
@@ -194,6 +217,9 @@ class McpClient(private val config: McpServerConfig) {
  * agent turn does not re-list every server.
  */
 object McpRegistry {
+    /** Saves refreshed OAuth tokens; set by the app at startup. */
+    @Volatile var tokenSink: (serverId: String, tokens: McpOAuthTokens) -> Unit = { _, _ -> }
+
     private val clients = java.util.concurrent.ConcurrentHashMap<String, Pair<McpServerConfig, McpClient>>()
     @Volatile private var cache: Pair<Long, List<McpTool>> = 0L to emptyList()
     private const val TTL_MS = 5 * 60_000L
@@ -201,7 +227,7 @@ object McpRegistry {
     private fun client(config: McpServerConfig): McpClient {
         val existing = clients[config.id]
         if (existing != null && existing.first == config) return existing.second
-        return McpClient(config).also { clients[config.id] = config to it }
+        return McpClient(config) { fresh -> tokenSink(config.id, fresh) }.also { clients[config.id] = config to it }
     }
 
     /** Tools of every enabled server; servers that fail are skipped (and reported in [lastErrors]). */

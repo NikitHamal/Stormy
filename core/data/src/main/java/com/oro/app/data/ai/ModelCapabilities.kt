@@ -257,3 +257,16 @@ object RateLimits {
     /** Budget for a provider, or null when it is not rate limited by us. */
     operator fun get(provider: AiProvider): RateLimit? = limits[provider]
 }
+
+/** Which model families accept images. Matched on id; wrong-but-permissive costs a 400. */
+object VisionSupport {
+    private val PATTERNS = listOf(
+        "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "claude", "gemini", "gemma-3", "llama-4", "pixtral",
+        "mistral-medium", "mistral-small-3", "qwen-vl", "qwen2.5-vl", "qwen3-vl", "vl-", "-vl", "vision",
+        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "nemotron-nano-vl", "openai-fast", "openai-large"
+    )
+    fun supports(modelId: String): Boolean {
+        val id = modelId.lowercase()
+        return PATTERNS.any { it in id }
+    }
+}

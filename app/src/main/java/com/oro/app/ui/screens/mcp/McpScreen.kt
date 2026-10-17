@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Hub
@@ -65,8 +66,8 @@ private val PRESETS = listOf(
     McpPreset("DeepWiki", "https://mcp.deepwiki.com/mcp", "Ask about any public GitHub repo. No key needed."),
     McpPreset("GitHub", "https://api.githubcopilot.com/mcp/", "Issues, PRs, code. Needs a GitHub personal access token.", "GitHub token (ghp_… or github_pat_…)"),
     McpPreset("Supabase", "https://mcp.supabase.com/mcp", "Your database and edge functions. Needs a Supabase access token.", "Supabase access token"),
-    McpPreset("Figma", "https://mcp.figma.com/mcp", "Designs and components. Needs a Figma token.", "Figma token"),
-    McpPreset("Custom", "", "Any remote MCP server (Streamable HTTP).", "Bearer token (optional)")
+    McpPreset("Figma", "https://mcp.figma.com/mcp", "Designs and components. Add it, then tap Sign in.", "Figma token (optional with sign-in)"),
+    McpPreset("Custom", "", "Any remote MCP server (Streamable HTTP). Use a token, or add it and tap Sign in.", "Bearer token (optional)")
 )
 
 /**
@@ -82,6 +83,7 @@ fun McpScreen(onBackClick: () -> Unit) {
     val settings by prefs.mcpSettings.collectAsStateWithLifecycle(com.oro.app.data.ai.mcp.McpSettings())
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     var adding by rememberSaveable { mutableStateOf(false) }
     var testing by remember { mutableStateOf<String?>(null) }
 
@@ -147,6 +149,20 @@ fun McpScreen(onBackClick: () -> Unit) {
                             McpRegistry.lastErrors[server.id]?.let {
                                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, maxLines = 2)
                             }
+                        }
+                        IconButton(onClick = {
+                            scope.launch {
+                                com.oro.app.data.ai.mcp.McpOAuth.begin(server).fold(
+                                    onSuccess = { url -> runCatching { uriHandler.openUri(url) } },
+                                    onFailure = { snackbar.showSnackbar(it.message ?: "Sign-in not available") }
+                                )
+                            }
+                        }) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.Login,
+                                if (server.oauth != null) "Signed in" else "Sign in",
+                                tint = if (server.oauth != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         IconButton(onClick = { test(server) }, enabled = testing == null) {
                             if (testing == server.id) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

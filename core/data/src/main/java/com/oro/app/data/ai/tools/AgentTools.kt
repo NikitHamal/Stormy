@@ -230,6 +230,38 @@ object AgentTools {
         """
     )
 
+    val SCREENSHOT_PREVIEW = tool(
+        "screenshot_preview",
+        """
+        Render a page of the project and look at it: returns layout facts
+        (horizontal overflow, elements wider than the screen, small tap
+        targets and text) and, for models that can see images, the screenshot.
+        Use device "all" for a responsive check at phone, tablet and desktop
+        widths. Do this after visual changes.
+        """,
+        """
+        {"type":"object","properties":{
+          "page":{"type":"string","description":"Page path relative to the project root. Default index.html."},
+          "device":{"type":"string","enum":["phone","tablet","desktop","all"],"description":"Viewport. Default phone."}
+        }}
+        """
+    )
+
+    val AUDIT_PAGE = tool(
+        "audit_page",
+        """
+        Run a Lighthouse-style audit of a page: accessibility (alt text,
+        labels, contrast, heading order, tap targets), SEO (title, meta
+        description, viewport, lang) and performance (image weight, render-
+        blocking scripts, DOM size). Returns issues with selectors to fix.
+        """,
+        """
+        {"type":"object","properties":{
+          "page":{"type":"string","description":"Page path relative to the project root. Default index.html."}
+        }}
+        """
+    )
+
     val WEB_FETCH = tool(
         "web_fetch",
         """
@@ -277,7 +309,7 @@ object AgentTools {
     val all: List<Tool> = listOf(
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
-        CHECK_SYNTAX, GET_PREVIEW_ERRORS, WEB_FETCH,
+        CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH,
         ASK_USER, SAVE_MEMORY
     )
     // run_command is deliberately not offered: on Android there is no node,
@@ -287,7 +319,7 @@ object AgentTools {
 
     /** Names of tools that never modify anything, safe to run concurrently. */
     val readOnly: Set<String> = setOf(
-        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors",
+        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors", "screenshot_preview", "audit_page",
         // legacy names
         "search_files", "get_file_info", "recall_memory", "list_memories"
     )

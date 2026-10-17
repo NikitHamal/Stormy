@@ -36,8 +36,47 @@ data class ChatRequestMessage(
     val toolCalls: List<ToolCallRequest>? = null,
     @SerialName("tool_call_id")
     val toolCallId: String? = null,
-    val name: String? = null
+    val name: String? = null,
+    /**
+     * Base64 JPEG images attached to a user turn. Not part of the OpenAI
+     * schema as such: each client splices them into its own content-part
+     * format ([withImageParts], AnthropicClient).
+     */
+    @kotlinx.serialization.Transient
+    val images: List<String> = emptyList()
 )
+
+/**
+ * Encode a request, turning messages that carry [ChatRequestMessage.images]
+ * into OpenAI content parts: text plus `image_url` data URLs.
+ */
+fun encodeChatRequest(json: kotlinx.serialization.json.Json, request: ChatCompletionRequest): String {
+    val tree = json.encodeToJsonElement(ChatCompletionRequest.serializer(), request)
+    if (request.messages.none { it.images.isNotEmpty() }) return tree.toString()
+    val obj = tree as kotlinx.serialization.json.JsonObject
+    val msgs = (obj["messages"] as kotlinx.serialization.json.JsonArray).mapIndexed { i, m ->
+        val images = request.messages[i].images
+        if (images.isEmpty()) m else {
+            val mo = m as kotlinx.serialization.json.JsonObject
+            val parts = kotlinx.serialization.json.buildJsonArray {
+                add(kotlinx.serialization.json.buildJsonObject {
+                    put("type", kotlinx.serialization.json.JsonPrimitive("text"))
+                    put("text", kotlinx.serialization.json.JsonPrimitive(request.messages[i].content.orEmpty()))
+                })
+                images.forEach { img ->
+                    add(kotlinx.serialization.json.buildJsonObject {
+                        put("type", kotlinx.serialization.json.JsonPrimitive("image_url"))
+                        put("image_url", kotlinx.serialization.json.buildJsonObject {
+                            put("url", kotlinx.serialization.json.JsonPrimitive("data:image/jpeg;base64,$img"))
+                        })
+                    })
+                }
+            }
+            kotlinx.serialization.json.JsonObject(mo + ("content" to parts))
+        }
+    }
+    return kotlinx.serialization.json.JsonObject(obj + ("messages" to kotlinx.serialization.json.JsonArray(msgs))).toString()
+}
 
 @Serializable
 data class Tool(

@@ -483,7 +483,9 @@ private fun WelcomeMessage(
 private val StarterPrompts = listOf(
     "Build a landing page for a coffee shop",
     "Add a responsive navbar with a mobile menu",
-    "Review this project and suggest improvements"
+    "Review this project and suggest improvements",
+    "Audit my site and fix what it finds",
+    "Check my site on phone, tablet and desktop"
 )
 
 @Composable

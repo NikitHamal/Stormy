@@ -82,6 +82,8 @@ sealed interface AgentRunResult {
 data class AgentLoopConfig(
     /** Model calls per run before stopping (each tool round trip is one). */
     val maxIterations: Int = 40,
+    /** Whether tool-produced screenshots are shown to the model (vision models only). */
+    val attachImages: Boolean = false,
     /** Times a run asks the model to resend a tool call that did not parse. */
     val maxMalformedCallRetries: Int = 2,
     /** Retries per model call for transient failures. */
@@ -257,6 +259,21 @@ class AgentLoop(
                         name = call.function.name
                     )
                 }
+            }
+
+            // Screenshots go to the model as an image turn (tool messages cannot
+            // carry images on most APIs). Only the newest set is kept: images
+            // are the most expensive thing in a context window.
+            val images = finalResults.flatMap { it.images }
+            if (images.isNotEmpty() && config.attachImages) {
+                for (i in conversation.indices) {
+                    if (conversation[i].images.isNotEmpty()) conversation[i] = conversation[i].copy(images = emptyList())
+                }
+                conversation += ChatRequestMessage(
+                    role = "user",
+                    content = "Screenshots of the live preview, as your tool requested. Look at them before you continue.",
+                    images = images.take(3)
+                )
             }
 
             // Legacy explicit finish: the summary is the answer.

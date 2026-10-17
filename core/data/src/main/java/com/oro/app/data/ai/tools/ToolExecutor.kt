@@ -196,6 +196,26 @@ class ToolExecutor(
                     }
                 }
             }
+            "screenshot_preview", "audit_page" -> {
+                val previewer = com.oro.app.data.preview.PagePreviewers.instance
+                    ?: return ToolResult(false, "", "Page rendering is not available here.")
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val page = args.getStringArg("page")?.trim()?.trimStart('/')?.ifEmpty { null } ?: "index.html"
+                if (!File(root, page).isFile) return ToolResult(false, "", "$page does not exist in the project.")
+                return runCatching {
+                    if (toolName == "audit_page") {
+                        ToolResult(true, previewer.audit(root, page))
+                    } else {
+                        val shots = previewer.capture(root, page, com.oro.app.data.preview.Device.parse(args.getStringArg("device")))
+                        ToolResult(
+                            true,
+                            shots.joinToString("\n\n") { "## ${it.device} (${it.width}x${it.height})\n${it.metrics}" } +
+                                if (shots.any { it.jpegBase64 != null }) "\n\n(Screenshots attached in the next message for models that can see images.)" else "",
+                            images = shots.mapNotNull { it.jpegBase64 }
+                        )
+                    }
+                }.getOrElse { ToolResult(false, "", "Could not render $page: ${it.message}") }
+            }
             "get_preview_errors" -> {
                 val out = com.oro.app.data.preview.PreviewDiagnostics.report(projectId, args.getBooleanArg("include_warnings", true))
                 if (args.getBooleanArg("clear", false)) com.oro.app.data.preview.PreviewDiagnostics.clear(projectId)

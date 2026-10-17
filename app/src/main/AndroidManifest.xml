@@ -68,6 +68,20 @@
             android:theme="@style/Theme.Oro"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
+        <activity
+            android:name=".ui.screens.mcp.McpOAuthActivity"
+            android:exported="true"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="oro-mcp" android:host="callback" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".agent.AgentRunService"
             android:exported="false"

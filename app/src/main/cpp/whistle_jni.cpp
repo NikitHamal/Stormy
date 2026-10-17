@@ -7,6 +7,19 @@
 #include <vector>
 #include "needle.h"
 
+// libneedle.a was built with a newer libc++ than some NDKs ship: it calls
+// std::__hash_memory (added in LLVM 19's libc++). Provide it, weak, so a
+// newer NDK's own definition wins when present. Any good hash works: it only
+// backs std::hash<std::string> inside the engine.
+namespace std { inline namespace __ndk1 {
+__attribute__((weak)) size_t __hash_memory(const void* data, size_t len) noexcept {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    unsigned long long h = 1469598103934665603ULL;  // FNV-1a 64
+    for (size_t i = 0; i < len; ++i) { h ^= p[i]; h *= 1099511628211ULL; }
+    return static_cast<size_t>(h ^ (h >> 32));
+}
+} }
+
 namespace {
 std::mutex gLock;            // the engine is process-global and not thread-safe
 unsigned char* gModel = nullptr;  // kept alive for the process: the engine may reference it

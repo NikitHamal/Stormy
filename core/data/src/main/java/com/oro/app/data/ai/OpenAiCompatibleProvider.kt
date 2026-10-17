@@ -77,7 +77,7 @@ class OpenAiCompatibleProvider(
                     ?.wireValue
             )
 
-            val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
+            val requestBody = encodeChatRequest(json, request)
                 .toRequestBody("application/json".toMediaType())
 
             val httpRequestBuilder = Request.Builder()
@@ -201,7 +201,7 @@ class OpenAiCompatibleProvider(
                     ?.wireValue
             )
 
-            val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
+            val requestBody = encodeChatRequest(json, request)
                 .toRequestBody("application/json".toMediaType())
 
             val httpRequestBuilder = Request.Builder()

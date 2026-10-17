@@ -85,6 +85,14 @@ data class ToolPresentation(
 object ToolPresentations {
 
     private val map: Map<String, ToolPresentation> = mapOf(
+        "screenshot_preview" to ToolPresentation(
+            "Looking at the preview", "Looked at the preview", Icons.Outlined.BugReport,
+            subjectIsPath = true, detail = ToolDetailKind.Terminal
+        ),
+        "audit_page" to ToolPresentation(
+            "Auditing", "Audited", Icons.Outlined.BugReport,
+            subjectIsPath = true, detail = ToolDetailKind.Terminal
+        ),
         "get_preview_errors" to ToolPresentation(
             "Checking preview", "Checked preview", Icons.Outlined.BugReport,
             subjectIsPath = false, detail = ToolDetailKind.Terminal

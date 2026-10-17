@@ -216,7 +216,17 @@ class AnthropicClient(
             for (m in messages) {
                 when (m.role) {
                     "system" -> Unit
-                    "user" -> m.content?.takeIf { it.isNotBlank() }?.let { add("user", text(it)) }
+                    "user" -> {
+                        m.content?.takeIf { it.isNotBlank() }?.let { add("user", text(it)) }
+                        m.images.forEach { img ->
+                            add("user", buildJsonObject {
+                                put("type", "image")
+                                putJsonObject("source") {
+                                    put("type", "base64"); put("media_type", "image/jpeg"); put("data", img)
+                                }
+                            })
+                        }
+                    }
                     "assistant" -> {
                         m.content?.takeIf { it.isNotBlank() }?.let { add("assistant", text(it)) }
                         m.toolCalls.orEmpty().forEach { c ->

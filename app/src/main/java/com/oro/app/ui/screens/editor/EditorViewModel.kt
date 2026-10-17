@@ -1663,7 +1663,10 @@ class EditorViewModel(
         val loop = AgentLoop(
             client = client,
             tools = runner,
-            config = AgentLoopConfig(maxIterations = MAX_AGENT_ITERATIONS)
+            config = AgentLoopConfig(
+                maxIterations = MAX_AGENT_ITERATIONS,
+                attachImages = com.oro.app.data.ai.VisionSupport.supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
+            )
         )
         toolExecutor.checkpoint = run {
             val sid = _currentSessionId.value

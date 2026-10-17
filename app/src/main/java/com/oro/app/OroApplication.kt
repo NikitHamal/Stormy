@@ -136,6 +136,16 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         // extra memory pressure at exactly the moment the device just crashed.
         if (isCrashProcess()) return
         trackForeground()
+        // Off-screen page renderer for the agent's screenshot / audit tools.
+        com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
+        // Refreshed MCP sign-in tokens are written back to settings.
+        com.oro.app.data.ai.mcp.McpRegistry.tokenSink = { serverId, tokens ->
+            applicationScope.launch {
+                preferencesRepository.updateMcpSettings { s ->
+                    s.copy(servers = s.servers.map { if (it.id == serverId) it.copy(oauth = tokens) else it })
+                }
+            }
+        }
 
         // Initialize AI models on startup to ensure models are available
         applicationScope.launch {
