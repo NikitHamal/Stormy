@@ -8,8 +8,8 @@
       Matched to the Compose palette exactly so the splash does not flash a
       different white before the app draws.
     -->
-    <color name="codex_ink">#12151C</color>
-    <color name="codex_chalk">#F7F8FA</color>
+    <color name="oro_ui_ink">#12151C</color>
+    <color name="oro_ui_chalk">#F7F8FA</color>
 
     <!-- Orobi. Fixed in every theme. -->
     <color name="oro_peach">#FDDFC6</color>

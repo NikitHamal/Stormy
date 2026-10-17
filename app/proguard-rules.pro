@@ -13,20 +13,20 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
--keep,includedescriptorclasses class com.codex.stormy.**$$serializer { *; }
--keepclassmembers class com.codex.stormy.** {
+-keep,includedescriptorclasses class com.oro.app.**$$serializer { *; }
+-keepclassmembers class com.oro.app.** {
     *** Companion;
 }
--keepclasseswithmembers class com.codex.stormy.** {
+-keepclasseswithmembers class com.oro.app.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
 # Keep Room entities
--keep class com.codex.stormy.data.local.entity.** { *; }
+-keep class com.oro.app.data.local.entity.** { *; }
 
 # Keep data models
--keep class com.codex.stormy.data.model.** { *; }
--keep class com.codex.stormy.domain.model.** { *; }
+-keep class com.oro.app.data.model.** { *; }
+-keep class com.oro.app.domain.model.** { *; }
 
 # Coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
@@ -36,7 +36,7 @@
 }
 
 # Keep crash handler
--keep class com.codex.stormy.crash.** { *; }
+-keep class com.oro.app.crash.** { *; }
 
 # JGit - Ignore missing JVM-specific classes that don't exist on Android
 -dontwarn java.lang.ProcessHandle
@@ -61,13 +61,13 @@
 -keep class * extends androidx.lifecycle.ViewModel {
     <init>(...);
 }
--keep class com.codex.stormy.ui.screens.**.ViewModel* { *; }
--keep class com.codex.stormy.ui.screens.**.*ViewModel { *; }
--keep class com.codex.stormy.ui.screens.**.*ViewModel$* { *; }
+-keep class com.oro.app.ui.screens.**.ViewModel* { *; }
+-keep class com.oro.app.ui.screens.**.*ViewModel { *; }
+-keep class com.oro.app.ui.screens.**.*ViewModel$* { *; }
 
 # Keep ViewModelProvider.Factory implementations
 -keep class * implements androidx.lifecycle.ViewModelProvider$Factory { *; }
 
 # Keep Git-related classes that may be instantiated via Factory pattern
--keep class com.codex.stormy.ui.screens.git.** { *; }
--keep class com.codex.stormy.data.git.** { *; }
+-keep class com.oro.app.ui.screens.git.** { *; }
+-keep class com.oro.app.data.git.** { *; }

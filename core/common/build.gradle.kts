@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.codex.stormy.common"
+    namespace = "com.oro.app.common"
     compileSdk = 37
     compileSdkMinor = 2
 

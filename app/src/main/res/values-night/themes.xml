@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.CodeX" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Oro" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>
-        <!-- Animation.CodeX.Activity is defined once in values/, not
+        <!-- Animation.Oro.Activity is defined once in values/, not
              duplicated here: the transition is the same in either theme, and a
              second copy is a second thing to forget to change. -->
-        <item name="android:windowAnimationStyle">@style/Animation.CodeX.Activity</item>
+        <item name="android:windowAnimationStyle">@style/Animation.Oro.Activity</item>
     </style>
 
-    <style name="Theme.CodeX.Splash" parent="Theme.CodeX">
+    <style name="Theme.Oro.Splash" parent="Theme.Oro">
         <item name="android:windowBackground">@drawable/splash_background</item>
         <item name="android:windowAnimationStyle">@android:style/Animation.Activity</item>
     </style>

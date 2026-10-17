@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.codex.stormy.designsystem"
+    namespace = "com.oro.app.designsystem"
     compileSdk = 37
     compileSdkMinor = 2
 
