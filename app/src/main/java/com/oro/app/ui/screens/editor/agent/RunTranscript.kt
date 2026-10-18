@@ -132,7 +132,7 @@ class RunTranscript(initial: String = "") {
                 }
                 else -> result.output.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "Done"
             }
-            card.body = bodyFor(name, result.output)
+            card.body = bodyFor(name, result.output) + writtenContent(name, call)
         } else {
             card.status = "❌"
             card.summary = (result.error ?: "Failed").lineSequence().first().take(200)
@@ -221,6 +221,15 @@ class RunTranscript(initial: String = "") {
     private fun StringBuilder.ensureBreak() {
         if (isEmpty()) return
         if (!endsWith("\n\n")) append(if (endsWith("\n")) "\n" else "\n\n")
+    }
+
+    /** For a write, the text written, so the card can show it (and count its lines) without re-reading the file. */
+    private fun writtenContent(name: String, call: ToolCallResponse): String {
+        if (name != "write_file") return ""
+        val content = (JsonParserUtils.parseToJsonObject(call.function.arguments)?.get("content") as? JsonPrimitive)?.content
+            ?: return ""
+        if (content.contains("```") || content.length > 12_000) return ""
+        return "\nnew_content: ```\n" + content.trimEnd() + "\n```"
     }
 
     private fun bodyFor(name: String, output: String): String {

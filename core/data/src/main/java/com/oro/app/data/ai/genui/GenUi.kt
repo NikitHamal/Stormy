@@ -31,6 +31,21 @@ object GenUi {
     /** Fence languages that hold a UI block. */
     fun isUiFence(language: String?): Boolean = language?.trim()?.lowercase() in setOf("ui", "a2ui", "genui")
 
+    /** Fences models also put UI JSON in: unlabelled or json. */
+    fun mayHoldUi(language: String?): Boolean = language.isNullOrBlank() || language.trim().lowercase() in setOf("json", "jsonc", "json5")
+
+    /**
+     * Whether text is a UI block regardless of its fence: models often write
+     * ```json, or no fence at all. Requires the shape -- components with a
+     * "component" (or "type") key -- so ordinary JSON stays a code block.
+     */
+    fun looksLikeUi(text: String): Boolean {
+        val t = text.trim()
+        if (t.length < 20 || (t[0] != '{' && t[0] != '[')) return false
+        if (!t.contains("\"component\"") && !t.contains("\"components\"")) return false
+        return toA2uiMessages(t, "probe") is Result.Ok
+    }
+
     sealed interface Result {
         data class Ok(val messages: List<String>) : Result
         data class Invalid(val reason: String) : Result
@@ -199,9 +214,12 @@ object GenUi {
     val PROMPT = """
 
 # Rich answers (UI blocks)
-When an answer is clearer as an interface than as prose -- options to pick from, a comparison, a table, numbers, steps, a palette, a small calculator, a summary card -- put a UI block in your reply. It renders as native app UI. Plain conversational answers stay plain text. Never put code the user must copy in a UI block; use normal code fences for code.
+This chat renders interactive UI natively, and users prefer it. Use a UI block in most answers that have any structure: comparisons and "X vs Y" (Table), options or recommendations (Card + Button per choice, or ChoicePicker), steps or a plan (Steps), numbers or results (Stat, Chart), warnings and tips (Callout), colours (Swatches), and always end exploratory answers with Suggestions for next questions. Only short small-talk replies stay plain text. Code the user must copy goes in normal code fences, never in a UI block.
 
-Write a fenced block with the language `ui` holding JSON: {"components":[...], "data":{...}}. Each component: {"id":"...", "component":"Name", ...props}. Children may be written inline as objects. The outermost component is the root.
+Format: a fenced block whose language is exactly `ui` (not json), holding JSON {"components":[...], "data":{...}}. Each component: {"component":"Name", ...props}; "id" is optional; children may be written inline as objects. Several top-level components stack vertically. Example:
+```ui
+{"components":[{"component":"Table","columns":["","AI","LLM"],"rows":[["Scope","Whole field","Text models"]]},{"component":"Suggestions","items":["Show examples","How are LLMs trained?"]}]}
+```
 
 Components:
 - Layout: Column{children, justify, align}, Row{children, justify, align}, Card{child}, List{children, direction}, Tabs{tabs:[{title, child}]}, Divider{}, Modal{trigger, content}

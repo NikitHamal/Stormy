@@ -39,6 +39,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
@@ -182,8 +185,17 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
             SegmentType.TOOL_CALL -> {
                 val output = segment.toolOutput?.trimEnd()?.ifBlank { null }
                 val filePath = output?.let { extractFilePath(segment.toolName.orEmpty(), it) }
-                val (adds, dels) = computeUnifiedDiffSummary(output)
-                val (oldC, newC) = output?.let(::extractOldNewContent) ?: (null to null)
+                var (adds, dels) = computeUnifiedDiffSummary(output)
+                var (oldC, newC) = output?.let(::extractOldNewContent) ?: (null to null)
+                val canonical = com.oro.app.data.ai.tools.ToolAliases.canonicalName(segment.toolName.orEmpty().lowercase(Locale.ROOT).replace(' ', '_'))
+                if (canonical == "write_file" && output != null) {
+                    // A write's card carries the written text; show it as all-new lines.
+                    if (newC != null && oldC == null) oldC = ""
+                    if (adds == 0) WROTE_LINES_REGEX.find(output)?.groupValues?.get(1)?.toIntOrNull()?.let { adds = it }
+                } else if (oldC == null && newC == null && output != null) {
+                    // Edits print a short "-old / +new" diff; turn it into before/after so the sheet draws a real diff.
+                    miniDiffSides(output)?.let { (o, n) -> oldC = o; newC = n }
+                }
 
                 blocks.add(
                     MessageContentBlock.ToolCallBlock(
@@ -569,6 +581,24 @@ private fun computeUnifiedDiffSummary(output: String?): Pair<Int, Int> {
     return adds to dels
 }
 
+private val WROTE_LINES_REGEX = Regex("""(?:Created|Overwrote) .* \((\d+) lines\)""")
+
+/** The "-" and "+" sides of a fenced mini diff, without its "… more lines" notes. */
+private fun miniDiffSides(output: String): Pair<String, String>? {
+    val diff = FENCED_DIFF_REGEX.find(output)?.groupValues?.getOrNull(1) ?: return null
+    if (diff.contains("\n@@") || diff.startsWith("@@")) return null
+    val old = StringBuilder(); val new = StringBuilder()
+    diff.lineSequence().forEach { line ->
+        when {
+            line.startsWith("-… ") || line.startsWith("+… ") -> Unit
+            line.startsWith("-") -> old.append(line.substring(1)).append('\n')
+            line.startsWith("+") -> new.append(line.substring(1)).append('\n')
+        }
+    }
+    if (old.isEmpty() && new.isEmpty()) return null
+    return old.toString().trimEnd('\n') to new.toString().trimEnd('\n')
+}
+
 private fun extractDiffText(output: String): String? {
     val fenced = FENCED_DIFF_REGEX
         .find(output)
@@ -592,7 +622,9 @@ private fun extractOldNewContent(output: String): Pair<String?, String?> {
     }
 
     val old = extract("old") ?: extract("before") ?: extract("original")
-    val new = extract("new") ?: extract("after") ?: extract("updated")
+    // Inside a card, blank lines travel as a single space (a blank line ends the card).
+    val new = (extract("new") ?: extract("after") ?: extract("updated"))
+        ?.lines()?.joinToString("\n") { if (it == " ") "" else it }
     return old to new
 }
 
@@ -714,10 +746,17 @@ fun AiMessageContent(
                 }
 
                 is MessageContentBlock.TextBlock ->
-                    ResponseSection(markdown = block.content)
+                    if (com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.content)) {
+                        // A UI block the model forgot to fence.
+                        com.oro.app.ui.genui.GenUiBlock(source = block.content.trim(), streaming = false)
+                    } else {
+                        ResponseSection(markdown = block.content)
+                    }
 
                 is MessageContentBlock.CodeBlock ->
-                    if (com.oro.app.data.ai.genui.GenUi.isUiFence(block.language)) {
+                    if (com.oro.app.data.ai.genui.GenUi.isUiFence(block.language) ||
+                        (com.oro.app.data.ai.genui.GenUi.mayHoldUi(block.language) && com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.code))
+                    ) {
                         // A UI block: rendered as native components (A2UI), not as code.
                         com.oro.app.ui.genui.GenUiBlock(source = block.code, streaming = block.isActive && isStreaming)
                     } else {
@@ -954,39 +993,55 @@ private fun CodeSection(
     modifier: Modifier = Modifier
 ) {
     val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1_500); copied = false } }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = OroCorners.large,
-        color = MaterialTheme.colorScheme.surfaceContainer
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
         Column(Modifier.fillMaxWidth()) {
+            // Header: language in the app's font, a compact copy action.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(start = 14.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = language?.uppercase(Locale.ROOT) ?: "CODE",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = language?.lowercase(Locale.ROOT)?.ifBlank { null } ?: "code",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isActive) {
-                        ActiveLoader()
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy code")
-                    }
+                if (isActive) {
+                    ActiveLoader()
+                    Spacer(Modifier.width(8.dp))
+                }
+                androidx.compose.material3.TextButton(
+                    onClick = { clipboard.setText(AnnotatedString(code)); copied = true },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(
+                        if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (copied) "Copied" else "Copy",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-
+            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             SelectionContainer {
+                // Code scrolls sideways rather than wrapping, so indentation stays readable.
                 Text(
                     text = code,
                     style = MaterialTheme.typography.bodySmall,
@@ -994,7 +1049,10 @@ private fun CodeSection(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
-                    modifier = Modifier.padding(12.dp)
+                    softWrap = false,
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(14.dp)
                 )
             }
         }

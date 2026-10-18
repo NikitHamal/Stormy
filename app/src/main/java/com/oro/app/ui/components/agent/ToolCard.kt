@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -191,7 +192,6 @@ private fun ToolCardHeader(
     val running = entry.status == ToolCallStatus.Running
     val isError = entry.status == ToolCallStatus.Error
     val scheme = MaterialTheme.colorScheme
-    val accent = toolAccent(entry.toolName, scheme.primary)
     val meta = remember(entry.output, presentation.detail, entry.status) { metaFor(presentation.detail, entry) }
 
     // One line per call: coloured glyph, verb, subject, and what came of it
@@ -209,27 +209,35 @@ private fun ToolCardHeader(
             .padding(horizontal = Space.xs, vertical = Space.xs + Space.xxs),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = if (isError) Icons.Outlined.ErrorOutline else presentation.icon,
-            contentDescription = null,
-            tint = if (isError) scheme.error else accent,
-            modifier = Modifier.size(Sizes.iconSmall + 2.dp)
-        )
+        // Neutral glyph on a soft tile: the verb and file name carry the meaning; colour is kept for +/- and errors.
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(OroCorners.small)
+                .background(if (isError) scheme.errorContainer else scheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isError) Icons.Outlined.ErrorOutline else presentation.icon,
+                contentDescription = null,
+                tint = if (isError) scheme.onErrorContainer else scheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp)
+            )
+        }
         Spacer(Modifier.width(Space.md - Space.xxs))
+        // "Wrote **index.html**": the verb reads as context, the file is what the eye looks for.
         Text(
             text = if (running) presentation.running else presentation.done,
-            style = MaterialTheme.typography.labelLargeEmphasized,
-            color = scheme.onSurface,
+            style = MaterialTheme.typography.bodyMedium,
+            color = scheme.onSurfaceVariant,
             maxLines = 1
         )
         if (shortSubject != null) {
-            Spacer(Modifier.width(Space.sm))
+            Spacer(Modifier.width(Space.xs + Space.xxs))
             Text(
                 text = shortSubject,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = if (presentation.subjectIsPath) FontFamily.Monospace else FontFamily.Default
-                ),
-                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                color = scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -243,37 +251,30 @@ private fun ToolCardHeader(
             isError -> Text("Failed", style = MaterialTheme.typography.labelMedium, color = scheme.error)
             additions > 0 || deletions > 0 -> Row {
                 if (additions > 0) Text(
-                    "+$additions", style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    "+$additions", style = MaterialTheme.typography.labelLarge,
                     color = DiffAdd
                 )
                 if (additions > 0 && deletions > 0) Spacer(Modifier.width(Space.xs))
                 if (deletions > 0) Text(
-                    "−$deletions", style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    "−$deletions", style = MaterialTheme.typography.labelLarge,
                     color = DiffDel
                 )
             }
             meta != null -> Text(meta, style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
         }
+        if (!running) {
+            Spacer(Modifier.width(Space.xxs))
+            Icon(
+                Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null,
+                tint = scheme.outline, modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
 private val READ_HEADER = Regex("""^File: .*\((?:(\d+) lines|lines \d+-\d+ of (\d+))\)""")
-private val DiffAdd = Color(0xFF3DBE7A)
+private val DiffAdd = Color(0xFF2E9E62)
 private val DiffDel = Color(0xFFE5534B)
-
-/** A muted hue per kind of work, so a run of calls is scannable by colour before it is read. */
-private fun toolAccent(toolName: String, fallback: Color): Color {
-    val n = com.oro.app.data.ai.tools.ToolAliases.canonicalName(toolName)
-    return when {
-        n.startsWith("read") || n == "list_files" || n == "glob" || n == "project_tree" -> Color(0xFF6E8CF7)
-        n.contains("edit") || n.startsWith("write") || n.startsWith("create") || n == "apply_patch" -> Color(0xFFF0965A)
-        n == "grep" || n.contains("search") -> Color(0xFFB285F2)
-        n.startsWith("delete") || n.startsWith("move") || n.startsWith("rename") -> Color(0xFFE5737B)
-        n.startsWith("web") || n.contains("fetch") || n.startsWith("mcp") -> Color(0xFF4FC1B6)
-        n.startsWith("git") || n.startsWith("deploy") -> Color(0xFF8BC34A)
-        else -> fallback
-    }
-}
 
 /** "124 lines" / "12 items" from a finished call's output, when it says something useful. */
 private fun metaFor(kind: ToolDetailKind, entry: ToolCallEntry): String? {
@@ -391,7 +392,7 @@ private fun ToolDetailSheet(
     val isError = entry.status == ToolCallStatus.Error
     val running = entry.status == ToolCallStatus.Running
     var showFile by remember { mutableStateOf(kind == SheetKind.NewFile) }
-    val accent = toolAccent(entry.toolName, scheme.primary)
+    val accent = scheme.onSurfaceVariant
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -411,7 +412,7 @@ private fun ToolDetailSheet(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(ExpressiveShapes.cookie6())
-                        .background((if (isError) scheme.error else accent).copy(alpha = 0.16f)),
+                        .background(if (isError) scheme.errorContainer else scheme.surfaceContainerHighest),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -429,7 +430,7 @@ private fun ToolDetailSheet(
                     entry.subject?.takeIf { it.isNotBlank() }?.let { full ->
                         Text(
                             text = full,
-                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            style = MaterialTheme.typography.labelMedium,
                             color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -622,7 +623,7 @@ private fun ListingBlock(output: String) {
                     )
                     Spacer(Modifier.width(Space.sm))
                     Text(
-                        row.trimEnd(), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        row.trimEnd(), style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis
                     )
                 }

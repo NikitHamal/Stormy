@@ -107,7 +107,7 @@ fun DiffSummaryBadge(
                 Text(
                     text = additions.toString(),
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = DiffColors.additionText,
                     fontSize = 11.sp
@@ -129,7 +129,7 @@ fun DiffSummaryBadge(
                 Text(
                     text = deletions.toString(),
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = DiffColors.deletionText,
                     fontSize = 11.sp
@@ -205,7 +205,7 @@ fun CollapsibleDiffView(
                 Text(
                     text = filePath.substringAfterLast("/"),
                     style = MaterialTheme.typography.labelMedium,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -450,7 +450,7 @@ fun InlineDiffBadge(
             Text(
                 text = "+$additions",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = DiffColors.additionText,
                 fontSize = 10.sp
@@ -460,7 +460,7 @@ fun InlineDiffBadge(
             Text(
                 text = "-$deletions",
                 style = MaterialTheme.typography.labelSmall,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
                 fontWeight = FontWeight.Medium,
                 color = DiffColors.deletionText,
                 fontSize = 10.sp
@@ -496,7 +496,7 @@ fun FileChangeSummary(
         Text(
             text = opText,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
             fontWeight = FontWeight.Bold,
             fontSize = 9.sp,
             color = opColor,
@@ -510,7 +510,7 @@ fun FileChangeSummary(
         Text(
             text = fileName,
             style = MaterialTheme.typography.labelSmall,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = com.oro.app.ui.theme.PoppinsFontFamily,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

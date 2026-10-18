@@ -44,4 +44,13 @@ class GenUiTest {
         assertThat(GenUi.toA2uiMessages("not json", "s4")).isInstanceOf(GenUi.Result.Invalid::class.java)
         assertThat(GenUi.actionMessage("say", mapOf("text" to "Show me more"))).isEqualTo("Show me more")
     }
+
+    @Test
+    fun `json-fenced UI from issue 29 is recognised, ordinary json is not`() {
+        val fromIssue = """{"components":[{"component":"Text","text":"**AI** — the broad field","variant":"body"},""" +
+            """{"component":"Table","columns":["","AI","LLM"],"rows":[["Scope","Entire field","One family"]]}]}"""
+        assertThat(GenUi.mayHoldUi("json")).isTrue()
+        assertThat(GenUi.looksLikeUi(fromIssue)).isTrue()
+        assertThat(GenUi.looksLikeUi("""{"name":"oro","version":"1.0.0","dependencies":{}}""")).isFalse()
+    }
 }
