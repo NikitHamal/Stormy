@@ -2600,6 +2600,13 @@ class EditorViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.oro.app.data.ai.agent.AutonomyMode.DEFAULT)
 
 
+    val richUi: StateFlow<Boolean> = preferencesRepository.richUi
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setRichUi(on: Boolean) {
+        viewModelScope.launch { preferencesRepository.setRichUi(on) }
+    }
+
     fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
         viewModelScope.launch { preferencesRepository.setAutonomyMode(mode) }
     }
