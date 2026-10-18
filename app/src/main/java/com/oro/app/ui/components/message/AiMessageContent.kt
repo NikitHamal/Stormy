@@ -878,8 +878,10 @@ private fun ActiveLoader(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ResponseSection(markdown: String, modifier: Modifier = Modifier) {
+    // Escaped replies (literal \n, \u2014, &#39;) are repaired before rendering.
+    val text = remember(markdown) { com.oro.app.data.ai.text.DisplayText.clean(markdown) }
     MarkdownText(
-        markdown = markdown,
+        markdown = text,
         modifier = modifier.fillMaxWidth(),
         textColor = MaterialTheme.colorScheme.onSurface,
         linkColor = MaterialTheme.colorScheme.primary
