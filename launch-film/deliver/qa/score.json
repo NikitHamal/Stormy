@@ -1,0 +1,713 @@
+{
+ "lufs": -14.01,
+ "true_peak_db": -2.27,
+ "sample_peak_db": -2.28,
+ "lra": 6.73,
+ "momentary_max": -9.48,
+ "momentary_max_t": 14.2,
+ "tail_50ms_db": -106.8,
+ "last_480_zero": true,
+ "seconds": 35.0,
+ "limiter_max_gr_db": 0.05,
+ "target_lufs": {
+  "lufs": -14.0,
+  "source": "default with music",
+  "music": "synth"
+ },
+ "limiter_hot": [],
+ "sfx": {
+  "engine": "auto",
+  "source": "earshot kit",
+  "kit": "audio/kit.json",
+  "takes": "audio/kit",
+  "name": "crisp",
+  "bank": "forge_v2r6+fit1+pluck1",
+  "earshot": "0.3.0",
+  "notes": [],
+  "kit_cues": 68,
+  "roles": {
+   "bell": {
+    "sound": "pluck/kalimba",
+    "cues": 8,
+    "takes": [
+     "bell_A4.wav",
+     "bell_C5.wav",
+     "bell_C6.wav",
+     "bell_D5.wav",
+     "bell_F4.wav",
+     "bell_F5.wav",
+     "bell_G4.wav",
+     "bell_G5.wav"
+    ],
+    "lufs_spread": 3.21,
+    "trim_db": [
+     -1.51,
+     -1.2,
+     -0.44,
+     -0.33,
+     0.32,
+     0.42,
+     1.33,
+     1.71
+    ]
+   },
+   "click.confirm": {
+    "sound": "pro_notify/ding_2045",
+    "cues": 3,
+    "takes": [
+     "click-confirm_1.wav"
+    ],
+    "lufs_spread": 0.0,
+    "trim_db": [
+     0.0
+    ]
+   },
+   "hit": {
+    "sound": "pro_impact/short",
+    "cues": 2,
+    "takes": [
+     "hit_1.wav",
+     "hit_3.wav"
+    ],
+    "lufs_spread": 0.87,
+    "trim_db": [
+     0.0,
+     0.77
+    ]
+   },
+   "key": {
+    "sound": "fit/key/medium",
+    "cues": 13,
+    "takes": [
+     "key_1.wav",
+     "key_10.wav",
+     "key_11.wav",
+     "key_12.wav",
+     "key_2.wav",
+     "key_3.wav",
+     "key_4.wav",
+     "key_5.wav",
+     "key_6.wav",
+     "key_7.wav",
+     "key_8.wav"
+    ],
+    "lufs_spread": 1.26,
+    "trim_db": [
+     -0.49,
+     -0.29,
+     -0.2,
+     -0.08,
+     -0.04,
+     0.04,
+     0.05,
+     0.12,
+     0.14,
+     0.34,
+     0.77
+    ]
+   },
+   "key.space": {
+    "sound": "fit/key.space/thock_space",
+    "cues": 4,
+    "takes": [
+     "key-space_1.wav",
+     "key-space_3.wav",
+     "key-space_4.wav"
+    ],
+    "lufs_spread": 2.67,
+    "trim_db": [
+     -0.03,
+     0.03,
+     0.99
+    ]
+   },
+   "land.light": {
+    "sound": "fit/land.light/fingertip_book",
+    "cues": 1,
+    "takes": [
+     "land-light_3.wav"
+    ],
+    "lufs_spread": 0.53,
+    "trim_db": [
+     -0.15
+    ]
+   },
+   "pop": {
+    "sound": "pro_pop_in/round",
+    "cues": 2,
+    "takes": [
+     "pop_3.wav",
+     "pop_4.wav"
+    ],
+    "lufs_spread": 2.99,
+    "trim_db": [
+     -0.25,
+     0.25
+    ]
+   },
+   "text": {
+    "sound": "fit/land.light/finger_phone",
+    "cues": 12,
+    "takes": [
+     "text_1.wav",
+     "text_2.wav",
+     "text_3.wav"
+    ],
+    "lufs_spread": 0.24,
+    "trim_db": [
+     -0.24,
+     0.0
+    ]
+   },
+   "tick.crisp": {
+    "sound": "pro_click/tink",
+    "cues": 19,
+    "takes": [
+     "tick-crisp_1.wav",
+     "tick-crisp_2.wav",
+     "tick-crisp_3.wav"
+    ],
+    "lufs_spread": 1.36,
+    "trim_db": [
+     -1.34,
+     0.0,
+     0.02
+    ]
+   },
+   "tock": {
+    "sound": "tap/knuckle",
+    "cues": 1,
+    "takes": [
+     "tock_2.wav"
+    ],
+    "lufs_spread": 0.93,
+    "trim_db": [
+     -0.84
+    ]
+   },
+   "whoosh.long": {
+    "sound": "whoosh_big/swell",
+    "cues": 2,
+    "takes": [
+     "whoosh-long_1.wav",
+     "whoosh-long_2.wav"
+    ],
+    "lufs_spread": 2.26,
+    "trim_db": [
+     -1.13,
+     1.13
+    ]
+   },
+   "whoosh.short": {
+    "sound": "whoosh_fast/tight",
+    "cues": 1,
+    "takes": [
+     "whoosh-short_3.wav"
+    ],
+    "lufs_spread": 0.79,
+    "trim_db": [
+     0.0
+    ]
+   }
+  },
+  "off": {
+   "suck": 1
+  },
+  "synth": {}
+ },
+ "stacks": [],
+ "payoff": {
+  "t": 14.0,
+  "momentary_max": -9.48,
+  "limiter_gr_db": 0.05,
+  "over_median_lu": 5.53
+ },
+ "hook": {
+  "opening_lufs_m": -20.09,
+  "median_lufs_m": -15.01,
+  "below_median_db": 5.08
+ },
+ "loudest_frac": 0.41,
+ "out": "public/audio/soundtrack.wav",
+ "bpm": 120.0,
+ "key": "F major",
+ "bars": 18,
+ "events": {
+  "count": 85,
+  "by_kind": {
+   "text": 12,
+   "tick": 19,
+   "bell": 8,
+   "suck": 1,
+   "land": 1,
+   "key": 33,
+   "click": 3,
+   "whoosh": 3,
+   "pop": 2,
+   "hit": 2,
+   "tock": 1
+  },
+  "skipped": [
+   {
+    "i": 16,
+    "f": 258.0,
+    "kind": "suck",
+    "role": "suck",
+    "why": "suck is off in the kit"
+   },
+   {
+    "i": 21,
+    "f": 513.773,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 23,
+    "f": 518.803,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 25,
+    "f": 523.833,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 27,
+    "f": 528.864,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 29,
+    "f": 533.894,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 31,
+    "f": 538.924,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 33,
+    "f": 543.955,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 35,
+    "f": 548.985,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 37,
+    "f": 554.015,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 39,
+    "f": 559.045,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 41,
+    "f": 564.076,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 43,
+    "f": 569.106,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 45,
+    "f": 574.136,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 47,
+    "f": 579.167,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 49,
+    "f": 584.197,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   },
+   {
+    "i": 51,
+    "f": 589.227,
+    "kind": "key",
+    "why": "42 ms after the previous sounded key (thinned)"
+   }
+  ],
+  "masked": [
+   {
+    "f": 669.0,
+    "kind": "bell",
+    "id": "build:check2",
+    "band_hz": 500,
+    "snr_db": 4.7
+   },
+   {
+    "f": 734.0,
+    "kind": "text",
+    "id": "build:build2",
+    "band_hz": 125,
+    "snr_db": 1.2
+   },
+   {
+    "f": 759.0,
+    "kind": "bell",
+    "id": "build:check5",
+    "band_hz": 500,
+    "snr_db": 3.4
+   },
+   {
+    "f": 883.0,
+    "kind": "text",
+    "id": "live:live",
+    "band_hz": 125,
+    "snr_db": -0.1
+   },
+   {
+    "f": 975.0,
+    "kind": "pop",
+    "id": "change:block",
+    "band_hz": 250,
+    "snr_db": -4.3
+   },
+   {
+    "f": 1006.0,
+    "kind": "text",
+    "id": "change:change",
+    "band_hz": 125,
+    "snr_db": 5.2
+   },
+   {
+    "f": 1349.0,
+    "kind": "text",
+    "id": "free:free1",
+    "band_hz": 125,
+    "snr_db": 0.7
+   },
+   {
+    "f": 1469.0,
+    "kind": "text",
+    "id": "free:free2",
+    "band_hz": 125,
+    "snr_db": 3.8
+   },
+   {
+    "f": 1696.0,
+    "kind": "text",
+    "id": "ship:ship",
+    "band_hz": 125,
+    "snr_db": 1.1
+   }
+  ],
+  "tuned": [
+   {
+    "f": 255.0,
+    "kind": "bell",
+    "id": "turn:loop-born",
+    "note": "F5",
+    "in_key": true
+   },
+   {
+    "f": 255.0,
+    "kind": "bell",
+    "id": "turn:loop-born",
+    "note": "C6",
+    "in_key": true
+   },
+   {
+    "f": 600.0,
+    "kind": "click",
+    "id": "build:send",
+    "note": "F7",
+    "in_key": true
+   },
+   {
+    "f": 639.0,
+    "kind": "bell",
+    "id": "build:check1",
+    "note": "F4",
+    "in_key": true
+   },
+   {
+    "f": 669.0,
+    "kind": "bell",
+    "id": "build:check2",
+    "note": "G4",
+    "in_key": true
+   },
+   {
+    "f": 699.0,
+    "kind": "bell",
+    "id": "build:check3",
+    "note": "A4",
+    "in_key": true
+   },
+   {
+    "f": 729.0,
+    "kind": "bell",
+    "id": "build:check4",
+    "note": "C5",
+    "in_key": true
+   },
+   {
+    "f": 759.0,
+    "kind": "bell",
+    "id": "build:check5",
+    "note": "D5",
+    "in_key": true
+   },
+   {
+    "f": 1170.0,
+    "kind": "click",
+    "id": "change:light",
+    "note": "F7",
+    "in_key": true
+   },
+   {
+    "f": 1590.0,
+    "kind": "click",
+    "id": "ship:publish",
+    "note": "F7",
+    "in_key": true
+   },
+   {
+    "f": 1620.0,
+    "kind": "bell",
+    "id": "ship:check6",
+    "note": "F5",
+    "in_key": true
+   },
+   {
+    "f": 1650.0,
+    "kind": "bell",
+    "id": "ship:check7",
+    "note": "G5",
+    "in_key": true
+   },
+   {
+    "f": 1800.0,
+    "kind": "hit",
+    "id": "end:crash-in",
+    "note": "F1",
+    "in_key": true
+   },
+   {
+    "f": 1907.0,
+    "kind": "hit",
+    "id": "end:lockup",
+    "note": "F1",
+    "in_key": true
+   }
+  ]
+ },
+ "chords": [
+  {
+   "t": 0.0,
+   "chord": "Dm9"
+  },
+  {
+   "t": 2.0,
+   "chord": "Bbmaj9"
+  },
+  {
+   "t": 4.0,
+   "chord": "Fmaj9"
+  },
+  {
+   "t": 6.0,
+   "chord": "C"
+  },
+  {
+   "t": 8.0,
+   "chord": "Dm9"
+  },
+  {
+   "t": 10.0,
+   "chord": "Bbmaj9"
+  },
+  {
+   "t": 12.0,
+   "chord": "C7sus4"
+  },
+  {
+   "t": 14.0,
+   "chord": "Fadd9"
+  },
+  {
+   "t": 16.0,
+   "chord": "C/E"
+  },
+  {
+   "t": 18.0,
+   "chord": "Dm9"
+  },
+  {
+   "t": 20.0,
+   "chord": "Bbmaj9"
+  },
+  {
+   "t": 22.0,
+   "chord": "Fadd9"
+  },
+  {
+   "t": 24.0,
+   "chord": "C"
+  },
+  {
+   "t": 26.0,
+   "chord": "Dm9"
+  },
+  {
+   "t": 28.0,
+   "chord": "Bbmaj9"
+  },
+  {
+   "t": 29.0,
+   "chord": "C7sus4"
+  },
+  {
+   "t": 30.0,
+   "chord": "Fmaj9"
+  },
+  {
+   "t": 32.0,
+   "chord": "Fadd9"
+  }
+ ],
+ "warnings": [
+  "cues the kit leaves off (skipped): suck x1. By design for riser, swell and suck (a reveal resolves on one element); give the role a sound in audio/kit.json if the picture needs it"
+ ],
+ "fails": [],
+ "progress": {
+  "match": "check",
+  "events": 7,
+  "rungs": [
+   {
+    "f": 639,
+    "id": "build:check1",
+    "kind": "bell",
+    "note": "F4"
+   },
+   {
+    "f": 669,
+    "id": "build:check2",
+    "kind": "bell",
+    "note": "G4"
+   },
+   {
+    "f": 699,
+    "id": "build:check3",
+    "kind": "bell",
+    "note": "A4"
+   },
+   {
+    "f": 729,
+    "id": "build:check4",
+    "kind": "bell",
+    "note": "C5"
+   },
+   {
+    "f": 759,
+    "id": "build:check5",
+    "kind": "bell",
+    "note": "D5"
+   },
+   {
+    "f": 1620,
+    "id": "ship:check6",
+    "kind": "bell",
+    "note": "F5"
+   },
+   {
+    "f": 1650,
+    "id": "ship:check7",
+    "kind": "bell",
+    "note": "G5"
+   }
+  ],
+  "kit": {
+   "role": "bell",
+   "notes": [
+    "F4",
+    "G4",
+    "A4",
+    "C5",
+    "D5",
+    "F5",
+    "G5",
+    "A5",
+    "C6",
+    "D6"
+   ]
+  }
+ },
+ "typing": {
+  "style": "auto",
+  "styles": [
+   "soft"
+  ],
+  "keys": 33,
+  "sounded": 17,
+  "thinned": 16,
+  "duck_db": 10.0,
+  "runs": [
+   {
+    "t": [
+     8.52,
+     9.86
+    ],
+    "style": "soft",
+    "chars_per_s": 23.9,
+    "keys": 33,
+    "sounded": 17,
+    "rate_max": 10.0,
+    "duck_db": 10.0,
+    "level_db": -11.2,
+    "vs_music_A_db": -8.9,
+    "key_vs_music_db": -4.1,
+    "band_2k_5k_db": -0.9,
+    "band_5k_10k_db": 8.4,
+    "share_2k_5k_A_pct": 47.1,
+    "centroid_hz": 1890,
+    "bed_top_A_pct": 7.6,
+    "kit_sounds": [
+     "key.space: fit/key.space/thock_space",
+     "key: fit/key/medium"
+    ]
+   }
+  ]
+ },
+ "sfx_levels": {
+  "click": {
+   "count": 3,
+   "level_db": -3.5,
+   "vs_music_db": -3.0,
+   "target_db": -3.0
+  },
+  "crisp": {
+   "count": 19,
+   "level_db": -10.6,
+   "vs_music_db": -9.9,
+   "target_db": -9.9
+  }
+ },
+ "pass": true
+}

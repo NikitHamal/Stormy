@@ -10,6 +10,12 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-18 — launch film v2 (Cinetic)
+- `launch-film/`: 35 s launch film built with the Cinetic skill (github.com/Leonxlnx/cinetic): BRIEF/TREATMENT, `pick.py` technique draw, `timeline.ts` (120 BPM, crisp, grid-check pass), 9 acts, product UI from the app, earshot crisp kit + synth score (-14 LUFS, drop on the live-site reveal), motion-blurred masters (budget 4x, samples in `out/samples-master.json`, not committed).
+- Deliverables in `launch-film/deliver/`: 1080p60 master, 9:16 and 1:1 re-layouts (`REMOTION_FORMAT=9x16|1x1`, same timeline), poster, QA reports.
+- Gates: probe + check-sync PASS on all three; forensics clean except one declared reading hold (f1359-1423, "Free models.").
+- Tools used here: ffmpeg 7 static, Playwright's chromium headless shell (`REMOTION_BROWSER`), Python venv with numpy/scipy/librosa/opencv, earshot 0.3 in its own venv.
+
 ## 2026-10-18 — keyless reliability
 - Probed every keyless model live (streamed tool call). Kilo 12/16 free OK (rest: upstream 429/503), OVH chat models OK, Pollinations OK, LLM7 only "turbo" + non-usage_based_only models work anonymously, OpenCode Zen free tier refuses non-OpenCode clients (left key-only), Ptero re-routes most ids to qwen3.7-flash.
 - `KeylessFallback`: keyless requests move to the next healthy free model on quota/auth/overload before any output; busy models skipped for a while. Order is in the file.
