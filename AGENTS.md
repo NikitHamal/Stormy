@@ -16,6 +16,8 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 | `core/data/.../ai/search/` | `ProjectSearch` (on-device BM25) and `WebDocs` (offline docs pack) |
 | `core/data/.../git/PullRequests.kt` | GitHub PRs through the Git Data API |
 | `app/.../ui/screens/timeline/` | Checkpoint timeline (diff and restore) |
+| `core/data/.../ai/genui/` + `app/.../ui/genui/` | Generative UI: ```ui blocks → A2UI Compose (protocol, catalog, renderer) |
+| `core/data/.../ai/community/` | Community (keyless web) providers: K2, Qwen, Ptero |
 | `app/src/main/cpp/` | JNI bridge to the Needle/Whistle engine (`libneedle.a` per ABI) |
 | `core/data/` | Everything not UI: AI providers, agent loop, tools, Room DB, repositories |
 | `core/data/.../ai/agent/` | `AgentLoop`, `TextToolCallParser`, `TextToolProtocol`, `HistoryPruner`, `Autonomy` |

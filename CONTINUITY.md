@@ -10,6 +10,17 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-18 — crash fix, generative UI, keyless providers
+**Done**
+- Clone crashed on Android < 13: JGit 7 calls `InputStream.readNBytes` (API 33). Pinned JGit **5.13.5** (Java 8). Do not bump JGit past 5.13 while minSdk < 33.
+- Crash screen redesigned (`ui/screens/debug/CrashActivity`): summary + hint, highlighted trace, earlier crashes (`crash/CrashReports`, files in `filesDir/crashes`), copy/share/report.
+- Tool calls: tap opens a per-kind bottom sheet (`ToolCard.ToolDetailSheet`); no inline expansion.
+- Whistle live streaming reverted (buggy); batch record-then-transcribe again.
+- Generative UI: ```` ```ui ```` blocks in replies render with A2UI Compose (`androidx.a2ui.compose` 1.0.0-alpha01). Protocol/repair in `core/data/.../ai/genui/GenUi.kt`; catalog in `app/.../ui/genui/` (18 basic + 11 Oro components). Taps → `EditorViewModel.sendText`. Toggle: chat settings "Rich answers".
+- Providers: Qwen (chat.qwen.ai guest; `QwenFingerprint` + `QwenWebClient`, identity pool, WebView fallback `community/QwenWebBridge`), Ptero (`PteroClient`), LLM7 (OpenAI-compatible).
+
+**Unverified on a device**: A2UI rendering of every component, Qwen over the phone's network (plain HTTP was challenged from a datacenter IP; WebView path untested), Ptero/LLM7 limits.
+
 ## 2026-10-17 — size cut + suggestions round
 **Done**
 - Removed on-device LLMs and MediaPipe (APK back toward ~4 MB). Whistle STT kept.
