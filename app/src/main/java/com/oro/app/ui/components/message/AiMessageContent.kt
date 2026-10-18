@@ -717,7 +717,12 @@ fun AiMessageContent(
                     ResponseSection(markdown = block.content)
 
                 is MessageContentBlock.CodeBlock ->
-                    CodeSection(code = block.code, language = block.language, isActive = block.isActive && isStreaming)
+                    if (com.oro.app.data.ai.genui.GenUi.isUiFence(block.language)) {
+                        // A UI block: rendered as native components (A2UI), not as code.
+                        com.oro.app.ui.genui.GenUiBlock(source = block.code, streaming = block.isActive && isStreaming)
+                    } else {
+                        CodeSection(code = block.code, language = block.language, isActive = block.isActive && isStreaming)
+                    }
 
                 is MessageContentBlock.ThinkingBlock ->
                     ThinkingSection(content = block.content, isActive = block.isActive && isStreaming)

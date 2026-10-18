@@ -138,6 +138,8 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         trackForeground()
         // Off-screen page renderer for the agent's screenshot / audit tools.
         com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
+        // Browser-grade transport for the Qwen community provider (see QwenWebClient).
+        com.oro.app.data.ai.community.QwenBrowser.bridge = com.oro.app.community.QwenWebBridge(this)
         // Refreshed MCP sign-in tokens are written back to settings.
         com.oro.app.data.ai.mcp.McpRegistry.tokenSink = { serverId, tokens ->
             applicationScope.launch {

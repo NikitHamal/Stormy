@@ -134,6 +134,7 @@ fun EditorScreen(
     val autonomy by viewModel.autonomyMode.collectAsStateWithLifecycle()
     val attachedImages by viewModel.attachedImages.collectAsStateWithLifecycle()
     val selfCheck by viewModel.selfCheck.collectAsStateWithLifecycle()
+    val richUi by viewModel.richUi.collectAsStateWithLifecycle()
 
     // Ask for notifications the first time a run starts, the moment the
     // reason is obvious: so Orobi can say when it is done while you are away.
@@ -431,7 +432,9 @@ fun EditorScreen(
                             label = "editor_tab_content"
                         ) { tab ->
                             when (tab) {
-                                EditorTab.CHAT -> ChatTab(
+                                EditorTab.CHAT -> androidx.compose.runtime.CompositionLocalProvider(
+                                    com.oro.app.ui.genui.LocalGenUiActions provides viewModel::sendText
+                                ) { ChatTab(
                                     sessionsState = sessionsState,
                                     sessionActions = sessionActions,
                                     agentPlan = uiState.agentPlan,
@@ -442,6 +445,8 @@ fun EditorScreen(
                                     onAutonomyChange = viewModel::setAutonomyMode,
                                     selfCheck = selfCheck,
                                     onSelfCheckChange = viewModel::setSelfCheck,
+                                    richUi = richUi,
+                                    onRichUiChange = viewModel::setRichUi,
                                     attachedPhotos = attachedImages.size,
                                     onAttachPhoto = viewModel::attachImage,
                                     onClearPhotos = viewModel::clearAttachedImages,
@@ -478,7 +483,7 @@ fun EditorScreen(
                                     runError = uiState.runError,
                                     onRetryRun = viewModel::retryRun,
                                     onDismissRunError = viewModel::dismissRunError
-                                )
+                                ) }
                                 EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
                                     // File tabs row
                                     if (uiState.openFiles.isNotEmpty()) {

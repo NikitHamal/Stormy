@@ -1333,6 +1333,17 @@ class EditorViewModel(
         _chatInput.value = input
     }
 
+    /**
+     * A reply chosen in a UI block (a button, a suggestion). Sent right away
+     * when Orobi is idle; while a run is going it goes into the composer
+     * instead, so nothing the user tapped is lost.
+     */
+    fun sendText(text: String) {
+        if (text.isBlank()) return
+        _chatInput.value = text
+        if (!_isAiProcessing.value) sendMessage()
+    }
+
     fun sendMessage() {
         val images = _attachedImages.value
         val content = _chatInput.value.trim().ifEmpty {
@@ -1624,6 +1635,8 @@ class EditorViewModel(
             // Orobi fix what it broke without the user copying stack traces.
             // Taken once per run so the system prompt stays stable across turns.
             (if (isAgentMode) com.oro.app.data.preview.PreviewDiagnostics.takeContextSummary(projectId) else "") +
+            // Generative UI: how to answer with a ```ui block the chat renders natively.
+            (if (preferencesRepository.richUi.first()) com.oro.app.data.ai.genui.GenUi.PROMPT else "") +
             // Skill names + descriptions only; bodies load through use_skill.
             (if (isAgentMode) withContext(Dispatchers.IO) {
                 com.oro.app.data.ai.skills.Skills.catalogue(
@@ -2613,6 +2626,13 @@ class EditorViewModel(
 
     val selfCheck: StateFlow<Boolean> = preferencesRepository.selfCheck
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val richUi: StateFlow<Boolean> = preferencesRepository.richUi
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setRichUi(on: Boolean) {
+        viewModelScope.launch { preferencesRepository.setRichUi(on) }
+    }
 
     fun setSelfCheck(on: Boolean) {
         viewModelScope.launch { preferencesRepository.setSelfCheck(on) }

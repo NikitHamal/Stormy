@@ -43,7 +43,9 @@ interface CommunityChatClient {
 object CommunityClients {
     private val clients: Map<ProviderProtocol, CommunityChatClient> by lazy {
         mapOf(
-            ProviderProtocol.K2_GUEST to K2GuestClient()
+            ProviderProtocol.K2_GUEST to K2GuestClient(),
+            ProviderProtocol.QWEN_WEB to QwenWebClient(),
+            ProviderProtocol.PTERO_GUEST to PteroClient()
         )
     }
 

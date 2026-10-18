@@ -176,6 +176,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
+    implementation(libs.a2ui.compose.runtime)
+    implementation(libs.a2ui.compose.ui)
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
     implementation(libs.coil.network.okhttp)

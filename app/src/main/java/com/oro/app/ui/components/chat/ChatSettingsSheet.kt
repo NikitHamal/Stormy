@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.Info
@@ -59,7 +60,9 @@ fun ChatSettingsSheet(
     autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
     onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
     selfCheck: Boolean = true,
-    onSelfCheckChange: (Boolean) -> Unit = {}
+    onSelfCheckChange: (Boolean) -> Unit = {},
+    richUi: Boolean = true,
+    onRichUiChange: (Boolean) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -141,6 +144,16 @@ fun ChatSettingsSheet(
                     onCheckedChange = onSelfCheckChange
                 )
             }
+
+            Spacer(Modifier.height(Space.md))
+            SettingToggle(
+                icon = Icons.Outlined.AutoAwesome,
+                title = "Rich answers",
+                subtitle = "Orobi can answer with interactive cards, tables, charts and choices",
+                checked = richUi,
+                enabled = true,
+                onCheckedChange = onRichUiChange
+            )
 
             // Only for models that expose a budget; see the note on the file.
             if (currentModel?.supportsReasoningEffort == true) {

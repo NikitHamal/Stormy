@@ -33,6 +33,8 @@ kotlinxCoroutines = "1.11.0"
 # --- Third party -----------------------------------------------------------
 okhttp = "5.5.0"
 coil = "3.6.3"
+# Google's A2UI renderer for Compose: agent-generated native UI in chat replies.
+a2ui = "1.0.0-alpha01"
 soraEditor = "0.23.6"
 markwon = "4.6.2"
 # 5.13 is the last JGit line built for Java 8. 6.x and 7.x call Java 11 APIs
@@ -94,6 +96,8 @@ okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit4" }
 
 # --- Images ----------------------------------------------------------------
+a2ui-compose-runtime = { group = "androidx.a2ui.compose", name = "compose-runtime", version.ref = "a2ui" }
+a2ui-compose-ui = { group = "androidx.a2ui.compose", name = "compose-ui", version.ref = "a2ui" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-svg = { group = "io.coil-kt.coil3", name = "coil-svg", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
