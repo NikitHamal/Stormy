@@ -10,6 +10,12 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-18 — keyless reliability
+- Probed every keyless model live (streamed tool call). Kilo 12/16 free OK (rest: upstream 429/503), OVH chat models OK, Pollinations OK, LLM7 only "turbo" + non-usage_based_only models work anonymously, OpenCode Zen free tier refuses non-OpenCode clients (left key-only), Ptero re-routes most ids to qwen3.7-flash.
+- `KeylessFallback`: keyless requests move to the next healthy free model on quota/auth/overload before any output; busy models skipped for a while. Order is in the file.
+- LLM7 `/models` filtered anonymously (`usage_based_only`, `tier`); retired stale rows in `AiModelRepository.addMissingKeylessSeeds`.
+- Read tool: path from read_file's header (was picking a file named inside the code); sheet shows the file, contents folded.
+
 ## 2026-10-18 — crash fix, generative UI, keyless providers
 **Done**
 - Clone crashed on Android < 13: JGit 7 calls `InputStream.readNBytes` (API 33). Pinned JGit **5.13.5** (Java 8). Do not bump JGit past 5.13 while minSdk < 33.

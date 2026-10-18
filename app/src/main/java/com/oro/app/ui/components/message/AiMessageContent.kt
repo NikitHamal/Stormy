@@ -514,6 +514,8 @@ private val FILE_TOOL_NAMES = listOf(
     "readfile", "writefile", "createfile", "deletefile", "patchfile", "editfile", "modifyfile", "updatefile"
 )
 private val EXPLICIT_PATH_REGEX = Regex("""(?im)^\s*(?:file|path)\s*[:=]\s*([^\s]+)\s*$""")
+/** read_file's header, "File: path (N lines)": the file that was read, not one its code mentions. */
+private val READ_HEADER_PATH_REGEX = Regex("""(?m)^\s*File:\s*(\S+)\s+\((?:\d+ lines|lines \d+-\d+ of \d+)\)""")
 private val DIFF_PATH_REGEX = Regex("""(?m)^\s*(?:\+\+\+|---)\s+[ab]/([^\s]+)\s*$""")
 private val PATH_CANDIDATE_REGEXES = listOf(
     Regex("""["']([^"'\r\n]+\.[a-zA-Z0-9]{1,10})["']"""),
@@ -538,6 +540,8 @@ private val STREAM_UNCLOSED_FENCE_REGEX = Regex("""```(\w+)?\n([\s\S]*)$""")
 private fun extractFilePath(toolName: String, output: String): String? {
     val normalized = toolName.lowercase(Locale.ROOT).replace(TOOL_NAME_SEPARATORS_REGEX, "")
     val looksLikeFileTool = FILE_TOOL_NAMES.any { normalized.contains(it) }
+
+    READ_HEADER_PATH_REGEX.find(output)?.groupValues?.getOrNull(1)?.let { return it }
 
     val explicitPath = EXPLICIT_PATH_REGEX
         .find(output)

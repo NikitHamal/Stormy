@@ -512,7 +512,7 @@ private fun ToolDetailSheet(
                             style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant
                         )
                     }
-                    SheetKind.Read -> if (!isError && body.isNotBlank()) CodeLines(stripReadHeader(body))
+                    SheetKind.Read -> if (!isError && body.isNotBlank()) ReadSummary(entry.subject, body)
                     SheetKind.Terminal -> if (!isError || body.isBlank()) TerminalBlock(entry.subject, body, running)
                     SheetKind.Listing -> if (!isError) ListingBlock(body)
                     SheetKind.Prose -> if (!isError && body.isNotBlank()) MarkdownText(markdown = body, modifier = Modifier.fillMaxWidth())
@@ -539,6 +539,42 @@ private fun StatusChip(label: String, color: Color) {
             modifier = Modifier.padding(horizontal = Space.sm + Space.xxs, vertical = Space.xxs)
         )
     }
+}
+
+/**
+ * What a read was: the file, its folder and how much of it. The contents stay
+ * folded -- the user asked which file Orobi looked at, not to re-read it.
+ */
+@Composable
+private fun ReadSummary(subject: String?, body: String) {
+    val scheme = MaterialTheme.colorScheme
+    val header = body.lineSequence().firstOrNull().orEmpty()
+    val m = READ_HEADER.find(header)
+    val path = Regex("""^File:\s*(\S+)""").find(header)?.groupValues?.get(1) ?: subject.orEmpty()
+    val span = when {
+        m == null -> null
+        m.groupValues[1].isNotEmpty() -> "All ${m.groupValues[1]} lines"
+        else -> header.substringAfter("(").substringBefore(")").replaceFirstChar { it.uppercase() }
+    }
+    var showContents by remember { mutableStateOf(false) }
+    Surface(shape = OroCorners.large, color = scheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(Space.md), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Description, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(Space.md))
+            Column(Modifier.weight(1f)) {
+                Text(path.substringAfterLast('/'), style = MaterialTheme.typography.titleSmall, color = scheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val folder = path.substringBeforeLast('/', "")
+                Text(
+                    listOfNotNull(folder.ifEmpty { "Project root" }, span).joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant, maxLines = 2
+                )
+            }
+        }
+    }
+    TextButton(onClick = { showContents = !showContents }) {
+        Text(if (showContents) "Hide contents" else "Show what was read", style = MaterialTheme.typography.labelLarge)
+    }
+    if (showContents) CodeLines(stripReadHeader(body))
 }
 
 /** read_file's first line is "File: path (N lines)"; the sheet header already says that. */

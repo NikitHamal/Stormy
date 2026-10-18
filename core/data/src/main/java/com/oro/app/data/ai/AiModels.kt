@@ -377,21 +377,26 @@ object SeedModels {
         model("qwen:qwen3.8-omni-flash", "Qwen3.8 Omni Flash (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true)
     )
 
-    /** ptero.pro guest models; each answered a real request on 2026-10-18. */
+    /**
+     * ptero.pro guest models. Only these two are served as themselves: the
+     * site's other ids (Mercury, GPT-OSS, Nemotron, ...) were all answered by
+     * qwen3.7-flash on 2026-10-18 ("model_used"), so listing them would be a lie.
+     */
     val ptero = listOf(
         model("ptero:deepseek-v4.1-flash:free", "DeepSeek V4.1 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
-        model("ptero:qwen3.7-flash:free", "Qwen 3.7 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
-        model("ptero:mercury-2.5:free", "Mercury 2.5 (Ptero)", AiProvider.PTERO, 131_072, tools = false),
-        model("ptero:deepseek-v4-flash-0731:free", "DeepSeek V4 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
-        model("ptero:gpt-oss-20b:free", "GPT-OSS 20B (Ptero)", AiProvider.PTERO, 131_072, tools = false),
-        model("ptero:nemotron-3.5-lightning:free", "Nemotron 3.5 Lightning (Ptero)", AiProvider.PTERO, 131_072, tools = false)
+        model("ptero:qwen3.7-flash:free", "Qwen 3.7 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false)
     )
 
-    /** LLM7's anonymous routes; its /models adds the rest. Tool calls verified 2026-10-18. */
+    /**
+     * LLM7's anonymous tier ("usage_based_only": false), each verified with a
+     * native tool call on 2026-10-18. One request at a time per client.
+     */
     val llm7 = listOf(
-        model("default", "LLM7 Default (free, no key)", AiProvider.LLM7, 131_072),
-        model("fast", "LLM7 Fast (free, no key)", AiProvider.LLM7, 131_072),
-        model("pro", "LLM7 Pro (free, no key)", AiProvider.LLM7, 131_072)
+        model("DeepSeek-V4-Flash-0731", "DeepSeek V4 Flash (LLM7, no key)", AiProvider.LLM7, 400_000),
+        model("GLM-5.3-Flash", "GLM 5.3 Flash (LLM7, no key)", AiProvider.LLM7, 131_072),
+        model("codestral-latest", "Codestral (LLM7, no key)", AiProvider.LLM7, 32_000),
+        model("gpt-oss:20b", "GPT-OSS 20B (LLM7, no key)", AiProvider.LLM7, 131_072),
+        model("default", "LLM7 Auto (no key)", AiProvider.LLM7, 131_072)
     )
 
     val nvidia = listOf(

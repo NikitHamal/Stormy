@@ -70,4 +70,36 @@ class ModelDiscoveryTest {
         assertThat(models.getValue("agnes-3.0-flash").reportedContextLength).isNull()
         assertThat(models.getValue("mystery-model").contextLength).isEqualTo(ModelCapabilities.DEFAULT_CONTEXT)
     }
+
+    @Test
+    fun `keyless llm7 lists only its anonymous chat tier`() {
+        val body = """
+            {"data":[
+              {"id":"DeepSeek-V4-Flash-0731","model_type":"chat","tier":"turbo","usage_based_only":false,"tools_calling":true,
+               "pricing":{"input":0.02,"output":0.04,"currency":"USD"},"context_window":{"tokens":400000,"chars":null}},
+              {"id":"kimi-k2.6","model_type":"chat","tier":"pro","usage_based_only":false,"tools_calling":true},
+              {"id":"gpt-5.6-sol","model_type":"chat","tier":"pro","usage_based_only":true,"tools_calling":true},
+              {"id":"seedance-2.0","model_type":"video","tier":"turbo","usage_based_only":false}
+            ]}
+        """
+        val models = service.parseModels(AiProvider.LLM7, body, hasKey = false)
+        assertThat(models.map { it.id }).containsExactly("DeepSeek-V4-Flash-0731")
+        assertThat(models.first().supportsToolCalls).isTrue()
+        assertThat(service.parseModels(AiProvider.LLM7, body, hasKey = true).map { it.id }).contains("gpt-5.6-sol")
+    }
+
+    @Test
+    fun `keyless fallback skips busy models and keeps native tools for tool requests`() {
+        val k2 = AiModels.findModelById("k2:IFM/K2-Horizon-375B-A23B")!!
+        val withTools = KeylessFallback.candidates(k2, needsNativeTools = true) { AiModels.findModelById(it) }
+        assertThat(withTools).isNotEmpty()
+        assertThat(withTools.none { it.provider.isCommunity }).isTrue()
+        val first = withTools.first()
+        KeylessFallback.markBusy(first.id, StreamEvent.Error("rate limit", httpCode = 429))
+        assertThat(KeylessFallback.candidates(k2, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id })
+            .doesNotContain(first.id)
+        KeylessFallback.markHealthy(first.id)
+        assertThat(KeylessFallback.shouldFallBack(StreamEvent.Error("tools not supported", httpCode = 400))).isFalse()
+        assertThat(KeylessFallback.shouldFallBack(StreamEvent.Error("Missing API key", httpCode = 401))).isTrue()
+    }
 }

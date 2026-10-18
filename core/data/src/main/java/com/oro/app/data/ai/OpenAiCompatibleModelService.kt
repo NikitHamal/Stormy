@@ -53,7 +53,17 @@ internal data class OpenAiModelInfo(
     val pricing: Pricing? = null,
     val isFree: Boolean? = null,
     /** Pollinations: `"tools": true`. */
-    val tools: Boolean? = null
+    val tools: Boolean? = null,
+    /** LLM7: true for models that need a token (paid usage); the rest work anonymously. */
+    @SerialName("usage_based_only")
+    val usageBasedOnly: Boolean? = null,
+    /** LLM7: "chat", "image", "video", ... */
+    @SerialName("model_type")
+    val modelType: String? = null,
+    @SerialName("tools_calling")
+    val toolsCalling: Boolean? = null,
+    /** LLM7: "pro" models need a balance even with a token; "turbo" ones are free. */
+    val tier: String? = null
 ) {
     @Serializable
     internal data class TopProvider(
@@ -93,7 +103,7 @@ internal data class OpenAiModelInfo(
 
     /** Null when the provider does not say. */
     val reportsToolSupport: Boolean?
-        get() = supportedParameters?.contains("tools") ?: tools
+        get() = supportedParameters?.contains("tools") ?: tools ?: toolsCalling
 }
 
 /**
@@ -195,10 +205,14 @@ class OpenAiCompatibleModelService {
     internal fun parseModels(provider: AiProvider, body: String, hasKey: Boolean): List<AiModel> {
         val parsed = json.decodeFromString<OpenAiModelsResponse>(body)
         val keylessGateway = !hasKey && provider == AiProvider.KILOCODE
+        // Without a token LLM7 serves only its anonymous tier; the rest answer 401.
+        val llm7Anonymous = !hasKey && provider == AiProvider.LLM7
         return parsed.data
             .asSequence()
             .filter { isValidChatModel(it.id) }
+            .filter { it.modelType == null || it.modelType == "chat" }
             .filter { !keylessGateway || it.isFreeModel }
+            .filter { !llm7Anonymous || (it.usageBasedOnly != true && it.tier != "pro") }
             .map { mapToAiModel(provider, it) }
             .distinctBy { it.id }
             .sortedBy { it.name }

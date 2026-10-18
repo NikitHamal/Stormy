@@ -196,6 +196,15 @@ class AiModelRepository(
      * the user already has (enabled state, aliases, favourites).
      */
     private suspend fun addMissingKeylessSeeds() {
+        // Rows that never worked without a key (LLM7's paid tier was listed
+        // anonymously) or were another model under a different name (Ptero
+        // re-routes most of its ids to qwen3.7-flash). Removed so the picker
+        // only offers keyless models that answer.
+        RETIRED_KEYLESS.forEach { aiModelDao.deleteModelById(it) }
+        val llm7Seeds = AiModels.getModelsForProvider(AiProvider.LLM7).map { it.id }.toSet()
+        aiModelDao.getAllModels()
+            .filter { it.provider == AiProvider.LLM7.name && it.id !in llm7Seeds }
+            .forEach { aiModelDao.deleteModelById(it.id) }
         val existing = aiModelDao.getAllModels().map { it.id }.toSet()
         val missing = AiModels.getAllModels()
             .filter { it.provider.worksWithoutKey && it.id !in existing }
@@ -378,9 +387,14 @@ class AiModelRepository(
     }
 
     companion object {
+        private val RETIRED_KEYLESS = listOf(
+            "ptero:mercury-2.5:free", "ptero:deepseek-v4-flash-0731:free", "ptero:gpt-oss-20b:free",
+            "ptero:nemotron-3.5-lightning:free", "fast", "pro"
+        )
         private val OPENROUTER_HEADERS = mapOf(
             "HTTP-Referer" to "https://github.com/oro/app",
             "X-Title" to "Oro"
         )
     }
+
 }

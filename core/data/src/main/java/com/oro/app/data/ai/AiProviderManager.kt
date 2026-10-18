@@ -90,6 +90,58 @@ class AiProviderManager(
         maxTokens: Int? = null,
         reasoningEffort: ReasoningEffort? = null
     ): Flow<StreamEvent> {
+        if (!usesKeylessly(model)) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningEffort)
+        // Keyless: a busy free model hands the request to the next one (see KeylessFallback).
+        val first = if (KeylessFallback.isBusy(model.id)) emptyList() else listOf(model)
+        val chain = first + KeylessFallback.candidates(model, needsNativeTools = tools != null) { id ->
+            AiModels.findModelById(id)?.takeIf { usesKeylessly(it) }
+        }
+        if (chain.isEmpty()) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningEffort)
+        return flow {
+            for ((index, candidate) in chain.withIndex()) {
+                val last = index == chain.lastIndex
+                var output = false
+                var failure: StreamEvent.Error? = null
+                streamOnce(candidate, messages, tools, temperature, maxTokens, reasoningEffort).collect { event ->
+                    if (failure != null) return@collect
+                    when (event) {
+                        is StreamEvent.Error ->
+                            if (!output && !last && KeylessFallback.shouldFallBack(event)) failure = event else emit(event)
+                        is StreamEvent.ContentDelta, is StreamEvent.ReasoningDelta, is StreamEvent.ToolCalls -> {
+                            if (!output && candidate.id != model.id) {
+                                emit(StreamEvent.ReasoningDelta("${model.name} was busy, so ${candidate.name} answered this step.\n\n"))
+                            }
+                            output = true
+                            emit(event)
+                        }
+                        is StreamEvent.Completed -> {
+                            KeylessFallback.markHealthy(candidate.id)
+                            emit(event)
+                        }
+                        else -> emit(event)
+                    }
+                }
+                val failed = failure ?: return@flow
+                KeylessFallback.markBusy(candidate.id, failed)
+            }
+        }
+    }
+
+    /** True when this model is being used without a key, so switching to another free model is safe. */
+    private fun usesKeylessly(model: AiModel): Boolean {
+        val p = model.provider
+        if (p == AiProvider.CUSTOM || p.requiresApiKey) return false
+        return keysFor(p).none { it.enabled && it.key.isNotBlank() }
+    }
+
+    private fun streamOnce(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?,
+        temperature: Float,
+        maxTokens: Int?,
+        reasoningEffort: ReasoningEffort?
+    ): Flow<StreamEvent> {
         configurationError(model)?.let { return flowOf(StreamEvent.Error(it)) }
         // Community bridges speak their own protocols and take no tools.
         if (model.provider.isCommunity) {

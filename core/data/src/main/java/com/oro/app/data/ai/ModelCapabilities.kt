@@ -253,7 +253,7 @@ object RateLimits {
         AiProvider.OVHCLOUD to RateLimit(requestsPerMinute = 2, tokensPerMinute = 200_000),
         AiProvider.KILOCODE to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000, requestsPerDay = 4_000),
         // LLM7 anonymous: 10/min, 60/hour; Ptero 30/min per guest token (rotated).
-        AiProvider.LLM7 to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000),
+        AiProvider.LLM7 to RateLimit(requestsPerMinute = 6, tokensPerMinute = 200_000),
         AiProvider.PTERO to RateLimit(requestsPerMinute = 20, tokensPerMinute = 300_000)
     )
 
