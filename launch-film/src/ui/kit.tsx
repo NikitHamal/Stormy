@@ -56,8 +56,19 @@ export const APP = { w: 720, h: 1480, r: 64, top: 0 };
 export const APPY = { bar: 64, tabs: 160, chat: 270, composer: 1236 };
 
 /** The app screen: dark rounded glass with the top bar and the Chat/Editor tabs. Children are the chat. */
+/** The phone around the app: a thin bezel and the status bar, so the screen reads as a phone at a glance. */
+export const BEZEL = 16;
 export const AppScreen: React.FC<{ title: string; children?: React.ReactNode; composer?: React.ReactNode }> = ({ title, children, composer }) => (
-  <div style={{ ...abs(0, 0, APP.w, APP.h), borderRadius: APP.r, background: C.app, overflow: 'hidden', boxShadow: '0 40px 120px rgba(0,0,0,.45)', border: `2px solid ${C.outline}` }}>
+  <>
+  <div style={{ ...abs(-BEZEL, -BEZEL, APP.w + 2 * BEZEL, APP.h + 2 * BEZEL), borderRadius: APP.r + BEZEL, background: C.surface2, border: `2px solid ${C.surface3}`, boxShadow: '0 40px 120px rgba(0,0,0,.5)', boxSizing: 'border-box' }} />
+  <div style={{ ...abs(0, 0, APP.w, APP.h), borderRadius: APP.r, background: C.app, overflow: 'hidden' }}>
+    <div data-ui style={{ ...abs(44, 16), ...ui(22, 600, C.text) }}>9:41</div>
+    <div style={{ ...abs(APP.w / 2 - 60, 14, 120, 30), borderRadius: 15, background: C.paper }} />
+    <div style={{ ...abs(APP.w - 120, 22, 76, 18), display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+      <div style={{ width: 22, height: 12, borderRadius: 3, background: C.text, opacity: 0.85 }} />
+      <div style={{ width: 12, height: 12, borderRadius: 6, background: C.text, opacity: 0.85 }} />
+      <div style={{ width: 30, height: 14, borderRadius: 4, border: `2px solid ${C.text}`, opacity: 0.85, boxSizing: 'border-box' }} />
+    </div>
     <div style={{ ...abs(28, APPY.bar) }}><Glyph name="back" size={40} color={C.text} sw={2.4} /></div>
     <div data-ui style={{ ...abs(88, APPY.bar - 2), ...ui(34, 600) }}>{title}</div>
     <div style={{ ...abs(28, APPY.tabs, 664, 76), display: 'flex', gap: 12 }}>
@@ -67,6 +78,7 @@ export const AppScreen: React.FC<{ title: string; children?: React.ReactNode; co
     {children}
     {composer}
   </div>
+  </>
 );
 
 /** The composer: input, photo + tune buttons, the model chip, mic, and the send button that holds the loop. */
@@ -197,7 +209,7 @@ export const Site: React.FC<{
           <div key={n} data-ui style={{ ...ui(24, 500, T.muted), marginLeft: 44 }}>{n}</div>
         ))}
       </div></div>
-      <div style={abs(96, PAGE.nav + 90, PAGE.w - 192)}><div style={sec(reveal.hero)}>
+      <div style={abs(96, PAGE.nav + 70, PAGE.w - 192)}><div style={{ ...sec(reveal.hero), display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
         {data.title.map((t) => (
           <div key={t} data-ui style={{ ...typeStyle('hero', 150), color: T.text }}>{t}</div>
         ))}

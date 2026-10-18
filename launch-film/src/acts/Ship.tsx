@@ -14,7 +14,7 @@ import { CopyLine, dimFor, Stage } from './shared';
 // own icon. Then the address bar extrudes and the camera crashes through it (cam-crash-zoom-through):
 // the next act opens inside the published site, still rushing forward.
 
-export const S_SHIP: Shot = { ax: 360, ay: 1130, sx: W / 2, sy: H * 0.42, k: Math.min(1.6, (W * 0.96) / 720) };
+export const S_SHIP: Shot = { ax: 360, ay: 1100, sx: W / 2, sy: H * 0.4, k: Math.min(1.25, (W * 0.96) / 720) };
 const SHEET_Y = 830;
 const STEP_Y = (i: number) => SHEET_Y + 40 - 18 + 8 + 30 + 44 + 26 + 31 + 62 * i; // step icon centres
 const URL_Y = SHEET_Y + 40 - 18 + 8 + 30 + 44 + 26 + 186 + 24 + 48;

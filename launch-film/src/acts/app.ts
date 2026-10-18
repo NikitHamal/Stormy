@@ -12,7 +12,7 @@ export const S_REST: Shot = { ax: 360, ay: 1342, sx: W / 2, sy: 760, k: fitK(1.4
 /** Pushed in on the composer while the prompt types. */
 export const S_TYPE: Shot = { ax: 360, ay: 1342, sx: W / 2, sy: H * 0.5, k: fitK(2.1) };
 /** Framing Orobi's rows in the chat. */
-export const S_ROWS: Shot = { ax: 360, ay: 560, sx: W / 2, sy: H * 0.36, k: fitK(1.5) };
+export const S_ROWS: Shot = { ax: 360, ay: 560, sx: W / 2, sy: H * 0.31, k: fitK(1.5) };
 /** The send button's centre in app coordinates. */
 export const SEND = { x: COMPOSER.send.x, y: COMPOSER.send.y, d: COMPOSER.send.d };
 /** The loop's width when it sits in a button or a row tile (px in app coordinates). */

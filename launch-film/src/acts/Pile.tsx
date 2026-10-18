@@ -28,17 +28,26 @@ export const ARRIVE: number[] = (() => {
 if (ARRIVE[ARRIVE.length - 1] >= CUE.freeze - f60(6)) throw new Error('Pile: the last card must land before the freeze');
 
 /** Each card's resting pose (frame px, its top-left), seeded so a re-render is identical. */
-/** Cards are drawn at this scale: a pile that fills the frame, not a row of chips. */
-export const CARD_K = Math.min(1.75, (W / 1920) * 1.75 + (W < H ? 0.4 : 0.3));
+/** Cards are drawn at this scale: a pile that fills the frame above the copy band. */
+export const CARD_K = W < H ? 1.05 : (W / 1920) * 1.5;
+/**
+ * Each card's resting centre, as an offset from the frame's centre line (16:9 px), in mirrored
+ * pairs: the pile builds outward symmetrically and stays above the eye line, so the copy below it
+ * reads on clear stage. Frame 0 is a balanced triangle (cards 0-2).
+ */
+const SLOTS: [number, number][] = [
+  [0, 420], [-400, 300], [400, 300],
+  [-640, 470], [640, 470], [-250, 560], [250, 560],
+  [-700, 150], [700, 150], [0, 140],
+  [-480, 660], [480, 660], [-860, 620], [860, 620],
+  [0, 660], [0, 470],
+];
 export const POSE = PILE.map((c, k) => {
-  // a heap that closes in on the centre: the first cards near the middle (frame 0 is composed),
-  // later ones spiralling out to the edges on the golden angle, so the pile covers the frame
-  const ang = k * 2.39996 + 0.6;
-  const rr = 0.18 + 0.82 * Math.sqrt(k / (PILE.length - 1));
+  const [dx, cy] = SLOTS[k];
   const w = c.w * CARD_K;
-  const cx = W / 2 + Math.cos(ang) * rr * W * 0.43;
-  const cy = H * 0.44 + Math.sin(ang) * rr * H * 0.43;
-  return { x: Math.min(W - w + 60, Math.max(-60, cx - w / 2)), y: Math.min(H - 120, Math.max(-20, cy - 70)), rot: rand(`r${k}`) * 7 - 3.5 };
+  const sx = W / 1920;
+  const sy = W < H ? (H * 0.62) / 1080 : H / 1080;
+  return { x: W / 2 + dx * sx - w / 2, y: cy * sy - 70 * CARD_K, rot: (k === 0 ? 0 : (k % 2 ? -1 : 1) * (1 + rand(`r${k}`) * 2.2)) };
 });
 
 /** The pile at absolute frame F, with an optional implosion (0..1) toward a point. */
@@ -56,7 +65,7 @@ export const PileLayer: React.FC<{ F: number; implode?: number; to?: { x: number
         const p = POSE[k];
         // implosion: every card falls into the point on E.in, shrinking in log space
         const ix = mix(0, to.x - (p.x + (c.w * CARD_K) / 2), implode);
-        const iy = mix(0, to.y - (p.y + 70), implode);
+        const iy = mix(0, to.y - (p.y + 70 * CARD_K), implode);
         const k2 = lmix(1, 0.02, implode);
         return (
           <div key={k} style={{ position: 'absolute', left: 0, top: 0, opacity: o * (1 - clamp((implode - 0.55) / 0.45)), transformOrigin: '0 0', transform: `translate(${p.x + ix}px, ${p.y + iy + (1 - s) * 40}px) rotate(${p.rot * (1 - implode)}deg) scale(${k2 * CARD_K})` }}>

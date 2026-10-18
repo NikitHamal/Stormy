@@ -14,7 +14,8 @@ import { CopyChain, dimFor, Stage } from './shared';
 // hides inside the motion: free, keyless models from the app's own picker.
 
 const CHIP = { x: COMPOSER.x + 154, y: COMPOSER.y + 116, w: 360, h: 58 };
-export const S_CHIP: Shot = { ax: CHIP.x + CHIP.w / 2, ay: CHIP.y + CHIP.h / 2, sx: W / 2, sy: H * 0.4, k: 2.1 };
+// the whole composer, centred on the frame's axis: the chip sits in it as the app draws it
+export const S_CHIP: Shot = { ax: COMPOSER.x + COMPOSER.w / 2, ay: COMPOSER.y + COMPOSER.h / 2, sx: W / 2, sy: H * 0.42, k: Math.min(1.65, (W * 0.92) / COMPOSER.w) };
 const SWAPS = [CUE.swap1, CUE.swap2, CUE.swap3];
 
 export const Free: React.FC = () => {

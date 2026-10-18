@@ -12,7 +12,7 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ## 2026-10-18 — launch film v2 (Cinetic)
 - `launch-film/`: 35 s launch film built with the Cinetic skill (github.com/Leonxlnx/cinetic): BRIEF/TREATMENT, `pick.py` technique draw, `timeline.ts` (120 BPM, crisp, grid-check pass), 9 acts, product UI from the app, earshot crisp kit + synth score (-14 LUFS, drop on the live-site reveal), motion-blurred masters (budget 4x, samples in `out/samples-master.json`, not committed).
-- Deliverables in `launch-film/deliver/`: 1080p60 master, 9:16 and 1:1 re-layouts (`REMOTION_FORMAT=9x16|1x1`, same timeline), poster, QA reports.
+- Deliverables in `launch-film/deliver/` (round 2; round-3 layout/script pass is code-only, user renders locally): 1080p60 master, 9:16 and 1:1 re-layouts (`REMOTION_FORMAT=9x16|1x1`, same timeline), poster, QA reports.
 - Gates: probe + check-sync PASS on all three; forensics clean except one declared reading hold (f1359-1423, "Free models.").
 - Tools used here: ffmpeg 7 static, Playwright's chromium headless shell (`REMOTION_BROWSER`), Python venv with numpy/scipy/librosa/opencv, earshot 0.3 in its own venv.
 

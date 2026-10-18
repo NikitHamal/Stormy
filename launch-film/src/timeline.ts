@@ -180,13 +180,13 @@ export const chain = (id: string, mode: 'build' | 'replace', fragments: [text: s
 export const COPY: Copy[] = [
   ...chain('hook', 'build', [['A website', CUE.hookA], ['takes all this.', CUE.hookB]], { out: CUE.hookOut }),
   ...chain('turn', 'replace', [['Or', CUE.orIn], ['one sentence.', CUE.sentence]]),
-  ...chain('build', 'build', [['Orobi', CUE.orobi], ['writes it,', CUE.writes]], { out: CUE.iris - f60(6) }),
+  ...chain('build', 'build', [['Orobi', CUE.orobi], ['builds it,', CUE.writes]], { out: CUE.iris - f60(6) }),
   line('live', 'live.', CUE.liveIn),
   line('change', 'Change anything.', CUE.changeIn),
   ...chain('free', 'replace', [['Free models.', CUE.freeIn], ['No key.', CUE.keyIn]]),
   line('ship', 'Ship it.', CUE.shipIn, CUE.crash),
   { id: 'wordmark', text: 'Oro', in: CUE.lockup - f60(26), resolved: CUE.lockup, out: TOTAL },
-  line('endline', 'Websites from your phone.', CUE.lineIn, TOTAL),
+  line('endline', 'Your website, from one sentence.', CUE.lineIn, TOTAL),
   // Product UI strings (kind 'ui': counted apart from the copy budget)
   { id: 'prompt', text: 'A street photo portfolio for Mira', in: CUE.typeFrom, resolved: CUE.typeTo, out: ACT.build.from + ACT.build.dur, kind: 'ui' },
 ];

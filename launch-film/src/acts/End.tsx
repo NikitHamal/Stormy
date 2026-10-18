@@ -58,7 +58,7 @@ export const End: React.FC = () => {
           <Words text={wm.text} id={wm.id} frame={F} start={wm.in} size={lay.size} style={{ ...typeStyle('hero', lay.size), color: C.peach }} />
         </div>
       </div>
-      <CopyLine id="endline" F={F} role="secondary" y={H * 0.74} color={C.ink} />
+      <CopyLine id="endline" F={F} role="secondary" y={LOOP_END.y + 230} color={C.ink} />
       {drop < 1 && (
         <div style={{ position: 'absolute', inset: 0, transform: `translateY(${(drop * 1150).toFixed(2)}px)`, background: C.lbg, opacity: 1 - clamp((drop - 0.9) / 0.1) }}>
           <div style={camera(site)}>

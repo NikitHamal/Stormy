@@ -68,13 +68,13 @@
 | 1 | 1–2 | 0–4 s | hook | 3 toolchain cards on frame 0; 13 more pile in accelerating | "A website" → "takes all this." (build) | the pile thickens | one tick per card, rising; freeze in silence | — |
 | 2 | 3 | 4–6 s | turn | pile implodes into a point; the loop draws itself; the Oro composer rises | "Or" → "one sentence." (replace) | loop glides into the send button | implosion suck, loop motif | born, then send button |
 | 3 | 4 | 6–8 s | prompt | push in on the composer; the prompt types (UI) | — | typing | key ticks | idles in send |
-| 4 | 5–6 | 8–12 s | build | send; tool rows cascade, each spinner → check | "Orobi" → "writes it," (build) | rows land | send tap, check pops climbing | spinner of each row |
+| 4 | 5–6 | 8–12 s | build | send; tool rows cascade, each spinner → check | "Orobi" → "builds it," (build) | rows land | send tap, check pops climbing | spinner of each row |
 | 5 | 7 | 12–14 s | live | iris from the loop into the live site building | "live." | sections land | whoosh, landings | iris seed |
 | 6 | 8–9 | 14–18 s | change | back to chat: UI block slider drives columns 4 → 2 and size; tap "Light" | "Change anything." | slider drag | ticks on steps | Orobi avatar |
 | 7 | 10 | 18–20 s | flyover | runway flight over the whole site; flips dark → light mid-flight | — | text-free | whoosh | — |
 | 8 | 11–12 | 20–24 s | free | the model chip swaps names on sweeps | "Free models." → "No key." (replace) | swaps | soft clicks | chip icon |
 | 9 | 13–14 | 24–28 s | ship | publish sheet: tap, spinner → check, URL card; crash zoom through | "Ship it." | URL lands | tap, check, whoosh | spinner |
-| 10 | 15–16 + tail | 28–33 s | lockup | the site drops away; the loop becomes Orobi; lockup | "Oro" (wordmark) → "Websites from your phone." | lockup builds | stop-down, one hit, tail | becomes the mark |
+| 10 | 15–16 + tail | 28–33 s | lockup | the site drops away; the loop becomes Orobi; lockup | "Oro" (wordmark) → "Your website, from one sentence." | lockup builds | stop-down, one hit, tail | becomes the mark |
 
 ## 6. Copy
 | Chain | Fragment | Words | Mode | Beat # | Picture beat before next | Callback role |
@@ -84,18 +84,18 @@
 | turn | Or | 1 | replace | 2 | loop is born | refrain ("this" → "one") |
 | turn | one sentence. | 2 | replace | 2 | loop flies to send | payoff |
 | build | Orobi | 1 | build | 4 | first rows land | — |
-| build | writes it, | 2 | build | 4 | iris into the site | — |
+| build | builds it, | 2 | build | 4 | iris into the site | — |
 | live | live. | 1 | — | 5 | sections land | payoff |
 | change | Change anything. | 2 | — | 6 | slider drags | — |
 | free | Free models. | 2 | replace | 8 | names swap | — |
 | free | No key. | 2 | replace | 8 | publish sheet | callback (the pile's key prompt) |
 | ship | Ship it. | 2 | — | 9 | crash zoom | — |
 | end | Oro | 1 | — | 10 | lockup | — |
-| end | Websites from your phone. | 4 | — | 10 | — | resolution |
-| **Total** | | **25 / 30** | | | | |
+| end | Your website, from one sentence. | 5 | — | 10 | — | resolution |
+| **Total** | | **26 / 30** | | | | |
 
 ## 7. Final frame (the poster)
-Dark ink-navy stage. Orobi (peach body, magenta markings) centred slightly above the eye line at about 26% of frame height, the "Oro" wordmark (Poppins 600, peach) beside it as one lockup, and "Websites from your phone." at the secondary size below, under a 10–15% push.
+Dark ink-navy stage. Orobi (peach body, magenta markings) centred slightly above the eye line at about 26% of frame height, the "Oro" wordmark (Poppins 600, peach) beside it as one lockup, and "Your website, from one sentence." at the secondary size below, under a 10–15% push.
 
 ## 8. Gate
 - [x] logline ≤ 15 words · [x] specificity test: a code chatbot would need the whole pile; Oro removes it · [x] 26 words ≤ 30 · [ ] grid-check passes (Step 3).

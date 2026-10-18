@@ -31,11 +31,18 @@ npm install                      # Remotion 4.0.529; Chromium headless shell via
 npm run check                    # tsc + lint-film + grid-check
 npx tsx scripts/export-cues.ts && python3 scripts/audio/kit.py render && npm run audio
 bash scripts/render.sh Film out/preview.mp4 --preview                 # fast preview
-bash scripts/render.sh Film out/film.mp4 --blur --budget 4 \
-  --accept-fast 812-845 --accept-fast 1280-1325 --accept-fast 1765-1845 --accept-cut 834-842
-REMOTION_FORMAT=9x16 bash scripts/render.sh Film out/film-9x16.mp4 --preview   # social re-layouts
-REMOTION_FORMAT=1x1  bash scripts/render.sh Film out/film-1x1.mp4 --preview
+# master: fast moves and cuts below were measured on the round-3 cut and are intended
+FLAGS="--accept-fast 244-262 --accept-fast 812-845 --accept-fast 1280-1325 --accept-fast 1418-1446 \
+  --accept-fast 1538-1550 --accept-fast 1765-1845 --accept-cut 618-625 --accept-cut 834-842 \
+  --accept-cut 1255-1265 --accept-cut 1864-1873"
+bash scripts/render.sh Film out/film.mp4 --blur --budget 4 --audio public/audio/soundtrack.wav $FLAGS
+cp out/samples.json out/samples-master.json      # reuse the speed measurement for the re-layouts
+REMOTION_FORMAT=9x16 bash scripts/render.sh Film out/film-9x16.mp4 --blur --budget 4 \
+  --samples-from out/samples-master.json --audio public/audio/soundtrack.wav $FLAGS
+REMOTION_FORMAT=1x1  bash scripts/render.sh Film out/film-1x1.mp4 --blur --budget 4 \
+  --samples-from out/samples-master.json --audio public/audio/soundtrack.wav $FLAGS
 ```
+`deliver/` still holds the round-2 renders; re-render after pulling round 3 (≈35 min sub-frame pass per format on 8 cores).
 Python tools need numpy, scipy, soundfile, pyloudnorm, opencv, librosa; earshot 0.3+ renders the kit.
 
 ## QA (shipped files)

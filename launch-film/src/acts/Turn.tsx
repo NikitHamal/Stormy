@@ -17,7 +17,7 @@ import { CopyChain, dimFor, Stage } from './shared';
 // prompt types (product UI) under a push-in.
 
 /** Where the loop is born and waits (screen px). */
-export const LOOP0 = { x: W / 2, y: H * 0.4, w: 440 };
+export const LOOP0 = { x: W / 2, y: H * 0.41, w: Math.min(560, W * 0.5) };
 /** The loop's glide into the send button: from CUE.rise to CUE.dock. */
 export const DOCK = { from: CUE.rise, to: CUE.dock + f60(12), ease: E.glide };
 

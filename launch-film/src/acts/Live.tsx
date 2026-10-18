@@ -18,7 +18,7 @@ export const siteShot = (F: number): Shot => ({
   ax: PAGE.w / 2,
   ay: 300 + 140 * prog(F, CUE.open - f60(24), ACT.live.from + ACT.live.dur, E.linear),
   sx: W / 2,
-  sy: H * 0.5,
+  sy: H * 0.36,
   k: Math.min(1.18, (W / PAGE.w) * 1.12),
 });
 
@@ -31,8 +31,8 @@ export const revealAt = (F: number) => ({
 
 /** The preview chrome: a pill at the top centre with the loop (the device) and the site's address. */
 export const PILL = { x: W / 2, y: 70, w: 360, h: 64 };
-export const PreviewPill: React.FC<{ F: number; light?: number; o?: number; x?: number }> = ({ F, o = 1, x = PILL.x }) => (
-  <div style={{ position: 'absolute', left: 0, top: 0, opacity: o, transform: `translate(${x - PILL.w / 2}px, ${PILL.y - PILL.h / 2}px)` }}>
+export const PreviewPill: React.FC<{ F: number; light?: number; o?: number; x?: number; y?: number }> = ({ F, o = 1, x = PILL.x, y = PILL.y }) => (
+  <div style={{ position: 'absolute', left: 0, top: 0, opacity: o, transform: `translate(${x - PILL.w / 2}px, ${y - PILL.h / 2}px)` }}>
     <div style={{ width: PILL.w, height: PILL.h, borderRadius: PILL.h / 2, background: C.surface, border: `2px solid ${C.outline}`, boxShadow: '0 20px 60px rgba(0,0,0,.30)' }} />
     <Loop x={44} y={PILL.h / 2} w={46} dash={1} spin={((F % 96) / 96)} track={C.surface3} />
     <div data-ui style={{ position: 'absolute', left: 84, top: 15, fontFamily: '"Poppins"', fontSize: 24, fontWeight: 500, color: C.text, whiteSpace: 'pre' }}>
