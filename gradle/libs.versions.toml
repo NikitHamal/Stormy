@@ -35,7 +35,9 @@ okhttp = "5.5.0"
 coil = "3.6.3"
 soraEditor = "0.23.6"
 markwon = "4.6.2"
-jgit = "7.8.0.202609011348-r"
+# 5.13 is the last JGit line built for Java 8. 6.x and 7.x call Java 11 APIs
+# (InputStream.readNBytes) that Android only has from API 33, so clone crashed on older phones.
+jgit = "5.13.5.202508271544-r"
 
 # --- Test ------------------------------------------------------------------
 junit = "4.13.2"

@@ -23,9 +23,6 @@ internal object WhistleNative {
     external fun isLoaded(): Boolean
     /** JSON: {"text","language",...} or {"error"}. */
     external fun transcribe(pcm: FloatArray, language: String?, keywords: String?): String
-    /** Live: JSON {"text": committed-this-call, "pending": tail, ...}. */
-    external fun streamProcess(pcm: FloatArray, language: String?, keywords: String?): String
-    external fun streamStop(): String
 }
 
 /**
@@ -95,7 +92,7 @@ object Whistle {
         refresh(context)
     }
 
-    internal suspend fun ensureLoaded(context: Context) = withContext(Dispatchers.IO) {
+    private suspend fun ensureLoaded(context: Context) = withContext(Dispatchers.IO) {
         if (WhistleNative.isLoaded()) return@withContext
         val f = modelFile(context)
         check(f.isFile) { "Download the Whistle model first (Settings > Voice dictation)." }
@@ -112,34 +109,6 @@ object Whistle {
                 (json["text"] as? JsonPrimitive)?.contentOrNull.orEmpty().trim()
             }
         }
-
-    /** Live session: feed chunks, get (newly committed text, pending tail). */
-    class Stream internal constructor(private val context: Context) {
-        private val committed = StringBuilder()
-        suspend fun start() = ensureLoaded(context)
-        /** Returns the whole transcript so far: committed words plus the unconfirmed tail. */
-        fun feed(pcm: FloatArray): String {
-            val o = parse(WhistleNative.streamProcess(pcm, null, KEYWORDS))
-            append(o["text"])
-            val pending = (o["pending"] as? JsonPrimitive)?.contentOrNull.orEmpty().trim()
-            return (committed.toString() + " " + pending).trim()
-        }
-        fun stop(): String {
-            append(parse(WhistleNative.streamStop())["text"])
-            return committed.toString().trim()
-        }
-        private fun append(e: kotlinx.serialization.json.JsonElement?) {
-            val t = (e as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
-            if (t.isNotEmpty()) { if (committed.isNotEmpty()) committed.append(' '); committed.append(t) }
-        }
-        private fun parse(raw: String): JsonObject {
-            val o = AiHttp.json.parseToJsonElement(raw) as JsonObject
-            (o["error"] as? JsonPrimitive)?.contentOrNull?.let { error(it) }
-            return o
-        }
-    }
-
-    fun stream(context: Context) = Stream(context)
 
     /** Words people say to a web-building agent, biased so they survive recognition. */
     private const val KEYWORDS = "Orobi\nOro\nHTML\nCSS\nJavaScript\nTailwind\nnavbar\nfooter\nhero section\nlanding page\nindex.html\nstyle.css"

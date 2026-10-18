@@ -18,7 +18,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
@@ -118,67 +117,44 @@ class Dictation(private val context: Context) {
 
     // --------------------------------------------------------------- whistle
 
-    /**
-     * Record with Whistle until [stopWhistle] (or [MAX_SECONDS]). Live: every
-     * second of audio goes to the engine's streaming mode on a separate
-     * coroutine, so words appear while the user is still talking and the
-     * microphone never waits on the model. The final text is what the
-     * engine commits when the stream stops.
-     */
+    /** Record until [stopWhistle] (or 60 s), then transcribe on device. Suspends for the whole session. */
     @SuppressLint("MissingPermission")
     suspend fun recordWithWhistle() = withContext(Dispatchers.IO) {
         if (!hasMicPermission()) { _state.value = State.Error("Allow microphone access to dictate."); return@withContext }
-        val stream = Whistle.stream(context)
-        runCatching { stream.start() }.onFailure { _state.value = State.Error(it.message ?: "Whistle could not start"); return@withContext }
         val rate = 16_000
         val minBuf = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val rec = runCatching {
-            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate * 2))
+            AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, rate))
         }.getOrNull()
         if (rec == null || rec.state != AudioRecord.STATE_INITIALIZED) {
             _state.value = State.Error("The microphone is busy."); return@withContext
         }
-        val chunks = kotlinx.coroutines.channels.Channel<FloatArray>(kotlinx.coroutines.channels.Channel.UNLIMITED)
-        var level = 0f
-        var live = ""
-        val worker = launch(Dispatchers.Default) {
-            for (c in chunks) {
-                live = runCatching { stream.feed(c) }.getOrDefault(live)
-                _state.value = State.Listening(live, level)
-            }
-        }
-        val buf = ShortArray(rate / 10)
-        val second = FloatArray(rate)
-        var filled = 0
-        var total = 0
+        // Primitive buffer: a boxed list of a minute of samples is ~1M objects on a cheap phone.
+        val pcm = ShortArray(rate * MAX_SECONDS)
+        var size = 0
+        val chunk = ShortArray(rate / 10)
         recording = true
         _state.value = State.Listening("", 0f)
         try {
             rec.startRecording()
-            while (recording && coroutineContext.isActive && total < rate * MAX_SECONDS) {
-                val n = rec.read(buf, 0, buf.size)
+            while (recording && coroutineContext.isActive && size < pcm.size) {
+                val n = rec.read(chunk, 0, minOf(chunk.size, pcm.size - size))
                 if (n <= 0) continue
                 var peak = 0
-                for (i in 0 until n) {
-                    second[filled++] = buf[i] / 32768f
-                    peak = maxOf(peak, kotlin.math.abs(buf[i].toInt()))
-                    if (filled == second.size) { chunks.trySend(second.copyOf()); filled = 0 }
-                }
-                total += n
-                level = (peak / 12_000f).coerceIn(0f, 1f)
-                _state.value = State.Listening(live, level)
+                for (i in 0 until n) { pcm[size + i] = chunk[i]; peak = maxOf(peak, kotlin.math.abs(chunk[i].toInt())) }
+                size += n
+                _state.value = State.Listening("", (peak / 12_000f).coerceIn(0f, 1f))
             }
         } finally {
             runCatching { rec.stop() }
             rec.release()
             recording = false
         }
-        if (filled > rate / 5) chunks.trySend(second.copyOf(filled))
-        chunks.close()
-        _state.value = State.Transcribing
-        worker.join()
         if (!coroutineContext.isActive) return@withContext
-        _state.value = runCatching { stream.stop() }.fold(
+        _state.value = State.Transcribing
+        if (size < rate / 4) { _state.value = State.Done(""); return@withContext }
+        val floats = FloatArray(size) { pcm[it] / 32768f }
+        _state.value = Whistle.transcribe(context, floats).fold(
             onSuccess = { State.Done(it) },
             onFailure = { State.Error(it.message ?: "Transcription failed") }
         )

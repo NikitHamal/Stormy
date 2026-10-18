@@ -77,29 +77,3 @@ Java_com_oro_app_voice_WhistleNative_transcribe(JNIEnv* env, jobject, jfloatArra
     if (kw) env->ReleaseStringUTFChars(keywords, kw);
     return callOut(env, rc, out);
 }
-
-// Live transcription: feed ~1 s of 16 kHz PCM at a time; returns JSON with the words
-// this call committed and the unconfirmed tail ("pending").
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_oro_app_voice_WhistleNative_streamProcess(JNIEnv* env, jobject, jfloatArray pcm, jstring language, jstring keywords) {
-    std::lock_guard<std::mutex> guard(gLock);
-    jsize n = env->GetArrayLength(pcm);
-    std::vector<float> samples(static_cast<size_t>(n));
-    env->GetFloatArrayRegion(pcm, 0, n, samples.data());
-    const char* lang = language ? env->GetStringUTFChars(language, nullptr) : nullptr;
-    const char* kw = keywords ? env->GetStringUTFChars(keywords, nullptr) : nullptr;
-    std::vector<char> out(64 * 1024, 0);
-    int rc = needle_stream_transcribe_process(samples.data(), static_cast<int>(n), lang, kw, out.data(), static_cast<int>(out.size()) - 1);
-    if (lang) env->ReleaseStringUTFChars(language, lang);
-    if (kw) env->ReleaseStringUTFChars(keywords, kw);
-    return callOut(env, rc, out);
-}
-
-/* Ends the stream: the tail becomes committed words. */
-extern "C" JNIEXPORT jstring JNICALL
-Java_com_oro_app_voice_WhistleNative_streamStop(JNIEnv* env, jobject) {
-    std::lock_guard<std::mutex> guard(gLock);
-    std::vector<char> out(64 * 1024, 0);
-    int rc = needle_stream_transcribe_stop(out.data(), static_cast<int>(out.size()) - 1);
-    return callOut(env, rc, out);
-}

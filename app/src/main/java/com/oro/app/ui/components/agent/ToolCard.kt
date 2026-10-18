@@ -36,7 +36,11 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.OpenInFull
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -109,14 +113,11 @@ enum class ToolCallStatus { Running, Success, Error }
  * screen. Tool calls are the bulk of what an agent does, so dropping their
  * results makes the transcript a list of claims the user cannot check.
  *
- * ### The three depths
+ * ### Row, then sheet
  *
- * Collapsed, the card is one row: icon, verb, subject, and the +/- badge if
- * anything changed. Expanded in place, it shows the first [PREVIEW_LINES]
- * lines, which is enough to confirm a write did what it said. The sheet shows
- * the whole thing, scrollable, with a copy action -- reserved for the full
- * detail because a sheet covers the conversation, and that is only worth
- * doing when the user has asked for the detail specifically.
+ * The row is one line: icon, verb, subject, and the +/- badge if anything
+ * changed. Tapping it opens a sheet shaped for the kind of call (see
+ * [SheetKind]); nothing expands in place.
  *
  * The leading icon sits in an Expressive silhouette whose shape comes from
  * the tool's own kind, so a run of calls is distinguishable by outline before
@@ -126,13 +127,9 @@ enum class ToolCallStatus { Running, Success, Error }
 fun ToolCard(
     entry: ToolCallEntry,
     modifier: Modifier = Modifier,
-    initiallyExpanded: Boolean = false
+    @Suppress("UNUSED_PARAMETER") initiallyExpanded: Boolean = false
 ) {
     val presentation = ToolPresentations[entry.toolName]
-    val running = entry.status == ToolCallStatus.Running
-    val isError = entry.status == ToolCallStatus.Error
-
-    var expanded by remember { mutableStateOf(initiallyExpanded) }
     var sheetOpen by remember { mutableStateOf(false) }
 
     val shortSubject = entry.subject?.takeIf { it.isNotBlank() }?.let { raw ->
@@ -149,42 +146,24 @@ fun ToolCard(
     val additions = if (entry.additions > 0) entry.additions else diff?.additions ?: 0
     val deletions = if (entry.deletions > 0) entry.deletions else diff?.deletions ?: 0
 
-    // A row in the transcript, not a card. Boxed and bordered, a run of a
-    // dozen calls turned the thread into a stack of form fields; as plain
-    // rows they read as a log of what Orobi did, and only the detail a user
-    // opens gets a surface of its own.
+    // A row in the transcript. Tapping it opens the detail in a sheet built
+    // for that kind of call (diff, file, terminal, listing) instead of
+    // expanding in place: expanding pushed the conversation around and gave
+    // every kind of call the same cramped preview.
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = OroCorners.medium,
         color = Color.Transparent
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            ToolCardHeader(
-                presentation = presentation,
-                entry = entry,
-                shortSubject = shortSubject,
-                additions = additions,
-                deletions = deletions,
-                expanded = expanded,
-                onToggle = { if (entry.hasDetail) expanded = !expanded }
-            )
-
-            AnimatedVisibility(
-                visible = expanded && entry.hasDetail,
-                enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
-                    expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
-                exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
-                    shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec())
-            ) {
-                ToolCardDetail(
-                    entry = entry,
-                    presentation = presentation,
-                    diff = diff,
-                    onOpenSheet = { sheetOpen = true }
-                )
-            }
-
-        }
+        ToolCardHeader(
+            presentation = presentation,
+            entry = entry,
+            shortSubject = shortSubject,
+            additions = additions,
+            deletions = deletions,
+            expanded = false,
+            onToggle = { sheetOpen = true }
+        )
     }
 
     if (sheetOpen) {
@@ -192,6 +171,8 @@ fun ToolCard(
             entry = entry,
             presentation = presentation,
             diff = diff,
+            additions = additions,
+            deletions = deletions,
             onDismiss = { sheetOpen = false }
         )
     }
@@ -221,8 +202,8 @@ private fun ToolCardHeader(
             .fillMaxWidth()
             .clip(OroCorners.small)
             .clickable(
-                enabled = entry.hasDetail,
-                onClickLabel = if (expanded) "Hide result" else "Show result",
+                enabled = true,
+                onClickLabel = "Show details",
                 onClick = onToggle
             )
             .padding(horizontal = Space.xs, vertical = Space.xs + Space.xxs),
@@ -367,101 +348,56 @@ private fun StatusGlyph(status: ToolCallStatus) {
     }
 }
 
-/** Inline preview: the head of the result, plus the way to see all of it. */
-@Composable
-private fun ToolCardDetail(
-    entry: ToolCallEntry,
-    presentation: ToolPresentation,
-    diff: DiffUtils.DiffResult?,
-    onOpenSheet: () -> Unit
-) {
-    val clipboard = LocalClipboardManager.current
-    val body = entry.output.orEmpty()
-    val lines = remember(body) { body.lineSequence().toList() }
-    val truncated = lines.size > PREVIEW_LINES
-    val preview = remember(body) { lines.take(PREVIEW_LINES).joinToString("\n") }
+/** What a call's sheet shows, decided from the tool and what it returned. */
+private enum class SheetKind { Edit, NewFile, Delete, Read, Terminal, Listing, Prose, Plain }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = Space.md, end = Space.md, bottom = Space.sm),
-        verticalArrangement = Arrangement.spacedBy(Space.sm)
-    ) {
-        when {
-            // A diff always wins over the raw output: the output of a write is
-            // usually just "ok", and the change is the thing worth seeing.
-            diff != null && diff.hasChanges -> DiffContent(
-                diffResult = diff,
-                modifier = Modifier.heightIn(max = PREVIEW_MAX_HEIGHT)
-            )
-
-            presentation.detail == ToolDetailKind.Prose ->
-                MarkdownText(markdown = preview, modifier = Modifier.fillMaxWidth())
-
-            body.isNotBlank() -> MonospaceBlock(
-                text = preview,
-                listing = presentation.detail == ToolDetailKind.Listing
-            )
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (truncated || (diff != null && diff.hasChanges)) {
-                TextButton(onClick = onOpenSheet) {
-                    Icon(
-                        Icons.Outlined.OpenInFull,
-                        contentDescription = null,
-                        modifier = Modifier.size(Sizes.iconSmall)
-                    )
-                    Spacer(Modifier.width(Space.sm))
-                    Text(
-                        text = if (truncated) {
-                            "View all ${lines.size} lines"
-                        } else {
-                            "View full diff"
-                        },
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            if (body.isNotBlank()) {
-                IconButton(onClick = { clipboard.setText(AnnotatedString(body)) }) {
-                    Icon(
-                        Icons.Outlined.ContentCopy,
-                        contentDescription = "Copy result",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(Sizes.iconSmall)
-                    )
-                }
-            }
-        }
+private fun sheetKindFor(entry: ToolCallEntry, presentation: ToolPresentation, diff: DiffUtils.DiffResult?): SheetKind {
+    val n = com.oro.app.data.ai.tools.ToolAliases.canonicalName(entry.toolName)
+    return when {
+        n.startsWith("delete") -> SheetKind.Delete
+        diff != null && entry.oldContent.isNullOrEmpty() && !entry.newContent.isNullOrEmpty() -> SheetKind.NewFile
+        diff != null && diff.hasChanges -> SheetKind.Edit
+        n == "read_file" -> SheetKind.Read
+        presentation.detail == ToolDetailKind.Terminal -> SheetKind.Terminal
+        presentation.detail == ToolDetailKind.Listing -> SheetKind.Listing
+        presentation.detail == ToolDetailKind.Prose -> SheetKind.Prose
+        presentation.detail == ToolDetailKind.Code -> SheetKind.Read
+        else -> SheetKind.Plain
     }
 }
 
 /**
- * The whole result, in a sheet.
+ * The detail of one call, in a sheet shaped by what the call did.
  *
- * Horizontal scrolling rather than wrapping for code and terminal output:
- * wrapped lines break the column alignment that makes a diff or a stack trace
- * readable, and a wrapped 200-character line is not more legible than a
- * scrolled one.
+ * Edits get a Changes / File switch, new files their content with line
+ * numbers, commands a terminal, reads a code view, searches a list. Code and
+ * terminal output scroll sideways rather than wrap: wrapping breaks the
+ * column alignment that makes a diff or a stack trace readable.
  */
 @Composable
 private fun ToolDetailSheet(
     entry: ToolCallEntry,
     presentation: ToolPresentation,
     diff: DiffUtils.DiffResult?,
+    additions: Int,
+    deletions: Int,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val clipboard = LocalClipboardManager.current
+    val scheme = MaterialTheme.colorScheme
     val body = entry.output.orEmpty()
+    val kind = remember(entry, diff) { sheetKindFor(entry, presentation, diff) }
+    val isError = entry.status == ToolCallStatus.Error
+    val running = entry.status == ToolCallStatus.Running
+    var showFile by remember { mutableStateOf(kind == SheetKind.NewFile) }
+    val accent = toolAccent(entry.toolName, scheme.primary)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = MaterialTheme.shapes.extraLarge,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        containerColor = scheme.surfaceContainerLow
     ) {
         Column(
             modifier = Modifier
@@ -469,81 +405,228 @@ private fun ToolDetailSheet(
                 .navigationBarsPadding()
                 .padding(horizontal = Space.lg)
         ) {
+            // Header: what happened, to what, and how it went.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ToolIconBadge(
-                    presentation = presentation,
-                    running = false,
-                    isError = entry.status == ToolCallStatus.Error
-                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(ExpressiveShapes.cookie6())
+                        .background((if (isError) scheme.error else accent).copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (isError) Icons.Outlined.ErrorOutline else presentation.icon, null,
+                        tint = if (isError) scheme.error else accent, modifier = Modifier.size(Sizes.icon)
+                    )
+                }
                 Spacer(Modifier.width(Space.md))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = presentation.done,
+                        text = if (running) presentation.running else presentation.done,
                         style = MaterialTheme.typography.titleMediumEmphasized,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = scheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                     entry.subject?.takeIf { it.isNotBlank() }?.let { full ->
                         Text(
-                            // The full path here, not the shortened one: this
-                            // is the view the user opened to see detail.
                             text = full,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontFamily = FontFamily.Monospace
-                            ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-                IconButton(
-                    onClick = {
-                        clipboard.setText(
-                            AnnotatedString(
-                                if (diff != null && diff.hasChanges) {
-                                    entry.newContent.orEmpty()
-                                } else {
-                                    body
-                                }
-                            )
-                        )
+                IconButton(onClick = {
+                    clipboard.setText(AnnotatedString(if (showFile || kind == SheetKind.Edit) entry.newContent ?: body else body))
+                }) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = scheme.onSurfaceVariant, modifier = Modifier.size(Sizes.icon))
+                }
+            }
+
+            Spacer(Modifier.height(Space.sm))
+            // Facts as chips: status, size of the change, lines.
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically) {
+                StatusChip(
+                    when {
+                        running -> "Running"
+                        isError -> "Failed"
+                        kind == SheetKind.NewFile -> "New file"
+                        kind == SheetKind.Delete -> "Deleted"
+                        else -> "Done"
+                    },
+                    when {
+                        isError || kind == SheetKind.Delete -> scheme.error
+                        kind == SheetKind.NewFile -> DiffAdd
+                        else -> scheme.onSurfaceVariant
                     }
-                ) {
-                    Icon(
-                        Icons.Outlined.ContentCopy,
-                        contentDescription = "Copy",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(Sizes.icon)
-                    )
+                )
+                if (additions > 0 || deletions > 0) DiffSummaryBadge(additions = additions, deletions = deletions)
+                val lineCount = remember(entry.newContent, body) {
+                    (if (kind == SheetKind.Edit || kind == SheetKind.NewFile) entry.newContent else body)
+                        ?.takeIf { it.isNotEmpty() }?.lineSequence()?.count()
+                }
+                if (lineCount != null && kind != SheetKind.Prose) {
+                    Text("$lineCount lines", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+                }
+            }
+
+            if (kind == SheetKind.Edit) {
+                Spacer(Modifier.height(Space.md))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = !showFile, onClick = { showFile = false },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2)
+                    ) { Text("Changes") }
+                    SegmentedButton(
+                        selected = showFile, onClick = { showFile = true },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2)
+                    ) { Text("File") }
                 }
             }
 
             Spacer(Modifier.height(Space.md))
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = SHEET_MAX_HEIGHT)
+                    .heightIn(max = 560.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(Space.md)
             ) {
-                if (diff != null && diff.hasChanges) {
-                    DiffContent(diffResult = diff)
+                if (isError && body.isNotBlank()) {
+                    Surface(shape = OroCorners.medium, color = scheme.errorContainer, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            body.take(8_000), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            color = scheme.onErrorContainer, modifier = Modifier.padding(Space.md)
+                        )
+                    }
                 }
-                when {
-                    presentation.detail == ToolDetailKind.Prose && body.isNotBlank() ->
-                        MarkdownText(markdown = body, modifier = Modifier.fillMaxWidth())
+                when (kind) {
+                    SheetKind.Edit ->
+                        if (showFile) CodeLines(entry.newContent.orEmpty())
+                        else diff?.let { DiffContent(diffResult = it) }
+                    SheetKind.NewFile -> CodeLines(entry.newContent.orEmpty())
+                    SheetKind.Delete -> {
+                        val gone = entry.oldContent
+                        if (!gone.isNullOrEmpty()) CodeLines(gone, removed = true)
+                        else if (!isError) Text(
+                            "The file was removed. Restore it from the checkpoint timeline if you need it back.",
+                            style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant
+                        )
+                    }
+                    SheetKind.Read -> if (!isError && body.isNotBlank()) CodeLines(stripReadHeader(body))
+                    SheetKind.Terminal -> if (!isError || body.isBlank()) TerminalBlock(entry.subject, body, running)
+                    SheetKind.Listing -> if (!isError) ListingBlock(body)
+                    SheetKind.Prose -> if (!isError && body.isNotBlank()) MarkdownText(markdown = body, modifier = Modifier.fillMaxWidth())
+                    SheetKind.Plain -> if (!isError && body.isNotBlank()) MonospaceBlock(text = body, listing = false)
+                }
+                if (running && body.isBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OrobiLoader(modifier = Modifier.width(Sizes.iconLarge), contentDescription = null)
+                        Spacer(Modifier.width(Space.sm))
+                        Text("Working…", style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Spacer(Modifier.height(Space.lg))
+        }
+    }
+}
 
-                    body.isNotBlank() -> MonospaceBlock(
-                        text = body,
-                        listing = presentation.detail == ToolDetailKind.Listing
+@Composable
+private fun StatusChip(label: String, color: Color) {
+    Surface(shape = OroCorners.pill, color = color.copy(alpha = 0.12f)) {
+        Text(
+            label, style = MaterialTheme.typography.labelMedium, color = color,
+            modifier = Modifier.padding(horizontal = Space.sm + Space.xxs, vertical = Space.xxs)
+        )
+    }
+}
+
+/** read_file's first line is "File: path (N lines)"; the sheet header already says that. */
+private fun stripReadHeader(out: String): String {
+    val first = out.lineSequence().firstOrNull().orEmpty()
+    return if (READ_HEADER.containsMatchIn(first)) out.substringAfter('\n', "") else out
+}
+
+/** Code with a line-number gutter; scrolls sideways, never wraps. */
+@Composable
+private fun CodeLines(text: String, removed: Boolean = false) {
+    val scheme = MaterialTheme.colorScheme
+    val lines = remember(text) { text.lineSequence().take(MAX_SHEET_LINES).toList() }
+    // Numbered lines like "  12  text": strip a leading "12\t" or "12: " if the tool already numbered them.
+    val numbered = remember(lines) { lines.count { NUMBERED.matches(it) } > lines.size / 2 }
+    val gutter = remember(lines) { lines.indices.joinToString("\n") { (it + 1).toString() } }
+    val code = remember(lines, numbered) { (if (numbered) lines.map { NUMBERED.replace(it, "$1") } else lines).joinToString("\n") }
+    val style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OroCorners.medium,
+        color = if (removed) scheme.errorContainer.copy(alpha = 0.35f) else scheme.surfaceContainerHigh
+    ) {
+        Row(Modifier.padding(vertical = Space.sm)) {
+            Text(
+                gutter, style = style, color = scheme.outline,
+                modifier = Modifier.padding(start = Space.sm, end = Space.sm)
+            )
+            Text(
+                code, style = style, color = scheme.onSurface,
+                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(end = Space.md)
+            )
+        }
+    }
+}
+
+private val NUMBERED = Regex("""^\s*\d+(?:\t|: |\| )(.*)$""")
+
+/** Command output as a terminal: dark in both themes, the command as a prompt line. */
+@Composable
+private fun TerminalBlock(command: String?, output: String, running: Boolean) {
+    val bg = Color(0xFF0D1117)
+    Surface(modifier = Modifier.fillMaxWidth(), shape = OroCorners.medium, color = bg) {
+        Column(Modifier.padding(Space.md)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(Color(0xFFFF5F56), Color(0xFFFFBD2E), Color(0xFF27C93F)).forEach {
+                    Box(Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(it))
+                }
+            }
+            Spacer(Modifier.height(Space.sm))
+            val style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+            Column(Modifier.horizontalScroll(rememberScrollState())) {
+                if (!command.isNullOrBlank()) Text("$ $command", style = style, color = Color(0xFF7EE787))
+                if (output.isNotBlank()) Text(output.lineSequence().take(MAX_SHEET_LINES).joinToString("\n"), style = style, color = Color(0xFFE6EDF3))
+                else if (!running) Text("(no output)", style = style, color = Color(0xFF8B949E))
+            }
+        }
+    }
+}
+
+/** Search hits and directory listings, one row each with a folder/file glyph. */
+@Composable
+private fun ListingBlock(output: String) {
+    val scheme = MaterialTheme.colorScheme
+    val rows = remember(output) { output.lineSequence().filter { it.isNotBlank() }.take(600).toList() }
+    if (rows.isEmpty()) {
+        Text("Nothing found.", style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+        return
+    }
+    Surface(modifier = Modifier.fillMaxWidth(), shape = OroCorners.medium, color = scheme.surfaceContainerHigh) {
+        Column(Modifier.padding(vertical = Space.xs)) {
+            rows.forEach { row ->
+                val trimmed = row.trim()
+                val isDir = trimmed.endsWith("/")
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Space.md, vertical = Space.xxs + 1.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (isDir) Icons.Outlined.Folder else Icons.Outlined.Description, null,
+                        tint = if (isDir) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(Space.sm))
+                    Text(
+                        row.trimEnd(), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = scheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis
                     )
                 }
             }
-
-            Spacer(Modifier.height(Space.lg))
         }
     }
 }
@@ -556,13 +639,9 @@ private fun MonospaceBlock(text: String, listing: Boolean) {
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Text(
-            text = text,
+            text = text.lineSequence().take(MAX_SHEET_LINES).joinToString("\n"),
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-            color = if (listing) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
+            color = if (listing) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = Space.md, vertical = Space.sm)
@@ -570,7 +649,5 @@ private fun MonospaceBlock(text: String, listing: Boolean) {
     }
 }
 
-/** How much of a result is shown without opening the sheet. */
-private const val PREVIEW_LINES = 12
-private val PREVIEW_MAX_HEIGHT = 220.dp
-private val SHEET_MAX_HEIGHT = 480.dp
+/** Longest text a sheet renders; the copy action still copies everything. */
+private const val MAX_SHEET_LINES = 4_000
