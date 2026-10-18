@@ -59,8 +59,6 @@ fun ChatSettingsSheet(
     onDismiss: () -> Unit,
     autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
     onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
-    selfCheck: Boolean = true,
-    onSelfCheckChange: (Boolean) -> Unit = {},
     richUi: Boolean = true,
     onRichUiChange: (Boolean) -> Unit = {}
 ) {
@@ -133,17 +131,6 @@ fun ChatSettingsSheet(
                 }
             }
 
-            if (agentMode) {
-                Spacer(Modifier.height(Space.md))
-                SettingToggle(
-                    icon = Icons.Outlined.FactCheck,
-                    title = "Self-check",
-                    subtitle = "Orobi renders and checks what it changed, and fixes problems before finishing",
-                    checked = selfCheck,
-                    enabled = true,
-                    onCheckedChange = onSelfCheckChange
-                )
-            }
 
             Spacer(Modifier.height(Space.md))
             SettingToggle(

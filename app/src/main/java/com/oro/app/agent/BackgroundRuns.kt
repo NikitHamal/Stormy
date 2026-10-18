@@ -96,7 +96,7 @@ object AgentNotifications {
             else -> "Working on ${projects.size} projects"
         }
         return NotificationCompat.Builder(context, CHANNEL_RUNS)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_stat_oro)
             .setContentTitle("Orobi is working")
             .setContentText(text)
             .setOngoing(true)
@@ -113,7 +113,7 @@ object AgentNotifications {
         if (com.oro.app.OroApplication.getInstance().isInForeground || !canPost(context)) return
         ensureChannels(context)
         val n = NotificationCompat.Builder(context, CHANNEL_UPDATES)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setSmallIcon(R.drawable.ic_stat_oro)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))

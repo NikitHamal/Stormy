@@ -133,7 +133,6 @@ fun EditorScreen(
     val checkpointIds by viewModel.checkpointMessageIds.collectAsStateWithLifecycle()
     val autonomy by viewModel.autonomyMode.collectAsStateWithLifecycle()
     val attachedImages by viewModel.attachedImages.collectAsStateWithLifecycle()
-    val selfCheck by viewModel.selfCheck.collectAsStateWithLifecycle()
     val richUi by viewModel.richUi.collectAsStateWithLifecycle()
 
     // Ask for notifications the first time a run starts, the moment the
@@ -443,8 +442,6 @@ fun EditorScreen(
                                     onRestoreCheckpoint = viewModel::restoreCheckpoint,
                                     autonomy = autonomy,
                                     onAutonomyChange = viewModel::setAutonomyMode,
-                                    selfCheck = selfCheck,
-                                    onSelfCheckChange = viewModel::setSelfCheck,
                                     richUi = richUi,
                                     onRichUiChange = viewModel::setRichUi,
                                     attachedPhotos = attachedImages.size,

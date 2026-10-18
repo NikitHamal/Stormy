@@ -341,7 +341,7 @@ internal object OroColumn : A2uiBasicCatalogV1.Column {
         accessibility: A2uiBasicCatalogV1.AccessibilityAttributes?,
         modifier: Modifier,
     ) {
-        val gap = Space.sm
+        val gap = 12.dp
         val arrangement = when (justify) {
             A2uiBasicCatalogV1.Column.Justify.Center -> Arrangement.spacedBy(gap, Alignment.CenterVertically)
             A2uiBasicCatalogV1.Column.Justify.End -> Arrangement.spacedBy(gap, Alignment.Bottom)
@@ -395,11 +395,8 @@ internal object OroList : A2uiBasicCatalogV1.List {
 internal object OroCard : A2uiBasicCatalogV1.Card {
     @Composable
     override fun A2uiComponentScope.TypedContent(childId: String, accessibility: A2uiBasicCatalogV1.AccessibilityAttributes?, modifier: Modifier) {
-        Surface(
-            shape = OroCorners.xLarge, color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = modifier.fillMaxWidth().a11y(accessibility)
-        ) {
-            Box(Modifier.padding(Space.lg)) { Child(childId) }
+        Panel(modifier.a11y(accessibility)) {
+            Box(Modifier.padding(16.dp)) { Child(childId) }
         }
     }
 }

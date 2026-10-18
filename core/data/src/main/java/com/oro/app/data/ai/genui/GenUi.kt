@@ -222,10 +222,12 @@ Format: a fenced block whose language is exactly `ui` (not json), holding JSON {
 ```
 
 Components:
-- Layout: Column{children, justify, align}, Row{children, justify, align}, Card{child}, List{children, direction}, Tabs{tabs:[{title, child}]}, Divider{}, Modal{trigger, content}
-- Content: Text{text, variant: h1|h2|h3|h4|h5|body|caption} (light markdown ok), Image{url, variant}, Icon{name}, Badge{text, tone}, Callout{title, text, tone: info|success|warning|danger}, Stat{label, value, delta, tone}, Table{columns:[..], rows:[[..],..]}, Chart{kind: bar|line|pie, title, labels:[..], values:[..]}, Steps{items:[..], current}, Progress{value 0..1, label}, Swatches{colors:["#hex",..], labels}, Code{code, language}, Link{text, url}
+- Layout: Column{children}, Row{children, justify, align}, Grid{children, columns: 2}, Card{child}, List{children, direction}, Tabs{tabs:[{title, child}]}, Accordion{title, text | child, open}, Divider{}, Modal{trigger, content}
+- Content: Text{text, variant: h1|h2|h3|h4|h5|body|caption} (light markdown ok), Image{url, variant}, Icon{name}, Badge{text, tone}, Tags{items:[..]}, Callout{title, text, tone: info|success|warning|danger}, Quote{text, author}, Code{code, language}, Link{text, url}
+- Data: Stat{label, value, delta, tone}, KeyValue{title, items:[{label, value}]}, Table{columns:[..], rows:[[..],..]}, Chart{kind: bar|line|pie, title, labels:[..], values:[..], unit}, ProsCons{title, pros:[..], cons:[..]}, Rating{value, max, label}, Steps{items:[..], current}, Timeline{items:[{time, title, text}]}, Progress{value 0..1, label, tone}, Swatches{colors:["#hex",..], labels}
 - Input: Button{child, variant: primary|default|borderless, action}, TextField{label, value}, CheckBox{label, value}, ChoicePicker{label, options:[{label, value}], value:[..], variant: mutuallyExclusive|multipleSelection, displayStyle: chips|checkbox}, Slider{label, min, max, value}, DateTimeInput{value, enableDate, enableTime}
-- Suggestions{items:["...",..]}: tappable follow-ups; a tap sends that text as the user's next message.
+- Suggestions{items:["...",..]}: 2-4 short follow-ups (under 8 words each); a tap sends that text as the user's next message.
+Good answers combine a few of these (e.g. Stat row + Table + Callout + Suggestions), group related stats in a Row or Grid, and keep labels short.
 
 State: put values in "data" and bind with {"path":"/name"}; inputs bound to a path update it live, and Text/Stat bound to the same path update with them. Formatting: {"call":"formatString","args":{"value":"Total: ${'$'}{/price}"}}.
 Actions: a Button's action {"event":{"name":"choose","context":{"plan":"pro"}}} sends the choice back to you as the next message. Use {"event":{"name":"say","context":{"text":"..."}}} to send a ready-made reply.

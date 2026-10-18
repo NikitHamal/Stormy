@@ -50,7 +50,6 @@ class PreferencesRepository(private val context: Context) {
         val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
         val AUTONOMY = stringPreferencesKey("autonomy_mode")
         val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
-        val SELF_CHECK = booleanPreferencesKey("self_check")
         val RICH_UI = booleanPreferencesKey("rich_ui")
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
 
@@ -286,7 +285,6 @@ class PreferencesRepository(private val context: Context) {
     }
 
     /** Orobi checks its own changes (render, syntax, preview errors) before finishing. */
-    val selfCheck: Flow<Boolean> = context.dataStore.data.map { it[PreferenceKeys.SELF_CHECK] ?: true }.distinctUntilChanged()
 
     /** Whether replies may contain UI blocks (generative UI, rendered natively). */
     val richUi: Flow<Boolean> = context.dataStore.data.map { it[PreferenceKeys.RICH_UI] ?: true }.distinctUntilChanged()
@@ -295,9 +293,6 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[PreferenceKeys.RICH_UI] = on }
     }
 
-    suspend fun setSelfCheck(on: Boolean) {
-        context.dataStore.edit { it[PreferenceKeys.SELF_CHECK] = on }
-    }
 
     /** "SYSTEM" or "WHISTLE" (the app's DictationEngine names). */
     val dictationEngineName: Flow<String> = context.dataStore.data
