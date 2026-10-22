@@ -1,34 +1,21 @@
 package com.oro.app.ui.screens.device
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,81 +26,51 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.automirrored.rounded.KeyboardReturn
-import androidx.compose.material.icons.automirrored.rounded.HelpOutline
-import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Gesture
-import androidx.compose.material.icons.rounded.HourglassTop
-import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Lightbulb
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Shield
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.SwapVert
-import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.TouchApp
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Replay
+import androidx.compose.material.icons.outlined.TaskAlt
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -124,29 +81,41 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.device.DeviceAgent
 import com.oro.app.device.DeviceAgent.StepKind
 import com.oro.app.device.DeviceAgent.StepStatus
+import com.oro.app.device.overlay.DeviceAgentUi
+import com.oro.app.device.overlay.IslandModel
+import com.oro.app.device.overlay.IslandPhase
+import com.oro.app.device.overlay.IslandText
+import com.oro.app.data.ai.tools.QuestionOption
+import com.oro.app.data.ai.tools.UserQuestion
+import com.oro.app.ui.brand.OroBrand
+import com.oro.app.ui.brand.OroSparkle
 import com.oro.app.ui.brand.OrobiIdle
+import com.oro.app.ui.brand.OrobiLoader
 import com.oro.app.ui.brand.OrobiWorking
+import com.oro.app.ui.components.agent.ApprovalSheet
+import com.oro.app.ui.components.agent.AskUserCard
+import com.oro.app.ui.components.agent.PendingApproval
+import com.oro.app.ui.components.agent.PendingQuestion
+import com.oro.app.ui.components.agent.RunError
+import com.oro.app.ui.components.agent.RunErrorCard
 import com.oro.app.ui.components.chat.ModelSelectorSheet
+import com.oro.app.ui.components.chat.ModernChatInput
+import com.oro.app.ui.components.expressive.EmptyStateShape
+import com.oro.app.ui.components.expressive.ExpressiveEmptyState
+import com.oro.app.ui.theme.OroCorners
+import com.oro.app.ui.theme.OroTheme
+import com.oro.app.ui.theme.Sizes
+import com.oro.app.ui.theme.Space
 import kotlinx.coroutines.delay
 
-private val Magenta = Color(0xFFE8508E)
-private val Violet = Color(0xFF7C5CFF)
-private val Emerald = Color(0xFF10B981)
-private val Amber = Color(0xFFF59E0B)
-private val Rose = Color(0xFFEF4444)
-
-private val Suggestions = listOf(
-    "Set an alarm for 6:30 tomorrow morning",
-    "Turn on dark mode",
-    "Search YouTube for lo-fi beats and play the first video",
-    "What's the weather in Kathmandu today?",
-    "Open Maps and find coffee shops near me",
-    "Check my battery usage and tell me the top app",
-    "Turn on Do Not Disturb",
-    "Take a screenshot",
-)
-
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Orobi operating the phone, laid out like a chat with it: the task as your
+ * message, Orobi's narration and actions as its turn, the composer at the
+ * bottom (with dictation and the model chip, exactly as in the editor), and
+ * questions, permission requests and errors in the same cards the editor
+ * uses. While a task runs in another app, the floating island carries the
+ * same information; this screen takes over whenever it is in front.
+ */
 @Composable
 fun DeviceAgentScreen(
     onBack: () -> Unit,
@@ -158,95 +127,135 @@ fun DeviceAgentScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
 
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshService() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshService()
+        DeviceAgentUi.screenVisible.value = true
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { DeviceAgentUi.screenVisible.value = false }
+    DisposableEffect(Unit) { onDispose { DeviceAgentUi.screenVisible.value = false } }
     // The service connects asynchronously after the user flips the switch.
     LaunchedEffect(ui.serviceEnabled) {
-        while (!ui.serviceEnabled) { delay(1_000); viewModel.refreshService() }
+        while (!ui.serviceEnabled) {
+            delay(1_000)
+            viewModel.refreshService()
+        }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Device agent", fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp) },
+                title = { Text("Device agent", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back") }
-                },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.Tune, contentDescription = "Device agent settings") }
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { padding ->
-        val listState = rememberLazyListState()
-        val steps = run.steps
-        LaunchedEffect(steps.size, run.question, run.approval, run.finished) {
-            val target = listState.layoutInfo.totalItemsCount - 1
-            if (target > 0 && (run.running || run.finished)) listState.animateScrollToItem(target)
-        }
-
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding).imePadding(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding()
         ) {
-            if (!ui.serviceEnabled) {
-                item(key = "setup") {
-                    SetupCard(onEnable = {
-                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    })
-                }
+            val started = run.startedAt > 0L
+            when {
+                !ui.serviceEnabled && !run.running -> SetupState(
+                    onEnable = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    },
+                    onAppInfo = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    },
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
+                !started -> DeviceWelcome(
+                    history = ui.history,
+                    onPick = viewModel::setTask,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
+                else -> RunTranscriptList(
+                    run = run,
+                    onAnswer = viewModel::answer,
+                    onAgain = { viewModel.start(run.task) },
+                    onNew = viewModel::newTask,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
             }
 
-            if (!run.running && !run.finished) {
-                item(key = "composer") {
-                    ComposerCard(
-                        task = ui.task,
-                        onTask = viewModel::setTask,
-                        modelName = ui.model?.name ?: "Choose a model",
-                        onPickModel = { showModels = true },
-                        enabled = ui.serviceEnabled && ui.model != null,
-                        onStart = { viewModel.start() },
-                        history = ui.history,
-                        onSuggestion = { viewModel.setTask(it) },
-                        error = run.error
+            if (ui.serviceEnabled || run.running) {
+                // Why the last start did not happen (it never reached the transcript).
+                run.error?.takeIf { !started }?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = Space.xl, end = Space.xl, top = Space.sm)
                     )
                 }
-            } else {
-                item(key = "live") {
-                    LiveHeader(run = run, onPause = viewModel::togglePause, onStop = viewModel::stop)
+                // Pause docks on the composer, like the plan does in the editor:
+                // it is about what is happening now, so it sits where the user looks.
+                AnimatedVisibility(
+                    visible = run.running,
+                    enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+                    exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+                ) {
+                    RunBar(
+                        run = run,
+                        onPause = viewModel::togglePause,
+                        modifier = Modifier.padding(start = Space.lg, end = Space.lg, top = Space.sm)
+                    )
                 }
-                items(steps, key = { it.id }) { step ->
-                    StepCard(step = step, modifier = Modifier.animateItem())
-                }
-                if (run.question != null) {
-                    item(key = "question") { QuestionCard(run.question!!, onAnswer = viewModel::answer) }
-                }
-                if (run.approval != null) {
-                    item(key = "approval") { ApprovalCard(run.approval!!, onAllow = { viewModel.approve(true) }, onDeny = { viewModel.approve(false) }) }
-                }
-                if (run.running && run.question == null && run.approval == null) {
-                    item(key = "working") { WorkingRow(run) }
-                }
-                if (run.finished) {
-                    item(key = "result") {
-                        ResultCard(
-                            run = run,
-                            onAgain = { viewModel.start(run.task) },
-                            onNew = viewModel::newTask
-                        )
-                    }
+                val composerModifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = Space.lg, end = Space.lg, bottom = Space.lg,
+                        top = if (run.running) Space.xs + Space.xxs else Space.lg
+                    )
+                val model = ui.model
+                if (model != null) {
+                    ModernChatInput(
+                        value = ui.task,
+                        onValueChange = viewModel::setTask,
+                        onSend = viewModel::startFromComposer,
+                        onStop = viewModel::stop,
+                        isEnabled = ui.serviceEnabled && !run.running,
+                        isProcessing = run.running,
+                        currentModel = model,
+                        onModelClick = { showModels = true },
+                        onSettingsClick = { showSettings = true },
+                        placeholder = "What should Orobi do?",
+                        settingsDescription = "Device agent settings",
+                        mentions = false,
+                        modifier = composerModifier
+                    )
+                } else {
+                    NoModelBar(onPick = { showModels = true }, modifier = composerModifier)
                 }
             }
-            item(key = "bottom") { Spacer(Modifier.height(24.dp)) }
         }
     }
 
+    // The same modal gate the editor uses: it cannot be missed, and leaving
+    // it without a choice counts as Deny.
+    ApprovalSheet(
+        approval = run.approval?.takeIf { run.running }?.let { PendingApproval(action = IslandText.approvalQuestion(it)) },
+        onDecision = viewModel::approve
+    )
+
     if (showSettings) {
-        ModalBottomSheet(onDismissRequest = { showSettings = false }) {
-            SettingsSheet(ui.settings, onChange = viewModel::updateSettings)
-        }
+        DeviceSettingsSheet(
+            settings = ui.settings,
+            onChange = viewModel::updateSettings,
+            onDismiss = { showSettings = false }
+        )
     }
     if (showModels) {
         ModelSelectorSheet(
@@ -261,425 +270,624 @@ fun DeviceAgentScreen(
 // ------------------------------------------------------------------ setup
 
 @Composable
-private fun SetupCard(onEnable: () -> Unit) {
-    Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent)) {
+private fun SetupState(onEnable: () -> Unit, onAppInfo: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         Column(
-            Modifier
-                .fillMaxWidth()
-                .background(Brush.linearGradient(listOf(Violet.copy(alpha = 0.18f), Magenta.copy(alpha = 0.16f))))
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.verticalScroll(rememberScrollState()).padding(vertical = Space.xxl),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            OrobiIdle(modifier = Modifier.width(96.dp), showShadow = false)
-            Text("Let Orobi use your phone", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Button(
-                onClick = onEnable,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Magenta)
-            ) {
-                Text("Turn on", fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-}
-
-// --------------------------------------------------------------- composer
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ComposerCard(
-    task: String,
-    onTask: (String) -> Unit,
-    modelName: String,
-    onPickModel: () -> Unit,
-    enabled: Boolean,
-    onStart: () -> Unit,
-    history: List<String>,
-    onSuggestion: (String) -> Unit,
-    error: String?,
-) {
-    Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            OutlinedTextField(
-                value = task,
-                onValueChange = onTask,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("What should Orobi do?") },
-                minLines = 3,
-                maxLines = 6,
-                shape = RoundedCornerShape(18.dp)
+            ExpressiveEmptyState(
+                icon = Icons.Outlined.TouchApp,
+                title = "Let Orobi use your phone",
+                description = "Turn on Oro Device Agent in Accessibility settings.",
+                shape = EmptyStateShape.Clover,
+                actionLabel = "Open settings",
+                onAction = onEnable,
+                illustration = { OrobiIdle(modifier = Modifier.width(150.dp)) }
             )
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (history.take(3) + Suggestions).distinct().forEach { s ->
-                    SuggestionPill(s, recent = s in history) { onSuggestion(s) }
+            // Android 13+ greys the switch out for apps installed outside a
+            // store until "Allow restricted settings" is chosen in App info.
+            if (Build.VERSION.SDK_INT >= 33) {
+                Spacer(Modifier.height(Space.sm))
+                TextButton(onClick = onAppInfo) {
+                    Text("Switch greyed out? Allow restricted settings", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    onClick = onPickModel,
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Bolt, null, Modifier.size(18.dp), tint = Violet)
-                        Spacer(Modifier.width(8.dp))
-                        Text(modelName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                        Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp))
-                    }
-                }
-                Spacer(Modifier.width(10.dp))
-                val ready = enabled && task.isNotBlank()
-                val scale by animateFloatAsState(if (ready) 1f else 0.94f, spring(dampingRatio = 0.5f), label = "go")
-                Button(
-                    onClick = onStart,
-                    enabled = ready,
-                    modifier = Modifier.height(48.dp).scale(scale),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Magenta)
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Start", fontWeight = FontWeight.SemiBold)
-                }
-            }
-            AnimatedVisibility(visible = error != null) {
-                Text(error.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
 }
 
+// --------------------------------------------------------------- welcome
+
+/** Mirrors the editor's empty chat: Orobi, one line, and starters that fill the composer. */
 @Composable
-private fun SuggestionPill(text: String, recent: Boolean, onClick: () -> Unit) {
+private fun DeviceWelcome(history: List<String>, onPick: (String) -> Unit, modifier: Modifier = Modifier) {
+    val recent = history.take(2)
+    val starters = Starters.filter { it !in recent }.take(5 - recent.size)
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Space.xl, vertical = Space.xxl),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            OrobiIdle(modifier = Modifier.width(150.dp))
+            Spacer(Modifier.height(Space.xl))
+            Text(
+                text = "What should I do on your phone?",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(Space.xl + Space.xs))
+            Column(
+                modifier = Modifier.widthIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(Space.sm)
+            ) {
+                recent.forEach { StarterRow(text = it, recent = true, onClick = { onPick(it) }) }
+                starters.forEach { StarterRow(text = it, recent = false, onClick = { onPick(it) }) }
+            }
+        }
+    }
+}
+
+private val Starters = listOf(
+    "Search YouTube for lo-fi beats and play the first video",
+    "Set an alarm for 6:30 tomorrow morning",
+    "Find coffee shops near me in Maps",
+    "Turn on Do Not Disturb",
+    "Check my battery usage and tell me the top app",
+)
+
+/** The editor's starter prompt: a sparkle for ideas, a clock for what you ran before. */
+@Composable
+private fun StarterRow(text: String, recent: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = if (recent) Violet.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = null
+        shape = OroCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(Sizes.hairline, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (recent) Icons.Rounded.HourglassTop else Icons.Rounded.Lightbulb, null, Modifier.size(14.dp), tint = if (recent) Violet else Amber)
-            Spacer(Modifier.width(6.dp))
-            Text(text, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-        }
-    }
-}
-
-// --------------------------------------------------------------- live run
-
-@Composable
-private fun LiveHeader(run: DeviceAgent.State, onPause: () -> Unit, onStop: () -> Unit) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(run.running) { while (run.running) { now = System.currentTimeMillis(); delay(1_000) } }
-    val end = if (run.running) now else run.endedAt
-    val elapsed = ((end - run.startedAt) / 1000).coerceAtLeast(0)
-    val progress by animateFloatAsState(
-        if (run.maxActions > 0) run.actions / run.maxActions.toFloat() else 0f, tween(500, easing = FastOutSlowInEasing), label = "p"
-    )
-    val accent by animateColorAsState(
-        when { run.paused -> Amber; run.running -> Magenta; run.success == true -> Emerald; else -> Rose }, label = "accent"
-    )
-
-    Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent)) {
-        Box(
-            Modifier.fillMaxWidth()
-                .background(Brush.linearGradient(listOf(accent.copy(alpha = 0.20f), Violet.copy(alpha = 0.10f))))
-                .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
-                .padding(18.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.md + Space.xxs),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    PulseDot(accent, active = run.running && !run.paused)
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        when { run.paused -> "Paused"; run.running -> "Live"; run.success == true -> "Completed"; else -> "Stopped" },
-                        style = MaterialTheme.typography.labelLarge, color = accent, fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.weight(1f))
-                    MetaChip(Icons.Rounded.Timer, formatElapsed(elapsed))
-                    Spacer(Modifier.width(6.dp))
-                    MetaChip(Icons.Rounded.TouchApp, "${run.actions}")
-                }
-                Text(run.task, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                LinearProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                    color = accent,
-                    trackColor = accent.copy(alpha = 0.15f),
-                    drawStopIndicator = {}
+            if (recent) {
+                Icon(
+                    imageVector = Icons.Outlined.History,
+                    contentDescription = "Recent",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(Sizes.iconSmall)
                 )
-                if (run.notes.isNotEmpty()) {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        run.notes.forEach { MetaChip(Icons.AutoMirrored.Rounded.StickyNote2, it.take(40)) }
-                    }
-                }
-                AnimatedVisibility(visible = run.running, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FilledTonalButton(onClick = onPause, modifier = Modifier.weight(1f).height(46.dp), shape = RoundedCornerShape(14.dp)) {
-                            Icon(if (run.paused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause, null)
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (run.paused) "Resume" else "Pause")
-                        }
-                        Button(
-                            onClick = onStop, modifier = Modifier.weight(1f).height(46.dp), shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Rose)
-                        ) {
-                            Icon(Icons.Rounded.Stop, null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Stop")
-                        }
-                    }
+            } else {
+                Box(Modifier.size(Sizes.iconSmall), contentAlignment = Alignment.Center) {
+                    OroSparkle(modifier = Modifier.size(12.dp), color = OroBrand.Magenta)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PulseDot(color: Color, active: Boolean) {
-    val t = rememberInfiniteTransition(label = "pulse")
-    val s by t.animateFloat(1f, if (active) 1.9f else 1f, infiniteRepeatable(tween(900), RepeatMode.Restart), label = "s")
-    val a by t.animateFloat(0.5f, if (active) 0f else 0.5f, infiniteRepeatable(tween(900), RepeatMode.Restart), label = "a")
-    Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(10.dp).scale(s).clip(CircleShape).background(color.copy(alpha = a)))
-        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
-    }
-}
-
-@Composable
-private fun MetaChip(icon: ImageVector, text: String) {
-    Row(
-        Modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)).padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(4.dp))
-        Text(text, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-    }
-}
-
-private fun formatElapsed(s: Long) = if (s < 60) "${s}s" else "${s / 60}m ${s % 60}s"
-
-@Composable
-private fun StepCard(step: DeviceAgent.Step, modifier: Modifier = Modifier) {
-    var appeared by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { appeared = true }
-    AnimatedVisibility(
-        visible = appeared,
-        enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 3 } + fadeIn(tween(220)) + scaleIn(initialScale = 0.96f),
-        modifier = modifier
-    ) {
-        if (step.kind == StepKind.THOUGHT) {
-            Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 24.dp), verticalAlignment = Alignment.Top) {
-                Text("💭", fontSize = 14.sp)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    step.title, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 4, overflow = TextOverflow.Ellipsis
-                )
-            }
-            return@AnimatedVisibility
-        }
-        val (icon, tint) = iconFor(step)
-        val statusColor by animateColorAsState(
-            when (step.status) {
-                StepStatus.RUNNING -> Magenta; StepStatus.DONE -> Emerald; StepStatus.FAILED -> Rose
-                StepStatus.BLOCKED -> Amber; StepStatus.WAITING -> Violet
-            }, label = "sc"
-        )
-        Card(
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            modifier = Modifier.fillMaxWidth().border(
-                1.dp, if (step.status == StepStatus.RUNNING || step.status == StepStatus.WAITING) statusColor.copy(alpha = 0.45f) else Color.Transparent,
-                RoundedCornerShape(20.dp)
+            Spacer(Modifier.width(Space.md))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-        ) {
-            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(RoundedCornerShape(13.dp)).background(tint.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, Modifier.size(20.dp), tint = tint)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(step.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    // Only what the title can't say: why it failed, or the user's answer.
-                    val showDetail = step.detail.isNotBlank() &&
-                        (step.status == StepStatus.FAILED || step.kind == StepKind.QUESTION)
-                    if (showDetail) {
-                        Text(step.detail, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                AnimatedContent(targetState = step.status, transitionSpec = { (scaleIn() + fadeIn()) togetherWith fadeOut() }, label = "st") { st ->
-                    when (st) {
-                        StepStatus.RUNNING -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp, color = Magenta)
-                        StepStatus.WAITING -> Icon(Icons.Rounded.HourglassTop, "Waiting", Modifier.size(20.dp), tint = Violet)
-                        StepStatus.DONE -> if (step.screenChanged == false) StatusBadge(Icons.Rounded.Warning, Amber) else StatusBadge(Icons.Rounded.Check, Emerald)
-                        StepStatus.FAILED -> StatusBadge(Icons.Rounded.Close, Rose)
-                        StepStatus.BLOCKED -> StatusBadge(Icons.Rounded.Shield, Amber)
-                    }
-                }
-            }
         }
     }
 }
 
-@Composable
-private fun StatusBadge(icon: ImageVector, color: Color) {
-    Box(Modifier.size(22.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-        Icon(icon, null, Modifier.size(14.dp), tint = Color.White)
-    }
-}
-
-private fun iconFor(step: DeviceAgent.Step): Pair<ImageVector, Color> = when (step.kind) {
-    StepKind.QUESTION -> Icons.AutoMirrored.Rounded.HelpOutline to Violet
-    StepKind.APPROVAL -> Icons.Rounded.Shield to Amber
-    StepKind.NOTE -> Icons.AutoMirrored.Rounded.StickyNote2 to Amber
-    else -> when (step.tool) {
-        "tap", "double_tap" -> Icons.Rounded.TouchApp to Magenta
-        "long_press" -> Icons.Rounded.TouchApp to Violet
-        "type_text" -> Icons.Rounded.Keyboard to Violet
-        "scroll", "swipe" -> Icons.Rounded.SwapVert to Color(0xFF0EA5E9)
-        "drag", "pinch" -> Icons.Rounded.Gesture to Color(0xFF0EA5E9)
-        "open_app", "list_apps" -> Icons.Rounded.Apps to Emerald
-        "open_url" -> Icons.Rounded.Language to Emerald
-        "press_key" -> Icons.AutoMirrored.Rounded.KeyboardReturn to Color(0xFF64748B)
-        "find_text", "read_screen" -> Icons.Rounded.Search to Color(0xFF64748B)
-        "wait" -> Icons.Rounded.Timer to Color(0xFF64748B)
-        else -> Icons.Rounded.Bolt to Magenta
-    }
-}
+// ------------------------------------------------------------ transcript
 
 @Composable
-private fun WorkingRow(run: DeviceAgent.State) {
-    AnimatedVisibility(visible = !run.paused, enter = fadeIn(), exit = fadeOut()) {
-        OrobiWorking(label = run.status.ifBlank { "Working" }, modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp))
+private fun RunTranscriptList(
+    run: DeviceAgent.State,
+    onAnswer: (String) -> Unit,
+    onAgain: () -> Unit,
+    onNew: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    val segments = remember(run.steps) { DeviceTranscript.segments(run.steps) }
+    val lastKey = segments.lastOrNull()?.key
+    // Follow the run like the editor follows a reply: new steps, a question,
+    // the result -- the end of the list is where the news is.
+    val itemCount = 1 + segments.size + (if (run.running) 1 else 0) + (if (run.finished) 1 else 0)
+    LaunchedEffect(run.steps.size, run.question, run.finished, run.paused) {
+        listState.animateScrollToItem(itemCount - 1)
     }
-}
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun QuestionCard(q: DeviceAgent.Question, onAnswer: (String) -> Unit) {
-    var text by rememberSaveable(q.text) { mutableStateOf("") }
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Violet.copy(alpha = 0.10f)),
-        modifier = Modifier.border(1.dp, Violet.copy(alpha = 0.4f), RoundedCornerShape(24.dp))
+    LazyColumn(
+        state = listState,
+        modifier = modifier,
+        contentPadding = PaddingValues(Space.lg),
+        verticalArrangement = Arrangement.spacedBy(Space.lg)
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Icon(Icons.AutoMirrored.Rounded.HelpOutline, null, tint = Violet)
-                Spacer(Modifier.width(10.dp))
-                Text(q.text, style = MaterialTheme.typography.titleMedium)
-            }
-            if (q.options.isNotEmpty()) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    q.options.forEach { opt ->
-                        OutlinedButton(onClick = { onAnswer(opt) }, shape = RoundedCornerShape(14.dp)) { Text(opt) }
-                    }
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = text, onValueChange = { text = it }, modifier = Modifier.weight(1f),
-                    singleLine = true, shape = RoundedCornerShape(14.dp)
+        item(key = "task", contentType = "task") {
+            TaskBubble(task = run.task, startedAt = run.startedAt, modifier = Modifier.fillMaxWidth())
+        }
+        items(
+            items = segments,
+            key = { it.key },
+            contentType = { if (it is DeviceSegment.Thought) "thought" else "actions" }
+        ) { segment ->
+            when (segment) {
+                is DeviceSegment.Thought -> ThoughtText(segment.step, Modifier.animateItem())
+                is DeviceSegment.Actions -> ActionGroup(
+                    steps = segment.steps,
+                    live = run.running && segment.key == lastKey,
+                    modifier = Modifier.animateItem()
                 )
-                Spacer(Modifier.width(8.dp))
-                IconButton(onClick = { if (text.isNotBlank()) onAnswer(text.trim()) }, enabled = text.isNotBlank()) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, "Send answer", tint = if (text.isNotBlank()) Violet else MaterialTheme.colorScheme.outline)
+            }
+        }
+        if (run.running) {
+            item(key = "status", contentType = "status") {
+                val question = run.question
+                when {
+                    question != null -> {
+                        val pending = remember(question) {
+                            PendingQuestion(
+                                id = "device-" + question.hashCode(),
+                                questions = listOf(
+                                    UserQuestion(
+                                        question = question.text,
+                                        options = question.options.map { QuestionOption(it) }
+                                    )
+                                )
+                            )
+                        }
+                        AskUserCard(
+                            question = pending,
+                            onSubmit = { answers -> onAnswer(answers.firstOrNull()?.takeIf { it.isNotBlank() } ?: "(no answer)") },
+                            onDismiss = { onAnswer("(skipped)") },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
+                    run.paused -> PausedRow(Modifier.animateItem())
+                    run.approval != null -> OrobiWorking(
+                        label = "Waiting for your OK",
+                        maxLines = 1,
+                        modifier = Modifier.padding(vertical = Space.xs).animateItem()
+                    )
+                    else -> OrobiWorking(
+                        label = IslandModel.headline(run),
+                        maxLines = 1,
+                        modifier = Modifier.padding(vertical = Space.xs).animateItem()
+                    )
                 }
+            }
+        }
+        if (run.finished) {
+            item(key = "result", contentType = "result") {
+                ResultBlock(run = run, onAgain = onAgain, onNew = onNew, modifier = Modifier.animateItem())
             }
         }
     }
 }
 
+/** The task, as the user's message: the editor's own bubble. */
 @Composable
-private fun ApprovalCard(what: String, onAllow: () -> Unit, onDeny: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Amber.copy(alpha = 0.10f)),
-        modifier = Modifier.border(1.dp, Amber.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-    ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Icon(Icons.Rounded.Shield, null, tint = Amber)
-                Spacer(Modifier.width(10.dp))
-                Text("Allow Orobi to $what?", style = MaterialTheme.typography.titleMedium)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onDeny, modifier = Modifier.weight(1f).height(46.dp), shape = RoundedCornerShape(14.dp)) { Text("Deny") }
-                Button(onClick = onAllow, modifier = Modifier.weight(1f).height(46.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Emerald)) {
-                    Text("Allow")
-                }
-            }
-        }
+private fun TaskBubble(task: String, startedAt: Long, modifier: Modifier = Modifier) {
+    val colors = OroTheme.extendedColors
+    val time = remember(startedAt) {
+        java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(startedAt))
     }
-}
-
-@Composable
-private fun ResultCard(run: DeviceAgent.State, onAgain: () -> Unit, onNew: () -> Unit) {
-    val ok = run.success == true && run.error == null
-    val color = if (ok) Emerald else Rose
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    val iconScale by animateFloatAsState(if (shown) 1f else 0.3f, spring(dampingRatio = 0.45f, stiffness = 300f), label = "pop")
-    val spin by animateFloatAsState(if (shown) 0f else -90f, spring(dampingRatio = 0.6f), label = "spin")
-    Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent)) {
-        Box(
-            Modifier.fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.16f), MaterialTheme.colorScheme.surfaceContainerLow)))
-                .padding(20.dp)
+    Column(modifier, horizontalAlignment = Alignment.End) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp))
+                .background(colors.chatUserBubble)
+                .padding(Space.md)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.size(64.dp).scale(iconScale).rotate(spin).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-                    Icon(if (ok) Icons.Rounded.Check else Icons.Rounded.Close, null, Modifier.size(34.dp), tint = Color.White)
-                }
-                Text(if (ok) "Done" else "Didn't finish", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                text = task,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 18.sp),
+                color = colors.chatUserText
+            )
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                text = time,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = colors.chatUserText.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.End)
+            )
+        }
+    }
+}
+
+/** Orobi's narration between actions, as plain assistant prose. */
+@Composable
+private fun ThoughtText(step: DeviceAgent.Step, modifier: Modifier = Modifier) {
+    val text = remember(step.title) { IslandModel.plain(step.title) }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
+/**
+ * A run of actions between two narrations. Live and short runs stay open;
+ * finished long ones fold into one summary line with their icons, like the
+ * editor's tool-call groups, and open again on tap.
+ */
+@Composable
+private fun ActionGroup(steps: List<DeviceAgent.Step>, live: Boolean, modifier: Modifier = Modifier) {
+    val key = steps.first().id
+    var toggled by remember(key) { mutableStateOf<Boolean?>(null) }
+    val foldable = steps.size >= FoldAt
+    val open = toggled ?: (live || !foldable)
+    val chevron by animateFloatAsState(
+        targetValue = if (open) 180f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "groupChevron"
+    )
+
+    Column(modifier.fillMaxWidth()) {
+        if (foldable) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(OroCorners.small)
+                    .clickable(onClickLabel = if (open) "Hide actions" else "Show actions") { toggled = !open }
+                    .padding(vertical = Space.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(Sizes.icon).rotate(chevron)
+                )
+                Spacer(Modifier.width(Space.sm))
                 Text(
-                    run.summary ?: run.error ?: "",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    text = IslandModel.actions(steps.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                HorizontalDivider()
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = onAgain, modifier = Modifier.weight(1f).height(46.dp), shape = RoundedCornerShape(14.dp)) { Text("Run again") }
-                    Button(onClick = onNew, modifier = Modifier.weight(1f).height(46.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Magenta)) {
-                        Text("New task")
-                    }
+                if (steps.any { it.status == StepStatus.RUNNING }) {
+                    Spacer(Modifier.width(Space.sm))
+                    OrobiLoader(modifier = Modifier.width(18.dp), contentDescription = null)
+                }
+                Spacer(Modifier.weight(1f))
+                if (!open) IconTrail(steps)
+            }
+        }
+        AnimatedVisibility(
+            visible = open,
+            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+            exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()) +
+                shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec())
+        ) {
+            Column(
+                modifier = Modifier.padding(top = if (foldable) Space.xs else 0.dp),
+                verticalArrangement = Arrangement.spacedBy(Space.xxs)
+            ) {
+                steps.forEach { StepRow(it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IconTrail(steps: List<DeviceAgent.Step>) {
+    val icons = remember(steps) { steps.map { DeviceStepVisuals.icon(it) }.distinct().take(5) }
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+        icons.forEach { icon ->
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Sizes.iconSmall).alpha(0.7f)
+            )
+        }
+    }
+}
+
+/**
+ * One action, as a tool row in the editor: a neutral glyph on a soft tile,
+ * the verb, the target in bold, and only the outcomes worth a glance --
+ * running, failed, denied, or a tap that changed nothing.
+ */
+@Composable
+private fun StepRow(step: DeviceAgent.Step) {
+    val scheme = MaterialTheme.colorScheme
+    val failed = step.status == StepStatus.FAILED || step.status == StepStatus.BLOCKED
+    val (verb, subject) = remember(step.title, step.tool, step.kind) { DeviceTranscript.splitTitle(step) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Space.xs, vertical = Space.xs + Space.xxs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(OroCorners.small)
+                    .background(if (failed) scheme.errorContainer else scheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = DeviceStepVisuals.icon(step),
+                    contentDescription = null,
+                    tint = if (failed) scheme.onErrorContainer else scheme.onSurfaceVariant,
+                    modifier = Modifier.size(Sizes.iconSmall)
+                )
+            }
+            Spacer(Modifier.width(Space.md - Space.xxs))
+            if (subject != null) {
+                Text(
+                    text = verb,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 140.dp)
+                )
+                Spacer(Modifier.width(Space.xs + Space.xxs))
+                Text(
+                    text = subject,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = scheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                Text(
+                    text = verb,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (step.kind == StepKind.QUESTION) scheme.onSurface else scheme.onSurfaceVariant,
+                    maxLines = if (step.kind == StepKind.QUESTION) 3 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.width(Space.sm))
+            StepOutcome(step)
+        }
+        val detail = step.detail.takeIf {
+            it.isNotBlank() && (failed || step.kind == StepKind.QUESTION)
+        }
+        if (detail != null) {
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                // Under the label, past the icon tile.
+                modifier = Modifier.padding(start = Space.xs + 28.dp + Space.md - Space.xxs, end = Space.xs)
+            )
+        }
+    }
+}
+
+@Composable
+private fun StepOutcome(step: DeviceAgent.Step) {
+    val scheme = MaterialTheme.colorScheme
+    val style = MaterialTheme.typography.labelMedium
+    when (step.status) {
+        StepStatus.RUNNING -> OrobiLoader(modifier = Modifier.width(Sizes.iconLarge), contentDescription = "Running")
+        StepStatus.WAITING -> Text("Waiting", style = style, color = scheme.onSurfaceVariant, maxLines = 1)
+        StepStatus.FAILED -> Text("Failed", style = style, color = scheme.error, maxLines = 1)
+        StepStatus.BLOCKED -> Text("Denied", style = style, color = scheme.error, maxLines = 1)
+        StepStatus.DONE -> if (step.screenChanged == false) {
+            Text("No change", style = style, color = scheme.outline, maxLines = 1)
+        }
+        else -> Unit
+    }
+}
+
+@Composable
+private fun PausedRow(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.padding(vertical = Space.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.sm + Space.xxs)
+    ) {
+        Icon(
+            Icons.Outlined.Pause,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(Sizes.icon)
+        )
+        Text("Paused", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+// ---------------------------------------------------------------- result
+
+/**
+ * How it ended. Success reads like Orobi's final message, with what it noted
+ * along the way; anything else is the editor's run-error card, whose action
+ * runs the task again.
+ */
+@Composable
+private fun ResultBlock(run: DeviceAgent.State, onAgain: () -> Unit, onNew: () -> Unit, modifier: Modifier = Modifier) {
+    val phase = IslandModel.phase(run)
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.md)) {
+        if (phase == IslandPhase.Done) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.TaskAlt,
+                    contentDescription = null,
+                    tint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) OroBrand.GreenDark else OroBrand.GreenLight,
+                    modifier = Modifier.size(Sizes.icon)
+                )
+                Spacer(Modifier.width(Space.sm))
+                Text("Done", style = MaterialTheme.typography.titleSmallEmphasized, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.width(Space.sm))
+                Text(
+                    text = runMeta(run),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            run.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+                com.oro.app.ui.components.MarkdownText(markdown = summary, modifier = Modifier.fillMaxWidth())
+            }
+        } else {
+            val message = run.summary?.takeIf { run.success == false && it.isNotBlank() }
+                ?: run.error
+                ?: "Orobi didn't finish this task."
+            RunErrorCard(
+                error = RunError(message = message, actionLabel = "Run again", isNotice = IslandModel.stoppedByUser(run)),
+                onRetry = onAgain,
+                onDismiss = onNew
+            )
+        }
+        if (run.notes.isNotEmpty()) NotesList(run.notes)
+        if (phase == IslandPhase.Done) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Space.sm, Alignment.End)
+            ) {
+                TextButton(onClick = onNew) { Text("New task", maxLines = 1) }
+                FilledTonalButton(onClick = onAgain) {
+                    Icon(Icons.Outlined.Replay, contentDescription = null, modifier = Modifier.size(Sizes.iconSmall + Space.xxs))
+                    Spacer(Modifier.width(Space.xs + Space.xxs))
+                    Text("Run again", maxLines = 1)
                 }
             }
         }
     }
 }
 
-// --------------------------------------------------------------- settings
-
-@Suppress("DEPRECATION")
+/** Facts Orobi kept while it worked: prices, codes, names. */
 @Composable
-private fun SettingsSheet(s: DeviceAgent.Settings, onChange: ((DeviceAgent.Settings) -> DeviceAgent.Settings) -> Unit) {
-    Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        ToggleRow("Ask before sensitive actions", s.confirmSensitive) { v -> onChange { it.copy(confirmSensitive = v) } }
-        ToggleRow("Show touches", s.showTouches) { v -> onChange { it.copy(showTouches = v) } }
-        ToggleRow("Return to Oro when done", s.returnToOro) { v -> onChange { it.copy(returnToOro = v) } }
-        Spacer(Modifier.height(8.dp))
-        Text("Action limit · ${s.maxActions}", style = MaterialTheme.typography.bodyLarge)
-        Slider(
-            value = s.maxActions.toFloat(), onValueChange = { v -> onChange { it.copy(maxActions = v.toInt()) } },
-            valueRange = 15f..150f, steps = 26
-        )
-    }
-}
-
-@Composable
-private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onChecked(!checked) }.padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun NotesList(notes: List<String>) {
+    Surface(
+        shape = OroCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChecked)
+        Column(Modifier.padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+            notes.forEach { note ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.StickyNote2,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Space.xxs).size(Sizes.iconSmall)
+                    )
+                    Spacer(Modifier.width(Space.sm))
+                    Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
     }
 }
+
+private fun runMeta(run: DeviceAgent.State): String = listOfNotNull(
+    IslandModel.actions(run.actions).takeIf { run.actions > 0 },
+    run.endedAt.takeIf { it > 0 && run.startedAt > 0 }?.let { IslandModel.elapsed(it - run.startedAt) }
+).joinToString(" · ")
+
+// --------------------------------------------------------------- run bar
+
+/** Docked above the composer while a task runs: time, actions, where, and Pause. */
+@Composable
+private fun RunBar(run: DeviceAgent.State, onPause: () -> Unit, modifier: Modifier = Modifier) {
+    val running = run.running
+    val now by produceState(System.currentTimeMillis(), running) {
+        value = System.currentTimeMillis()
+        while (running) {
+            delay(1_000)
+            value = System.currentTimeMillis()
+        }
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = OroCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(Sizes.hairline, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = Space.md, end = Space.xs, top = Space.xs, bottom = Space.xs),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Outlined.Timer,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Sizes.iconSmall)
+            )
+            Spacer(Modifier.width(Space.xs))
+            Text(
+                text = IslandModel.elapsed(now - run.startedAt),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Spacer(Modifier.width(Space.md))
+            Icon(
+                Icons.Outlined.TouchApp,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Sizes.iconSmall)
+            )
+            Spacer(Modifier.width(Space.xs))
+            Text(
+                text = if (run.maxActions > 0) "${run.actions}/${run.maxActions}" else run.actions.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            if (run.currentApp.isNotBlank()) {
+                Spacer(Modifier.width(Space.md))
+                Text(
+                    text = run.currentApp,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
+            TextButton(onClick = onPause) {
+                Icon(
+                    imageVector = if (run.paused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSmall + Space.xxs)
+                )
+                Spacer(Modifier.width(Space.xs))
+                Text(if (run.paused) "Resume" else "Pause", maxLines = 1)
+            }
+        }
+    }
+}
+
+/** Shown in place of the composer only when no model is enabled at all. */
+@Composable
+private fun NoModelBar(onPick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = OroCorners.xLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(Sizes.hairline, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = Space.lg, end = Space.sm, top = Space.sm, bottom = Space.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "No model is switched on",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+            FilledTonalButton(onClick = onPick) { Text("Choose", maxLines = 1) }
+        }
+    }
+}
+
+/** Long finished runs of actions fold from this many steps. */
+private const val FoldAt = 4

@@ -142,6 +142,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.R
 import com.oro.app.domain.model.Project
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -322,11 +324,7 @@ fun HomeScreen(
                             }
                         },
                         actions = {
-                            FlowerIconButton(
-                                icon = Icons.Outlined.TouchApp,
-                                contentDescription = "Device agent",
-                                onClick = onDeviceAgentClick
-                            )
+                            DeviceAgentButton(onClick = onDeviceAgentClick)
                             FlowerIconButton(
                                 icon = Icons.Outlined.Search,
                                 contentDescription = "Search projects",
@@ -881,6 +879,37 @@ private fun SwipeableProjectCard(
             }
         }
     )
+}
+
+/**
+ * The device agent's entry. While Orobi is operating the phone a magenta dot
+ * sits on it, so the way back to a running task is always visible. Only the
+ * running flag is observed, so a live run does not recompose the home screen.
+ */
+@Composable
+private fun DeviceAgentButton(onClick: () -> Unit) {
+    val running by remember {
+        com.oro.app.device.DeviceAgent.state
+            .map { it.running }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+    Box {
+        FlowerIconButton(
+            icon = Icons.Outlined.TouchApp,
+            contentDescription = if (running) "Device agent, working" else "Device agent",
+            onClick = onClick
+        )
+        if (running) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Space.xs + Space.xxs)
+                    .size(Space.sm)
+                    .clip(CircleShape)
+                    .background(com.oro.app.ui.brand.OroBrand.Magenta)
+            )
+        }
+    }
 }
 
 /**

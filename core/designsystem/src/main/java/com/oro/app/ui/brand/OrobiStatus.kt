@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -42,6 +43,7 @@ fun OrobiWorking(
     modifier: Modifier = Modifier,
     loaderWidth: Dp = 26.dp,
     style: TextStyle = MaterialTheme.typography.bodyMedium,
+    maxLines: Int = Int.MAX_VALUE,
 ) {
     Row(
         modifier = modifier,
@@ -49,7 +51,7 @@ fun OrobiWorking(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         OrobiLoader(modifier = Modifier.width(loaderWidth), contentDescription = null)
-        ShimmerText(label, style)
+        ShimmerText(label, style, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -61,7 +63,13 @@ fun OrobiWorking(
  * that shimmers for a whole agent run costs no recomposition.
  */
 @Composable
-fun ShimmerText(text: String, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+fun ShimmerText(
+    text: String,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    modifier: Modifier = Modifier,
+) {
     val base = MaterialTheme.colorScheme.onSurfaceVariant
     val highlight = MaterialTheme.colorScheme.onSurface
     val reduced = rememberReducedMotion()
@@ -70,10 +78,12 @@ fun ShimmerText(text: String, style: TextStyle = MaterialTheme.typography.bodyMe
         text = text,
         style = style,
         color = base,
+        maxLines = maxLines,
+        overflow = overflow,
         modifier = if (reduced) {
-            Modifier
+            modifier
         } else {
-            Modifier
+            modifier
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()

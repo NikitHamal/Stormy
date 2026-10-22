@@ -95,6 +95,12 @@ class DeviceAgentViewModel(private val app: OroApplication) : ViewModel() {
     private fun loadHistory(): List<String> =
         prefs.getString("history", null)?.split("\u001F")?.filter { it.isNotBlank() } ?: emptyList()
 
+    /** Send from the composer: start, and clear the field once the run really began. */
+    fun startFromComposer() {
+        start()
+        if (DeviceAgent.state.value.running) _ui.update { it.copy(task = "") }
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

@@ -122,7 +122,11 @@ fun ModernChatInput(
     /** Design from a photo: opens the picker; [attachedPhotos] shows how many are attached. */
     onAttachPhoto: (() -> Unit)? = null,
     attachedPhotos: Int = 0,
-    onClearPhotos: () -> Unit = {}
+    onClearPhotos: () -> Unit = {},
+    /** What the settings button is called for assistive tech (it opens a different sheet per screen). */
+    settingsDescription: String = "Chat settings",
+    /** @-mentions of project files; off where there is no project (the device agent). */
+    mentions: Boolean = true
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -159,7 +163,7 @@ fun ModernChatInput(
     val mentionQuery = remember(textFieldValue) {
         extractMentionQuery(textFieldValue.text, textFieldValue.selection.start)
     }
-    val showMentionPopup = mentionQuery != null
+    val showMentionPopup = mentions && mentionQuery != null
 
     Column(modifier = modifier) {
         if (attachedPhotos > 0) {
@@ -293,7 +297,7 @@ fun ModernChatInput(
                     }
                     InputActionButton(
                         icon = Icons.Outlined.Tune,
-                        contentDescription = "Chat settings",
+                        contentDescription = settingsDescription,
                         onClick = onSettingsClick,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
