@@ -10,6 +10,20 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-22 — round 2: harness, providers, device engine, island
+Built in four parallel worktrees (ci/harness, ci/providers, ci/device, ci/deviceui), each green on CI, squash-merged into oro-dev.
+- **Harness:** no step cap (StuckDetector nudges, then ends only real loops); text protocol teaches raw `<function=…><parameter=…>` values (no JSON escaping); cut-off calls never run (resend in parts, `write_file append`); text-mode streams stop where a model invents a `<tool_result>`; write/edit results carry a quick file-local check; `read_file paths[]`, `grep context`; system prompt snapshotted per run (prompt caches stay warm).
+- **Providers:** Mercury (community: chat.inceptionlabs.ai guest token, AI SDK v5 stream, `MercuryWebBridge` WebView fallback for the Vercel check), Inception official API (key, native tools), UniKey (community, keyless trial: Claude Opus 4.8, GPT-5.6 Terra, Grok 4.3, DeepSeek V4, MiniMax M3, Kimi K2.7 Code; fresh visitor id per request). Research: `docs/research/keyless-providers.md`, `docs/research/mercury.md`.
+- **Device engine:** plain-Kotlin `ScreenModel` (compact lines, rolling hash), event-driven settle, tools tap_text / scroll_to / wait_for / read_page / quick_action / media / look / device_status, `AdSkipper`, unlimited actions by default, escalating stuck signals.
+- **use_phone:** the coding agent hands a task to the device agent (`DeviceAgent.runForResult`, origin CHAT) and gets summary + notes back; `open_preview` has it QA the live preview in the browser. Leashed asks first.
+- **Island + screen:** Compose overlay (`device/overlay/`) with Orobi loader, shimmer status, collapse/expand, inline approvals and replies; device screen rebuilt from the editor's chat components.
+
+**Unverified on a device** (CI only compiles and runs JVM tests): every gesture and new device tool, ad skipping on real YouTube, numbered screenshots, the island's Compose lifecycle and inline reply keyboard, use_phone's round trip back to the chat, Mercury's WebView path, UniKey limits from a phone IP, web-chat models following the new raw-parameter format.
+
+**Next:** run the CI APK on a phone: enable Oro Device Agent, try "play lofi on YouTube and skip ads", then a chat run that calls use_phone with open_preview. Fix what breaks first.
+
+---
+
 ## 2026-10-18 — launch film v2 (Cinetic)
 - `launch-film/`: 35 s launch film built with the Cinetic skill (github.com/Leonxlnx/cinetic): BRIEF/TREATMENT, `pick.py` technique draw, `timeline.ts` (120 BPM, crisp, grid-check pass), 9 acts, product UI from the app, earshot crisp kit + synth score (-14 LUFS, drop on the live-site reveal), motion-blurred masters (budget 4x, samples in `out/samples-master.json`, not committed).
 - Deliverables in `launch-film/deliver/` (round 2; round-3 layout/script pass is code-only, user renders locally): 1080p60 master, 9:16 and 1:1 re-layouts (`REMOTION_FORMAT=9x16|1x1`, same timeline), poster, QA reports.
