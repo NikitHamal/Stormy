@@ -13,6 +13,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
 import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material.icons.outlined.Screenshot
+import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +67,20 @@ internal fun DeviceSettingsSheet(
             subtitle = "A ring wherever Orobi taps or swipes",
             checked = settings.showTouches,
             onChange = { v -> onChange { it.copy(showTouches = v) } },
+        ),
+        DeviceToggle(
+            icon = Icons.Outlined.SkipNext,
+            title = "Skip ads",
+            subtitle = "Taps Skip the moment a video ad allows it",
+            checked = settings.skipAds,
+            onChange = { v -> onChange { it.copy(skipAds = v) } },
+        ),
+        DeviceToggle(
+            icon = Icons.Outlined.Screenshot,
+            title = "Screenshots",
+            subtitle = "Vision models also see the screen as an image",
+            checked = settings.screenshots,
+            onChange = { v -> onChange { it.copy(screenshots = v) } },
         ),
         DeviceToggle(
             icon = Icons.AutoMirrored.Outlined.KeyboardReturn,

@@ -277,4 +277,12 @@ object VisionSupport {
         val id = modelId.lowercase()
         return PATTERNS.any { it in id }
     }
+
+    /**
+     * Whether images actually reach [model]. Community web bridges carry text
+     * only, so a vision-capable id behind one (UniKey's Claude, say) would get
+     * the caption and never the picture.
+     */
+    fun supports(model: AiModel): Boolean =
+        !model.provider.isCommunity && supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
 }

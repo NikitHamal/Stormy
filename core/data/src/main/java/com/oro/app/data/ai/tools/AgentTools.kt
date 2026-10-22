@@ -449,6 +449,7 @@ object AgentTools {
             "update_plan" -> "Planning"
             "ask_user" -> return "Waiting for your answer"
             "request_approval" -> return "Waiting for your approval"
+            "use_phone" -> return "Using the phone"
             else -> return "Running ${name.replace('_', ' ')}"
         }
         return if (s != null) "$verb $s" else verb

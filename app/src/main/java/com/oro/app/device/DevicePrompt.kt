@@ -88,8 +88,9 @@ object DevicePrompt {
         if (textTools) {
             append("\n\n# Calling tools\n")
             append("Write your sentence, then one block per tool call, and stop:\n")
-            append("<tool_call>\n{\"name\": \"tap\", \"arguments\": {\"index\": 3}}\n</tool_call>\n")
-            append("Arguments are a JSON object. Results come back in a <tool_result> message. Never write a <tool_result> yourself.\n\nTools (`?` = optional):\n")
+            append("<tool_call>\n<function=tap>\n<parameter=index>3</parameter>\n</function>\n</tool_call>\n")
+            append("Values are raw text: no quotes, no escaping. Results come back in a <tool_result> message. ")
+            append("Never write a <tool_result> yourself.\n\nTools (`?` = optional):\n")
             tools.forEach { t -> append("- ").append(signature(t)).append(": ").append(firstSentence(t.function.description)).append('\n') }
         }
     }

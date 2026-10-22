@@ -1367,7 +1367,7 @@ class EditorViewModel(
         inputDrafts.remove(existingSessionId ?: DRAFT_KEY)
         // Design from a photo: the picture goes with this turn to vision
         // models; other models are told plainly that they cannot see it.
-        val vision = _currentModel.value?.let { com.oro.app.data.ai.VisionSupport.supports(com.oro.app.data.ai.providers.ModelIds.upstream(it.id)) } == true
+        val vision = _currentModel.value?.let { com.oro.app.data.ai.VisionSupport.supports(it) } == true
         _messageHistory.add(
             when {
                 images.isEmpty() -> aiRepository.createUserMessage(content)
@@ -1757,7 +1757,7 @@ class EditorViewModel(
             // No step cap: long builds run to the end. AgentLoop's stuck
             // detection ends genuinely hopeless loops instead.
             config = AgentLoopConfig(
-                attachImages = com.oro.app.data.ai.VisionSupport.supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
+                attachImages = com.oro.app.data.ai.VisionSupport.supports(model)
             )
         )
         toolExecutor.checkpoint = run {

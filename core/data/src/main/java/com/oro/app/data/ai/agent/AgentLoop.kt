@@ -366,7 +366,7 @@ class AgentLoop(
                 }
                 conversation += ChatRequestMessage(
                     role = "user",
-                    content = "Screenshots of the live preview, as your tool requested. Look at them before you continue.",
+                    content = "The screenshots your last tool call captured. Look at them before you continue.",
                     images = images.take(3)
                 )
             }

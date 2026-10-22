@@ -17,7 +17,6 @@ import com.oro.app.data.ai.agent.AgentRequest
 import com.oro.app.data.ai.agent.AgentRunResult
 import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentToolRunner
-import com.oro.app.data.ai.providers.ModelIds
 import com.oro.app.data.ai.tools.JsonParserUtils
 import com.oro.app.data.ai.tools.ToolResult
 import com.oro.app.data.repository.AiRepository
@@ -199,7 +198,7 @@ object DeviceAgent {
         service.overlay.onStop = { stop() }
         service.overlay.onPauseToggle = { togglePause() }
         service.overlay.onApproval = { approve(it) }
-        service.overlay.onOpenApp = { bringOroToFront(openDeviceScreen = true) }
+        service.overlay.onOpenApp = { bringOroToFront(openDeviceScreen = _state.value.origin != Origin.CHAT) }
     }
 
     internal fun onServiceLost() {
@@ -350,7 +349,7 @@ object DeviceAgent {
     ) {
         val controller = DeviceController(service)
         val vision = settings.screenshots && ScreenshotTaker.supported &&
-            VisionSupport.supports(ModelIds.upstream(model.id))
+            VisionSupport.supports(model)
         val tools = DeviceTools.forRun(vision)
         val limited = settings.maxActions > 0
         var forceText = false
