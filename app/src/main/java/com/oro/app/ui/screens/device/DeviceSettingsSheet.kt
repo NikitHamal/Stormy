@@ -71,14 +71,14 @@ internal fun DeviceSettingsSheet(
         DeviceToggle(
             icon = Icons.Outlined.SkipNext,
             title = "Skip ads",
-            subtitle = "Taps Skip the moment a video ad allows it",
+            subtitle = "Taps Skip as soon as it shows",
             checked = settings.skipAds,
             onChange = { v -> onChange { it.copy(skipAds = v) } },
         ),
         DeviceToggle(
             icon = Icons.Outlined.Screenshot,
             title = "Screenshots",
-            subtitle = "Vision models also see the screen as an image",
+            subtitle = "Vision models also see the screen",
             checked = settings.screenshots,
             onChange = { v -> onChange { it.copy(screenshots = v) } },
         ),

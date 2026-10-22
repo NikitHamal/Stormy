@@ -1,6 +1,7 @@
 package com.oro.app.device.overlay
 
 import com.oro.app.device.DeviceAgent
+import com.oro.app.device.DeviceAgent.EndReason
 import com.oro.app.device.DeviceAgent.StepKind
 import com.oro.app.device.DeviceAgent.StepStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,10 +20,24 @@ internal object IslandModel {
         s.running && s.question != null -> IslandPhase.Question
         s.running && s.paused -> IslandPhase.Paused
         s.running -> IslandPhase.Working
-        s.finished && s.success == true && s.error == null -> IslandPhase.Done
+        s.finished && endedWell(s) -> IslandPhase.Done
         s.finished -> IslandPhase.Failed
         else -> IslandPhase.Idle
     }
+
+    /**
+     * The run reached its goal, or at least ended on the model's own word.
+     * Runs from before [DeviceAgent.State.endReason] existed fall back to
+     * success without an error.
+     */
+    private fun endedWell(s: DeviceAgent.State): Boolean = when (s.endReason) {
+        EndReason.DONE, EndReason.UNCONFIRMED -> true
+        null -> s.success == true && s.error == null
+        else -> false
+    }
+
+    /** Ended without finish_task: the summary is the model's last word, not a confirmed result. */
+    fun unconfirmed(s: DeviceAgent.State): Boolean = s.endReason == EndReason.UNCONFIRMED
 
     /** The action being performed or waited on right now, if any. */
     fun currentStep(s: DeviceAgent.State): DeviceAgent.Step? =
@@ -36,13 +51,34 @@ internal object IslandModel {
         IslandPhase.Paused -> "Paused"
         IslandPhase.Question -> "Question for you"
         IslandPhase.Approval -> "Needs your OK"
-        IslandPhase.Done -> "Done"
-        IslandPhase.Failed -> if (stoppedByUser(s)) "Stopped" else "Didn't finish"
+        IslandPhase.Done -> if (unconfirmed(s)) "Finished" else "Done"
+        IslandPhase.Failed -> when (s.endReason) {
+            EndReason.STOPPED_BY_USER -> "Stopped"
+            EndReason.ACTION_LIMIT -> "Limit reached"
+            EndReason.SERVICE_LOST -> "Agent turned off"
+            else -> "Didn't finish"
+        }
         IslandPhase.Idle -> "Orobi"
     }
 
     /** True when the run ended because the user pressed Stop, which is not a failure. */
-    fun stoppedByUser(s: DeviceAgent.State): Boolean = s.error?.startsWith("Stopped") == true
+    fun stoppedByUser(s: DeviceAgent.State): Boolean = s.endReason == EndReason.STOPPED_BY_USER
+
+    /** Ends the user chose or set up (Stop, their own action limit): a notice, never an error. */
+    fun endedByUser(s: DeviceAgent.State): Boolean =
+        s.endReason == EndReason.STOPPED_BY_USER || s.endReason == EndReason.ACTION_LIMIT
+
+    /** An action is in flight right now (not a thought, a question or a wait for the user). */
+    fun actionRunning(s: DeviceAgent.State): Boolean = currentStep(s)?.status == StepStatus.RUNNING
+
+    /**
+     * The steps worth listing: the question the user is being asked right now
+     * is left out, because its card is already on screen; once answered it is
+     * listed with the answer.
+     */
+    fun listedSteps(s: DeviceAgent.State): List<DeviceAgent.Step> =
+        if (s.question == null) s.steps
+        else s.steps.filterNot { it.kind == StepKind.QUESTION && it.status == StepStatus.WAITING }
 
     /** Orobi's latest narration, without Markdown markers. */
     fun latestThought(s: DeviceAgent.State): String? =

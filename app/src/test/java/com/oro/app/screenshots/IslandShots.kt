@@ -35,18 +35,19 @@ class IslandShots {
     val compose = createComposeRule()
 
     @Composable
-    private fun IslandOverApp(state: DeviceAgent.State) {
+    private fun IslandOverApp(state: DeviceAgent.State, lite: Boolean = false) {
         Box(Modifier.fillMaxSize()) {
             FakeVideoApp()
             Box(Modifier.align(Alignment.TopCenter).padding(top = 30.dp)) {
-                OroTheme(darkTheme = true) {
+                OroTheme(darkTheme = true, liteMode = lite) {
                     AgentIsland(
                         state = state,
                         visible = true,
                         screenVisible = false,
-                        lite = false,
+                        lite = lite,
                         cardWidth = 360.dp,
                         actions = NoIslandActions,
+                        maxCardHeight = 520.dp,
                     )
                 }
             }
@@ -66,6 +67,21 @@ class IslandShots {
     @Test
     fun island_collapsed_paused() = compose.shoot("island_collapsed_paused", height = 300.dp) {
         IslandOverApp(Runs.paused())
+    }
+
+    @Test
+    fun island_collapsed_lite() = compose.shoot("island_collapsed_lite", height = 300.dp) {
+        IslandOverApp(Runs.working(), lite = true)
+    }
+
+    @Test
+    fun island_expanded_paused() = compose.shoot("island_expanded_paused", height = 560.dp, interact = expand) {
+        IslandOverApp(Runs.paused())
+    }
+
+    @Test
+    fun island_stopped_collapsed() = compose.shoot("island_stopped_collapsed", height = 300.dp) {
+        IslandOverApp(Runs.stopped())
     }
 
     @Test

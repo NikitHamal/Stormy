@@ -1,18 +1,23 @@
 package com.oro.app.device
 
 import android.animation.ValueAnimator
+import android.content.ComponentCallbacks
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,26 +35,32 @@ import com.oro.app.device.overlay.OverlayLifecycleOwner
 import com.oro.app.device.overlay.TouchFeedbackView
 import com.oro.app.ui.theme.DevicePerformance
 import com.oro.app.ui.theme.OroTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 /**
  * What the user sees while Orobi drives the phone:
- *  - the island: a small floating pill that says what Orobi is doing and
- *    grows into a card with Pause, Stop and Open Oro; permission requests and
- *    questions open it by themselves and can be answered right there. It is
- *    draggable and settles to the nearest edge or the centre;
+ *  - the island: a small floating pill that says what Orobi is doing, with
+ *    Stop always one tap away, that opens into a card with Pause, Stop and
+ *    Open Oro; permission requests and questions open it by themselves and
+ *    can be answered right there. It is draggable and settles to the nearest
+ *    edge or the centre;
  *  - touch feedback: a ring where Orobi taps, a trail where it swipes, so
  *    nothing happens to the phone invisibly.
  *
  * Both live on TYPE_ACCESSIBILITY_OVERLAY windows: no extra permission, drawn
  * above every app, and excluded from what the agent reads. The island is
  * Compose (Oro's theme, Poppins, Orobi's loader) rendering [DeviceAgent.state]
- * directly; the touch layer is a plain Canvas. All calls hop to the main
- * thread.
+ * directly; the touch layer is a plain Canvas. All window work happens on the
+ * main thread.
  */
 class AgentOverlay(private val context: Context) {
 
@@ -71,6 +82,18 @@ class AgentOverlay(private val context: Context) {
     private val visible = MutableStateFlow(false)
     private var pendingRemoval: Runnable? = null
 
+    /** The resolved Lite flag (setting or low-end device), for the window work outside composition. */
+    @Volatile private var liteNow = false
+
+    /** Bumped when Back or a touch outside should take the keyboard away from the reply field. */
+    private val focusResets = MutableStateFlow(0)
+
+    /** The island sits on the bottom half: its card opens upwards. */
+    private val anchoredBottom = MutableStateFlow(false)
+
+    /** The reply field has the keyboard: the card keeps to the space above it. */
+    private val typing = MutableStateFlow(false)
+
     private fun dp(v: Float): Int = (v * context.resources.displayMetrics.density).toInt()
     private fun ui(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) block() else main.post(block)
@@ -81,7 +104,9 @@ class AgentOverlay(private val context: Context) {
     fun show(showTouches: Boolean) = ui {
         pendingRemoval?.let { main.removeCallbacks(it) }
         pendingRemoval = null
-        if (island == null) island = IslandWindow().also { it.attach() }
+        // A window the system refused is not kept: the next show() tries again,
+        // so a run is never left without Stop on screen.
+        if (island == null) island = IslandWindow().takeIf { it.attach() }
         visible.value = true
         if (showTouches) addTouchLayer() else removeTouchLayer()
     }
@@ -116,8 +141,9 @@ class AgentOverlay(private val context: Context) {
     }
 
     /**
-     * Lets an injected gesture pass through the island if it lands on it,
-     * then restores touch so the user can still press Stop.
+     * Lets every touch pass through the island, or restores it. Prefer
+     * [clearPathFor], which only steps aside when a gesture would land on the
+     * island and waits until it has.
      */
     fun setPassThrough(pass: Boolean) = ui { island?.setTouchable(!pass) }
 
@@ -129,14 +155,34 @@ class AgentOverlay(private val context: Context) {
      * gesture either way. Elsewhere the island stays touchable, so Stop always
      * works.
      */
-    suspend fun clearPathFor(region: android.graphics.Rect): Boolean {
-        setPassThrough(true)
-        kotlinx.coroutines.delay(48)
-        return true
+    suspend fun clearPathFor(region: Rect): Boolean {
+        val changed = withContext(Dispatchers.Main.immediate) {
+            val window = island ?: return@withContext false
+            if (!window.overlaps(region, slop = dp(GESTURE_SLOP_DP))) return@withContext false
+            window.setTouchable(false)
+            true
+        }
+        if (changed) {
+            // updateViewLayout takes effect on the next traversal; the input
+            // system learns about it a frame or so after that.
+            awaitFrames(2)
+            delay(16)
+        }
+        return changed
     }
 
     /** Undoes [clearPathFor]. */
-    fun restoreTouch() = setPassThrough(false)
+    fun restoreTouch() = ui { island?.setTouchable(true) }
+
+    private suspend fun awaitFrames(count: Int) = withContext(Dispatchers.Main.immediate) {
+        repeat(count) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                val callback = Choreographer.FrameCallback { if (cont.isActive) cont.resume(Unit) }
+                Choreographer.getInstance().postFrameCallback(callback)
+                cont.invokeOnCancellation { main.post { Choreographer.getInstance().removeFrameCallback(callback) } }
+            }
+        }
+    }
 
     // ---------------------------------------------------- touch feedback
 
@@ -155,7 +201,13 @@ class AgentOverlay(private val context: Context) {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            title = "Orobi touches"
+            // Screen coordinates all the way to the edges, so a ring lands
+            // exactly where the gesture did, nav bar or not.
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+        }
         if (runCatching { wm.addView(layer, lp) }.isSuccess) touches = layer
     }
 
@@ -180,7 +232,7 @@ class AgentOverlay(private val context: Context) {
         onApprove = { allow -> onApproval?.invoke(allow) ?: DeviceAgent.approve(allow) },
         onAnswer = { text -> onAnswer?.invoke(text) ?: DeviceAgent.answer(text) },
         onOpenOro = { openOro() },
-        onTyping = { typing -> ui { island?.setTyping(typing) } },
+        onTyping = { on -> ui { island?.setTyping(on) } },
     )
 
     private val liteChoice = (context.applicationContext as? OroApplication)?.preferencesRepository?.liteMode
@@ -192,9 +244,16 @@ class AgentOverlay(private val context: Context) {
         val screenVisible by DeviceAgentUi.screenVisible.collectAsState()
         val shown by visible.collectAsState()
         val choice by liteChoice.collectAsState(initial = LiteMode.AUTO)
+        val bottom by anchoredBottom.collectAsState()
+        val keyboard by typing.collectAsState()
+        val resets by focusResets.collectAsState()
         val lowEnd = remember { DevicePerformance.isLowEndDevice(context) }
         val lite = choice.isEnabled(lowEnd)
-        val screenWidth = LocalConfiguration.current.screenWidthDp
+        SideEffect { liteNow = lite }
+        val config = LocalConfiguration.current
+        // The whole height between the bars, or the part above the keyboard
+        // while the reply field has it; the card's middle scrolls past that.
+        val maxCard = if (keyboard) config.screenHeightDp * 0.42f else config.screenHeightDp - CARD_MARGIN_DP
         // Over any app, legible on any wallpaper: always the dark island.
         OroTheme(darkTheme = true, liteMode = lite) {
             AgentIsland(
@@ -202,8 +261,11 @@ class AgentOverlay(private val context: Context) {
                 visible = shown,
                 screenVisible = screenVisible,
                 lite = lite,
-                cardWidth = min(screenWidth - 28, 360).coerceAtLeast(240).dp,
+                cardWidth = min(config.screenWidthDp - 28, 360).coerceAtLeast(240).dp,
                 actions = actions,
+                maxCardHeight = maxCard.coerceAtLeast(MIN_CARD_DP).dp,
+                anchoredBottom = bottom,
+                focusResets = resets,
             )
         }
     }
@@ -216,71 +278,123 @@ class AgentOverlay(private val context: Context) {
     /**
      * The island's window. Wraps its content tightly (touches beside it reach
      * the app below) and is anchored to a corner or the top/bottom centre, so
-     * the card grows away from the edge it sits on.
+     * the card grows away from the edge it sits on. It keeps itself on screen
+     * when it grows, shrinks or the phone rotates.
      */
     private inner class IslandWindow {
         private val owner = OverlayLifecycleOwner()
-        private val frame = DragFrame(context, ::dragStart, ::dragTo, ::dragEnd)
+        private val frame = DragFrame(
+            context, ::dragStart, ::dragTo, ::dragEnd,
+            onDismissKeyboard = ::dismissKeyboard,
+            onConfigChanged = { main.post(::afterRotation) },
+        )
         private val compose = ComposeView(context)
         private val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             BASE_FLAGS,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            title = "Orobi"
+            // Positions are screen coordinates: without this, bottom and end
+            // anchors are measured from the navigation bar's edge and the
+            // island jumps by its height after every snap.
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+        }
         private var hAnchor = HAnchor.CENTER
         private var vAnchor = VAnchor.TOP
         private var offsetY = 0
+
+        /** Where the island sits between its top and bottom limits, 0..1, so a rotation keeps it in proportion. */
+        private var yFraction = 0f
         private var dragX = 0
         private var dragY = 0
         private var snap: ValueAnimator? = null
-        private var typing = false
+        private var typingNow = false
+        private var touchable = true
         private var beforeTyping: Pair<VAnchor, Int>? = null
         private val marginX get() = dp(10f)
 
-        fun attach() {
+        private val rotation = object : ComponentCallbacks {
+            override fun onConfigurationChanged(newConfig: Configuration) {
+                main.post(::afterRotation)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onLowMemory() = Unit
+        }
+
+        /** Adds the window; false (with everything released) when the system refuses it. */
+        fun attach(): Boolean {
             owner.attachTo(frame)
             compose.setContent { IslandContent() }
             frame.addView(
                 compose,
                 FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT)
             )
+            // A card that grows or shrinks must stay on screen.
+            frame.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+                if (r - l != oldR - oldL || b - t != oldB - oldT) main.post(::keepOnScreen)
+            }
             offsetY = topInset()
             applyAnchor()
-            runCatching { wm.addView(frame, lp) }
+            if (runCatching { wm.addView(frame, lp) }.isFailure) {
+                owner.destroy()
+                return false
+            }
+            runCatching { context.registerComponentCallbacks(rotation) }
             owner.resume()
+            return true
         }
 
         fun detach() {
             snap?.cancel()
+            runCatching { context.unregisterComponentCallbacks(rotation) }
             runCatching { wm.removeView(frame) }
             owner.destroy()
+            if (typingNow) typing.value = false
         }
 
-        fun setTouchable(touchable: Boolean) {
-            lp.flags = if (touchable) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        /** Whether [region] (screen pixels), widened by [slop], touches the island's window. */
+        fun overlaps(region: Rect, slop: Int): Boolean {
+            if (!frame.isAttachedToWindow || frame.width == 0 || frame.height == 0) return false
+            val loc = IntArray(2)
+            frame.getLocationOnScreen(loc)
+            val mine = Rect(loc[0], loc[1], loc[0] + frame.width, loc[1] + frame.height)
+            val theirs = Rect(region).apply { inset(-slop, -slop) }
+            return Rect.intersects(mine, theirs)
+        }
+
+        fun setTouchable(on: Boolean) {
+            if (touchable == on) return
+            touchable = on
+            lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
             else lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             relayout()
         }
 
         /**
          * The reply field needs keyboard focus, which a NOT_FOCUSABLE window
-         * never gets. Focusable only while a question is open; touches beside
-         * the island still reach the app (NOT_TOUCH_MODAL). A card low on the
-         * screen moves to the top first, so the keyboard does not cover it.
+         * never gets. Focusable only from the user's touch on the field until
+         * they send, press Back or touch outside; touches beside the island
+         * still reach the app (NOT_TOUCH_MODAL). A card low on the screen
+         * moves to the top first, so the keyboard does not cover it.
          */
         fun setTyping(on: Boolean) {
-            if (typing == on) return
-            typing = on
+            if (typingNow == on) return
+            typingNow = on
+            typing.value = on
             if (on) {
-                lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                lp.flags = (lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()) or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                 if (vAnchor == VAnchor.BOTTOM) {
                     beforeTyping = vAnchor to offsetY
                     vAnchor = VAnchor.TOP
                     offsetY = topInset()
                 }
             } else {
-                lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                lp.flags = (lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) and
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
                 beforeTyping?.let { (anchor, y) ->
                     vAnchor = anchor
                     offsetY = y
@@ -289,6 +403,13 @@ class AgentOverlay(private val context: Context) {
             }
             applyAnchor()
             relayout()
+        }
+
+        /** Back or a touch outside: the field lets go of the keyboard and the app gets its focus back. */
+        private fun dismissKeyboard() {
+            if (!typingNow) return
+            focusResets.value = focusResets.value + 1
+            setTyping(false)
         }
 
         private fun applyAnchor() {
@@ -300,25 +421,61 @@ class AgentOverlay(private val context: Context) {
             lp.gravity = h or if (vAnchor == VAnchor.TOP) Gravity.TOP else Gravity.BOTTOM
             lp.x = if (hAnchor == HAnchor.CENTER) 0 else marginX
             lp.y = offsetY
+            anchoredBottom.value = vAnchor == VAnchor.BOTTOM
         }
 
         private fun relayout() {
-            runCatching { wm.updateViewLayout(frame, lp) }
+            if (frame.isAttachedToWindow) runCatching { wm.updateViewLayout(frame, lp) }
+        }
+
+        /** Top edge between the bars for the current size, as a top-anchored y. */
+        private fun limits(height: Int): Pair<Int, Int> {
+            val (_, sh) = screenSize()
+            val minY = topInset()
+            return minY to max(minY, sh - bottomInset() - height)
+        }
+
+        private fun currentTop(height: Int): Int {
+            val (_, sh) = screenSize()
+            return if (vAnchor == VAnchor.TOP) offsetY else sh - offsetY - height
+        }
+
+        private fun setTop(top: Int, height: Int) {
+            val (_, sh) = screenSize()
+            offsetY = if (vAnchor == VAnchor.TOP) top else sh - top - height
+            applyAnchor()
+            relayout()
+        }
+
+        /** After a size change: back inside the bars if it grew past one. */
+        private fun keepOnScreen() {
+            if (frame.isDragging || snap?.isRunning == true || !frame.isAttachedToWindow) return
+            val h = frame.height
+            if (h == 0) return
+            val (minY, maxY) = limits(h)
+            val top = currentTop(h)
+            val clamped = top.coerceIn(minY, maxY)
+            if (clamped != top) setTop(clamped, h)
+        }
+
+        /** After a rotation: the same place in proportion, inside the new bars. */
+        private fun afterRotation() {
+            if (frame.isDragging || !frame.isAttachedToWindow) return
+            snap?.cancel()
+            val h = frame.height
+            val (minY, maxY) = limits(h)
+            setTop((minY + yFraction * (maxY - minY)).toInt().coerceIn(minY, maxY), h)
         }
 
         // Dragging works in absolute top-left coordinates, then re-anchors.
 
         private fun dragStart() {
             snap?.cancel()
-            val (sw, sh) = screenSize()
-            val w = frame.width
-            val h = frame.height
-            dragX = when (hAnchor) {
-                HAnchor.START -> lp.x
-                HAnchor.END -> sw - lp.x - w
-                HAnchor.CENTER -> (sw - w) / 2 + lp.x
-            }
-            dragY = if (vAnchor == VAnchor.TOP) lp.y else sh - lp.y - h
+            // Where the window really is on screen, whatever it is anchored to.
+            val loc = IntArray(2)
+            frame.getLocationOnScreen(loc)
+            dragX = loc[0]
+            dragY = loc[1]
             lp.gravity = Gravity.TOP or Gravity.START
             lp.x = dragX
             lp.y = dragY
@@ -351,9 +508,9 @@ class AgentOverlay(private val context: Context) {
                 HAnchor.END -> sw - marginX - w
                 HAnchor.CENTER -> (sw - w) / 2
             }
-            val minY = topInset()
-            val maxY = max(minY, sh - bottomInset() - h)
+            val (minY, maxY) = limits(h)
             val targetY = lp.y.coerceIn(minY, maxY)
+            yFraction = if (maxY > minY) (targetY - minY).toFloat() / (maxY - minY) else 0f
             offsetY = if (vAnchor == VAnchor.TOP) targetY else sh - targetY - h
             beforeTyping = null
 
@@ -363,7 +520,7 @@ class AgentOverlay(private val context: Context) {
                 applyAnchor()
                 relayout()
             }
-            if (DevicePerformance.isLowEndDevice(context)) {
+            if (liteNow) {
                 settle()
                 return
             }
@@ -391,11 +548,14 @@ class AgentOverlay(private val context: Context) {
                     ?.takeIf { it.width() > 0 && it.height() > 0 }
                     ?.let { return it.width() to it.height() }
             }
+            @Suppress("DEPRECATION")
+            val real = android.util.DisplayMetrics().also { runCatching { wm.defaultDisplay.getRealMetrics(it) } }
+            if (real.widthPixels > 0 && real.heightPixels > 0) return real.widthPixels to real.heightPixels
             val m = context.resources.displayMetrics
             return m.widthPixels to m.heightPixels
         }
 
-        /** Below the status bar (and any cutout); a service context may report no insets, so never less than a bar. */
+        /** Below the status bar (and any cutout); never less than a bar, even where a service context reports none. */
         private fun topInset(): Int {
             val reported = if (Build.VERSION.SDK_INT >= 30) {
                 runCatching {
@@ -403,7 +563,7 @@ class AgentOverlay(private val context: Context) {
                         .getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
                         .top
                 }.getOrDefault(0)
-            } else 0
+            } else systemDimen("status_bar_height")
             return max(reported, dp(24f)) + dp(4f)
         }
 
@@ -414,8 +574,14 @@ class AgentOverlay(private val context: Context) {
                         .getInsetsIgnoringVisibility(WindowInsets.Type.navigationBars())
                         .bottom
                 }.getOrDefault(0)
-            } else 0
+            } else systemDimen("navigation_bar_height")
             return max(reported, dp(48f)) + dp(4f)
+        }
+
+        private fun systemDimen(name: String): Int {
+            val res = context.resources
+            val id = res.getIdentifier(name, "dimen", "android")
+            return if (id != 0) runCatching { res.getDimensionPixelSize(id) }.getOrDefault(0) else 0
         }
     }
 
@@ -429,5 +595,12 @@ class AgentOverlay(private val context: Context) {
         /** Long enough for the island's exit animation to finish. */
         const val EXIT_MS = 320L
         const val SNAP_MS = 280L
+
+        /** A gesture this close to the island counts as landing on it. */
+        const val GESTURE_SLOP_DP = 8f
+
+        /** Room the card leaves for both bars and its own shadow. */
+        const val CARD_MARGIN_DP = 112f
+        const val MIN_CARD_DP = 220f
     }
 }

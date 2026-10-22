@@ -388,12 +388,19 @@ internal fun RunTranscriptList(
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
-    val segments = remember(run.steps) { DeviceTranscript.segments(run.steps) }
+    // The question being asked right now is the card below, not also a row.
+    val listed = remember(run.steps, run.question) { IslandModel.listedSteps(run) }
+    val segments = remember(listed) { DeviceTranscript.segments(listed) }
     val lastKey = segments.lastOrNull()?.key
+    // While an action runs, its own row carries the loader; the status line
+    // is for the moments in between (looking, deciding) and for the user's turn.
+    val showStatus = run.running &&
+        (run.question != null || run.paused || run.approval != null || !IslandModel.actionRunning(run))
     // Follow the run like the editor follows a reply: new steps, a question,
-    // the result -- the end of the list is where the news is.
-    val itemCount = 1 + segments.size + (if (run.running) 1 else 0) + (if (run.finished) 1 else 0)
-    LaunchedEffect(run.steps.size, run.question, run.finished, run.paused) {
+    // the result -- the end of the list is where the news is. Keyed on the
+    // newest step's id: the step list is capped, so its size stops changing.
+    val itemCount = 1 + segments.size + (if (showStatus) 1 else 0) + (if (run.finished) 1 else 0)
+    LaunchedEffect(run.steps.lastOrNull()?.id, run.question, run.finished, run.paused, showStatus) {
         listState.animateScrollToItem(itemCount - 1)
     }
 
@@ -420,7 +427,7 @@ internal fun RunTranscriptList(
                 )
             }
         }
-        if (run.running) {
+        if (showStatus) {
             item(key = "status", contentType = "status") {
                 val question = run.question
                 when {
@@ -712,15 +719,25 @@ private fun ResultBlock(run: DeviceAgent.State, onAgain: () -> Unit, onNew: () -
     val phase = IslandModel.phase(run)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.md)) {
         if (phase == IslandPhase.Done) {
+            // Confirmed by finish_task, or only the model's last word.
+            val confirmed = !IslandModel.unconfirmed(run)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Outlined.TaskAlt,
                     contentDescription = null,
-                    tint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) OroBrand.GreenDark else OroBrand.GreenLight,
+                    tint = when {
+                        !confirmed -> MaterialTheme.colorScheme.onSurfaceVariant
+                        MaterialTheme.colorScheme.background.luminance() < 0.5f -> OroBrand.GreenDark
+                        else -> OroBrand.GreenLight
+                    },
                     modifier = Modifier.size(Sizes.icon)
                 )
                 Spacer(Modifier.width(Space.sm))
-                Text("Done", style = MaterialTheme.typography.titleSmallEmphasized, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    text = IslandModel.headline(run, phase),
+                    style = MaterialTheme.typography.titleSmallEmphasized,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
                 Spacer(Modifier.width(Space.sm))
                 Text(
                     text = runMeta(run),
@@ -730,14 +747,22 @@ private fun ResultBlock(run: DeviceAgent.State, onAgain: () -> Unit, onNew: () -
                 )
             }
             run.summary?.takeIf { it.isNotBlank() }?.let { summary ->
-                com.oro.app.ui.components.MarkdownText(markdown = summary, modifier = Modifier.fillMaxWidth())
+                // The narration's own style, so the answer reads as Orobi's last line, not a different voice.
+                val text = remember(summary) { DeviceTranscript.summaryText(summary) }
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         } else {
             val message = run.summary?.takeIf { run.success == false && it.isNotBlank() }
                 ?: run.error
                 ?: "Orobi didn't finish this task."
             RunErrorCard(
-                error = RunError(message = message, actionLabel = "Run again", isNotice = IslandModel.stoppedByUser(run)),
+                // Stop and the user's own action limit are their choices, so a notice, not an error.
+                error = RunError(message = message, actionLabel = "Run again", isNotice = IslandModel.endedByUser(run)),
                 onRetry = onAgain,
                 onDismiss = onNew
             )

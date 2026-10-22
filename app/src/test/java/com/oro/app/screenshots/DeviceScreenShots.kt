@@ -158,6 +158,9 @@ class DeviceScreenShots {
     @Test
     fun device_failed_dark() = compose.shoot("device_failed_dark") { Screen(Runs.failed(), dark = true) }
 
+    @Test
+    fun device_stopped_light() = compose.shoot("device_stopped_light") { Screen(Runs.stopped(), dark = false) }
+
     /** The settings sheet is a modal window, so the whole screen is captured. */
     @OptIn(ExperimentalRoborazziApi::class)
     @Test

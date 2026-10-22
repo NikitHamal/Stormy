@@ -157,7 +157,7 @@ internal object Runs {
         step(3, StepKind.SYSTEM, "wait_for", "Wait for “lofi hip hop radio”"),
         step(4, StepKind.THOUGHT, null, "The **live stream** is the first result. Opening it."),
         step(5, StepKind.ACTION, "tap_text", "Tap “lofi hip hop radio - beats to relax/study to”"),
-        step(6, StepKind.SYSTEM, null, "Skipped a YouTube ad"),
+        step(6, StepKind.SYSTEM, "skip_ad", "Skipped a YouTube ad"),
         step(7, StepKind.ACTION, "tap", "Tap “Full screen”", changed = false),
         step(8, StepKind.ACTION, "media", "Play", status = StepStatus.FAILED, detail = "No app answered the media key."),
     )
@@ -202,6 +202,7 @@ internal object Runs {
     fun finished() = base(done.map { if (it.status == StepStatus.FAILED) it.copy(status = StepStatus.DONE, detail = "") else it }, actions = 6).copy(
         running = false,
         success = true,
+        endReason = DeviceAgent.EndReason.DONE,
         status = "Done",
         summary = "Playing **lofi hip hop radio - beats to relax/study to** on YouTube, full screen. " +
             "One ad was skipped on the way.",
@@ -212,8 +213,19 @@ internal object Runs {
     fun failed() = base(done, actions = 6).copy(
         running = false,
         success = false,
+        endReason = DeviceAgent.EndReason.FAILED,
         status = "Stopped",
         error = "The Play Store asked for a Google sign-in, so I stopped there. Sign in once, then run the task again.",
+        endedAt = now - 2_000,
+    )
+
+    /** The user pressed Stop: a notice, not a failure. */
+    fun stopped() = base(done, actions = 6).copy(
+        running = false,
+        success = false,
+        endReason = DeviceAgent.EndReason.STOPPED_BY_USER,
+        status = "Stopped",
+        error = "Stopped by you.",
         endedAt = now - 2_000,
     )
 

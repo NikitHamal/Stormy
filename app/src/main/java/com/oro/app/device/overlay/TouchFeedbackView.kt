@@ -5,6 +5,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.SystemClock
 import android.view.View
+import androidx.compose.ui.graphics.toArgb
+import com.oro.app.ui.brand.OroBrand
 import kotlin.math.max
 
 /**
@@ -136,8 +138,8 @@ internal class TouchFeedbackView(context: Context) : View(context) {
         const val LONG = 1
         const val SWIPE = 2
         const val MAX_MARKS = 12
-        /** OroBrand.Magenta and OroBrand.Peach, as ARGB ints for Paint. */
-        const val MAGENTA = 0xFFF800F8.toInt()
-        const val PEACH = 0xFFFDDFC6.toInt()
+        /** Orobi's markings and skin, as ARGB ints for Paint. */
+        val MAGENTA = OroBrand.Magenta.toArgb()
+        val PEACH = OroBrand.Peach.toArgb()
     }
 }
