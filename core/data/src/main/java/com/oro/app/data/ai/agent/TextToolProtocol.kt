@@ -1,51 +1,112 @@
 package com.oro.app.data.ai.agent
 
+import com.oro.app.data.ai.AiHttp
 import com.oro.app.data.ai.Tool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The tool instructions for models that take no tools through the API: web
- * chat bridges (K2 Horizon) and providers serving a model without function
- * calling.
+ * chat bridges (K2 Horizon, Qwen, Ptero, Mercury) and providers serving a
+ * model without function calling.
  *
- * Written from live K2 runs. What made those models fail was not the call
- * format -- they emit `<tool_call>` JSON or their own template reliably, and
- * [TextToolCallParser] reads both -- but a catalogue that gave them nothing to
- * go on: parameter names without types or required markers, nested shapes
- * (multi_edit's `edits`, ask_user's `questions`) left unspecified, and
- * descriptions cut at "e.g." mid-sentence. Here every tool is one signature
- * line with types, `?` for optional, nested object shapes spelled out and a
- * complete first sentence, plus one worked example of a full round trip.
+ * ### Why raw parameter values
+ *
+ * The protocol used to ask for `<tool_call>{"name": ..., "arguments": {...}}`.
+ * Live runs showed where that breaks: not on small calls, but on the call that
+ * matters -- write_file with a 300-line page, where every quote and newline of
+ * the file has to be JSON-escaped by a model that is busy writing HTML. One
+ * missed `\"` and the whole call is lost. The canonical format here takes each
+ * argument as raw text between tags, exactly as it should land on disk, which
+ * is also the template Qwen3-Coder and several open models were trained on.
+ * Lists and objects stay JSON (they are short); every older format the parser
+ * understands is still accepted.
+ *
+ * The rendered text is static per tool list, so it sits in the cacheable
+ * prefix of the system prompt.
  */
 object TextToolProtocol {
+
+    /**
+     * Tools left out of the text-mode catalogue (still executed if called):
+     * multi_edit needs a JSON array of strings -- the escaping this protocol
+     * exists to avoid -- and several edit_file calls in one reply do the same
+     * job, in order.
+     */
+    val TEXT_MODE_HIDDEN: Set<String> = setOf("multi_edit")
 
     fun render(tools: List<Tool>): String = buildString {
         appendLine("# Calling tools")
         appendLine("You have no built-in tool API here. The Oro app on the user's device runs tools for you:")
-        appendLine("write a <tool_call> block and the app executes it on the user's real project files and")
-        appendLine("replies with a <tool_result>. Rules:")
-        appendLine("- One block per call. Several independent read-only calls may go in one reply.")
-        appendLine("- Inside the block: one JSON object {\"name\": ..., \"arguments\": {...}}. Escape quotes and")
-        appendLine("  newlines inside strings (\\\" and \\n). File contents go in full, never \"...\".")
-        appendLine("- After your last block, stop and wait for the results. Never write a <tool_result> yourself")
-        appendLine("  and never claim a tool ran before you have its result.")
-        appendLine("- Act, don't narrate: if you say you will change a file, the same reply must contain the call.")
-        appendLine("- When the task is done, reply with a short summary and no <tool_call> block.")
+        appendLine("write tool calls, stop, and the app replies with their results. Use exactly this format:")
         appendLine()
-        appendLine("Example:")
         appendLine("<tool_call>")
-        appendLine("{\"name\": \"edit_file\", \"arguments\": {\"path\": \"index.html\", \"old_string\": \"<h1>Hi</h1>\", \"new_string\": \"<h1>Hello</h1>\"}}")
+        appendLine("<function=TOOL_NAME>")
+        appendLine("<parameter=NAME>value</parameter>")
+        appendLine("</function>")
         appendLine("</tool_call>")
         appendLine()
+        appendLine("Rules:")
+        appendLine("- Values are raw text, exactly as they should be saved: never escape quotes or newlines and never")
+        appendLine("  wrap a value in JSON or quotes. File contents go in full -- never \"...\" or \"rest unchanged\".")
+        appendLine("- Numbers and true/false are written plainly. Lists and objects are JSON, e.g.")
+        appendLine("  <parameter=questions>[{\"question\": \"Which colour?\"}]</parameter>.")
+        appendLine("- Several calls may go in one reply; they run in order. Several edit_file calls on one file are fine.")
+        appendLine("- After your last call, STOP. Never write a <tool_result> yourself and never claim a tool ran")
+        appendLine("  before you have its result.")
+        appendLine("- Act, don't narrate: if you say you will change a file, the same reply must contain the call.")
+        appendLine("- A very long file: write the first part with write_file, then add the rest with further")
+        appendLine("  write_file calls with append=true. Never stop halfway through a call.")
+        appendLine("- When the task is done, reply with a short summary and no tool call.")
+        appendLine()
+        appendLine("Example:")
+        appendLine(EXAMPLE)
+        appendLine()
         appendLine("Tools (`?` = optional):")
-        tools.forEach { tool ->
+        tools.filter { it.function.name !in TEXT_MODE_HIDDEN }.forEach { tool ->
             append("- ").append(signature(tool)).append(" — ").append(firstSentence(tool.function.description))
             appendLine()
         }
     }.trimEnd()
+
+    private val EXAMPLE = """
+        <tool_call>
+        <function=edit_file>
+        <parameter=path>index.html</parameter>
+        <parameter=old_string><h1 class="title">Hi</h1></parameter>
+        <parameter=new_string><h1 class="title">Hello, "friend"</h1></parameter>
+        </function>
+        </tool_call>
+    """.trimIndent()
+
+    /**
+     * One call in the canonical format, from a name and JSON arguments. Used
+     * to render earlier native tool calls into a text transcript, so a model
+     * switched to text mode sees its history in the format it must use (models
+     * imitate their history more than their instructions).
+     */
+    fun formatCall(name: String, argumentsJson: String): String = buildString {
+        append("<tool_call>\n<function=").append(name).append(">\n")
+        val args = runCatching { AiHttp.json.parseToJsonElement(argumentsJson.ifBlank { "{}" }) as? JsonObject }.getOrNull()
+        args?.forEach { (key, value) ->
+            append("<parameter=").append(key).append('>')
+            val text = rawValue(value)
+            // Multi-line values (file bodies) start on their own line, as taught.
+            if (text.contains('\n')) append('\n').append(text).append('\n') else append(text)
+            append("</parameter>\n")
+        }
+        append("</function>\n</tool_call>")
+    }
+
+    /** A JSON argument as the raw text the protocol carries. */
+    private fun rawValue(value: JsonElement): String = when (value) {
+        is JsonNull -> ""
+        is JsonPrimitive -> value.content
+        else -> value.toString()
+    }
 
     /** `edit_file(path: string, old_string: string, replace_all?: boolean)`. */
     fun signature(tool: Tool): String {

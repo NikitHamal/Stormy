@@ -256,6 +256,13 @@ class RunTranscript(initial: String = "") {
 
         fun subjectOf(call: ToolCallResponse): String? {
             val args = JsonParserUtils.parseToJsonObject(call.function.arguments) ?: return null
+            // A batch read: "index.html +2".
+            (args["paths"] as? JsonArray)?.takeIf { it.isNotEmpty() }?.let { paths ->
+                val first = (args["path"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
+                    ?: (paths.first() as? JsonPrimitive)?.content
+                val more = paths.size - if (first == (paths.first() as? JsonPrimitive)?.content) 1 else 0
+                if (first != null) return if (more > 0) "$first +$more" else first
+            }
             for (key in listOf("question", "path", "file_path", "pattern", "url", "source", "action", "description", "query", "command")) {
                 val v = (args[key] as? JsonPrimitive)?.content
                 if (!v.isNullOrBlank()) {

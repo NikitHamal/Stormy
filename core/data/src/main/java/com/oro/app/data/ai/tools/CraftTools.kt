@@ -28,6 +28,30 @@ internal object CraftTools {
         return ToolResult(true, parts.joinToString("\n\n").ifBlank { "No issues found in $path." })
     }
 
+    /**
+     * A few lines for a write's result when the file just written has a
+     * self-contained defect (cut off, unbalanced brackets, invalid JSON), so
+     * the model fixes it in its next step instead of finding out at the end --
+     * one round trip, not a check_syntax call plus a fix. Null when clean.
+     */
+    fun quickCheckNote(root: File, changes: List<FileChange>): String? {
+        val auditor = QualityAuditor(root)
+        val issues = changes
+            .filter { it.type == FileChangeType.CREATED || it.type == FileChangeType.MODIFIED }
+            .flatMap { change -> change.newContent?.let { auditor.quickCheck(change.path, it) }.orEmpty() }
+        if (issues.isEmpty()) return null
+        return buildString {
+            append("Quick check of the written file found ")
+            append(if (issues.size == 1) "a problem:" else "${issues.size} problems:")
+            issues.take(MAX_QUICK_ISSUES).forEach { append("\n- ").append(it.render()) }
+            if (issues.size > MAX_QUICK_ISSUES) append("\n- … and ${issues.size - MAX_QUICK_ISSUES} more")
+            append("\nFix ").append(if (issues.size == 1) "it" else "them")
+            append(" now, unless you are still writing this file in parts.")
+        }
+    }
+
+    private const val MAX_QUICK_ISSUES = 4
+
     fun addUiKit(root: File, args: JsonObject): ToolOutcome {
         val hue = (args["brand_hue"] as? JsonPrimitive)?.let { it.intOrNull ?: it.content.toIntOrNull() }
         val written = UiKit.install(root, hue)

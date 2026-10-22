@@ -62,14 +62,20 @@ object HistoryPruner {
         val lastUser = messages.indexOfLast { it.role == "user" }.coerceAtLeast(0)
         val protectFrom = protectedStart(messages)
 
-        // 1 + 2: shrink old tool traffic.
+        // 1 + 2: shrink old tool traffic -- native messages, and the same
+        // traffic written as text by models on the text tool protocol.
         val shrunk = messages.mapIndexed { i, m ->
             if (i >= protectFrom) return@mapIndexed m
+            val content = m.content
             when {
-                m.role == "tool" && (m.content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length ->
+                m.role == "tool" && (content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length ->
                     m.copy(content = PRUNED_TOOL_OUTPUT)
                 m.role == "assistant" && m.toolCalls != null ->
                     m.copy(toolCalls = m.toolCalls.map { shrinkCall(it) })
+                m.role == "user" && content != null && content.startsWith(TEXT_RESULTS_HEADER) ->
+                    m.copy(content = shrinkTextResults(content))
+                m.role == "assistant" && content != null && content.length > LARGE_ARGUMENT_CHARS &&
+                    content.contains("<parameter=") -> m.copy(content = shrinkTextCalls(content))
                 else -> m
             }
         }
@@ -171,6 +177,22 @@ object HistoryPruner {
             }
         }
         return units
+    }
+
+    /** How the agent loop opens a text-protocol results message. */
+    private const val TEXT_RESULTS_HEADER = "Tool results:"
+    private val TEXT_RESULT = Regex("""(?s)(<tool_result name="[^"]*">\n?)(.*?)(\n?</tool_result>)""")
+    private val TEXT_PARAMETER = Regex("""(?s)(<parameter=[\w.\-]+>)(.*?)(</parameter>)""")
+
+    private fun shrinkTextResults(content: String): String = TEXT_RESULT.replace(content) { m ->
+        if (m.groupValues[2].length > PRUNED_TOOL_OUTPUT.length) m.groupValues[1] + PRUNED_TOOL_OUTPUT + m.groupValues[3]
+        else m.value
+    }
+
+    /** Large raw parameter values (whole files) in an old text-protocol call. */
+    private fun shrinkTextCalls(content: String): String = TEXT_PARAMETER.replace(content) { m ->
+        val value = m.groupValues[2]
+        if (value.length > 200) m.groupValues[1] + "[${value.length} characters omitted]" + m.groupValues[3] else m.value
     }
 
     private fun shrinkCall(call: ToolCallRequest): ToolCallRequest {

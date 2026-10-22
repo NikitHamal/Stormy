@@ -55,4 +55,22 @@ class HistoryPrunerTest {
         val bigCall = assistantCall("c", "{\"content\":\"${"a".repeat(4_000)}\"}")
         assertThat(TokenEstimator.estimate(bigCall)).isAtLeast(1_000)
     }
+
+    @Test
+    fun `old text-protocol traffic is shrunk too`() {
+        val bigFile = "<p>".repeat(3_000)
+        val call = "Writing.\n<tool_call>\n<function=write_file>\n<parameter=path>a.html</parameter>\n" +
+            "<parameter=content>\n$bigFile\n</parameter>\n</function>\n</tool_call>"
+        val results = "Tool results:\n<tool_result name=\"read_file\">\n${"y".repeat(20_000)}\n</tool_result>\nContinue."
+        val msgs = listOf(user("build")) +
+            (1..6).flatMap { listOf(ChatRequestMessage(role = "assistant", content = call), user(results)) } +
+            listOf(user("latest"))
+        val pruned = HistoryPruner.prune(msgs, 30_000)
+        assertThat(pruned.size).isEqualTo(msgs.size)
+        assertThat(pruned.any { it.content?.contains("characters omitted") == true }).isTrue()
+        assertThat(pruned.any { it.content?.contains(HistoryPruner.PRUNED_TOOL_OUTPUT) == true }).isTrue()
+        // The call structure survives, so the model still sees what it did.
+        assertThat(pruned[1].content).contains("<parameter=path>a.html</parameter>")
+        assertThat(TokenEstimator.estimate(pruned)).isAtMost(30_000)
+    }
 }

@@ -75,7 +75,8 @@ object AutonomyPolicy {
         fun str(k: String) = (args[k] as? JsonPrimitive)?.contentOrNull.orEmpty()
         val path = str("path")
         return when (n) {
-            "write_file" -> "Write $path" to str("content").lines().take(14).joinToString("\n").take(900)
+            "write_file" -> (if (str("append") == "true") "Add to $path" else "Write $path") to
+                str("content").lines().take(14).joinToString("\n").take(900)
             "edit_file" -> "Edit $path" to ("- " + str("old_string").take(400).replace("\n", "\n- ") + "\n+ " + str("new_string").take(400).replace("\n", "\n+ "))
             "multi_edit" -> "Edit $path" to "Several replacements in one file"
             "delete_file" -> "Delete $path" to null

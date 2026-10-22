@@ -80,8 +80,12 @@ sealed interface AgentRunResult {
 }
 
 data class AgentLoopConfig(
-    /** Model calls per run before stopping (each tool round trip is one). */
-    val maxIterations: Int = 40,
+    /**
+     * Model calls per run before stopping (each tool round trip is one).
+     * Unlimited by default: a healthy run is never paused for its length.
+     * Runaway runs are caught by stuck detection instead ([stuckNudgeAfter]).
+     */
+    val maxIterations: Int = UNLIMITED,
     /** Whether tool-produced screenshots are shown to the model (vision models only). */
     val attachImages: Boolean = false,
     /** Times a run asks the model to resend a tool call that did not parse. */
@@ -99,8 +103,30 @@ data class AgentLoopConfig(
     /** Times a reply cut off by the output limit is continued. */
     val maxLengthContinuations: Int = 2,
     /** Times the final check may send the agent back to fix what it found. */
-    val maxQualityPasses: Int = 2
-)
+    val maxQualityPasses: Int = 2,
+    /** Times a run asks the model to resend a call cut off by the output limit. */
+    val maxTruncatedCallRetries: Int = 3,
+    /**
+     * Consecutive tool rounds in which every call failed before the model is
+     * told to step back and change approach; the nudge repeats at multiples.
+     */
+    val stuckNudgeAfter: Int = 3,
+    /** Consecutive all-failed tool rounds after which the run gives up. */
+    val stuckStopAfter: Int = 8,
+    /**
+     * Times the same call with the same result may recur within the recent
+     * window ([REPEAT_WINDOW] calls) before the run gives up.
+     */
+    val repeatStopAfter: Int = 6
+) {
+    companion object {
+        /** No iteration cap. */
+        const val UNLIMITED: Int = Int.MAX_VALUE
+
+        /** Calls remembered for cycle detection. */
+        const val REPEAT_WINDOW: Int = 30
+    }
+}
 
 /**
  * The agent loop: call the model, run the tools it asks for, feed results
@@ -164,7 +190,8 @@ class AgentLoop(
         var lengthContinuations = 0
         var qualityPasses = 0
         var malformedNudges = 0
-        val recentCalls = ArrayDeque<String>()
+        var truncatedRetries = 0
+        val stuck = StuckDetector(config)
 
         while (true) {
             if (iteration >= config.maxIterations) return AgentRunResult.IterationLimit(iteration)
@@ -178,18 +205,35 @@ class AgentLoop(
             var calls = turn.toolCalls
             var visible = turn.content
             var fromText = false
+            // Calls the output limit cut off: never run, the model resends them.
+            var cutOff = emptyList<String>()
             if (calls.isEmpty() && knownTools.isNotEmpty()) {
                 val parsed = TextToolCallParser.parse(turn.content, knownTools)
-                if (parsed.calls.isNotEmpty()) {
-                    calls = parsed.calls
+                var parsedCalls = parsed.calls
+                cutOff = parsed.incomplete
+                // A block left open is only suspect when the reply hit the limit.
+                val last = parsedCalls.lastOrNull()
+                if (turn.finishReason == "length" && last != null && last.id in parsed.openEnded) {
+                    parsedCalls = parsedCalls.dropLast(1)
+                    cutOff = cutOff + last.function.name
+                }
+                if (parsedCalls.isNotEmpty() || cutOff.isNotEmpty()) {
+                    calls = parsedCalls
                     visible = parsed.visibleText
                     fromText = true
+                }
+            } else if (calls.isNotEmpty() && turn.finishReason == "length") {
+                // Native calls stream in order, so only the last can be cut mid-arguments.
+                val last = calls.last()
+                if (!isCompleteJson(last.function.arguments)) {
+                    calls = calls.dropLast(1)
+                    cutOff = listOf(last.function.name)
                 }
             }
             // Tool-call markup that did not parse (bad JSON, unknown tool, a
             // template the model half-remembered): nothing ran. Say so and ask
             // again, rather than ending the run on a reply full of markup.
-            val malformed = calls.isEmpty() && knownTools.isNotEmpty() &&
+            val malformed = calls.isEmpty() && cutOff.isEmpty() && knownTools.isNotEmpty() &&
                 TextToolCallParser.looksLikeToolCall(turn.content)
             if (malformed) {
                 visible = turn.content.substring(0, TextToolCallParser.visiblePrefixLength(turn.content)).trimEnd()
@@ -201,12 +245,41 @@ class AgentLoop(
                 conversation += ChatRequestMessage(role = "user", content = malformedCallNudge(knownTools))
                 continue
             }
+            if (malformed) {
+                // Still unreadable after the nudges: say so, rather than
+                // presenting the prose before the broken call as a finished answer.
+                listener.onTurnComplete(visible, emptyList())
+                conversation += ChatRequestMessage(role = "assistant", content = stripThinking(visible).ifBlank { "(unreadable tool call)" })
+                return AgentRunResult.Failed(
+                    "The model kept writing tool calls the app could not read, so nothing ran. " +
+                        "Retry, or pick a model with native tool calling.",
+                    retryable = true
+                )
+            }
             calls = calls.mapIndexed { i, c ->
                 if (c.id.isBlank()) c.copy(id = "call_${iteration}_$i") else c
             }
             listener.onTurnComplete(visible, calls)
 
             val historyText = stripThinking(turn.content)
+
+            // Only cut-off calls: nothing ran. Ask for them again, smaller.
+            if (calls.isEmpty() && cutOff.isNotEmpty()) {
+                if (truncatedRetries >= config.maxTruncatedCallRetries) {
+                    return AgentRunResult.Failed(
+                        "The model's replies keep getting cut off by its output limit before a " +
+                            "${cutOff.first()} call is complete. Try a model with a larger output limit, " +
+                            "or ask for a smaller change.",
+                        retryable = false
+                    )
+                }
+                truncatedRetries++
+                // The cut-off markup is not kept: resending a half file teaches nothing.
+                val prose = if (fromText) stripThinking(visible) else historyText
+                conversation += ChatRequestMessage(role = "assistant", content = prose.ifBlank { "(reply cut off)" })
+                conversation += ChatRequestMessage(role = "user", content = truncatedCallNudge(cutOff, fromText))
+                continue
+            }
 
             if (calls.isEmpty()) {
                 if (turn.finishReason == "length" && lengthContinuations < config.maxLengthContinuations) {
@@ -233,7 +306,13 @@ class AgentLoop(
             }
 
             if (fromText) {
-                conversation += ChatRequestMessage(role = "assistant", content = historyText)
+                // Keep only what ran: a cut-off tail must not be imitated next turn.
+                val kept = if (cutOff.isEmpty()) historyText else {
+                    stripThinking(visible) + "\n" + calls.joinToString("\n") {
+                        TextToolProtocol.formatCall(it.function.name, it.function.arguments)
+                    }
+                }
+                conversation += ChatRequestMessage(role = "assistant", content = kept.trim())
             } else {
                 conversation += AssistantMessageWithToolCalls(
                     content = historyText.ifBlank { null },
@@ -243,18 +322,14 @@ class AgentLoop(
 
             val results = executeCalls(calls, listener)
 
-            // Repetition guard: the same call three times running is a loop.
-            val finalResults = results.mapIndexed { i, result ->
-                val key = calls[i].function.name + "\u0000" + calls[i].function.arguments
-                recentCalls.addLast(key)
-                while (recentCalls.size > 3) recentCalls.removeFirst()
-                if (recentCalls.size == 3 && recentCalls.all { it == key }) {
-                    result.copy(
-                        output = result.output + "\n\n[Note: this exact call has now been made three " +
-                            "times in a row. Its result will not change; try a different approach.]"
-                    )
-                } else result
+            // Stuck detection: repeated calls with unchanged results and
+            // streaks of failures earn a corrective note; a loop that
+            // outlasts the notes ends the run.
+            val verdict = stuck.record(calls, results)
+            val finalResults = if (verdict.note == null) results else results.mapIndexed { i, r ->
+                if (i == results.lastIndex) r.copy(output = r.output + "\n\n" + verdict.note) else r
             }
+            val cutNote = if (cutOff.isEmpty()) null else truncatedCallNudge(cutOff, fromText)
 
             if (fromText) {
                 conversation += ChatRequestMessage(
@@ -265,6 +340,7 @@ class AgentLoop(
                             append("<tool_result name=\"").append(call.function.name).append("\">\n")
                             append(resultText(finalResults[i])).append("\n</tool_result>\n")
                         }
+                        if (cutNote != null) append(cutNote).append('\n')
                         append("Continue. When the task is done, reply with a short summary and no tool call.")
                     }
                 )
@@ -277,6 +353,7 @@ class AgentLoop(
                         name = call.function.name
                     )
                 }
+                if (cutNote != null) conversation += ChatRequestMessage(role = "user", content = cutNote)
             }
 
             // Screenshots go to the model as an image turn (tool messages cannot
@@ -294,6 +371,8 @@ class AgentLoop(
                 )
             }
 
+            if (verdict.stop != null) return AgentRunResult.Failed(verdict.stop, retryable = false)
+
             // Legacy explicit finish: the summary is the answer.
             val finish = calls.indexOfFirst { ToolAliases.canonicalName(it.function.name) == "finish_task" }
             if (finish >= 0) {
@@ -306,10 +385,20 @@ class AgentLoop(
         }
     }
 
+    /** What to tell the model about calls the output limit cut off. */
+    private fun truncatedCallNudge(names: List<String>, textMode: Boolean): String = buildString {
+        val what = names.distinct().joinToString(", ")
+        append("Your reply hit the output limit in the middle of ")
+        append(if (textMode) "a <tool_call> for $what" else "the $what call")
+        append(", so that call was NOT run (a cut-off file would be broken). Send it again in smaller pieces: ")
+        append("create a long file with write_file holding only its first part, then add the rest with further ")
+        append("write_file calls with append=true, a few hundred lines each. Keep edits short.")
+    }
+
     private fun malformedCallNudge(knownTools: Set<String>): String = buildString {
         append("Your last reply contained a tool call that could not be read, so nothing ran. ")
-        append("Send it again in exactly this format, with valid JSON (escape quotes and newlines inside strings):\n")
-        append("<tool_call>\n{\"name\": \"TOOL_NAME\", \"arguments\": {...}}\n</tool_call>\n")
+        append("Send it again in exactly this format (values are raw text, no JSON escaping):\n")
+        append("<tool_call>\n<function=TOOL_NAME>\n<parameter=NAME>value</parameter>\n</function>\n</tool_call>\n")
         append("TOOL_NAME must be one of: ").append(knownTools.sorted().joinToString(", ")).append('.')
     }
 
@@ -407,6 +496,11 @@ class AgentLoop(
         var error: StreamEvent.Error? = null
         var completed = false
         var writing = false
+        // Text mode: the model may run on past its calls and invent their
+        // results. Stop reading there -- it saves the wait, and the invented
+        // results never reach the history.
+        val textMode = hideToolMarkup && request.tools.isNullOrEmpty()
+        var scanned = 0
 
         val flow = try {
             client.stream(request)
@@ -438,6 +532,16 @@ class AgentLoop(
                     when (val event = received.getOrThrow()) {
                         is StreamEvent.ContentDelta -> {
                             content.append(event.content)
+                            if (textMode) {
+                                val fake = TextToolCallParser.fakeResultStart(content, (scanned - FAKE_MARKER_OVERLAP).coerceAtLeast(0))
+                                scanned = content.length
+                                if (fake >= 0) {
+                                    content.setLength(fake)
+                                    if (finishReason == null) finishReason = "stop"
+                                    completed = true
+                                    break
+                                }
+                            }
                             if (!writing && content.isNotBlank()) {
                                 writing = true
                                 listener.onStatus(AgentStatus.Writing)
@@ -567,6 +671,19 @@ class AgentLoop(
     }
 
     companion object {
+        /** Longest fabricated-result marker, so a marker split across deltas is still found. */
+        private const val FAKE_MARKER_OVERLAP = 24
+
+        /**
+         * Whether native call arguments are a complete JSON object, not cut off
+         * mid-stream. The plain parser only (no repairs): repairing a cut-off
+         * argument string is exactly how half a file would get written.
+         */
+        internal fun isCompleteJson(arguments: String): Boolean =
+            arguments.isBlank() || runCatching {
+                com.oro.app.data.ai.AiHttp.json.parseToJsonElement(arguments) is kotlinx.serialization.json.JsonObject
+            }.getOrDefault(false)
+
         private val CONTEXT_OVERFLOW = Regex(
             "context[ _-]?length|maximum context|context window|too many tokens|" +
                 "reduce the length|prompt is too long|input is too long|token limit|exceeds the (model|max)",

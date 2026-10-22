@@ -75,8 +75,10 @@ internal object CommunityHeaders {
  * Plain-text view of a conversation, for sites without roles or tool messages.
  *
  * Native tool traffic (assistant `tool_calls`, `tool` results) is rendered in
- * the same `<tool_call>` / `<tool_result>` text the agent uses in text mode, so
- * a conversation started on another model stays intelligible here.
+ * the same `<tool_call>` / `<tool_result>` text the agent uses in text mode --
+ * the raw-parameter format [com.oro.app.data.ai.agent.TextToolProtocol] teaches
+ * -- so a conversation started on another model stays intelligible here, and
+ * the history the model imitates matches its instructions.
  */
 internal object Transcript {
 
@@ -87,7 +89,7 @@ internal object Transcript {
             "system", "user" -> m.content?.takeIf { it.isNotBlank() }?.let { Turn(m.role, it) }
             "assistant" -> {
                 val calls = m.toolCalls.orEmpty().joinToString("\n") { c ->
-                    "<tool_call>\n{\"name\": \"${c.function.name}\", \"arguments\": ${c.function.arguments.ifBlank { "{}" }}}\n</tool_call>"
+                    com.oro.app.data.ai.agent.TextToolProtocol.formatCall(c.function.name, c.function.arguments)
                 }
                 listOfNotNull(m.content?.takeIf { it.isNotBlank() }, calls.takeIf { it.isNotBlank() })
                     .joinToString("\n").takeIf { it.isNotBlank() }?.let { Turn("assistant", it) }

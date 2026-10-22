@@ -120,4 +120,17 @@ class QualityAuditorTest {
         assertThat(msg).contains("check_syntax")
         assertThat(QualityGate.review(tmp.root, setOf("css/style.css"))).isNull()
     }
+
+    @Test
+    fun `quick check reports only what the file itself gets wrong`() {
+        val auditor = QualityAuditor(tmp.root)
+        assertThat(auditor.quickCheck("index.html", "<!DOCTYPE html><html><head></head><body><p>cut")).hasSize(1)
+        assertThat(auditor.quickCheck("app.js", "function a() { if (x) { return 1; }")).hasSize(1)
+        assertThat(auditor.quickCheck("db.json", "{\"items\": [1, 2,]")).hasSize(1)
+        assertThat(auditor.quickCheck("a.css", ".a { color: red; ").single().severity).isEqualTo(QualityAuditor.Severity.ERROR)
+        assertThat(auditor.quickCheck("dup.html", "<div id=\"x\"></div><div id=\"x\"></div>").single().message).contains("Duplicate id")
+        // A script looking up an id that a later file will add is not a quick-check error.
+        assertThat(auditor.quickCheck("app.js", "document.getElementById('later').addEventListener('click', () => {});")).isEmpty()
+        assertThat(auditor.quickCheck("ok.html", goodHtml.trimIndent())).isEmpty()
+    }
 }

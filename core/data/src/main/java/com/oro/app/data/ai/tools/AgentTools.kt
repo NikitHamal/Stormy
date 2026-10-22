@@ -44,13 +44,15 @@ object AgentTools {
         Read a text file from the project. Output is numbered "<line>|<text>"
         (the line-number prefix is not part of the file). Reads up to 2000
         lines from `offset`; for long files read the part you need with
-        offset/limit. Always read a file before editing it.
+        offset/limit. Add `paths` to read several files in one call. Always
+        read a file before editing it.
         """,
         """
         {"type":"object","properties":{
           "path":{"type":"string","description":"File path relative to the project root, e.g. \"index.html\" or \"css/style.css\"."},
+          "paths":{"type":"array","items":{"type":"string"},"description":"More files to read in the same call (up to 8 in total), e.g. [\"style.css\", \"app.js\"]."},
           "offset":{"type":"integer","description":"1-based line to start from. Default 1."},
-          "limit":{"type":"integer","description":"Maximum number of lines to return. Default 2000."}
+          "limit":{"type":"integer","description":"Maximum number of lines to return per file. Default 2000."}
         },"required":["path"]}
         """
     )
@@ -61,12 +63,15 @@ object AgentTools {
         Create a new file, or completely replace an existing one. Parent
         folders are created automatically. Prefer edit_file for changes to an
         existing file; only rewrite a whole file when most of it changes. The
-        content is the literal file text, never JSON-encoded structure.
+        content is the literal file text, never JSON-encoded structure. For a
+        very long file, write the first part, then add the rest with
+        append=true.
         """,
         """
         {"type":"object","properties":{
           "path":{"type":"string","description":"File path relative to the project root."},
-          "content":{"type":"string","description":"The complete file contents."}
+          "content":{"type":"string","description":"The complete file contents (or the next part, with append)."},
+          "append":{"type":"boolean","description":"Add content to the end of the file instead of replacing it. Default false."}
         },"required":["path","content"]}
         """
     )
@@ -152,7 +157,8 @@ object AgentTools {
           "path":{"type":"string","description":"File or folder to search. Default the project root."},
           "include":{"type":"string","description":"Only search files whose path matches this glob, e.g. \"*.{html,css}\"."},
           "ignore_case":{"type":"boolean","description":"Case-insensitive match. Default false."},
-          "literal":{"type":"boolean","description":"Treat pattern as plain text, not a regex. Default false."}
+          "literal":{"type":"boolean","description":"Treat pattern as plain text, not a regex. Default false."},
+          "context":{"type":"integer","description":"Lines to show before and after each match, 0-5. Default 0."}
         },"required":["pattern"]}
         """
     )

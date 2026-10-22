@@ -116,6 +116,51 @@ class QualityAuditor(private val root: File) {
         return Report(reported.distinct(), sources.size)
     }
 
+    /**
+     * The checks that need nothing but the file itself, run on every write:
+     * cut-off HTML, unbalanced script and style brackets, invalid JSON,
+     * duplicate ids. Cross-file checks (missing ids, broken links) are left to
+     * the full review -- mid-build, the file they point at may simply not be
+     * written yet, and a false alarm after every write teaches the model to
+     * ignore the check.
+     */
+    fun quickCheck(rel: String, text: String): List<Issue> {
+        val out = mutableListOf<Issue>()
+        val ext = rel.substringAfterLast('.', "").lowercase()
+        when (ext) {
+            "html", "htm" -> {
+                val lower = text.lowercase()
+                if (lower.contains("<html") && !lower.contains("</html>")) {
+                    out += Issue(Severity.ERROR, rel, text.count { it == '\n' } + 1, "No closing </html>: the file looks cut off.")
+                } else if (lower.contains("<body") && !lower.contains("</body>")) {
+                    out += Issue(Severity.ERROR, rel, text.count { it == '\n' } + 1, "No closing </body>: the file looks cut off.")
+                }
+                ID_ATTR.findAll(text).groupBy { it.groupValues[2] }.filter { it.value.size > 1 }.forEach { (id, ms) ->
+                    out += Issue(Severity.ERROR, rel, lineAt(text, ms[1].range.first), "Duplicate id=\"$id\" (${ms.size} times).")
+                }
+                INLINE_SCRIPT.findAll(text).forEach { m ->
+                    val type = SCRIPT_TYPE.find(m.value.substringBefore('>'))?.groupValues?.get(1)
+                    if (type != null && type != "module" && !type.contains("javascript")) return@forEach
+                    JsBalance.check(m.groupValues[1])?.let { msg ->
+                        out += Issue(Severity.ERROR, rel, lineAt(text, m.range.first), "Inline <script>: $msg")
+                    }
+                }
+                INLINE_STYLE.findAll(text).forEach { m ->
+                    cssBalance(m.groupValues[1])?.let { msg -> out += Issue(Severity.ERROR, rel, lineAt(text, m.range.first), "Inline <style>: $msg") }
+                }
+            }
+            "css" -> cssBalance(text)?.let { out += Issue(Severity.ERROR, rel, null, it) }
+            "js", "mjs" -> JsBalance.check(text)?.let { out += Issue(Severity.ERROR, rel, null, it) }
+            "json" -> if (text.isNotBlank()) {
+                runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) }.exceptionOrNull()?.let { e ->
+                    val detail = e.message?.lineSequence()?.firstOrNull()?.take(140).orEmpty()
+                    out += Issue(Severity.ERROR, rel, null, "Invalid JSON: $detail")
+                }
+            }
+        }
+        return out
+    }
+
     // ---------------------------------------------------------------- HTML
 
     private fun checkHtml(s: Source, out: MutableList<Issue>) {
@@ -343,6 +388,9 @@ class QualityAuditor(private val root: File) {
         private val JS_ID_LOOKUP = Regex("""getElementById\(\s*["']([\w-]+)["']\s*\)|querySelector\(\s*["']#([\w-]+)["']\s*\)""")
         private val REF_ATTR = Regex("""<(link|script|img|source|video|audio|iframe)\b[^>]*?\b(href|src)\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val ANIMATION = Regex("""\b(animation|transition)\s*:|@keyframes""")
+        private val INLINE_SCRIPT = Regex("<script\\b(?![^>]*\\bsrc=)[^>]*>(.*?)</script>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val INLINE_STYLE = Regex("<style\\b[^>]*>(.*?)</style>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val SCRIPT_TYPE = Regex("type\\s*=\\s*[\"']([^\"']+)", RegexOption.IGNORE_CASE)
 
         fun levenshtein(a: String, b: String): Int {
             if (a == b) return 0

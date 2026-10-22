@@ -289,6 +289,7 @@ class AiRepository(
                 append(WEB_GUIDELINES)
                 if (projectContext.isNotBlank()) {
                     append("\n\n# Project context\n")
+                    append("(As of the start of this task. Files may have changed since: read a file for its current text.)\n")
                     append(projectContext.trim())
                 }
             }
@@ -327,8 +328,10 @@ class AiRepository(
             3. Plan. For work with several steps, publish a short plan with update_plan.
             4. Build. Complete, working files -- no TODOs, placeholders or lorem ipsum. Prefer small
                edits with edit_file / multi_edit; old_string must match the file exactly -- if an edit
-               fails, re-read the file and copy the exact text. Write large new files in parts
-               (structure, then styles, then script) rather than one huge call.
+               fails, re-read the file and copy the exact text. Keep each file focused (markup, styles
+               and script in their own files); for a very long file, write its first part with
+               write_file, then the rest with write_file append=true. Write and edit results end with
+               a quick check of that file: fix what it reports right away.
             5. Verify. Run check_syntax with no path (whole project) and fix every ERROR and WARN.
                For UI, look at it with screenshot_preview and fix what you see; get_preview_errors
                shows runtime errors. The app also reviews your files when you finish and sends back
@@ -340,7 +343,9 @@ class AiRepository(
             - Do the task, don't describe it. Never paste a whole file into chat for the user to copy.
             - Match the project's structure, naming and style. There is no node, npm or build tooling
               on the device: load libraries from a CDN (jsDelivr, unpkg, esm.sh).
-            - Call several independent read-only tools at once (read_file, grep, glob, use_skill).
+            - Work in parallel: every round trip costs the user time. In one turn, read all the files
+              you need (read_file takes several paths), run independent searches together, and create
+              independent new files together.
             - Use ask_user only when genuinely blocked (batch every question into one call): the
               request is ambiguous in a way that changes the outcome, or you need something only the
               user knows (brand name, real copy). Don't ask permission for ordinary work. For

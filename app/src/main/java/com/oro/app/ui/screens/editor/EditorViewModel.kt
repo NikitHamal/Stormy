@@ -1553,10 +1553,11 @@ class EditorViewModel(
                             actionLabel = "Retry"
                         )
                     }
+                    // Runs have no step cap; this only fires if a caller sets one.
                     is AgentRunResult.IterationLimit -> {
-                        run.note("_Paused after ${result.iterations} steps._")
+                        run.note("_Paused._")
                         _runError.value = RunError(
-                            message = "Orobi paused after ${result.iterations} steps to check in. Continue to let it keep working.",
+                            message = "Orobi paused. Continue to let it keep working.",
                             actionLabel = "Continue",
                             isNotice = true
                         )
@@ -1646,10 +1647,19 @@ class EditorViewModel(
                 )
             } else "")
 
+        // The project context is snapshotted once per run, so the system
+        // prompt is byte-identical on every turn and providers' prompt caches
+        // (Anthropic, OpenAI, DeepSeek, Gemini...) stay warm for the whole
+        // run. Rebuilding it per turn changed the file tree after every
+        // write and re-billed the full prompt each time.
+        var runContext: String? = null
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
             val textMode = !nativeTools || forceTextTools
+            val context = runContext
+                ?: (buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext) + instructions)
+                    .also { runContext = it }
             val system = aiRepository.createSystemMessage(
-                projectContext = buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext) + instructions,
+                projectContext = context,
                 agentMode = isAgentMode,
                 nativeTools = !textMode,
                 toolList = offeredTools
@@ -1744,8 +1754,9 @@ class EditorViewModel(
         val loop = AgentLoop(
             client = client,
             tools = runner,
+            // No step cap: long builds run to the end. AgentLoop's stuck
+            // detection ends genuinely hopeless loops instead.
             config = AgentLoopConfig(
-                maxIterations = MAX_AGENT_ITERATIONS,
                 attachImages = com.oro.app.data.ai.VisionSupport.supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
             )
         )
@@ -2318,7 +2329,6 @@ class EditorViewModel(
     }
 
     companion object {
-        private const val MAX_AGENT_ITERATIONS = 40
         private const val OPEN_FILE_CONTEXT_CHARS = 12_000
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L

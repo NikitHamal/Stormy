@@ -286,8 +286,19 @@ class ToolExecutor(
                 triggerAutoLearning(projectId, change.path, change.newContent)
             }
         }
+        // Writes report self-contained defects of the file at once, saving
+        // the model a check_syntax round trip.
+        if (toolName in QUICK_CHECKED && outcome.result.success && outcome.changes.isNotEmpty()) {
+            val root = currentProjectPath
+            val note = root?.let { r ->
+                kotlinx.coroutines.withContext(Dispatchers.Default) { runCatching { CraftTools.quickCheckNote(r, outcome.changes) }.getOrNull() }
+            }
+            if (note != null) return outcome.result.copy(output = outcome.result.output + "\n\n" + note)
+        }
         return outcome.result
     }
+
+    private val QUICK_CHECKED = setOf("write_file", "edit_file", "multi_edit")
 
     // Session-based todo storage
     // Session-based todo storage removed in favor of persistent storage
