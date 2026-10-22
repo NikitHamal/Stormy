@@ -345,13 +345,33 @@ object AgentTools {
     val CHECK_SYNTAX = tool(
         "check_syntax",
         """
-        Quick static check of an HTML, CSS, JS or JSON file for unbalanced
-        tags/brackets and similar mistakes. Use it to verify files you wrote.
+        Static review of the whole project, or of one file with `path`: broken
+        links and paths, scripts looking up ids that don't exist, truncated
+        files, unbalanced brackets/tags, invalid JSON, missing viewport/title/
+        lang, images without alt, unlabeled icon buttons, missing focus and
+        reduced-motion styles, placeholder copy. Run it with no path when you
+        finish building and fix every ERROR and WARN.
         """,
         """
         {"type":"object","properties":{
-          "path":{"type":"string","description":"File path relative to the project root."}
-        },"required":["path"]}
+          "path":{"type":"string","description":"File to check. Omit to review the whole project."}
+        }}
+        """
+    )
+
+    val ADD_UI_KIT = tool(
+        "add_ui_kit",
+        """
+        Install Oro's production UI kit (oro-ui/oro.css + oro-ui/oro.js):
+        design tokens, typography, buttons, cards, inputs, dialogs, toasts,
+        skeletons, tabs, sticky nav, dark mode, scroll reveal, count-up and
+        tilt effects. Use it for a new site or app without a design system,
+        then build on its classes and tokens. Returns how to use it.
+        """,
+        """
+        {"type":"object","properties":{
+          "brand_hue":{"type":"integer","description":"Brand colour hue 0-360 (248 indigo, 160 emerald, 12 coral, 200 sky, 280 violet, 35 amber). Default 248."}
+        }}
         """
     )
 
@@ -375,7 +395,7 @@ object AgentTools {
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
         CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH,
-        SEARCH_PROJECT, DOCS_LOOKUP, ASK_USER, SAVE_MEMORY, USE_SKILL, OPEN_PULL_REQUEST
+        SEARCH_PROJECT, DOCS_LOOKUP, ASK_USER, SAVE_MEMORY, USE_SKILL, ADD_UI_KIT, OPEN_PULL_REQUEST
     )
     // run_command is deliberately not offered: on Android there is no node,
     // npm or python, so models burned turns trying to install packages, and
@@ -392,7 +412,7 @@ object AgentTools {
     /** Capability a tool needs, for subagent permission filtering. */
     fun capabilityOf(name: String): ToolCapability? = when (ToolAliases.canonicalName(name)) {
         "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch" -> ToolCapability.READ
-        "write_file", "edit_file", "multi_edit", "move_file", "delete_file" -> ToolCapability.WRITE
+        "write_file", "edit_file", "multi_edit", "move_file", "delete_file", "add_ui_kit" -> ToolCapability.WRITE
         "run_command" -> ToolCapability.EXECUTE
         "save_memory" -> ToolCapability.MEMORY
         "spawn_subagent" -> ToolCapability.DELEGATE
@@ -413,7 +433,9 @@ object AgentTools {
             "glob", "grep" -> "Searching"
             "delete_file" -> "Deleting"
             "move_file" -> "Moving"
-            "check_syntax" -> "Checking"
+            "check_syntax" -> if (s == null) return "Reviewing the project" else "Checking"
+            "add_ui_kit" -> return "Installing the UI kit"
+            "use_skill" -> "Studying"
             "web_fetch" -> "Fetching"
             "run_command" -> "Running"
             "save_memory" -> "Remembering"

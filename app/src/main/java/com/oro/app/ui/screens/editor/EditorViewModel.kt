@@ -88,6 +88,7 @@ import com.oro.app.data.ai.agent.AgentRunResult
 import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentToolRunner
 import com.oro.app.data.ai.agent.HistoryPruner
+import com.oro.app.data.ai.craft.QualityGate
 import com.oro.app.data.ai.agent.TokenEstimator
 import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.ToolAliases
@@ -1683,6 +1684,10 @@ class EditorViewModel(
 
         val runner = AgentToolRunner { call -> runTool(call) }
 
+        // Files written during this run: the quality gate reports only on
+        // these, so the agent is never sent to fix code it did not touch.
+        val touched = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
         val listener = object : AgentLoopListener {
             override fun onStatus(status: AgentStatus) {
                 _runStatus.value = status
@@ -1716,6 +1721,7 @@ class EditorViewModel(
                 run.toolFinished(call, result)
                 pushTranscript(force = true)
                 if (ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly) {
+                    if (result.success) touched += QualityGate.touchedPaths(call)
                     viewModelScope.launch { loadFileTree() }
                 }
             }
@@ -1749,7 +1755,11 @@ class EditorViewModel(
             if (sid != null && userMsg != null) checkpoints()?.begin(sid, userMsg.id, userMsg.content) else null
         }
         val result = try {
-            loop.run(_messageHistory, knownTools, listener, prepare)
+            val root = _project.value?.rootPath?.let { File(it) }
+            val finalCheck: (suspend () -> String?)? = if (isAgentMode && root != null) {
+                { withContext(Dispatchers.IO) { QualityGate.review(root, touched.toSet()) } }
+            } else null
+            loop.run(_messageHistory, knownTools, listener, finalCheck, prepare)
         } finally {
             val recorder = toolExecutor.checkpoint
             toolExecutor.checkpoint = null

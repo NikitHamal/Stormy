@@ -29,7 +29,7 @@ enum class AutonomyMode(val label: String, val summary: String) {
 
 object AutonomyPolicy {
 
-    private val MUTATING = setOf("write_file", "edit_file", "multi_edit", "delete_file", "move_file")
+    private val MUTATING = setOf("write_file", "edit_file", "multi_edit", "delete_file", "move_file", "add_ui_kit")
     private val SENSITIVE_FILE = Regex("""(^|/)(\.env(\..*)?|.*\.(pem|key|p12|jks|keystore)|id_rsa.*|\.npmrc|\.git/.*)$""", RegexOption.IGNORE_CASE)
     private val RISKY_MCP = Regex("delete|drop|remove|destroy|merge|push|deploy|execute|sql|transfer|revoke|archive", RegexOption.IGNORE_CASE)
 

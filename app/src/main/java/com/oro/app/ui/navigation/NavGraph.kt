@@ -46,6 +46,7 @@ sealed class Screen(val route: String) {
     data object Mcp : Screen("mcp")
     data object Voice : Screen("voice")
     data object Skills : Screen("skills")
+    data object DeviceAgent : Screen("device_agent")
     data object Timeline : Screen("timeline/{projectId}") {
         fun createRoute(projectId: String) = "timeline/$projectId"
     }
@@ -57,8 +58,21 @@ sealed class Screen(val route: String) {
 @Composable
 fun OroNavGraph(
     navController: NavHostController,
-    startDestination: String
+    startDestination: String,
+    openDeviceAgent: Boolean = false,
+    onDeviceAgentOpened: () -> Unit = {}
 ) {
+    // Orobi brings Oro forward when it has a question or finishes a device
+    // task; land on the device agent screen rather than wherever the user was.
+    androidx.compose.runtime.LaunchedEffect(openDeviceAgent) {
+        if (openDeviceAgent && startDestination != Screen.Onboarding.route) {
+            if (navController.currentDestination?.route != Screen.DeviceAgent.route) {
+                navController.navigate(Screen.DeviceAgent.route) { launchSingleTop = true }
+            }
+            onDeviceAgentOpened()
+        }
+    }
+
     // NavHost's transition lambdas are not @Composable, so the specs are read
     // here, in composable scope, and captured. Reading them per transition
     // would not compile -- and would be wasteful even if it did.
@@ -145,8 +159,15 @@ fun OroNavGraph(
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onDeviceAgentClick = {
+                    navController.navigate(Screen.DeviceAgent.route)
                 }
             )
+        }
+
+        composable(Screen.DeviceAgent.route) {
+            com.oro.app.ui.screens.device.DeviceAgentScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

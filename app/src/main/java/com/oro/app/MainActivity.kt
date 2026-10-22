@@ -27,6 +27,15 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
+    /** Set when the device agent brings Oro forward (question or finished task). */
+    private val openDeviceAgent = mutableStateOf(false)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(com.oro.app.device.DeviceAgent.EXTRA_OPEN_DEVICE_AGENT, false)) openDeviceAgent.value = true
+    }
+
     private val preferencesRepository by lazy {
         (application as OroApplication).preferencesRepository
     }
@@ -42,6 +51,7 @@ class MainActivity : ComponentActivity() {
         // Backed by snapshot state so that setContent below actually recomposes
         // when the read lands; a plain captured var would never notify Compose.
         val startDestination = mutableStateOf<String?>(null)
+        if (intent?.getBooleanExtra(com.oro.app.device.DeviceAgent.EXTRA_OPEN_DEVICE_AGENT, false) == true) openDeviceAgent.value = true
         splashScreen.setKeepOnScreenCondition { startDestination.value == null }
 
         lifecycleScope.launch {
@@ -88,18 +98,26 @@ class MainActivity : ComponentActivity() {
 
             OroTheme(darkTheme = darkTheme, liteMode = liteMode) {
                 // Null only while the splash screen is still covering us.
-                startDestination.value?.let { MainContent(startDestination = it) }
+                startDestination.value?.let {
+                    MainContent(
+                        startDestination = it,
+                        openDeviceAgent = openDeviceAgent.value,
+                        onDeviceAgentOpened = { openDeviceAgent.value = false }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MainContent(startDestination: String) {
+private fun MainContent(startDestination: String, openDeviceAgent: Boolean, onDeviceAgentOpened: () -> Unit) {
     val navController = rememberNavController()
 
     OroNavGraph(
         navController = navController,
-        startDestination = startDestination
+        startDestination = startDestination,
+        openDeviceAgent = openDeviceAgent,
+        onDeviceAgentOpened = onDeviceAgentOpened
     )
 }

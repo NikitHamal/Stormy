@@ -262,6 +262,16 @@ class ToolExecutor(
                 if (args.getBooleanArg("clear", false)) com.oro.app.data.preview.PreviewDiagnostics.clear(projectId)
                 return ToolResult(true, out)
             }
+            "check_syntax" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val path = args.getStringArg("path")?.trim()?.removePrefix("./")?.trimStart('/')?.takeIf { it.isNotEmpty() && it != "." }
+                return kotlinx.coroutines.withContext(Dispatchers.IO) { CraftTools.check(root, path) { advancedToolExecutor.execute(projectId, "check_syntax", args) } }
+            }
+            "add_ui_kit" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                checkpoint?.let { rec -> kotlinx.coroutines.withContext(Dispatchers.IO) { CraftTools.UI_KIT_PATHS.forEach { runCatching { rec.capture(it) } } } }
+                kotlinx.coroutines.withContext(Dispatchers.IO) { CraftTools.addUiKit(root, args) }
+            }
             "ask_user" -> return executeAskUser(args)
             "finish_task" -> return executeFinishTask(args)
             "update_plan" -> return ToolResult(

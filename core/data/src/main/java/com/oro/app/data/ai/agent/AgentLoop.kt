@@ -40,7 +40,7 @@ fun interface AgentToolRunner {
 
 /** What the run is doing right now, for the working indicator. */
 data class AgentStatus(val kind: Kind, val label: String) {
-    enum class Kind { THINKING, WRITING, RUNNING_TOOL, WAITING_FOR_USER, RETRYING, COMPACTING }
+    enum class Kind { THINKING, WRITING, RUNNING_TOOL, WAITING_FOR_USER, RETRYING, COMPACTING, VERIFYING }
 
     companion object {
         val Thinking = AgentStatus(Kind.THINKING, "Thinking")
@@ -97,7 +97,9 @@ data class AgentLoopConfig(
     /** Cap on one tool result kept in history, in characters. */
     val maxToolResultChars: Int = 60_000,
     /** Times a reply cut off by the output limit is continued. */
-    val maxLengthContinuations: Int = 2
+    val maxLengthContinuations: Int = 2,
+    /** Times the final check may send the agent back to fix what it found. */
+    val maxQualityPasses: Int = 2
 )
 
 /**
@@ -145,15 +147,22 @@ class AgentLoop(
      *   0 normally and rises after a context-length error, asking for harder
      *   pruning.
      * @param knownTools names the model may call, for text-call recovery.
+     * @param finalCheck runs when the model says it is done. A non-null result
+     *   is a list of defects; it goes back as a user message and the run
+     *   continues, at most [AgentLoopConfig.maxQualityPasses] times. This is
+     *   the quality gate that gives every model, weak ones especially, a
+     *   careful engineer's second pass (see QualityGate).
      */
     suspend fun run(
         conversation: MutableList<ChatRequestMessage>,
         knownTools: Set<String>,
         listener: AgentLoopListener,
+        finalCheck: (suspend () -> String?)? = null,
         prepare: suspend (history: List<ChatRequestMessage>, pressure: Int) -> AgentRequest
     ): AgentRunResult {
         var iteration = 0
         var lengthContinuations = 0
+        var qualityPasses = 0
         var malformedNudges = 0
         val recentCalls = ArrayDeque<String>()
 
@@ -211,6 +220,15 @@ class AgentLoop(
                     continue
                 }
                 conversation += ChatRequestMessage(role = "assistant", content = historyText)
+                if (finalCheck != null && qualityPasses < config.maxQualityPasses && iteration < config.maxIterations) {
+                    listener.onStatus(AgentStatus(AgentStatus.Kind.VERIFYING, "Reviewing quality"))
+                    val feedback = try { finalCheck() } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+                    if (!feedback.isNullOrBlank()) {
+                        qualityPasses++
+                        conversation += ChatRequestMessage(role = "user", content = feedback)
+                        continue
+                    }
+                }
                 return AgentRunResult.Completed(stripThinking(visible))
             }
 

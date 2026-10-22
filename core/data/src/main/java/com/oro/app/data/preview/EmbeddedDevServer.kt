@@ -35,6 +35,10 @@ class EmbeddedDevServer(
     private val frameworkType: FrameworkType = FrameworkType.VANILLA
 ) {
     companion object {
+        private val STATUS_TEXT = mapOf(
+            200 to "OK", 201 to "Created", 204 to "No Content", 400 to "Bad Request", 404 to "Not Found",
+            405 to "Method Not Allowed", 409 to "Conflict", 500 to "Internal Server Error"
+        )
         private const val TAG = "EmbeddedDevServer"
         private const val DEFAULT_PORT_RANGE_START = 8080
         private const val DEFAULT_PORT_RANGE_END = 8180
@@ -214,7 +218,9 @@ class EmbeddedDevServer(
         val changedFiles = mutableListOf<String>()
 
         projectRoot.walkTopDown()
-            .filter { it.isFile && isServableFile(it) }
+            // db.json is data written by the mock API; reloading the page on
+            // every POST would wipe the app state the request just changed.
+            .filter { it.isFile && isServableFile(it) && !(it.name.startsWith("db.json") && it.parentFile == projectRoot) }
             .forEach { file ->
                 val relativePath = file.relativeTo(projectRoot).path
                 val lastModified = file.lastModified()
@@ -306,9 +312,18 @@ class EmbeddedDevServer(
                     }
                 }
 
+                val rawTarget = parts[1]
                 when {
                     path == "/__dev_changes__" -> handleChangesEndpoint(output)
                     path == "/__dev_reload__" -> handleReloadEndpoint(output)
+                    method == "OPTIONS" -> sendRaw(output, 204, "text/plain", ByteArray(0), emptyMap())
+                    MockApi.isApiPath(rawTarget.substringBefore('?')) &&
+                        !(method == "GET" && File(projectRoot, path.substringBefore('?').trimStart('/')).isFile) -> {
+                        val length = headers["content-length"]?.toIntOrNull() ?: 0
+                        val body = if (length > 0) readBody(reader, length) else null
+                        val r = mockApi.handle(method, rawTarget, body)
+                        sendRaw(output, r.status, "application/json; charset=utf-8", r.body.toByteArray(), r.headers)
+                    }
                     method == "GET" -> handleGetRequest(path, output)
                     else -> sendError(output, HTTP_NOT_FOUND, "Not Found")
                 }
@@ -1122,7 +1137,7 @@ class EmbeddedDevServer(
             appendLine("Content-Type: $contentType")
             appendLine("Content-Length: ${content.size}")
             appendLine("Access-Control-Allow-Origin: *")
-            appendLine("Access-Control-Allow-Methods: GET, POST, OPTIONS")
+            appendLine("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS")
             appendLine("Access-Control-Allow-Headers: *")
             appendLine("Cache-Control: no-cache, no-store, must-revalidate")
             appendLine("Connection: close")
@@ -1130,6 +1145,57 @@ class EmbeddedDevServer(
         }
 
         output.write(headers.toByteArray())
+        output.write(content)
+        output.flush()
+    }
+
+    private val mockApi by lazy { MockApi(projectRoot) }
+
+    /**
+     * Reads exactly [byteLength] bytes of body through the character reader
+     * the headers were read with, counting UTF-8 bytes per char so a body
+     * with non-ASCII text neither truncates nor blocks waiting for more.
+     */
+    private fun readBody(reader: BufferedReader, byteLength: Int): String {
+        val sb = StringBuilder()
+        var bytes = 0
+        while (bytes < byteLength.coerceAtMost(5_000_000)) {
+            val c = reader.read()
+            if (c < 0) break
+            val ch = c.toChar()
+            sb.append(ch)
+            bytes += when {
+                c < 0x80 -> 1
+                c < 0x800 -> 2
+                Character.isHighSurrogate(ch) -> 4
+                Character.isLowSurrogate(ch) -> 0
+                else -> 3
+            }
+        }
+        return sb.toString()
+    }
+
+    /** Response with any status and extra headers (the mock API needs 201/204/4xx). */
+    private fun sendRaw(
+        output: BufferedOutputStream,
+        statusCode: Int,
+        contentType: String,
+        content: ByteArray,
+        extraHeaders: Map<String, String>
+    ) {
+        val statusText = STATUS_TEXT[statusCode] ?: "OK"
+        val head = buildString {
+            append("HTTP/1.1 $statusCode $statusText\r\n")
+            append("Content-Type: $contentType\r\n")
+            append("Content-Length: ${content.size}\r\n")
+            append("Access-Control-Allow-Origin: *\r\n")
+            append("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n")
+            append("Access-Control-Allow-Headers: *\r\n")
+            append("Cache-Control: no-store\r\n")
+            extraHeaders.forEach { (k, v) -> append("$k: $v\r\n") }
+            append("Connection: close\r\n\r\n")
+        }
+        output.write(head.toByteArray())
         output.write(content)
         output.flush()
     }

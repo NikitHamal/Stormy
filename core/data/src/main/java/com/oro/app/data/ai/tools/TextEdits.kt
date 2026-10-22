@@ -9,7 +9,13 @@ package com.oro.app.data.ai.tools
  * before failing, each only when it yields a *unique* match:
  *  1. line endings: the file uses CRLF and the model sent LF;
  *  2. line-trimmed: the same lines with different indentation/trailing space,
- *     which is the most common way a model's copy of a line drifts.
+ *     which is the most common way a model's copy of a line drifts;
+ *  3. whitespace-collapsed: the same text with whitespace runs differing
+ *     anywhere (re-wrapped attributes, tabs vs spaces inside a line);
+ *  4. block anchors: for blocks of 3+ lines, the first and last lines match
+ *     exactly (trimmed) and the lines between are at least 85% similar --
+ *     how small models typically misquote a long block (one changed
+ *     word, a dropped blank line). Ambiguity always fails.
  * Model-added `read_file` line-number prefixes ("  12|") are stripped first.
  *
  * Failures return messages written for the model to act on.
@@ -86,6 +92,12 @@ object TextEdits {
         lineTrimmedMatch(content, old)?.let { (start, end) ->
             val updated = content.substring(0, start) + new + content.substring(end)
             return Result.Applied(updated, 1)
+        }
+        whitespaceCollapsedMatch(content, old)?.let { (start, end) ->
+            return Result.Applied(content.substring(0, start) + new + content.substring(end), 1)
+        }
+        blockAnchorMatch(content, old)?.let { (start, end) ->
+            return Result.Applied(content.substring(0, start) + new + content.substring(end), 1)
         }
 
         return Result.Failed(notFoundMessage(content, old, path))
@@ -164,6 +176,78 @@ object TextEdits {
         }
         return found
     }
+
+    /** Unique match after collapsing every whitespace run to one space. */
+    internal fun whitespaceCollapsedMatch(content: String, old: String): Pair<Int, Int>? {
+        val needle = old.trim().replace(WS, " ")
+        if (needle.length < 8) return null
+        // Collapsed copy of content plus, for each collapsed char, its original index.
+        val sb = StringBuilder(content.length)
+        val map = IntArray(content.length + 1)
+        var i = 0
+        var inWs = false
+        while (i < content.length) {
+            val c = content[i]
+            if (c.isWhitespace()) {
+                if (!inWs) { map[sb.length] = i; sb.append(' '); inWs = true }
+            } else {
+                map[sb.length] = i; sb.append(c); inWs = false
+            }
+            i++
+        }
+        val hay = sb.toString()
+        val first = hay.indexOf(needle)
+        if (first < 0 || hay.indexOf(needle, first + 1) >= 0) return null
+        val start = map[first]
+        val lastCollapsed = first + needle.length - 1
+        val end = map[lastCollapsed] + 1
+        return start to end
+    }
+
+    /**
+     * First and last lines anchor the block; the middle must be similar.
+     * Returns the character range of the unique best block.
+     */
+    internal fun blockAnchorMatch(content: String, old: String): Pair<Int, Int>? {
+        val oldLines = old.replace("\r\n", "\n").trimEnd('\n').split("\n")
+        if (oldLines.size < 3) return null
+        val firstT = oldLines.first().trim()
+        val lastT = oldLines.last().trim()
+        if (firstT.length < 3 || lastT.length < 1) return null
+        val lines = content.split("\n")
+        val starts = IntArray(lines.size)
+        var off = 0
+        lines.forEachIndexed { idx, l -> starts[idx] = off; off += l.length + 1 }
+        val middleOld = oldLines.subList(1, oldLines.size - 1).joinToString("\n") { it.trim() }
+        val candidates = mutableListOf<Pair<Pair<Int, Int>, Double>>()
+        for (a in lines.indices) {
+            if (lines[a].trimEnd('\r').trim() != firstT) continue
+            val maxEnd = minOf(lines.size - 1, a + oldLines.size * 2 + 2)
+            for (b in a + 1..maxEnd) {
+                if (lines[b].trimEnd('\r').trim() != lastT) continue
+                val middle = lines.subList(a + 1, b).joinToString("\n") { it.trimEnd('\r').trim() }
+                val sim = similarity(middleOld, middle)
+                if (sim >= 0.85) {
+                    val end = starts[b] + lines[b].trimEnd('\r').length
+                    candidates += (starts[a] to end) to sim
+                }
+                break // nearest closing anchor only
+            }
+        }
+        if (candidates.size != 1) return null
+        return candidates.single().first
+    }
+
+    private fun similarity(a: String, b: String): Double {
+        if (a == b) return 1.0
+        val longest = maxOf(a.length, b.length)
+        if (longest == 0) return 1.0
+        if (longest > 4000) return 0.0 // too costly; fail safe
+        val d = com.oro.app.data.ai.craft.QualityAuditor.levenshtein(a, b)
+        return 1.0 - d.toDouble() / longest
+    }
+
+    private val WS = Regex("\\s+")
 
     private fun notFoundMessage(content: String, old: String, path: String): String {
         val firstLine = old.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }

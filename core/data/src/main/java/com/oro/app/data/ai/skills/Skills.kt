@@ -82,7 +82,23 @@ object Skills {
         }
     }.trimEnd()
 
-    val BUILT_IN: List<Skill> = listOf(
+    /**
+     * Craft playbooks shipped as Markdown resources (`resources/oro/skills`):
+     * the design system, motion, states and domain guides that close most of
+     * the gap between a weak model's UI and a professional one. Edit the
+     * Markdown to raise the bar; add a file and its name here to add one.
+     */
+    private val CRAFT = listOf(
+        "design-system", "motion", "ui-states", "landing-page", "web-app", "backend", "forms", "game", "three-d"
+    )
+
+    private fun craftSkills(): List<Skill> = CRAFT.mapNotNull { name ->
+        Skills::class.java.getResourceAsStream("/oro/skills/$name.md")?.bufferedReader()?.use {
+            parse(it.readText(), Skill.Source.BUILT_IN, name)
+        }
+    }
+
+    val BUILT_IN: List<Skill> = craftSkills() + listOf(
         Skill(
             "landing-page-starter", "Start a modern landing page: sticky nav with mobile menu, hero, features, CTA, footer, dark mode",
             """
