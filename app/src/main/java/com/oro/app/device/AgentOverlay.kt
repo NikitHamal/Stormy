@@ -121,6 +121,23 @@ class AgentOverlay(private val context: Context) {
      */
     fun setPassThrough(pass: Boolean) = ui { island?.setTouchable(!pass) }
 
+    /**
+     * Gets the island out of an injected gesture's way: if [region] (screen
+     * pixels, the gesture's bounding box) overlaps the island, the island stops
+     * taking touches and this returns only once that change is on screen.
+     * Returns true when it changed anything; call [restoreTouch] after the
+     * gesture either way. Elsewhere the island stays touchable, so Stop always
+     * works.
+     */
+    suspend fun clearPathFor(region: android.graphics.Rect): Boolean {
+        setPassThrough(true)
+        kotlinx.coroutines.delay(48)
+        return true
+    }
+
+    /** Undoes [clearPathFor]. */
+    fun restoreTouch() = setPassThrough(false)
+
     // ---------------------------------------------------- touch feedback
 
     fun showTouch(x: Int, y: Int, long: Boolean = false) = ui { touches?.tap(x.toFloat(), y.toFloat(), long) }

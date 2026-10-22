@@ -89,6 +89,15 @@ object DeviceAgent {
     /** Who started a run: the user on the device screen, or the coding agent in a chat. */
     enum class Origin { USER, CHAT }
 
+    /**
+     * Why a run ended, so screens never parse [State.error] to find out.
+     * DONE: finish_task(success=true). UNCONFIRMED: the model stopped without
+     * finish_task. FAILED: finish_task(success=false). STOPPED_BY_USER: Stop.
+     * ACTION_LIMIT: the user's action limit. SERVICE_LOST: accessibility turned
+     * off. ERROR: the model or the run broke.
+     */
+    enum class EndReason { DONE, UNCONFIRMED, FAILED, STOPPED_BY_USER, ACTION_LIMIT, SERVICE_LOST, ERROR }
+
     data class Step(
         val id: Long,
         val kind: StepKind,
@@ -128,6 +137,8 @@ object DeviceAgent {
         val origin: Origin = Origin.USER,
         /** Ads the service skipped during this run. */
         val adsSkipped: Int = 0,
+        /** Set when the run ends; null while it runs or before the first one. */
+        val endReason: EndReason? = null,
     ) {
         val finished: Boolean get() = !running && startedAt > 0
     }
