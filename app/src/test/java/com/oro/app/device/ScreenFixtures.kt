@@ -19,10 +19,14 @@ internal object ScreenFixtures {
         scrollable: Boolean = role == ScreenElement.ROLE_LIST,
         password: Boolean = false,
         viewId: String? = null,
+        secretLength: Int = 0,
+        longClickable: Boolean = false,
+        focused: Boolean = false,
     ) = ScreenElement(
         index = index, role = role, label = label, bounds = Bounds(left, top, right, top + height),
         clickable = clickable, editable = editable, value = value, window = window,
         checkable = checkable, checked = checked, scrollable = scrollable, password = password, viewId = viewId,
+        secretLength = secretLength, longClickable = longClickable, focused = focused,
     )
 
     fun screen(vararg elements: ScreenElement, pkg: String = "com.example", label: String = "Example", keyboard: Boolean = false) =

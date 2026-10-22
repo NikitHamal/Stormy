@@ -11,15 +11,14 @@ import kotlinx.serialization.json.JsonPrimitive
  * Written to be followed by small models: short imperative rules, the fast
  * paths named explicitly (most failed runs were a model hunting through a
  * home screen for something one intent would have done), and two worked
- * examples of what a good turn looks like. The part that varies per run sits
- * at the end so the stable prefix can be cached.
+ * examples of what a good turn looks like. Nothing in it changes during a run
+ * (the actions left are reported with each screen), so providers can cache it.
  */
 object DevicePrompt {
 
     fun system(
         textTools: Boolean,
         settings: DeviceAgent.Settings,
-        actionsLeft: Int?,
         tools: List<Tool>,
         vision: Boolean,
         fromChat: Boolean,
@@ -50,6 +49,7 @@ object DevicePrompt {
             # When stuck
             - If an action changed nothing, do not repeat it: try the row or button around it, tap_text, scroll it
               into view, wait_for loading, or press_key("back"). Three failures in a row: rethink the route.
+            - "Skipped" means nothing was done because the screen changed first: decide again from the screen shown.
             - Popups, cookie banners, "rate us", sign-in nags: dismiss or decline unless the task needs them.
             - Logins, payments, personal choices (which contact, which card, which account): ask_user.
             - Never type passwords, card numbers or one-time codes the user did not give you.
@@ -84,7 +84,6 @@ object DevicePrompt {
         if (settings.confirmSensitive) {
             append("\n\nSending, paying, deleting and similar actions ask the user for approval automatically; just call the tool.")
         }
-        if (actionsLeft != null) append("\nYou have about ").append(actionsLeft.coerceAtLeast(0)).append(" actions left.")
         if (textTools) {
             append("\n\n# Calling tools\n")
             append("Write your sentence, then one block per tool call, and stop:\n")

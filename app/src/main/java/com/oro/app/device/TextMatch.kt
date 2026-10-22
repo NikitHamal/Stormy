@@ -6,10 +6,14 @@ package com.oro.app.device
  * Weak models are far better at copying a label ("Add to cart") than at
  * copying the right number out of a 120-line listing, and they paraphrase
  * ("Add to basket"), change case, or include the punctuation. Matching is
- * tiered -- exact, a whole segment of a row label, prefix, whole word,
- * substring, all words, small typos -- and never guesses between equally good
+ * tiered -- exact, a whole segment of a row label, prefix, the full title of
+ * a label cut short with "…", whole word, then (offered, never acted on) part
+ * of a word, all words, small typos -- and never guesses between equally good
  * candidates: an ambiguous name is answered with the candidates and their
  * numbers, so the model picks instead of Oro tapping the wrong "Delete".
+ *
+ * Part of a word is below [ACT_THRESHOLD] on purpose: "Add" must not tap a
+ * lone "Address" field, nor "Go" a "Category" button.
  */
 object TextMatch {
 
@@ -35,6 +39,7 @@ object TextMatch {
 
     /** How well [label] matches [query]: 0 for no match, 100 for exact. */
     fun score(query: String, label: String): Int {
+        val cutShort = label.trimEnd().endsWith("…")
         val q = normalize(query)
         val l = normalize(label)
         if (q.isEmpty() || l.isEmpty()) return 0
@@ -42,8 +47,11 @@ object TextMatch {
         val segments = l.split(" · ").map { it.trim() }
         if (segments.size > 1 && segments.any { it == q }) return 90
         if (l.startsWith("$q ") || segments.any { it.startsWith("$q ") }) return 75
+        // The listing cut a long title ("lofi hip hop radio - beats to relax/stu…")
+        // and the model copied it whole: the visible part is the match.
+        if (cutShort && l.length >= MIN_CUT_PREFIX && q.startsWith(l)) return 70
         if (wholeWord(q).containsMatchIn(l)) return 60
-        if (l.contains(q)) return 45
+        if (l.contains(q)) return if (wordStart(q).containsMatchIn(l)) 30 else 20
         val words = q.split(' ').filter { it.length > 1 }
         if (words.size > 1 && words.all { l.contains(it) }) return 40
         if (q.length >= 4) {
@@ -84,6 +92,11 @@ object TextMatch {
     }
 
     private fun wholeWord(q: String) = Regex("(^|[^\\p{L}\\p{N}])" + Regex.escape(q) + "($|[^\\p{L}\\p{N}])")
+
+    private fun wordStart(q: String) = Regex("(^|[^\\p{L}\\p{N}])" + Regex.escape(q))
+
+    /** A cut-short label shorter than this is too little to stand for a whole title. */
+    private const val MIN_CUT_PREFIX = 12
 
     fun levenshtein(a: String, b: String): Int {
         if (a == b) return 0

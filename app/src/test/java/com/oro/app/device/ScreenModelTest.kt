@@ -16,7 +16,46 @@ class ScreenModelTest {
         assertThat(el(6, "input", "To", value = "Alice").render()).isEqualTo("[6] input \"To\" = \"Alice\"")
         assertThat(el(7, "switch", "Wi-Fi", checkable = true, checked = true).render()).isEqualTo("[7] switch \"Wi-Fi\" on")
         assertThat(el(8, "button", "Allow", window = ScreenState.WINDOW_DIALOG).render()).isEqualTo("[8] button \"Allow\" @dialog")
-        assertThat(el(9, "input", "Password", password = true).render()).isEqualTo("[9] input \"Password\" password")
+        assertThat(el(9, "input", "Password", password = true).render()).isEqualTo("[9] input \"Password\" password empty")
+        assertThat(el(9, "input", "Password", password = true, secretLength = 8).render()).isEqualTo("[9] input \"Password\" password filled")
+    }
+
+    @Test
+    fun `a filled field shows what is typed even when it matches the field's name`() {
+        // The old rule hid the value when it equalled the label, so right after
+        // typing "cats" into a field labelled by its text the model read "empty".
+        assertThat(el(3, "input", "cats", value = "cats").render()).isEqualTo("[3] input \"cats\" = \"cats\"")
+    }
+
+    @Test
+    fun `typing a password changes the signature`() {
+        val empty = screen(el(0, "input", "Password", password = true))
+        val filled = screen(el(0, "input", "Password", password = true, secretLength = 6))
+        assertThat(empty.signature).isNotEqualTo(filled.signature)
+    }
+
+    @Test
+    fun `hit test finds what a finger would press, in the window on top`() {
+        val s = screen(
+            el(0, "button", "Buy now", top = 1000, height = 300),                                 // a card
+            el(1, ScreenElement.ROLE_TEXT, "₹999", top = 1100, left = 100, right = 400, height = 60),
+            el(2, "button", "OK", top = 1050, left = 300, right = 800, height = 120, window = ScreenState.WINDOW_DIALOG),
+        )
+        // Over the card only: the card takes the tap, the price is what is written there.
+        assertThat(s.hitTest(150, 1120)?.label).isEqualTo("Buy now")
+        assertThat(s.textAt(150, 1120)?.label).isEqualTo("₹999")
+        // Where the dialog covers the card, the dialog wins.
+        assertThat(s.hitTest(500, 1100)?.label).isEqualTo("OK")
+        assertThat(s.hitTest(500, 50)).isNull()
+    }
+
+    @Test
+    fun `a text inside a clickable card is received by the card`() {
+        val card = el(0, "button", "Buy now", top = 1000, height = 300)
+        val price = el(1, ScreenElement.ROLE_TEXT, "₹999", top = 1100, left = 100, right = 400, height = 60)
+        val s = screen(card, price)
+        assertThat(s.receiverFor(price).label).isEqualTo("Buy now")
+        assertThat(s.receiverFor(card)).isEqualTo(card)
     }
 
     @Test

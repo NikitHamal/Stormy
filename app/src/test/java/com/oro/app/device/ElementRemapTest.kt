@@ -32,9 +32,39 @@ class ElementRemapTest {
     }
 
     @Test
-    fun `the nearest of several look-alikes wins`() {
-        val seen = screen(el(0, "button", "Like", top = 500))
-        val now = screen(el(0, "button", "Like", top = 100), el(1, "button", "Like", top = 520), el(2, "button", "Like", top = 900))
+    fun `several look-alikes are stale, not the nearest`() {
+        // After deleting one row the list shifts up: the "Delete" nearest to
+        // where the chosen one was is the next row's.
+        val seen = screen(el(0, "button", "Delete", top = 500), el(1, "button", "Delete", top = 900))
+        val now = screen(el(0, "button", "Delete", top = 100), el(1, "button", "Delete", top = 520), el(2, "button", "Undo", top = 1500))
+        val (match, stale) = ElementRemap.resolve(seen, now, 0)
+        assertThat(match).isNull()
+        assertThat(stale).isTrue()
+    }
+
+    @Test
+    fun `a view id that only one look-alike carries settles it`() {
+        val seen = screen(el(0, "button", "Share", viewId = "app:id/share_post"), el(1, "button", "Share", viewId = "app:id/share_story", top = 600))
+        val now = screen(el(0, "button", "Share", viewId = "app:id/share_story", top = 50), el(1, "button", "Share", viewId = "app:id/share_post", top = 700))
         assertThat(ElementRemap.resolve(seen, now, 0).first?.index).isEqualTo(1)
+    }
+
+    @Test
+    fun `an unlabelled element needs the same view id`() {
+        val seen = screen(el(0, "icon", "", viewId = "app:id/menu"), el(1, "button", "Next", top = 600))
+        val sameIcon = screen(el(0, ScreenElement.ROLE_TEXT, "Inbox"), el(1, "icon", "", viewId = "app:id/menu", top = 300))
+        assertThat(ElementRemap.resolve(seen, sameIcon, 0).first?.index).isEqualTo(1)
+        // Same slot, different control: not the same icon.
+        val otherIcon = screen(el(0, ScreenElement.ROLE_TEXT, "Inbox"), el(1, "icon", "", viewId = "app:id/search", top = 0))
+        assertThat(ElementRemap.resolve(seen, otherIcon, 0)).isEqualTo(null to true)
+        val noId = screen(el(0, "icon", ""), el(1, "button", "Next", top = 600))
+        assertThat(ElementRemap.resolve(noId, sameIcon, 0)).isEqualTo(null to true)
+    }
+
+    @Test
+    fun `another app in front makes every number stale`() {
+        val seen = screen(el(0, "button", "Send"), pkg = "com.whatsapp")
+        val now = screen(el(0, "button", "Send"), el(1, "button", "Discard"), pkg = "com.google.android.gm")
+        assertThat(ElementRemap.resolve(seen, now, 0)).isEqualTo(null to true)
     }
 }

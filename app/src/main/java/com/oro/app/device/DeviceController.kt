@@ -3,13 +3,16 @@ package com.oro.app.device
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -30,7 +33,12 @@ import kotlin.coroutines.resume
  *  - After every action wait for the UI to settle (no accessibility events
  *    for a short quiet period, capped), so the next observation shows the
  *    result rather than a half-drawn transition.
- *  - Gestures are injected in screen pixels and clamped to the display.
+ *  - Gestures are injected in screen pixels and clamped to the display. The
+ *    floating island steps out of the way only when a gesture would land on
+ *    it ([AgentOverlay.clearPathFor]), so the user's Stop keeps working.
+ *  - An element is acted on only through the live node of the capture it
+ *    came from, refreshed first: a node that left the screen is reported, never
+ *    replaced by a blind tap at its old coordinates.
  */
 class DeviceController(private val service: OroAccessibilityService) {
 
@@ -74,88 +82,118 @@ class DeviceController(private val service: OroAccessibilityService) {
 
     suspend fun tap(x: Int, y: Int): Boolean {
         service.overlay.showTouch(x, y)
-        return gesture(stroke(path(x, y), 0, 60))
+        return gestures(region(cx(x), cy(y))) { dispatch(stroke(path(x, y), 0, 60)) }
     }
 
     suspend fun longPress(x: Int, y: Int, durationMs: Long = 700): Boolean {
         service.overlay.showTouch(x, y, long = true)
-        return gesture(stroke(path(x, y), 0, durationMs))
+        return gestures(region(cx(x), cy(y))) { dispatch(stroke(path(x, y), 0, durationMs)) }
     }
 
     suspend fun doubleTap(x: Int, y: Int): Boolean {
         service.overlay.showTouch(x, y)
-        val ok = gesture(stroke(path(x, y), 0, 50))
-        delay(90)
-        return ok && gesture(stroke(path(x, y), 0, 50))
+        return gestures(region(cx(x), cy(y))) {
+            val ok = dispatch(stroke(path(x, y), 0, 50))
+            delay(90)
+            ok && dispatch(stroke(path(x, y), 0, 50))
+        }
     }
 
     suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = 350): Boolean {
         service.overlay.showSwipe(c(x1, width), c(y1, height), c(x2, width), c(y2, height))
         val p = Path().apply { moveTo(cx(x1), cy(y1)); lineTo(cx(x2), cy(y2)) }
-        return gesture(stroke(p, 0, durationMs.coerceIn(80, 3_000)))
+        return gestures(region(cx(x1), cy(y1), cx(x2), cy(y2))) { dispatch(stroke(p, 0, durationMs.coerceIn(80, 3_000))) }
     }
 
     /** Press-hold-move-release, for reordering lists, moving icons, sliders. */
     suspend fun drag(x1: Int, y1: Int, x2: Int, y2: Int, holdMs: Long = 600, moveMs: Long = 700): Boolean {
         service.overlay.showSwipe(c(x1, width), c(y1, height), c(x2, width), c(y2, height))
-        if (Build.VERSION.SDK_INT >= 26) {
-            val hold = GestureDescription.StrokeDescription(path(x1, y1), 0, holdMs, true)
-            val okHold = gesture(GestureDescription.Builder().addStroke(hold).build())
-            if (!okHold) return false
-            val move = Path().apply { moveTo(cx(x1), cy(y1)); lineTo(cx(x2), cy(y2)) }
-            val moveStroke = hold.continueStroke(move, 0, moveMs, false)
-            return gesture(GestureDescription.Builder().addStroke(moveStroke).build())
+        return gestures(region(cx(x1), cy(y1), cx(x2), cy(y2))) {
+            if (Build.VERSION.SDK_INT >= 26) {
+                val hold = GestureDescription.StrokeDescription(path(x1, y1), 0, holdMs, true)
+                if (!dispatch(GestureDescription.Builder().addStroke(hold).build())) return@gestures false
+                val move = Path().apply { moveTo(cx(x1), cy(y1)); lineTo(cx(x2), cy(y2)) }
+                val moveStroke = hold.continueStroke(move, 0, moveMs, false)
+                dispatch(GestureDescription.Builder().addStroke(moveStroke).build())
+            } else {
+                val p = Path().apply { moveTo(cx(x1), cy(y1)); lineTo(cx(x2), cy(y2)) }
+                dispatch(stroke(p, 0, holdMs + moveMs))
+            }
         }
-        val p = Path().apply { moveTo(cx(x1), cy(y1)); lineTo(cx(x2), cy(y2)) }
-        return gesture(stroke(p, 0, holdMs + moveMs))
     }
 
-    /** Two-finger pinch around a centre. [zoomIn] spreads the fingers. */
+    /**
+     * Two-finger pinch around a centre. [zoomIn] spreads the fingers. The
+     * centre moves inward when needed so neither finger leaves the screen (a
+     * stroke with negative coordinates is rejected outright).
+     */
     suspend fun pinch(x: Int, y: Int, zoomIn: Boolean): Boolean {
         val near = 60f
         val far = (minOf(width, height) * 0.3f)
         val (from, to) = if (zoomIn) near to far else far to near
-        val a = Path().apply { moveTo(cx(x) - from, cy(y)); lineTo(cx(x) - to, cy(y)) }
-        val b = Path().apply { moveTo(cx(x) + from, cy(y)); lineTo(cx(x) + to, cy(y)) }
+        val maxX = (width - 1).toFloat()
+        val centre = cx(x).coerceIn(far + 1f, (maxX - far).coerceAtLeast(far + 1f))
+        val y0 = cy(y)
+        fun fx(v: Float) = v.coerceIn(1f, maxX)
+        val a = Path().apply { moveTo(fx(centre - from), y0); lineTo(fx(centre - to), y0) }
+        val b = Path().apply { moveTo(fx(centre + from), y0); lineTo(fx(centre + to), y0) }
         val g = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(a, 0, 450))
             .addStroke(GestureDescription.StrokeDescription(b, 0, 450))
             .build()
-        return gesture(g)
+        return gestures(region(fx(centre - far), y0, fx(centre + far), y0)) { dispatch(g) }
     }
 
     // ---------------------------------------------------- element actions
 
-    suspend fun tapElement(e: ScreenElement): String {
-        val node = ScreenReader.lastNodes[e.index]
-        val target = node?.let { clickableSelfOrAncestor(it) }
+    /**
+     * Taps [e], an element of [screen]: the node's own click action when it
+     * (or its clickable parent) has one, else a real tap at where the node is
+     * now. If the node has left the screen nothing is tapped.
+     */
+    suspend fun tapElement(e: ScreenElement, screen: ScreenState): String {
+        val node = liveNode(e, screen) ?: return gone(e)
+        val target = clickableSelfOrAncestor(node)
         if (target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
             service.overlay.showTouch(e.centerX, e.centerY)
             return "Tapped [${e.index}] ${e.describe()}."
         }
-        return if (tap(e.centerX, e.centerY)) "Tapped [${e.index}] ${e.describe()} at (${e.centerX},${e.centerY})."
+        val (x, y) = centreOf(node, e)
+        return if (tap(x, y)) "Tapped [${e.index}] ${e.describe()} at ($x,$y)."
         else "The tap on [${e.index}] could not be performed."
     }
 
-    suspend fun longPressElement(e: ScreenElement): String {
-        val node = ScreenReader.lastNodes[e.index]
-        val target = node?.let { longClickableSelfOrAncestor(it) }
+    suspend fun longPressElement(e: ScreenElement, screen: ScreenState): String {
+        val node = liveNode(e, screen) ?: return gone(e)
+        val target = longClickableSelfOrAncestor(node)
         if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
             service.overlay.showTouch(e.centerX, e.centerY, long = true)
             return "Long-pressed [${e.index}] ${e.describe()}."
         }
-        return if (longPress(e.centerX, e.centerY)) "Long-pressed [${e.index}] ${e.describe()}."
+        val (x, y) = centreOf(node, e)
+        return if (longPress(x, y)) "Long-pressed [${e.index}] ${e.describe()}."
         else "The long press on [${e.index}] could not be performed."
     }
 
+    /** Double-taps [e] where its node is now (zoom, like), or reports it gone. */
+    suspend fun doubleTapElement(e: ScreenElement, screen: ScreenState): String {
+        val node = liveNode(e, screen) ?: return gone(e)
+        val (x, y) = centreOf(node, e)
+        return if (doubleTap(x, y)) "Double-tapped [${e.index}] ${e.describe()}." else "The double tap failed."
+    }
+
     /**
-     * Types into [e] (or the focused field). Replaces the content unless
-     * [append]. Falls back to tap-to-focus then paste for fields that refuse
-     * ACTION_SET_TEXT.
+     * Types into [e] (an element of [screen]) or, without one, the focused
+     * field. Replaces the content unless [append]. Fields that refuse
+     * ACTION_SET_TEXT get the text pasted -- never a password field, and the
+     * clip is marked sensitive and removed again right after.
      */
-    suspend fun type(e: ScreenElement?, text: String, append: Boolean): String {
-        var node = e?.let { ScreenReader.lastNodes[it.index] }
-        if (node != null && !node.isEditable) node = findEditableDescendant(node) ?: node
+    suspend fun type(e: ScreenElement?, screen: ScreenState, text: String, append: Boolean): String {
+        var node: AccessibilityNodeInfo? = null
+        if (e != null) {
+            node = liveNode(e, screen) ?: return "Skipped: that field is no longer on screen."
+            if (!node.isEditable) node = findEditableDescendant(node) ?: node
+        }
         if (node == null) node = focusedInput()
         if (node == null) {
             return "No text field is focused. Tap the input first (or pass its index), then type."
@@ -165,24 +203,60 @@ class DeviceController(private val service: OroAccessibilityService) {
             node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             delay(150)
         }
-        val existing = node.text?.toString().takeUnless { showsHint(node) }.orEmpty()
+        val existing = node.text?.toString().takeUnless { showsHint(node) || node.isPassword }.orEmpty()
         val newText = if (append) existing + text else text
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText) }
         if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
-            return "Typed \"${text.take(60)}\"${if (append) " (appended)" else ""}."
+            return if (node.isPassword) "Typed the password." else "Typed \"${text.take(60)}\"${if (append) " (appended)" else ""}."
         }
-        // Paste fallback.
+        if (node.isPassword) {
+            return "The password field refused the text. Tap it and try again, or ask the user to type it themselves."
+        }
+        // Paste fallback: the clip is marked sensitive (keyboards leave it out
+        // of their history) and removed once the paste is done.
         val cm = service.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("oro", text))
-        if (!append) {
-            val sel = Bundle().apply {
-                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
-                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, existing.length)
-            }
-            node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
+        val previous = runCatching { cm.primaryClip }.getOrNull()
+        val clip = ClipData.newPlainText("oro", text)
+        if (Build.VERSION.SDK_INT >= 33) {
+            clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
         }
-        return if (node.performAction(AccessibilityNodeInfo.ACTION_PASTE)) "Pasted \"${text.take(60)}\" into the field."
-        else "The field rejected the text. Try tapping it first, or it may not accept input."
+        cm.setPrimaryClip(clip)
+        try {
+            if (!append) {
+                val sel = Bundle().apply {
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, existing.length)
+                }
+                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
+            }
+            val pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            delay(120) // let the app read the clip before it goes
+            return if (pasted) "Pasted \"${text.take(60)}\" into the field."
+            else "The field rejected the text. Try tapping it first, or it may not accept input."
+        } finally {
+            // Not suspending: it must run even when the run is being stopped.
+            runCatching {
+                when {
+                    previous != null -> cm.setPrimaryClip(previous)
+                    Build.VERSION.SDK_INT >= 28 -> cm.clearPrimaryClip()
+                    else -> cm.setPrimaryClip(ClipData.newPlainText("", ""))
+                }
+            }
+        }
+    }
+
+    /** The node behind [e] if [screen] is the latest capture and the node is still on screen. */
+    private fun liveNode(e: ScreenElement, screen: ScreenState): AccessibilityNodeInfo? {
+        val node = ScreenReader.nodeFor(screen, e.index) ?: return null
+        return if (runCatching { node.refresh() }.getOrDefault(false) && node.isVisibleToUser) node else null
+    }
+
+    private fun gone(e: ScreenElement) = "Skipped: [${e.index}] ${e.describe()} is no longer on screen."
+
+    /** Where [node] is now (it may have moved since the capture), else where [e] was. */
+    private fun centreOf(node: AccessibilityNodeInfo, e: ScreenElement): Pair<Int, Int> {
+        val r = Rect().also { node.getBoundsInScreen(it) }
+        return if (r.width() > 1 && r.height() > 1) r.centerX() to r.centerY() else e.centerX to e.centerY
     }
 
     /**
@@ -229,7 +303,10 @@ class DeviceController(private val service: OroAccessibilityService) {
      */
     suspend fun media(action: String): String {
         val a = action.lowercase().replace(' ', '_')
-        if (a == "forward" || a == "rewind") {
+        // Double-tap seeking is YouTube's gesture only: in Instagram, X or any
+        // reels feed a double tap means Like.
+        val pkg = service.rootInActiveWindow?.packageName?.toString().orEmpty()
+        if ((a == "forward" || a == "rewind") && AdSkipper.isYouTube(pkg)) {
             val player = playerBounds()
             if (player != null) {
                 val x = if (a == "forward") player.left + player.width * 4 / 5 else player.left + player.width / 5
@@ -275,9 +352,9 @@ class DeviceController(private val service: OroAccessibilityService) {
         return best
     }
 
-    suspend fun scroll(direction: String, e: ScreenElement?, amount: Float = 0.6f): String {
+    suspend fun scroll(direction: String, e: ScreenElement?, screen: ScreenState?, amount: Float = 0.6f): String {
         val dir = direction.lowercase()
-        val node = e?.let { ScreenReader.lastNodes[it.index] }?.let { scrollableSelfOrAncestor(it) }
+        val node = e?.let { el -> screen?.let { ScreenReader.nodeFor(it, el.index) } }?.let { scrollableSelfOrAncestor(it) }
             ?: if (e == null) largestScrollable() else null
         if (node != null) {
             val action = when (dir) {
@@ -324,7 +401,34 @@ class DeviceController(private val service: OroAccessibilityService) {
         val app = AppCatalog.resolve(service, name)
             ?: return "No installed app matches \"$name\". Closest: " +
                 AppCatalog.suggestions(service, name).joinToString { it.label } + ". Use list_apps to see all."
+        if (app.packageName == service.packageName) {
+            return "Refused: Oro runs this task and does not operate itself. Use the other apps."
+        }
         return if (AppCatalog.launch(service, app)) "Opened ${app.label}." else "${app.label} could not be launched."
+    }
+
+    /**
+     * Brings [packageName]'s existing task back to the front, where it was
+     * (its launcher intent with NEW_TASK resumes the task instead of
+     * restarting it). Used to return to the app the task was in after the user
+     * answered a question in Oro.
+     */
+    fun bringToFront(packageName: String): Boolean {
+        if (packageName.isEmpty() || packageName == service.packageName) return false
+        val intent = service.packageManager.getLaunchIntentForPackage(packageName) ?: return false
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching { service.startActivity(intent); true }.getOrDefault(false)
+    }
+
+    /**
+     * Whether Oro's own screen is the app in front. While it is, the user is
+     * looking at Oro (the device screen, the chat) and the agent must not
+     * drive Oro's UI, so actions wait.
+     */
+    fun oroInFront(): Boolean {
+        val windows = runCatching { service.windows }.getOrNull() ?: return false
+        val top = windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }.maxByOrNull { it.layer } ?: return false
+        return runCatching { top.root?.packageName?.toString() }.getOrNull() == service.packageName
     }
 
     fun openUrl(url: String): String =
@@ -423,6 +527,9 @@ class DeviceController(private val service: OroAccessibilityService) {
 
     private companion object {
         val KEYBOARD_ACTION_KEYS = setOf("enter", "search", "go", "send", "done", "next", "return", "↵", "⏎")
+
+        /** Half a fingertip, around every injected touch, for the island's way-clearing. */
+        const val FINGER_DP = 24f
     }
 
     private fun c(v: Int, max: Int) = v.coerceIn(1, max - 1)
@@ -432,11 +539,31 @@ class DeviceController(private val service: OroAccessibilityService) {
     private fun stroke(p: Path, start: Long, duration: Long) =
         GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, start, duration)).build()
 
-    private suspend fun gesture(g: GestureDescription): Boolean {
-        // An injected touch that lands on the control pill must reach the app.
-        service.overlay.setPassThrough(true)
-        delay(16)
-        return try { dispatch(g) } finally { service.overlay.setPassThrough(false) }
+    /**
+     * The screen box a gesture through these points covers, padded by a
+     * fingertip, for [AgentOverlay.clearPathFor].
+     */
+    private fun region(vararg xy: Float): Rect {
+        val pad = (FINGER_DP * service.resources.displayMetrics.density).toInt()
+        var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var b = -Float.MAX_VALUE
+        var i = 0
+        while (i + 1 < xy.size) {
+            l = minOf(l, xy[i]); r = maxOf(r, xy[i])
+            t = minOf(t, xy[i + 1]); b = maxOf(b, xy[i + 1])
+            i += 2
+        }
+        return Rect(l.toInt() - pad, t.toInt() - pad, r.toInt() + pad, b.toInt() + pad)
+    }
+
+    /**
+     * Runs injected gestures over [region]: an injected touch that would land
+     * on the floating island must reach the app, so the island stops taking
+     * touches for exactly as long as the gesture runs, and only if it is in the
+     * way.
+     */
+    private suspend fun gestures(region: Rect, block: suspend () -> Boolean): Boolean {
+        service.overlay.clearPathFor(region)
+        return try { block() } finally { service.overlay.restoreTouch() }
     }
 
     private suspend fun dispatch(g: GestureDescription): Boolean = suspendCancellableCoroutine { cont ->

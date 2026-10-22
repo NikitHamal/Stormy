@@ -225,8 +225,15 @@ object DeviceTools {
     /** Every name the executor understands, for text-call recovery. */
     val names: Set<String> = (all + FIND_TEXT).map { it.function.name }.toSet()
 
-    /** Tools that do not touch the device; they may run while paused. */
+    /** Tools that do not touch the device: they never count as actions. */
     val passive = setOf(
         "find_text", "read_screen", "list_apps", "take_note", "ask_user", "finish_task", "device_status", "look", "wait_for"
     )
+
+    /**
+     * The only tools that run while the user has paused the run. Pause is when
+     * people type a code or a card number by hand, so nothing that reads the
+     * screen (read_screen, find_text, look, wait_for) may run then either.
+     */
+    val allowedWhilePaused = setOf("take_note", "ask_user", "finish_task", "device_status", "list_apps")
 }

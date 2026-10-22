@@ -50,7 +50,11 @@ class OroAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        lastEventAt = SystemClock.uptimeMillis()
+        // While a task runs, Oro's own windows (the island redrawing its
+        // status) are not the screen the agent waits on: counting them kept
+        // settle() waiting and forced needless recaptures.
+        val fromOro = event.packageName?.toString() == packageName
+        if (!fromOro || !DeviceAgent.state.value.running) lastEventAt = SystemClock.uptimeMillis()
         val type = event.eventType
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let { if (it != packageName || DeviceAgent.state.value.running.not()) foregroundPackage = it }

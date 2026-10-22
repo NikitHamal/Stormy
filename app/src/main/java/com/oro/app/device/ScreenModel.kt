@@ -15,6 +15,8 @@ data class Bounds(val left: Int, val top: Int, val right: Int, val bottom: Int) 
     val area: Long get() = width.toLong().coerceAtLeast(0) * height.toLong().coerceAtLeast(0)
 
     fun overlaps(o: Bounds): Boolean = left < o.right && o.left < right && top < o.bottom && o.top < bottom
+
+    fun contains(x: Int, y: Int): Boolean = x in left until right && y in top until bottom
 }
 
 /** One thing on screen the agent can see and refer to by [index]. */
@@ -36,10 +38,19 @@ data class ScreenElement(
     val value: String? = null,
     val viewId: String? = null,
     val window: String? = null,
+    /**
+     * Characters in a password field (the platform reports them masked). Never
+     * shown to the model beyond filled/empty; it is in the signature so typing
+     * a password registers as a change.
+     */
+    val secretLength: Int = 0,
 ) {
     val centerX: Int get() = bounds.centerX
     val centerY: Int get() = bounds.centerY
     val actionable: Boolean get() = clickable || longClickable || editable || scrollable || checkable
+
+    /** Whether a tap here does something by itself (as opposed to reaching a container). */
+    val takesTaps: Boolean get() = clickable || longClickable || editable || checkable
 
     /**
      * The model's line for this element.
@@ -55,9 +66,12 @@ data class ScreenElement(
         if (role != ROLE_TEXT) append(role).append(' ')
         if (label.isNotBlank()) append('"').append(label).append('"')
         if (editable) {
+            // The label is the field's name (hint, description); what is typed
+            // in it is always shown, so the model never reads a filled field
+            // as empty and types into it again.
             when {
-                password -> append(" password")
-                !value.isNullOrEmpty() && value != label -> append(" = \"").append(value.take(80)).append('"')
+                password -> append(if (secretLength > 0) " password filled" else " password empty")
+                !value.isNullOrEmpty() -> append(" = \"").append(value.take(80)).append('"')
                 else -> append(" empty")
             }
         }
@@ -103,6 +117,7 @@ data class ScreenState(
             h = 31 * h + e.label.hashCode()
             h = 31 * h + (e.value?.hashCode() ?: 0)
             h = 31 * h + (if (e.checked) 1 else 0) + (if (e.selected) 2 else 0)
+            h = 31 * h + e.secretLength
             h = 31 * h + e.bounds.top / 40
         }
         31 * h + (if (keyboardVisible) 1 else 0)
@@ -110,6 +125,41 @@ data class ScreenState(
 
     fun element(index: Int): ScreenElement? =
         elements.getOrNull(index)?.takeIf { it.index == index } ?: elements.firstOrNull { it.index == index }
+
+    /**
+     * What a finger at (x, y) would press: the smallest element there that
+     * takes taps, in the top-most window that has anything at that point
+     * (a dialog covers the app under it). Null over empty space.
+     */
+    fun hitTest(x: Int, y: Int): ScreenElement? =
+        topLayerAt(x, y).filter { it.takesTaps }.minWithOrNull(SMALLEST_LAST)
+
+    /** The text under (x, y) in the top-most window, if any: what the user would read there. */
+    fun textAt(x: Int, y: Int): ScreenElement? =
+        topLayerAt(x, y).filter { it.label.isNotBlank() }.minWithOrNull(SMALLEST_LAST)
+
+    private fun topLayerAt(x: Int, y: Int): List<ScreenElement> {
+        val here = elements.filter { it.bounds.contains(x, y) }
+        if (here.isEmpty()) return here
+        // Windows are listed bottom to top, so the last element here is in the top one.
+        val top = here.last().window
+        return here.filter { it.window == top }
+    }
+
+    /**
+     * The element that really receives a tap on [e]: [e] itself when it takes
+     * taps, else the smallest clickable element of the same window around its
+     * centre (a price text inside a "Buy now" card is a tap on the card).
+     */
+    fun receiverFor(e: ScreenElement, long: Boolean = false): ScreenElement {
+        val takes = if (long) e.longClickable || e.clickable else e.takesTaps
+        if (takes) return e
+        return elements.asSequence()
+            .filter { it !== e && it.window == e.window && it.bounds.contains(e.centerX, e.centerY) }
+            .filter { if (long) it.longClickable || it.clickable else it.clickable }
+            .minWithOrNull(SMALLEST_LAST)
+            ?: e
+    }
 
     /** True when something on screen says it is still loading. */
     val loading: Boolean get() = elements.any { it.role == ScreenElement.ROLE_PROGRESS }
@@ -165,6 +215,9 @@ data class ScreenState(
     }
 
     companion object {
+        /** Smallest area first; among equals the later one, which is drawn on top. */
+        private val SMALLEST_LAST = compareBy<ScreenElement> { it.bounds.area }.thenByDescending { it.index }
+
         const val WINDOW_SYSTEM = "system"
         const val WINDOW_DIALOG = "dialog"
         const val WINDOW_POPUP = "popup"

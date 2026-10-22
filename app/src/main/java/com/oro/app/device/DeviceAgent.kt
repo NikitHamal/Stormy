@@ -23,9 +23,10 @@ import com.oro.app.data.repository.AiRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -35,15 +36,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -72,6 +70,10 @@ import java.util.concurrent.atomic.AtomicLong
  *  - Sensitive actions (send, pay, buy, delete, post, install, password
  *    fields...) wait for an explicit Allow, by default.
  *  - Questions wait for the user, answered from the floating control or Oro.
+ *  - Every action is resolved once against a fresh screen ([Targets]); the
+ *    guard approves exactly what will be acted on, and a target that moved
+ *    while the user paused or decided is skipped, never guessed.
+ *  - While Oro itself is in front (the user opened it mid-run), actions wait.
  *  - The run lives in this process-wide object, not in a screen, so it keeps
  *    going while other apps are in front; the bound accessibility service
  *    keeps the process alive.
@@ -165,15 +167,31 @@ object DeviceAgent {
         val finalApp: String,
         /** Set when the run never started or ended in an error. */
         val error: String? = null,
+        /** Why the run ended; null when it never started. */
+        val endReason: EndReason? = null,
     ) {
+        /** The user pressed Stop: the coding agent must not take the phone again on its own. */
+        val stoppedByUser: Boolean get() = endReason == EndReason.STOPPED_BY_USER
+
         /** The tool result text the coding agent reads. */
         fun forModel(): String = buildString {
-            append(if (success) "Phone task done" else "Phone task not completed")
+            append(
+                when (endReason) {
+                    EndReason.DONE -> "Phone task done"
+                    EndReason.UNCONFIRMED -> "Phone task ended without confirming it was done"
+                    EndReason.STOPPED_BY_USER -> "The user stopped the phone task"
+                    EndReason.ACTION_LIMIT -> "Phone task hit the user's action limit"
+                    EndReason.SERVICE_LOST -> "Phone task stopped: the accessibility service was turned off"
+                    EndReason.FAILED, EndReason.ERROR -> "Phone task not completed"
+                    null -> if (success) "Phone task done" else "Phone task not completed"
+                }
+            )
             append(" (").append(actions).append(if (actions == 1) " action, " else " actions, ").append(seconds).append(" s")
             if (finalApp.isNotBlank()) append(", ended in ").append(finalApp)
             append(").\n")
+            if (stoppedByUser) append("Do not call use_phone again unless the user asks you to.\n")
             if (summary.isNotBlank()) append("Result: ").append(summary.trim()).append('\n')
-            if (error != null && error != summary) append("Problem: ").append(error).append('\n')
+            if (error != null && error != summary && !stoppedByUser) append("Problem: ").append(error).append('\n')
             if (notes.isNotEmpty()) {
                 append("Notes:\n")
                 notes.forEach { append("- ").append(it).append('\n') }
@@ -181,16 +199,25 @@ object DeviceAgent {
         }.trimEnd()
     }
 
+    /** Who cancelled a run, recorded before cancelling so [finish] can say why it ended. */
+    internal enum class CancelReason { USER, SERVICE_LOST }
+
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var job: Job? = null
+    @Volatile private var job: Job? = null
+    /** The pause after a run (hide the island, come back to Oro); a new run cancels it. */
+    @Volatile private var wrapUpJob: Job? = null
     private val paused = MutableStateFlow(false)
     @Volatile private var pendingAnswer: CompletableDeferred<String>? = null
     @Volatile private var pendingApproval: CompletableDeferred<Boolean>? = null
     private val stepSeq = AtomicLong(0)
     @Volatile private var appContext: Context? = null
+    @Volatile private var cancelReason: CancelReason? = null
+
+    /** When the user last answered or approved, so a run can return to its app after an answer given in Oro. */
+    @Volatile private var lastAnswerAt = 0L
 
     /** Set while a run with ad skipping is live; read by the service on UI events. */
     @Volatile private var adSkipActive = false
@@ -198,8 +225,8 @@ object DeviceAgent {
     /** Ads skipped since the model last saw a screen. */
     private val adsSinceObservation = AtomicInteger(0)
 
-    /** Whether the service should look for skippable ads right now. */
-    val adSkipEnabled: Boolean get() = adSkipActive && !paused.value
+    /** Whether the service should look for skippable ads right now: only during a running, unpaused task. */
+    val adSkipEnabled: Boolean get() = adSkipActive && !paused.value && _state.value.running
 
     // ------------------------------------------------------------- service
 
@@ -215,9 +242,11 @@ object DeviceAgent {
     internal fun onServiceLost() {
         _state.update { it.copy(serviceConnected = false) }
         adSkipActive = false
-        if (job?.isActive == true) {
+        if (_state.value.running) {
+            // finish() reports it: the run's wrap-up always runs.
+            cancelReason = CancelReason.SERVICE_LOST
+            pendingAnswer?.cancel(); pendingApproval?.complete(false)
             job?.cancel()
-            _state.update { it.copy(running = false, error = "The Oro accessibility service was turned off, so the task stopped.", endedAt = System.currentTimeMillis()) }
         }
     }
 
@@ -232,7 +261,7 @@ object DeviceAgent {
         if (!_state.value.running) return
         adsSinceObservation.incrementAndGet()
         _state.update { it.copy(adsSkipped = it.adsSkipped + 1) }
-        addStep(Step(nextId(), StepKind.SYSTEM, null, what, status = StepStatus.DONE, endedAt = System.currentTimeMillis()))
+        addStep(Step(nextId(), StepKind.SYSTEM, "skip_ad", what, status = StepStatus.DONE, endedAt = System.currentTimeMillis()))
     }
 
     // ------------------------------------------------------------ controls
@@ -254,7 +283,7 @@ object DeviceAgent {
         aiRepository: AiRepository,
         settings: Settings,
     ): Result {
-        if (job?.isActive == true) {
+        if (_state.value.running) {
             return Result(false, "", emptyList(), 0, 0, "", error = "The phone is busy with another device task. Wait for it to finish, or ask the user.")
         }
         val started = begin(context, task, model, aiRepository, settings, Origin.CHAT)
@@ -262,21 +291,26 @@ object DeviceAgent {
         try {
             started.join()
         } catch (e: CancellationException) {
+            // The user stopped the chat run: the phone task goes with it.
+            cancelReason = CancelReason.USER
             started.cancel()
             throw e
         }
         val s = _state.value
         return Result(
-            success = s.success == true,
+            success = s.endReason == EndReason.DONE,
             summary = s.summary.orEmpty(),
             notes = s.notes,
             actions = s.actions,
             seconds = ((s.endedAt - s.startedAt) / 1000).coerceAtLeast(0),
             finalApp = s.currentApp,
             error = s.error,
+            endReason = s.endReason,
         )
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Synchronized
     private fun begin(
         context: Context,
         task: String,
@@ -285,14 +319,19 @@ object DeviceAgent {
         settings: Settings,
         origin: Origin,
     ): Job? {
-        if (job?.isActive == true) return null
+        if (_state.value.running) return null
         val service = OroAccessibilityService.instance.value
         appContext = context.applicationContext
         if (service == null) {
             _state.update { it.copy(error = "Turn on Oro Device Agent in Accessibility settings first.") }
             return null
         }
+        // The previous run's wrap-up must not hide this run's island or pull Oro forward over it.
+        wrapUpJob?.cancel()
+        wrapUpJob = null
         paused.value = false
+        cancelReason = null
+        lastAnswerAt = 0L
         stepSeq.set(0)
         adsSinceObservation.set(0)
         adSkipActive = settings.skipAds
@@ -302,25 +341,28 @@ object DeviceAgent {
             origin = origin,
         )
         service.overlay.show(settings.showTouches)
-        service.overlay.update("Starting…", null, paused = false, working = true)
         val run = DeviceRun(service, task.trim(), model, aiRepository, settings, origin)
-        val launched = scope.launch {
-            val result = try {
-                run.run()
+        // ATOMIC: the body runs even if Stop lands before it is first
+        // dispatched, so the wrap-up in finally always happens -- otherwise the
+        // state would stay "running", the island up and the ad skipper armed.
+        val launched = scope.launch(start = CoroutineStart.ATOMIC) {
+            var result: AgentRunResult = AgentRunResult.Failed("The device agent stopped unexpectedly.", retryable = true)
+            try {
+                result = run.run()
             } catch (e: CancellationException) {
-                AgentRunResult.Failed("Stopped by you.", retryable = false)
+                result = AgentRunResult.Failed("Stopped.", retryable = false)
             } catch (e: Exception) {
-                AgentRunResult.Failed(e.message ?: "The device agent crashed.", retryable = true)
+                result = AgentRunResult.Failed(e.message ?: "The device agent crashed.", retryable = true)
+            } finally {
+                finish(service, result, settings, origin, run)
             }
-            // The run may have been cancelled (Stop); the wrap-up must still
-            // happen, or the floating control would stay on screen forever.
-            withContext(NonCancellable) { finish(service, result, settings, origin, run.finishSummary) }
         }
         job = launched
         return launched
     }
 
     fun stop() {
+        if (_state.value.running) cancelReason = CancelReason.USER
         pendingAnswer?.cancel(); pendingApproval?.complete(false)
         job?.cancel()
     }
@@ -328,22 +370,21 @@ object DeviceAgent {
     fun togglePause() {
         if (!_state.value.running) return
         paused.value = !paused.value
-        _state.update { it.copy(paused = paused.value, status = if (paused.value) "Paused" else it.status) }
-        OroAccessibilityService.instance.value?.overlay?.update(
-            if (paused.value) "Paused" else "Resuming…", null, paused.value, working = !paused.value
-        )
+        _state.update { it.copy(paused = paused.value, status = if (paused.value) "Paused" else "Continuing") }
     }
 
     fun answer(text: String) {
+        lastAnswerAt = SystemClock.uptimeMillis()
         pendingAnswer?.complete(text)
     }
 
     fun approve(allow: Boolean) {
+        lastAnswerAt = SystemClock.uptimeMillis()
         pendingApproval?.complete(allow)
     }
 
     fun clear() {
-        if (job?.isActive == true) return
+        if (_state.value.running) return
         _state.update { State(serviceConnected = it.serviceConnected) }
     }
 
@@ -365,21 +406,100 @@ object DeviceAgent {
         val limited = settings.maxActions > 0
         var forceText = false
         var lastScreen: ScreenState? = null
+        /** Uptime when [lastScreen] was captured: UI events after it mean the screen may have moved. */
+        var lastCaptureUptime = 0L
+        /** Set after any wait for the user: the next action starts from a new capture. */
+        var mustRecapture = false
         /** The screen the model saw when it decided this turn's calls; indexes refer to it. */
         var turnScreen: ScreenState? = null
+        /** The run has been in another app; from then on Oro in front means the user opened it. */
+        var leftOro = false
+        /** The last app the run worked in, to return to after the user answers in Oro. */
+        var workApp: String? = null
+        /** Uptime when the last call passed [gate]; an answer after it is "since the last action". */
+        var lastGateAt = 0L
         val notes = mutableListOf<String>()
         var actions = 0
         var unchangedStreak = 0
         val visits = HashMap<Int, Int>()
         @Volatile var finishSummary: String? = null
+        @Volatile var finishCalled = false
+        @Volatile var finishSuccess: Boolean? = null
+        @Volatile var limitHit = false
         /** Step id of the tool call in progress, so late updates land on the right card. */
         @Volatile var currentStepId: Long = -1
 
-        fun observe(maxLabel: Int = ScreenReader.DEFAULT_MAX_LABEL): ScreenState =
-            controller.capture(maxLabel).also { s ->
-                if (maxLabel == ScreenReader.DEFAULT_MAX_LABEL) lastScreen = s
-                _state.update { it.copy(currentApp = s.appLabel) }
+        fun observe(maxLabel: Int = ScreenReader.DEFAULT_MAX_LABEL): ScreenState {
+            val startedAt = SystemClock.uptimeMillis()
+            val s = controller.capture(maxLabel)
+            if (maxLabel == ScreenReader.DEFAULT_MAX_LABEL) {
+                lastScreen = s
+                lastCaptureUptime = startedAt
             }
+            if (s.packageName.isNotEmpty() && s.packageName != service.packageName) {
+                leftOro = true
+                workApp = s.packageName
+            }
+            _state.update { it.copy(currentApp = s.appLabel) }
+            return s
+        }
+
+        /**
+         * The screen as it is right before an action: the last capture if
+         * nothing has happened on screen since (cheap: the service stamps every
+         * UI event), else a new one. Acting on a snapshot taken before a pause,
+         * an approval or a long think is how taps used to land on the wrong
+         * thing.
+         */
+        fun freshScreen(): ScreenState {
+            val s = lastScreen
+            val reuse = s != null && !mustRecapture && ScreenReader.isLatest(s) &&
+                service.lastEventAt <= lastCaptureUptime &&
+                SystemClock.uptimeMillis() - lastCaptureUptime <= MAX_SNAPSHOT_AGE_MS
+            if (reuse && s != null) return s
+            mustRecapture = false
+            return observe()
+        }
+
+        /**
+         * Holds actions while the user has the run paused, or has Oro itself in
+         * front: the agent never drives Oro's own screens. If the user just
+         * answered a question in Oro, the run goes back to the app it was in.
+         */
+        suspend fun gate() {
+            val since = lastGateAt
+            var waited = false
+            while (true) {
+                if (paused.value) {
+                    waited = true
+                    _state.update { it.copy(status = "Paused") }
+                    paused.first { !it }
+                    continue
+                }
+                if (leftOro && controller.oroInFront()) {
+                    waited = true
+                    // The user answered (or approved) since the last action, most
+                    // likely right here in Oro: take them back to the task's app.
+                    val back = workApp
+                    if (back != null && lastAnswerAt > since) {
+                        lastAnswerAt = 0L
+                        if (controller.bringToFront(back)) {
+                            controller.settle(quietMs = 250, maxMs = 2_000)
+                            continue
+                        }
+                    }
+                    _state.update { it.copy(status = "Waiting while Oro is open") }
+                    while (!paused.value && controller.oroInFront()) delay(500)
+                    continue
+                }
+                break
+            }
+            if (waited) {
+                mustRecapture = true
+                _state.update { it.copy(status = "Continuing") }
+            }
+            lastGateAt = SystemClock.uptimeMillis()
+        }
 
         fun observation(before: Int?, s: ScreenState, maxChars: Int = 6_000): String = buildString {
             append(SCREEN_MARKER).append('\n')
@@ -404,6 +524,8 @@ object DeviceAgent {
             if (seen == 4 || seen == 8) {
                 append("⚠ You have been on this exact screen ").append(seen).append(" times; you may be going in circles. Take a different route.\n")
             }
+            // Here rather than in the system prompt, which stays the same all run (prompt caching).
+            if (limited) append("Actions left: ").append((settings.maxActions - actions).coerceAtLeast(0)).append('\n')
             if (notes.isNotEmpty()) append("Your notes: ").append(notes.joinToString(" | ")).append('\n')
             append(s.render(maxChars, adsHandled = settings.skipAds))
         }
@@ -447,7 +569,6 @@ object DeviceAgent {
                         else -> status.label
                     }
                     _state.update { it.copy(status = label, statusKind = status.kind) }
-                    service.overlay.update(label, null, paused.value, working = true)
                 }
 
                 override fun onTurnComplete(visibleText: String, toolCalls: List<ToolCallResponse>) {
@@ -463,7 +584,6 @@ object DeviceAgent {
                     val id = nextId()
                     currentStepId = id
                     addStep(Step(id, kind, name, title, app = lastScreen?.appLabel, status = if (kind == StepKind.QUESTION) StepStatus.WAITING else StepStatus.RUNNING))
-                    service.overlay.update(title, null, paused.value, working = true)
                 }
 
                 override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
@@ -494,7 +614,6 @@ object DeviceAgent {
                     content = DevicePrompt.system(
                         textTools = textMode,
                         settings = settings,
-                        actionsLeft = if (limited) settings.maxActions - actions else null,
                         tools = tools,
                         vision = vision,
                         fromChat = origin == Origin.CHAT,
@@ -507,7 +626,7 @@ object DeviceAgent {
                 client = client,
                 tools = runner,
                 config = AgentLoopConfig(
-                    maxIterations = if (limited) settings.maxActions + 10 else Int.MAX_VALUE,
+                    maxIterations = if (limited) settings.maxActions + 10 else AgentLoopConfig.UNLIMITED,
                     attachImages = vision,
                     maxToolResultChars = 14_000,
                     idleTimeoutMs = 90_000,
@@ -529,39 +648,68 @@ object DeviceAgent {
 
         // ------------------------------------------------------- execute
 
+        /**
+         * Runs one call: hold while paused, resolve the target once against
+         * the screen as it is now, guard exactly that target, and act on
+         * exactly that target. A target that changed while the user decided
+         * is skipped and the new screen returned, never acted on.
+         */
         private suspend fun execute(call: ToolCallResponse): ToolResult {
             val c = controller
             val name = call.function.name.substringAfterLast('.').lowercase()
             val args = JsonParserUtils.parseToJsonObject(call.function.arguments) ?: JsonObject(emptyMap())
 
             if (limited && name !in DeviceTools.passive && actions >= settings.maxActions) {
+                limitHit = true
                 return ToolResult(false, "", "The action limit (${settings.maxActions}) is used up. Call finish_task with what you achieved and what is left.")
             }
 
-            // Pause gate: device-touching actions wait while paused.
-            if (name !in DeviceTools.passive && paused.value) {
-                _state.update { it.copy(status = "Paused") }
-                paused.first { !it }
+            if (name !in DeviceTools.allowedWhilePaused) gate()
+
+            readOnly(name, args)?.let { return it }
+
+            var screen = freshScreen()
+            val seen = turnScreen
+
+            var target = resolve(name, args, seen, screen)
+            problem(target, screen)?.let { return it }
+            var dragTo = if (name == "drag") resolveDragEnd(args, seen, screen) else null
+            if (name == "drag") problem(dragTo, screen)?.let { return it }
+
+            // Safety guard on exactly what is about to be acted on.
+            val sensitive = guard(name, args, target, screen)
+            if (sensitive != null && settings.confirmSensitive) {
+                if (!requestApproval(sensitive)) {
+                    return ToolResult(true, "Blocked: the user denied \"$sensitive\". Do not retry it; choose another path or finish_task explaining what is left.")
+                }
+                // The user took a moment (maybe in Oro, maybe pausing first): act
+                // only if the screen still shows what they approved.
+                gate()
+                mustRecapture = true
+                val now = freshScreen()
+                val approved = target
+                if (approved != null) {
+                    val again = resolve(name, args, seen, now)
+                    if (again == null || !Targets.same(approved, again)) {
+                        return skipped("the screen changed while you were deciding, so nothing was done. Decide again from this screen.", now)
+                    }
+                    target = again
+                    if (name == "drag") {
+                        dragTo = resolveDragEnd(args, seen, now)
+                        problem(dragTo, now)?.let { return it }
+                    }
+                } else if (now.packageName != screen.packageName) {
+                    return skipped("the app changed while you were deciding (now ${now.appLabel}), so nothing was done.", now)
+                }
+                screen = now
             }
 
-            val screen = lastScreen ?: observe()
             val before = screen.signature
-            // Indexes refer to the screen the model saw. If an earlier call in the
-            // same turn changed the screen, find the same element (role + label)
-            // on the new one; never act on whatever now has that number.
-            var stale = false
-            fun el(key: String = "index"): ScreenElement? {
-                val i = args.int(key) ?: return null
-                val seen = turnScreen ?: screen
-                val (match, wasStale) = ElementRemap.resolve(seen, screen, i)
-                if (wasStale) stale = true
-                return match
-            }
+            val actScreen = screen
 
-            suspend fun act(maxSettle: Long = 2_500, block: suspend () -> String): ToolResult {
+            suspend fun act(maxSettle: Long = 2_500, expectChange: Boolean = true, block: suspend () -> String): ToolResult {
                 val outcome = block()
-                // Judge the sentence, not the labels quoted in it ("Tapped “Failed orders”").
-                val failed = FAILED.containsMatchIn(outcome.replace(QUOTED, ""))
+                val didFail = failed(outcome)
                 c.settle(maxMs = maxSettle)
                 var after = observe()
                 // Content still loading (spinner, empty window): give it a moment
@@ -572,165 +720,228 @@ object DeviceAgent {
                     after = observe()
                     extra++
                 }
-                val text = outcome + "\n\n" + observation(before, after)
-                return if (failed) ToolResult(false, text, outcome) else ToolResult(true, text)
+                // Media keys, intents and links often change nothing on screen by
+                // design; "did not change" would only invite a duplicate alarm.
+                val text = outcome + "\n\n" + observation(if (expectChange) before else null, after)
+                return if (didFail) ToolResult(false, text, outcome) else ToolResult(true, text)
             }
 
-            fun missingTarget() = if (stale) ToolResult(
-                false,
-                observation(null, screen),
-                "Skipped: an earlier action in this turn changed the screen and that element is gone. Decide again from this screen."
-            ) else ToolResult(false, "", "Give an element index from the screen listing, or x and y. " +
-                "Valid indexes are 0-${(screen.elements.size - 1).coerceAtLeast(0)}.")
-
-            // Safety guard for sensitive actions.
-            val sensitive = SensitiveGuard.check(name, args, screen)
-            if (sensitive != null && settings.confirmSensitive) {
-                val allowed = requestApproval(sensitive)
-                if (!allowed) {
-                    return ToolResult(true, "Blocked: the user denied \"$sensitive\". Do not retry it; choose another path or finish_task explaining what is left.")
-                }
-            }
+            fun noTarget() = ToolResult(false, "", "Give an element index from the screen listing, or x and y.")
 
             return when (name) {
-                "tap" -> el()?.let { e -> act { c.tapElement(e) } }
-                    ?: xy(args)?.let { (x, y) -> act { if (c.tap(x, y)) "Tapped ($x,$y)." else "The tap could not be performed." } }
-                    ?: missingTarget()
-                "tap_text" -> {
-                    val text = args.str("text") ?: args.str("label") ?: return ToolResult(false, "", "Missing text.")
-                    when (val m = TextMatch.find(text, screen, args.int("nth"))) {
-                        is TextMatch.Result.Found -> act { c.tapElement(m.element) }
-                        is TextMatch.Result.Ambiguous -> ToolResult(
-                            false,
-                            m.candidates.joinToString("\n") { it.render() },
-                            if (m.weak) "Nothing clearly shows \"$text\". Closest elements below; tap one by index if it is right."
-                            else "Several elements show \"$text\". Tap one by index, or pass nth (1 = first)."
-                        )
-                        TextMatch.Result.NotFound -> ToolResult(
-                            false, "",
-                            "\"$text\" is not on the screen. If it is further down use scroll_to(\"$text\"); otherwise read the listing for the exact label."
-                        )
-                    }
+                "tap", "tap_text" -> when (val t = target) {
+                    is Target.OnElement -> act { c.tapElement(t.element, actScreen) }
+                    is Target.AtPoint -> act { if (c.tap(t.x, t.y)) "Tapped (${t.x},${t.y})." else "The tap could not be performed." }
+                    else -> noTarget()
                 }
-                "long_press" -> el()?.let { e -> act { c.longPressElement(e) } }
-                    ?: xy(args)?.let { (x, y) -> act { if (c.longPress(x, y)) "Long-pressed ($x,$y)." else "The long press failed." } }
-                    ?: missingTarget()
-                "double_tap" -> (el()?.let { it.centerX to it.centerY } ?: xy(args))
-                    ?.let { (x, y) -> act { if (c.doubleTap(x, y)) "Double-tapped ($x,$y)." else "The double tap failed." } }
-                    ?: missingTarget()
+                "long_press" -> when (val t = target) {
+                    is Target.OnElement -> act { c.longPressElement(t.element, actScreen) }
+                    is Target.AtPoint -> act { if (c.longPress(t.x, t.y)) "Long-pressed (${t.x},${t.y})." else "The long press failed." }
+                    else -> noTarget()
+                }
+                "double_tap" -> when (val t = target) {
+                    is Target.OnElement -> act { c.doubleTapElement(t.element, actScreen) }
+                    is Target.AtPoint -> act { if (c.doubleTap(t.x, t.y)) "Double-tapped (${t.x},${t.y})." else "The double tap failed." }
+                    else -> noTarget()
+                }
                 "type_text" -> {
-                    val text = args.str("text") ?: return ToolResult(false, "", "Missing text.")
-                    val target = el()
-                    if (args.int("index") != null && target == null && stale) return missingTarget()
+                    val text = DeviceArgs.str(args, "text") ?: return ToolResult(false, "", "Missing text.")
+                    val field = (target as? Target.OnElement)?.element
                     act {
-                        val typed = c.type(target, text, args.bool("append"))
-                        if (args.bool("submit") && !typed.startsWith("No ")) { delay(150); typed + " " + c.submit() } else typed
+                        val typed = c.type(field, actScreen, text, DeviceArgs.bool(args, "append"))
+                        // Enter only after the text really went in: never send an old draft.
+                        if (DeviceArgs.bool(args, "submit") && !failed(typed)) { delay(150); typed + " " + c.submit() } else typed
                     }
                 }
                 "press_key" -> {
-                    val key = args.str("key") ?: return ToolResult(false, "", "Missing key.")
+                    val key = DeviceArgs.str(args, "key") ?: return ToolResult(false, "", "Missing key.")
                     act { if (key.equals("enter", true)) c.submit() else c.global(key) }
                 }
-                "scroll" -> act { c.scroll(args.str("direction") ?: "down", el(), (args.num("amount") ?: 0.6).toFloat()) }
+                "scroll" -> act {
+                    c.scroll(DeviceArgs.str(args, "direction") ?: "down", (target as? Target.OnElement)?.element, actScreen,
+                        (DeviceArgs.num(args, "amount") ?: 0.6).toFloat())
+                }
                 "scroll_to" -> {
-                    val text = args.str("text") ?: return ToolResult(false, "", "Missing text.")
-                    scrollTo(text, args.str("direction") ?: "down", el(), screen)
+                    val text = DeviceArgs.str(args, "text") ?: return ToolResult(false, "", "Missing text.")
+                    scrollTo(text, DeviceArgs.str(args, "direction") ?: "down", (target as? Target.OnElement)?.element, actScreen)
                 }
                 "swipe" -> {
-                    val x1 = args.int("x1"); val y1 = args.int("y1"); val x2 = args.int("x2"); val y2 = args.int("y2")
+                    val x1 = DeviceArgs.int(args, "x1"); val y1 = DeviceArgs.int(args, "y1")
+                    val x2 = DeviceArgs.int(args, "x2"); val y2 = DeviceArgs.int(args, "y2")
                     if (x1 == null || y1 == null || x2 == null || y2 == null) ToolResult(false, "", "swipe needs x1, y1, x2, y2.")
-                    else act { if (c.swipe(x1, y1, x2, y2, args.int("duration_ms")?.toLong() ?: 350)) "Swiped ($x1,$y1)→($x2,$y2)." else "The swipe failed." }
+                    else act { if (c.swipe(x1, y1, x2, y2, DeviceArgs.int(args, "duration_ms")?.toLong() ?: 350)) "Swiped ($x1,$y1)→($x2,$y2)." else "The swipe failed." }
                 }
                 "drag" -> {
-                    val from = el("from_index")?.let { it.centerX to it.centerY } ?: args.int("x1")?.let { x -> args.int("y1")?.let { x to it } }
-                    val to = el("to_index")?.let { it.centerX to it.centerY } ?: args.int("x2")?.let { x -> args.int("y2")?.let { x to it } }
+                    val from = pointOf(target)
+                    val to = pointOf(dragTo)
                     if (from == null || to == null) ToolResult(false, "", "drag needs from_index/to_index or x1,y1,x2,y2.")
                     else act { if (c.drag(from.first, from.second, to.first, to.second)) "Dragged from $from to $to." else "The drag failed." }
                 }
                 "pinch" -> {
-                    val x = args.int("x") ?: screen.width / 2
-                    val y = args.int("y") ?: screen.height / 2
-                    act { if (c.pinch(x, y, args.str("direction") == "out")) "Pinched ${args.str("direction")} at ($x,$y)." else "The pinch failed." }
+                    val x = DeviceArgs.int(args, "x") ?: screen.width / 2
+                    val y = DeviceArgs.int(args, "y") ?: screen.height / 2
+                    val dir = DeviceArgs.str(args, "direction")
+                    act { if (c.pinch(x, y, dir == "out")) "Pinched $dir at ($x,$y)." else "The pinch failed." }
                 }
                 "open_app" -> {
-                    val app = args.str("name") ?: args.str("app") ?: return ToolResult(false, "", "Missing app name.")
+                    val app = DeviceArgs.str(args, "name") ?: DeviceArgs.str(args, "app") ?: return ToolResult(false, "", "Missing app name.")
                     act(maxSettle = 4_000) { c.openApp(app).also { delay(400) } }
                 }
                 "open_url" -> {
-                    val url = args.str("url") ?: return ToolResult(false, "", "Missing url.")
-                    act(maxSettle = 4_000) { c.openUrl(url).also { delay(500) } }
+                    val url = DeviceArgs.str(args, "url") ?: return ToolResult(false, "", "Missing url.")
+                    act(maxSettle = 4_000, expectChange = false) { c.openUrl(url).also { delay(500) } }
                 }
                 "quick_action" -> {
-                    val action = args.str("action") ?: return ToolResult(false, "", "Missing action. Use one of: ${QuickActions.ACTIONS.joinToString()}.")
+                    val action = DeviceArgs.str(args, "action") ?: return ToolResult(false, "", "Missing action. Use one of: ${QuickActions.ACTIONS.joinToString()}.")
                     val qa = QuickActions.Args(
-                        action = action, text = args.str("text") ?: args.str("query"), to = args.str("to"), time = args.str("time"),
-                        minutes = args.num("minutes"), page = args.str("page"), subject = args.str("subject"),
+                        action = action, text = DeviceArgs.str(args, "text") ?: DeviceArgs.str(args, "query"), to = DeviceArgs.str(args, "to"),
+                        time = DeviceArgs.str(args, "time"), minutes = DeviceArgs.num(args, "minutes"), page = DeviceArgs.str(args, "page"),
+                        subject = DeviceArgs.str(args, "subject"),
                     )
-                    act(maxSettle = 3_000) { QuickActions.run(service, qa).also { delay(300) } }
+                    act(maxSettle = 3_000, expectChange = false) { QuickActions.run(service, qa).also { delay(300) } }
                 }
                 "media" -> {
-                    val action = args.str("action") ?: return ToolResult(false, "", "Missing action.")
-                    act { c.media(action) }
+                    val action = DeviceArgs.str(args, "action") ?: return ToolResult(false, "", "Missing action.")
+                    act(expectChange = false) { c.media(action) }
                 }
-                "list_apps" -> {
-                    val q = args.str("query")?.lowercase()
-                    val apps = AppCatalog.apps(service)
-                        .filter { q.isNullOrBlank() || it.label.lowercase().contains(q) || it.packageName.contains(q) }
-                    ToolResult(true, if (apps.isEmpty()) "No apps match." else apps.take(120).joinToString("\n") { "${it.label} (${it.packageName})" })
-                }
-                "find_text" -> {
-                    val q = args.str("text").orEmpty()
-                    val now = observe()
-                    val hits = TextMatch.hits(q, now).filter { it.score >= TextMatch.ACT_THRESHOLD }
-                    ToolResult(true, if (hits.isEmpty()) "\"$q\" is not on the current screen. Try scroll_to(\"$q\")."
-                    else "Found ${hits.size}:\n" + hits.take(12).joinToString("\n") { it.element.render() })
-                }
-                "read_screen" -> {
-                    c.settle(quietMs = 250, maxMs = 1_500, minMs = 80)
-                    val now = observe()
-                    ToolResult(true, "Current screen.\n\n" + observation(null, now))
-                }
-                "read_page" -> readPage((args.int("pages") ?: 3).coerceIn(1, 8), before)
+                "read_page" -> readPage((DeviceArgs.int(args, "pages") ?: 3).coerceIn(1, 8), before)
                 "wait" -> {
-                    val s = (args.num("seconds") ?: 2.0).coerceIn(0.5, 10.0)
-                    act { delay((s * 1000).toLong()); "Waited ${"%.1f".format(s)}s." }
-                }
-                "wait_for" -> {
-                    val text = args.str("text") ?: return ToolResult(false, "", "Missing text.")
-                    waitFor(text, args.bool("gone"), ((args.num("seconds") ?: 10.0).coerceIn(1.0, 30.0) * 1000).toLong(), before)
-                }
-                "look" -> {
-                    if (!vision) return ToolResult(false, "", "Screenshots are not available for this model or phone. Use the element listing.")
-                    val now = observe()
-                    val image = ScreenshotTaker.capture(service, now)
-                        ?: return ToolResult(false, observation(null, now), "The screenshot failed; this app may block screenshots. Use the listing.")
-                    ToolResult(true, "Screenshot attached; the numbers on it match the listing.\n\n" + observation(null, now), images = listOf(image))
-                }
-                "device_status" -> ToolResult(true, DeviceInfo.status(service))
-                "take_note" -> {
-                    val note = args.str("note")?.trim().orEmpty()
-                    if (note.isEmpty()) ToolResult(false, "", "Empty note.") else {
-                        notes += note.take(300)
-                        while (notes.size > 16) notes.removeAt(0)
-                        ToolResult(true, "Noted.")
-                    }
-                }
-                "ask_user" -> {
-                    val q = args.str("question") ?: return ToolResult(false, "", "Missing question.")
-                    val options = (args["options"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
-                    val answer = askUser(q, options)
-                    updateStep(currentStepId) { it.copy(detail = "You answered: $answer", status = StepStatus.DONE, endedAt = System.currentTimeMillis()) }
-                    ToolResult(true, "The user answered: $answer")
-                }
-                "finish_task" -> {
-                    val summary = args.str("summary").orEmpty()
-                    val ok = (args["success"] as? JsonPrimitive)?.let { it.booleanOrNull ?: it.contentOrNull?.toBooleanStrictOrNull() } ?: true
-                    finishSummary = summary.ifBlank { null }
-                    _state.update { it.copy(success = ok) }
-                    ToolResult(true, summary)
+                    val s = (DeviceArgs.num(args, "seconds") ?: 2.0).coerceIn(0.5, 10.0)
+                    act(expectChange = false) { delay((s * 1000).toLong()); "Waited ${"%.1f".format(s)}s." }
                 }
                 else -> ToolResult(false, "", "Unknown tool \"$name\". Available: ${tools.joinToString { it.function.name }}.")
             }
+        }
+
+        /** Tools that only read, note or talk: no target, no guard. Null for everything else. */
+        private suspend fun readOnly(name: String, args: JsonObject): ToolResult? = when (name) {
+            "list_apps" -> {
+                val q = DeviceArgs.str(args, "query")?.lowercase()
+                val apps = AppCatalog.apps(service)
+                    .filter { q.isNullOrBlank() || it.label.lowercase().contains(q) || it.packageName.contains(q) }
+                ToolResult(true, if (apps.isEmpty()) "No apps match." else apps.take(120).joinToString("\n") { "${it.label} (${it.packageName})" })
+            }
+            "device_status" -> ToolResult(true, DeviceInfo.status(service))
+            "take_note" -> {
+                val note = DeviceArgs.str(args, "note")?.trim().orEmpty()
+                if (note.isEmpty()) ToolResult(false, "", "Empty note.") else {
+                    notes += note.take(300)
+                    while (notes.size > 16) notes.removeAt(0)
+                    ToolResult(true, "Noted.")
+                }
+            }
+            "ask_user" -> {
+                val q = DeviceArgs.str(args, "question")
+                if (q == null) ToolResult(false, "", "Missing question.") else {
+                    val options = (args["options"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
+                    val answer = askUser(q, options)
+                    mustRecapture = true
+                    updateStep(currentStepId) { it.copy(detail = "You answered: $answer", status = StepStatus.DONE, endedAt = System.currentTimeMillis()) }
+                    ToolResult(true, "The user answered: $answer")
+                }
+            }
+            "finish_task" -> {
+                val summary = DeviceArgs.str(args, "summary").orEmpty()
+                val ok = (args["success"] as? JsonPrimitive)?.let { it.booleanOrNull ?: it.contentOrNull?.trim()?.toBooleanStrictOrNull() } ?: true
+                finishSummary = summary.ifBlank { null }
+                finishCalled = true
+                finishSuccess = ok
+                ToolResult(true, summary)
+            }
+            "find_text" -> {
+                val q = DeviceArgs.str(args, "text").orEmpty()
+                val now = observe()
+                val hits = TextMatch.hits(q, now).filter { it.score >= TextMatch.ACT_THRESHOLD }
+                ToolResult(true, if (hits.isEmpty()) "\"$q\" is not on the current screen. Try scroll_to(\"$q\")."
+                else "Found ${hits.size}:\n" + hits.take(12).joinToString("\n") { it.element.render() })
+            }
+            "read_screen" -> {
+                controller.settle(quietMs = 250, maxMs = 1_500, minMs = 80)
+                val now = observe()
+                ToolResult(true, "Current screen.\n\n" + observation(null, now))
+            }
+            "look" -> {
+                if (!vision) ToolResult(false, "", "Screenshots are not available for this model or phone. Use the element listing.")
+                else {
+                    val now = observe()
+                    val image = ScreenshotTaker.capture(service, now)
+                    if (image == null) ToolResult(false, observation(null, now), "The screenshot failed; this app may block screenshots. Use the listing.")
+                    else ToolResult(true, "Screenshot attached; the numbers on it match the listing.\n\n" + observation(null, now), images = listOf(image))
+                }
+            }
+            "wait_for" -> {
+                val text = DeviceArgs.str(args, "text")
+                if (text == null) ToolResult(false, "", "Missing text.")
+                else waitFor(
+                    text, DeviceArgs.bool(args, "gone"),
+                    ((DeviceArgs.num(args, "seconds") ?: 10.0).coerceIn(1.0, 30.0) * 1000).toLong(),
+                    lastScreen?.signature ?: 0,
+                )
+            }
+            else -> null
+        }
+
+        /** The target of a targeted tool, resolved against [now]; null for tools without one. */
+        private fun resolve(name: String, args: JsonObject, seen: ScreenState?, now: ScreenState): Target? = when (name) {
+            "tap", "double_tap" -> Targets.tap(args, seen, now)
+            "long_press" -> Targets.tap(args, seen, now, long = true)
+            "tap_text" -> Targets.text(args, seen, now)
+            "type_text" -> Targets.field(args, seen, now)
+            "scroll", "scroll_to" -> Targets.optional(args, "index", seen, now)
+            "swipe" -> Targets.start(args, "x1", "y1", seen, now)
+            "drag" -> Targets.optional(args, "from_index", seen, now) ?: Targets.start(args, "x1", "y1", seen, now)
+            else -> null
+        }
+
+        private fun resolveDragEnd(args: JsonObject, seen: ScreenState?, now: ScreenState): Target? =
+            Targets.optional(args, "to_index", seen, now) ?: Targets.start(args, "x2", "y2", seen, now)
+
+        /** What the guard judges: the resolved target, or the call itself for keys and links. */
+        private fun guard(name: String, args: JsonObject, target: Target?, screen: ScreenState): String? = when (name) {
+            "tap", "tap_text" -> SensitiveGuard.tap(target, screen)
+            "double_tap" -> SensitiveGuard.tap(target, screen, verb = "double-tap")
+            "long_press" -> SensitiveGuard.tap(target, screen, verb = "press and hold")
+            "type_text" -> {
+                val named = (target as? Target.OnElement)?.element ?: (target as? Target.Focused)?.field
+                // An index on the field's container still types into the field inside it.
+                val field = named?.takeIf { it.editable }
+                    ?: named?.let { box -> screen.elements.firstOrNull { it.editable && box.bounds.contains(it.centerX, it.centerY) } }
+                    ?: named
+                SensitiveGuard.type(field, DeviceArgs.str(args, "text"), DeviceArgs.bool(args, "submit"), screen)
+            }
+            "press_key" -> SensitiveGuard.key(DeviceArgs.str(args, "key"), screen)
+            "open_url" -> SensitiveGuard.url(DeviceArgs.str(args, "url"))
+            "swipe", "drag" -> SensitiveGuard.slide(target, screen)
+            else -> null
+        }
+
+        /** The answer for a target nothing can be done with, or null. */
+        private fun problem(t: Target?, now: ScreenState): ToolResult? = when (t) {
+            is Target.Stale -> skipped(
+                if (t.appChanged) "the app changed since you chose that (now ${now.appLabel}). Decide again from this screen."
+                else "that element changed or left the screen since you chose it. Decide again from this screen.",
+                now
+            )
+            is Target.Missing -> ToolResult(false, "", t.message)
+            is Target.Choices -> ToolResult(
+                false,
+                t.candidates.joinToString("\n") { it.render() },
+                if (t.weak) "Nothing clearly shows \"${t.query}\". Closest elements below; tap one by index if it is right."
+                else "Several elements show \"${t.query}\". Tap one by index, or pass nth (1 = first)."
+            )
+            is Target.NotFound -> ToolResult(
+                false, "",
+                "\"${t.query}\" is not on the screen. If it is further down use scroll_to(\"${t.query}\"); otherwise read the listing for the exact label."
+            )
+            else -> null
+        }
+
+        private fun skipped(why: String, now: ScreenState) = ToolResult(false, observation(null, now), "Skipped: $why")
+
+        private fun pointOf(t: Target?): Pair<Int, Int>? = when (t) {
+            is Target.OnElement -> t.element.centerX to t.element.centerY
+            is Target.AtPoint -> t.x to t.y
+            else -> null
         }
 
         private suspend fun scrollTo(text: String, direction: String, list: ScreenElement?, start: ScreenState): ToolResult {
@@ -741,7 +952,7 @@ object DeviceAgent {
             while (hit == null && scrolls < 10) {
                 val before = cur.signature
                 val target = list?.let { l -> cur.elements.firstOrNull { it.role == l.role && it.bounds == l.bounds } }
-                controller.scroll(direction, target, 0.7f)
+                controller.scroll(direction, target, cur, 0.7f)
                 controller.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
                 cur = observe()
                 scrolls++
@@ -765,7 +976,7 @@ object DeviceAgent {
                 read++
                 if (read >= pages) break
                 val before = full.signature
-                controller.scroll("down", null, 0.8f)
+                controller.scroll("down", null, null, 0.8f)
                 controller.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
                 full = observe(maxLabel = 1_500)
                 if (full.signature == before) break
@@ -807,7 +1018,7 @@ object DeviceAgent {
         } finally {
             overlay?.clearApproval()
             pendingApproval = null
-            _state.update { it.copy(approval = null) }
+            _state.update { it.copy(approval = null, status = "Continuing") }
         }
         updateStep(stepId) {
             it.copy(
@@ -828,51 +1039,88 @@ object DeviceAgent {
         val d = CompletableDeferred<String>()
         pendingAnswer = d
         _state.update { it.copy(question = Question(question, options), status = "Waiting for your answer") }
-        OroAccessibilityService.instance.value?.overlay?.update("Orobi has a question", question.take(90), paused = false, working = false)
         return try {
             d.await()
         } finally {
             pendingAnswer = null
-            _state.update { it.copy(question = null) }
+            _state.update { it.copy(question = null, status = "Continuing") }
         }
     }
 
-    private suspend fun finish(
-        service: OroAccessibilityService,
-        result: AgentRunResult,
-        settings: Settings,
-        origin: Origin,
-        finishSummary: String?,
-    ) {
+    /**
+     * Ends a run, whatever ended it: one state update (so a new run can start
+     * the moment it is published), the ad skipper off, and a separate
+     * wrap-up -- hide the island after a beat, come back to Oro -- that a new
+     * run cancels, so a stale wrap-up never hides the next run's island.
+     */
+    private fun finish(service: OroAccessibilityService, result: AgentRunResult, settings: Settings, origin: Origin, run: DeviceRun) {
         adSkipActive = false
         val now = System.currentTimeMillis()
-        when (result) {
-            is AgentRunResult.Completed -> _state.update {
-                it.copy(running = false, paused = false, summary = finishSummary ?: result.finalText.ifBlank { "Done." },
-                    success = it.success ?: true, status = "Done", endedAt = now)
-            }
-            is AgentRunResult.Failed -> _state.update {
-                it.copy(running = false, paused = false, error = result.message, summary = finishSummary,
-                    success = false, status = "Stopped", endedAt = now)
-            }
-            is AgentRunResult.IterationLimit -> _state.update {
-                it.copy(running = false, paused = false, success = false, endedAt = now, status = "Action limit reached",
-                    summary = finishSummary,
-                    error = "Stopped after ${it.actions} actions (the limit). You can change the limit in settings.")
+        val reason = endReason(result, run.finishCalled, run.finishSuccess, cancelReason, run.limitHit)
+        val wrapUp = scope.launch(start = CoroutineStart.LAZY) {
+            delay(if (origin == Origin.CHAT) 1_800 else 2_500)
+            service.overlay.hideAll()
+            when {
+                // The coding agent is waiting in the chat: always go back to it.
+                origin == Origin.CHAT -> bringOroToFront(openDeviceScreen = false)
+                settings.returnToOro -> bringOroToFront(openDeviceScreen = true)
             }
         }
-        _state.value.steps.lastOrNull()?.takeIf { it.status == StepStatus.RUNNING || it.status == StepStatus.WAITING }?.let { last ->
-            updateStep(last.id) { st -> st.copy(status = StepStatus.FAILED, endedAt = now) }
+        wrapUpJob = wrapUp
+        val finalText = (result as? AgentRunResult.Completed)?.finalText?.trim().orEmpty()
+        _state.update { s ->
+            val last = s.steps.lastOrNull()
+            val steps = if (last != null && (last.status == StepStatus.RUNNING || last.status == StepStatus.WAITING)) {
+                s.steps.dropLast(1) + last.copy(status = StepStatus.FAILED, endedAt = now)
+            } else s.steps
+            s.copy(
+                running = false, paused = false, steps = steps, endedAt = now, endReason = reason,
+                question = null, approval = null,
+                success = reason == EndReason.DONE,
+                summary = when (reason) {
+                    EndReason.DONE -> run.finishSummary ?: finalText.ifBlank { "Done." }
+                    EndReason.UNCONFIRMED -> finalText.ifBlank { null }
+                    else -> run.finishSummary
+                },
+                error = when (reason) {
+                    EndReason.DONE, EndReason.UNCONFIRMED, EndReason.FAILED -> null
+                    EndReason.STOPPED_BY_USER -> "Stopped by you."
+                    EndReason.SERVICE_LOST -> "The Oro accessibility service was turned off, so the task stopped."
+                    EndReason.ACTION_LIMIT -> "Stopped after ${s.actions} actions (the limit). You can change the limit in settings."
+                    EndReason.ERROR -> (result as? AgentRunResult.Failed)?.message ?: "The device agent stopped."
+                },
+                status = when (reason) {
+                    EndReason.DONE -> "Done"
+                    EndReason.UNCONFIRMED -> "Ended"
+                    EndReason.FAILED -> "Couldn't finish"
+                    EndReason.ACTION_LIMIT -> "Action limit reached"
+                    EndReason.STOPPED_BY_USER, EndReason.SERVICE_LOST, EndReason.ERROR -> "Stopped"
+                },
+            )
         }
-        val s = _state.value
-        service.overlay.update(if (s.success == true) "Done ✓" else s.status, (s.summary ?: s.error)?.take(90), paused = false, working = false)
-        delay(if (origin == Origin.CHAT) 1_800 else 2_500)
-        service.overlay.hideAll()
-        when {
-            // The coding agent is waiting in the chat: always go back to it.
-            origin == Origin.CHAT -> bringOroToFront(openDeviceScreen = false)
-            settings.returnToOro -> bringOroToFront(openDeviceScreen = true)
-        }
+        wrapUp.start()
+    }
+
+    /**
+     * Why a run ended. Pure, for tests. Who cancelled wins (Stop, service
+     * lost); then the loop's own limit or failure; then whether the model
+     * called finish_task, and with what.
+     */
+    internal fun endReason(
+        result: AgentRunResult,
+        finishCalled: Boolean,
+        finishSuccess: Boolean?,
+        cancelled: CancelReason?,
+        limitHit: Boolean,
+    ): EndReason = when {
+        cancelled == CancelReason.SERVICE_LOST -> EndReason.SERVICE_LOST
+        cancelled == CancelReason.USER -> EndReason.STOPPED_BY_USER
+        result is AgentRunResult.IterationLimit -> EndReason.ACTION_LIMIT
+        result is AgentRunResult.Failed -> if (limitHit) EndReason.ACTION_LIMIT else EndReason.ERROR
+        finishCalled && finishSuccess != false -> EndReason.DONE
+        limitHit -> EndReason.ACTION_LIMIT
+        finishCalled -> EndReason.FAILED
+        else -> EndReason.UNCONFIRMED
     }
 
     private fun bringOroToFront(openDeviceScreen: Boolean) {
@@ -890,8 +1138,15 @@ object DeviceAgent {
     internal const val SCREEN_MARKER = "=== SCREEN ==="
 
     /** Outcome sentences that mean the action did not happen. */
-    private val FAILED = Regex("^(No |Unknown )|could not|failed|^\\w+ needs |not supported|rejected", RegexOption.IGNORE_CASE)
+    private val FAILED = Regex("^(No |Unknown |Skipped|Refused)|could not|failed|^\\w+ needs |not supported|rejected|refused", RegexOption.IGNORE_CASE)
     private val QUOTED = Regex("\"[^\"]*\"|“[^”]*”")
+
+    /** Judges an outcome sentence, not the labels quoted in it ("Tapped “Failed orders”" succeeded). */
+    private fun failed(outcome: String): Boolean = FAILED.containsMatchIn(outcome.replace(QUOTED, ""))
+
+    /** Oldest capture an action may reuse even when no UI event arrived since (some views never send any). */
+    private const val MAX_SNAPSHOT_AGE_MS = 4_000L
+
 
     /**
      * Older observations collapse to their outcome line; only the newest
@@ -919,54 +1174,59 @@ object DeviceAgent {
 
     private fun describe(call: ToolCallResponse, screen: ScreenState?): Pair<String, StepKind> {
         val a = JsonParserUtils.parseToJsonObject(call.function.arguments) ?: JsonObject(emptyMap())
-        fun target(key: String = "index"): String {
-            val e = a.int(key)?.let { screen?.element(it) }
+        fun target(key: String = "index", xKey: String = "x", yKey: String = "y"): String {
+            val e = DeviceArgs.int(a, key)?.let { screen?.element(it) }
+            val x = DeviceArgs.int(a, xKey)
             return when {
                 e != null && e.label.isNotBlank() -> "“${e.label.take(40)}”"
                 e != null -> "${e.role} #${e.index}"
-                a.int("x") != null -> "(${a.int("x")}, ${a.int("y")})"
+                x != null -> "($x, ${DeviceArgs.int(a, yKey)})"
                 else -> "the screen"
             }
         }
-        fun quoted(key: String) = "“${a.str(key).orEmpty().take(40)}”"
+        fun quoted(vararg keys: String) = "“${keys.firstNotNullOfOrNull { DeviceArgs.str(a, it) }.orEmpty().take(40)}”"
         return when (call.function.name) {
             "tap" -> "Tap ${target()}" to StepKind.ACTION
-            "tap_text" -> "Tap ${quoted("text")}" to StepKind.ACTION
+            "tap_text" -> "Tap ${quoted("text", "label")}" to StepKind.ACTION
             "long_press" -> "Press and hold ${target()}" to StepKind.ACTION
             "double_tap" -> "Double-tap ${target()}" to StepKind.ACTION
-            "type_text" -> "Type ${quoted("text")}" + (if (a.bool("submit")) " and submit" else "") to StepKind.ACTION
-            "press_key" -> "Press ${a.str("key").orEmpty().replace('_', ' ')}" to StepKind.ACTION
-            "scroll" -> "Scroll ${a.str("direction") ?: "down"}" to StepKind.ACTION
+            "type_text" -> "Type ${quoted("text")}" + (if (DeviceArgs.bool(a, "submit")) " and submit" else "") to StepKind.ACTION
+            "press_key" -> "Press ${DeviceArgs.str(a, "key").orEmpty().replace('_', ' ')}" to StepKind.ACTION
+            "scroll" -> "Scroll ${DeviceArgs.str(a, "direction") ?: "down"}" to StepKind.ACTION
             "scroll_to" -> "Scroll to ${quoted("text")}" to StepKind.ACTION
             "swipe" -> "Swipe" to StepKind.ACTION
-            "drag" -> "Drag ${target("from_index")} → ${target("to_index")}" to StepKind.ACTION
-            "pinch" -> "Zoom ${if (a.str("direction") == "out") "in" else "out"}" to StepKind.ACTION
-            "open_app" -> "Open ${a.str("name").orEmpty()}" to StepKind.ACTION
-            "open_url" -> "Open ${a.str("url").orEmpty().removePrefix("https://").removePrefix("www.").take(48)}" to StepKind.ACTION
-            "quick_action" -> QuickActions.title(a.str("action"), a.str("text") ?: a.str("query"), a.str("time"), a.num("minutes"), a.str("page"), a.str("to")) to StepKind.ACTION
-            "media" -> mediaTitle(a.str("action")) to StepKind.ACTION
+            "drag" -> "Drag ${target("from_index", "x1", "y1")} → ${target("to_index", "x2", "y2")}" to StepKind.ACTION
+            "pinch" -> "Zoom ${if (DeviceArgs.str(a, "direction") == "out") "in" else "out"}" to StepKind.ACTION
+            "open_app" -> "Open ${DeviceArgs.str(a, "name") ?: DeviceArgs.str(a, "app").orEmpty()}" to StepKind.ACTION
+            "open_url" -> "Open ${DeviceArgs.str(a, "url").orEmpty().removePrefix("https://").removePrefix("www.").take(48)}" to StepKind.ACTION
+            "quick_action" -> QuickActions.title(
+                DeviceArgs.str(a, "action"), DeviceArgs.str(a, "text") ?: DeviceArgs.str(a, "query"), DeviceArgs.str(a, "time"),
+                DeviceArgs.num(a, "minutes"), DeviceArgs.str(a, "page"), DeviceArgs.str(a, "to"),
+            ) to StepKind.ACTION
+            "media" -> mediaTitle(DeviceArgs.str(a, "action")) to StepKind.ACTION
             "read_page" -> "Read the page" to StepKind.ACTION
             "list_apps" -> "Check installed apps" to StepKind.SYSTEM
             "find_text" -> "Look for ${quoted("text")}" to StepKind.SYSTEM
             "read_screen" -> "Read the screen" to StepKind.SYSTEM
             "look" -> "Look at the screen" to StepKind.SYSTEM
             "device_status" -> "Check the phone's status" to StepKind.SYSTEM
-            "wait" -> "Wait ${a.num("seconds")?.let { "%.0f".format(it) } ?: "2"}s for loading" to StepKind.SYSTEM
-            "wait_for" -> (if (a.bool("gone")) "Wait for ${quoted("text")} to go" else "Wait for ${quoted("text")}") to StepKind.SYSTEM
-            "take_note" -> "Note: ${a.str("note").orEmpty().take(80)}" to StepKind.NOTE
-            "ask_user" -> (a.str("question") ?: "Question") to StepKind.QUESTION
+            "wait" -> "Wait ${DeviceArgs.num(a, "seconds")?.let { "%.0f".format(it) } ?: "2"}s for loading" to StepKind.SYSTEM
+            "wait_for" -> (if (DeviceArgs.bool(a, "gone")) "Wait for ${quoted("text")} to go" else "Wait for ${quoted("text")}") to StepKind.SYSTEM
+            "take_note" -> "Note: ${DeviceArgs.str(a, "note").orEmpty().take(80)}" to StepKind.NOTE
+            "ask_user" -> (DeviceArgs.str(a, "question") ?: "Question") to StepKind.QUESTION
             else -> call.function.name.replace('_', ' ') to StepKind.SYSTEM
         }
     }
 
-    private fun mediaTitle(action: String?): String = when (action?.lowercase()) {
+    /** Step titles that name the action, so screens can pick its icon (play, pause, next...). */
+    internal fun mediaTitle(action: String?): String = when (action?.lowercase()?.replace(' ', '_')) {
         "play" -> "Play"
         "pause" -> "Pause"
-        "play_pause" -> "Play or pause"
-        "next" -> "Next"
-        "previous" -> "Previous"
-        "forward" -> "Skip ahead 10 s"
-        "rewind" -> "Back 10 s"
+        "play_pause", "toggle" -> "Play or pause"
+        "next", "skip" -> "Next"
+        "previous", "prev", "back" -> "Previous"
+        "forward", "fast_forward" -> "Forward 10 s"
+        "rewind" -> "Rewind 10 s"
         "stop" -> "Stop playback"
         else -> "Media control"
     }
@@ -978,12 +1238,6 @@ object DeviceAgent {
     private fun updateStep(id: Long, transform: (Step) -> Step) = _state.update { st ->
         val i = st.steps.indexOfLast { it.id == id }
         if (i < 0) st else st.copy(steps = st.steps.toMutableList().also { it[i] = transform(it[i]) })
-    }
-
-    private fun xy(a: JsonObject): Pair<Int, Int>? {
-        val x = a.int("x") ?: return null
-        val y = a.int("y") ?: return null
-        return x to y
     }
 
     private fun detectToolRejection(stream: Flow<StreamEvent>, onReject: () -> Unit): Flow<StreamEvent> = kotlinx.coroutines.flow.flow {
@@ -998,8 +1252,3 @@ object DeviceAgent {
     }
 }
 
-// Lenient argument readers: models send numbers as strings and booleans as "true".
-private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.contentOrNull
-private fun JsonObject.int(k: String): Int? = (this[k] as? JsonPrimitive)?.let { it.intOrNull ?: it.doubleOrNull?.toInt() ?: it.contentOrNull?.trim()?.toIntOrNull() }
-private fun JsonObject.num(k: String): Double? = (this[k] as? JsonPrimitive)?.let { it.doubleOrNull ?: it.contentOrNull?.toDoubleOrNull() }
-private fun JsonObject.bool(k: String): Boolean = (this[k] as? JsonPrimitive)?.let { it.booleanOrNull ?: (it.contentOrNull == "true") } ?: false

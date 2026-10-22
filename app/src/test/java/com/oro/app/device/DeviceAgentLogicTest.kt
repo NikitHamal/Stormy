@@ -53,11 +53,59 @@ class DeviceAgentLogicTest {
         assertThat(DevicePrompt.signature(DeviceTools.TAP_TEXT)).isEqualTo("tap_text(text: string, nth?: int)")
         assertThat(DevicePrompt.signature(DeviceTools.MEDIA)).startsWith("media(action: \"play\"|\"pause\"")
         val prompt = DevicePrompt.system(
-            textTools = true, settings = DeviceAgent.Settings(), actionsLeft = null,
+            textTools = true, settings = DeviceAgent.Settings(maxActions = 30),
             tools = DeviceTools.forRun(false), vision = false, fromChat = true,
         )
         assertThat(prompt).contains("<tool_call>")
         assertThat(prompt).contains("coding agent")
+        // The prompt stays the same all run (prompt caching): the count travels with each screen.
         assertThat(prompt).doesNotContain("actions left")
+    }
+
+    @Test
+    fun `every way a run ends has one honest reason`() {
+        val done = com.oro.app.data.ai.agent.AgentRunResult.Completed("Done")
+        val failed = com.oro.app.data.ai.agent.AgentRunResult.Failed("Model error", retryable = true)
+        val limit = com.oro.app.data.ai.agent.AgentRunResult.IterationLimit(70)
+        fun reason(r: com.oro.app.data.ai.agent.AgentRunResult, called: Boolean = false, ok: Boolean? = null,
+                   cancel: DeviceAgent.CancelReason? = null, limitHit: Boolean = false) =
+            DeviceAgent.endReason(r, called, ok, cancel, limitHit)
+
+        assertThat(reason(done, called = true, ok = true)).isEqualTo(DeviceAgent.EndReason.DONE)
+        assertThat(reason(done, called = true, ok = false)).isEqualTo(DeviceAgent.EndReason.FAILED)
+        // The model stopped talking without finish_task: not a success.
+        assertThat(reason(done)).isEqualTo(DeviceAgent.EndReason.UNCONFIRMED)
+        assertThat(reason(failed, cancel = DeviceAgent.CancelReason.USER)).isEqualTo(DeviceAgent.EndReason.STOPPED_BY_USER)
+        // Service lost wins over the "stopped" the cancellation looks like.
+        assertThat(reason(failed, cancel = DeviceAgent.CancelReason.SERVICE_LOST)).isEqualTo(DeviceAgent.EndReason.SERVICE_LOST)
+        assertThat(reason(limit)).isEqualTo(DeviceAgent.EndReason.ACTION_LIMIT)
+        assertThat(reason(done, called = true, ok = false, limitHit = true)).isEqualTo(DeviceAgent.EndReason.ACTION_LIMIT)
+        assertThat(reason(failed)).isEqualTo(DeviceAgent.EndReason.ERROR)
+    }
+
+    @Test
+    fun `the coding agent is told plainly when the user stopped the phone`() {
+        val stopped = DeviceAgent.Result(false, "", emptyList(), 3, 12, "YouTube", error = "Stopped by you.",
+            endReason = DeviceAgent.EndReason.STOPPED_BY_USER)
+        assertThat(stopped.stoppedByUser).isTrue()
+        assertThat(stopped.forModel()).startsWith("The user stopped the phone task")
+        assertThat(stopped.forModel()).contains("Do not call use_phone again")
+
+        val unconfirmed = DeviceAgent.Result(false, "I opened the page.", emptyList(), 2, 8, "Chrome",
+            endReason = DeviceAgent.EndReason.UNCONFIRMED)
+        assertThat(unconfirmed.forModel()).startsWith("Phone task ended without confirming")
+        assertThat(unconfirmed.stoppedByUser).isFalse()
+    }
+
+    @Test
+    fun `media steps name their action`() {
+        assertThat(listOf("play", "pause", "next", "previous", "forward", "rewind").map { DeviceAgent.mediaTitle(it) })
+            .containsExactly("Play", "Pause", "Next", "Previous", "Forward 10 s", "Rewind 10 s").inOrder()
+    }
+
+    @Test
+    fun `only talking tools run while paused`() {
+        assertThat(DeviceTools.allowedWhilePaused).containsNoneOf("read_screen", "find_text", "look", "wait_for", "tap")
+        assertThat(DeviceTools.allowedWhilePaused).containsAtLeast("ask_user", "finish_task", "take_note")
     }
 }

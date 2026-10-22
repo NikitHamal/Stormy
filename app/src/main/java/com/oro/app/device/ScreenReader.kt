@@ -36,10 +36,23 @@ object ScreenReader {
     /** Label length in normal observations; read_page asks for whole paragraphs. */
     const val DEFAULT_MAX_LABEL = 80
 
-    /** Live nodes for the last snapshot, so actions can use node actions. */
+    /** The last capture and its live nodes, kept together so a node is never used against another screen. */
+    private class Snapshot(val state: ScreenState, val nodes: Map<Int, AccessibilityNodeInfo>)
+
     @Volatile
-    var lastNodes: Map<Int, AccessibilityNodeInfo> = emptyMap()
-        private set
+    private var last: Snapshot? = null
+
+    /**
+     * The live node behind element [index] of [state], or null when [state] is
+     * not the latest capture (its numbers would point at the wrong nodes).
+     */
+    fun nodeFor(state: ScreenState, index: Int): AccessibilityNodeInfo? {
+        val snap = last ?: return null
+        return if (snap.state === state) snap.nodes[index] else null
+    }
+
+    /** Whether [state] is the newest capture, i.e. its nodes are the ones actions use. */
+    fun isLatest(state: ScreenState): Boolean = last?.state === state
 
     fun capture(service: AccessibilityService, maxLabel: Int = DEFAULT_MAX_LABEL): ScreenState {
         val metrics = service.resources.displayMetrics
@@ -103,6 +116,7 @@ object ScreenReader {
                 value = if (node.isEditable && !node.isPassword && !showsHint(node)) node.text?.toString() else null,
                 viewId = node.viewIdResourceName,
                 window = window,
+                secretLength = if (node.isPassword && !showsHint(node)) node.text?.length ?: 0 else 0,
             )
             nodes += node
         }
@@ -120,12 +134,13 @@ object ScreenReader {
             val own = ownText(node)
             var consumesChildren = false
             if (actionable) {
-                var label = own
+                // A field is named by its hint or description, never by what is
+                // typed in it: that is its value, shown separately.
+                var label = if (node.isEditable) fieldName(node) else own
                 if (label.isBlank() && !node.isEditable && !node.isScrollable) {
                     label = descendantText(node)
                     consumesChildren = label.isNotBlank()
                 }
-                if (node.isEditable && label.isBlank()) label = hintOf(node) ?: ""
                 if (label.isBlank() && !node.isScrollable) label = idHint(node) ?: ""
                 add(node, b, label, roleOf(node, cls), window)
             } else if (cls.contains("ProgressBar") && !insideLabelled) {
@@ -156,10 +171,10 @@ object ScreenReader {
                 }
             }
         }
-        lastNodes = byOriginal
-
         val label = AppCatalog.labelFor(service, pkg) ?: pkg
-        return ScreenState(pkg, label, screen.width(), screen.height(), keyboard, deduped, omitted)
+        val state = ScreenState(pkg, label, screen.width(), screen.height(), keyboard, deduped, omitted)
+        last = Snapshot(state, byOriginal)
+        return state
     }
 
     /** Equal apart from the index: dedupe only drops and renumbers, never edits. */
@@ -210,6 +225,16 @@ object ScreenReader {
 
     private fun hintOf(node: AccessibilityNodeInfo): String? =
         if (Build.VERSION.SDK_INT >= 26) node.hintText?.toString()?.takeIf { it.isNotBlank() } else null
+
+    /** What a text field is called: its hint, its description, or the label that names it. */
+    private fun fieldName(node: AccessibilityNodeInfo): String {
+        hintOf(node)?.let { return it.trim() }
+        node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        runCatching { node.labeledBy }.getOrNull()?.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        // Before Android 8 an empty field reports its hint as its text.
+        if (Build.VERSION.SDK_INT < 26 && !node.isPassword) node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        return ""
+    }
 
     private fun showsHint(node: AccessibilityNodeInfo): Boolean =
         Build.VERSION.SDK_INT >= 26 && node.isShowingHintText

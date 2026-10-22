@@ -1889,6 +1889,13 @@ class EditorViewModel(
         }
     }
 
+    /**
+     * The chat run in which the user stopped a phone task, if any: within that
+     * run use_phone is refused, so the coding agent cannot take the phone back
+     * right after the user took it away (Unleashed would not even ask).
+     */
+    @Volatile private var phoneStoppedInRun: RunTranscript? = null
+
     /** use_phone is offered only while the device agent's accessibility service is connected. */
     private fun phoneTools(): List<Tool> =
         if (com.oro.app.device.OroAccessibilityService.instance.value != null) {
@@ -1916,6 +1923,13 @@ class EditorViewModel(
         val openPreview = str("open_preview").equals("true", ignoreCase = true)
         val model = _currentModel.value ?: return ToolResult(false, "", "No model is selected.")
         val app = OroApplication.getInstance()
+        val thisRun = transcript
+        if (thisRun != null && phoneStoppedInRun === thisRun) {
+            return ToolResult(
+                false, "",
+                "The user stopped your earlier phone task in this run. Do not use the phone again unless the user asks you to; continue without it."
+            )
+        }
         if (com.oro.app.device.OroAccessibilityService.instance.value == null) {
             return ToolResult(
                 false, "",
@@ -1948,7 +1962,9 @@ class EditorViewModel(
             com.oro.app.device.DeviceAgent.state.collect { s ->
                 if (s.running && s.origin == com.oro.app.device.DeviceAgent.Origin.CHAT) {
                     val step = s.steps.lastOrNull { it.kind != com.oro.app.device.DeviceAgent.StepKind.THOUGHT }?.title ?: s.status
-                    _runStatus.value = AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "On the phone: ${step.take(60)}")
+                    // Paused, or waiting while the user has Oro open: say so rather than the last step.
+                    val label = if (s.paused || s.status.startsWith("Waiting")) s.status else step
+                    _runStatus.value = AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "On the phone: ${label.take(60)}")
                 }
             }
         }
@@ -1959,9 +1975,14 @@ class EditorViewModel(
         } finally {
             statusFollower.cancel()
         }
+        if (result.stoppedByUser) phoneStoppedInRun = thisRun
         val text = result.forModel()
-        return if (result.success) ToolResult(true, text)
-        else ToolResult(false, text, result.error ?: "The phone task was not completed.")
+        return when {
+            result.success -> ToolResult(true, text)
+            // The report already says what to do; an error line would read as a fault to retry.
+            result.stoppedByUser -> ToolResult(false, text, "The user stopped the phone task. Do not use the phone again unless they ask.")
+            else -> ToolResult(false, text, result.error ?: "The phone task was not completed.")
+        }
     }
 
     private fun toolTokens(tools: List<Tool>?): Int = tools?.sumOf {

@@ -1,16 +1,15 @@
 package com.oro.app.device
 
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.intOrNull
-
 /**
  * Decides which actions need the user's explicit Allow before they happen:
  * anything that spends money, sends something to other people, deletes, or
  * changes security. A false positive costs one tap on Allow; a false
  * negative can send a message the user never wrote, so this errs wide.
+ *
+ * It judges resolved [Target]s -- the very element the executor will act on,
+ * plus the control that really receives the tap -- never the raw arguments,
+ * so the guard and the action cannot disagree. A tap by coordinates is judged
+ * by what is under the finger.
  */
 object SensitiveGuard {
 
@@ -21,49 +20,50 @@ object SensitiveGuard {
         RegexOption.IGNORE_CASE
     )
 
-    /** Description of the sensitive action, or null if it is routine. */
-    fun check(tool: String, args: JsonObject, screen: ScreenState): String? {
-        fun idx(k: String) = (args[k] as? JsonPrimitive)?.let { it.intOrNull ?: it.contentOrNull?.toIntOrNull() }
-        return when (tool) {
-            "tap", "long_press", "double_tap" -> {
-                val e = idx("index")?.let { screen.element(it) } ?: return null
-                sensitiveTap(e, screen)
-            }
-            "tap_text" -> {
-                val text = (args["text"] as? JsonPrimitive)?.contentOrNull ?: return null
-                val nth = idx("nth")
-                when (val m = TextMatch.find(text, screen, nth)) {
-                    is TextMatch.Result.Found -> sensitiveTap(m.element, screen)
-                    else -> null // nothing will be tapped
-                }
-            }
-            "type_text" -> {
-                val e = idx("index")?.let { screen.element(it) } ?: screen.elements.firstOrNull { it.editable && it.focused }
-                val submit = (args["submit"] as? JsonPrimitive)?.booleanOrNull == true
-                when {
-                    e?.password == true -> "type into a password field in ${screen.appLabel}"
-                    submit && isMessagingApp(screen.packageName) -> "send “${(args["text"] as? JsonPrimitive)?.contentOrNull?.take(40)}” in ${screen.appLabel}"
-                    else -> null
-                }
-            }
-            "press_key" -> {
-                val key = (args["key"] as? JsonPrimitive)?.contentOrNull?.lowercase()
-                if (key == "enter" && isMessagingApp(screen.packageName)) "press Enter (may send) in ${screen.appLabel}" else null
-            }
-            "open_url" -> {
-                val url = (args["url"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                if (url.startsWith("tel:") || url.startsWith("sms:")) "open $url" else null
-            }
-            else -> null
-        }
+    /** Labels longer than this are content (a post, a chat row), not a button's verb. */
+    private const val MAX_LABEL = 60
+
+    /** A tap, double tap or long press on [target]. */
+    fun tap(target: Target?, screen: ScreenState, verb: String = "tap"): String? = when (target) {
+        is Target.OnElement -> sensitiveLabel(target.element, target.receiver)?.let { "$verb “$it” in ${appOf(screen)}" }
+        is Target.AtPoint -> sensitiveLabel(target.element, target.text)?.let { "$verb “$it” in ${appOf(screen)}" }
+        else -> null
     }
 
-    private fun sensitiveTap(e: ScreenElement, screen: ScreenState): String? {
-        val label = e.label
-        return if (label.isNotBlank() && SENSITIVE.containsMatchIn(label) && label.length <= 60) {
-            "tap “${label.take(40)}” in ${screen.appLabel}"
-        } else null
+    /** type_text into [field] (null: the focused field), optionally pressing Enter. */
+    fun type(field: ScreenElement?, text: String?, submit: Boolean, screen: ScreenState): String? = when {
+        field?.password == true -> "type into a password field in ${appOf(screen)}"
+        submit && isMessagingApp(screen.packageName) -> "send “${text.orEmpty().take(40)}” in ${appOf(screen)}"
+        else -> null
     }
+
+    /** press_key: Enter in a messaging app may send. */
+    fun key(key: String?, screen: ScreenState): String? =
+        if (key?.lowercase() == "enter" && isMessagingApp(screen.packageName)) "press Enter (may send) in ${appOf(screen)}" else null
+
+    /** open_url: links that start a call or a text. */
+    fun url(url: String?): String? {
+        val u = url.orEmpty().trim()
+        return if (u.startsWith("tel:", true) || u.startsWith("sms:", true) || u.startsWith("smsto:", true)) "open $u" else null
+    }
+
+    /** A swipe or drag that starts on a "Slide to pay" / "Swipe to confirm" control. */
+    fun slide(start: Target?, screen: ScreenState): String? = when (start) {
+        is Target.OnElement -> sensitiveLabel(start.element, start.receiver)?.let { "slide “$it” in ${appOf(screen)}" }
+        is Target.AtPoint -> sensitiveLabel(start.element, start.text)?.let { "slide “$it” in ${appOf(screen)}" }
+        else -> null
+    }
+
+    /** The first of [elements]' labels that reads as a sensitive verb, shortened for the prompt. */
+    private fun sensitiveLabel(vararg elements: ScreenElement?): String? {
+        for (e in elements) {
+            val label = e?.label ?: continue
+            if (label.isNotBlank() && label.length <= MAX_LABEL && SENSITIVE.containsMatchIn(label)) return label.take(40)
+        }
+        return null
+    }
+
+    private fun appOf(screen: ScreenState): String = screen.appLabel.ifBlank { screen.packageName }
 
     private fun isMessagingApp(pkg: String): Boolean = MESSAGING.any { pkg.contains(it, ignoreCase = true) }
 

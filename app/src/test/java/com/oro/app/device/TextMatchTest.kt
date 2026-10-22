@@ -14,7 +14,8 @@ class TextMatchTest {
         assertThat(TextMatch.score("Alice", "Alice · hi there · 9:41")).isEqualTo(90)
         assertThat(TextMatch.score("Settings", "Settings and privacy")).isEqualTo(75)
         assertThat(TextMatch.score("cart", "Go to cart now")).isEqualTo(60)
-        assertThat(TextMatch.score("art", "Go to cart now")).isEqualTo(45)
+        // Part of a word is offered, never acted on.
+        assertThat(TextMatch.score("art", "Go to cart now")).isLessThan(TextMatch.ACT_THRESHOLD)
         assertThat(TextMatch.score("cart add", "Add to cart")).isEqualTo(40)
         assertThat(TextMatch.score("Setings", "Settings")).isGreaterThan(0)
         assertThat(TextMatch.score("Delete", "Settings")).isEqualTo(0)
@@ -52,6 +53,27 @@ class TextMatchTest {
         val typo = TextMatch.find("Sign upp", s)
         assertThat(typo).isInstanceOf(TextMatch.Result.Ambiguous::class.java)
         assertThat((typo as TextMatch.Result.Ambiguous).weak).isTrue()
+    }
+
+    @Test
+    fun `part of a word is never tapped`() {
+        val form = screen(el(0, "input", "Address"), el(1, ScreenElement.ROLE_TEXT, "Shipping"))
+        assertThat(TextMatch.find("Add", form)).isInstanceOf(TextMatch.Result.Ambiguous::class.java)
+        assertThat((TextMatch.find("Add", form) as TextMatch.Result.Ambiguous).weak).isTrue()
+        val menu = screen(el(0, "button", "Category"), el(1, ScreenElement.ROLE_TEXT, "Filters"))
+        assertThat(TextMatch.find("Go", menu)).isNotInstanceOf(TextMatch.Result.Found::class.java)
+        // Whole words still are.
+        val cart = screen(el(0, "button", "Add to cart"), el(1, "input", "Address"))
+        assertThat((TextMatch.find("Add", cart) as TextMatch.Result.Found).element.index).isEqualTo(0)
+    }
+
+    @Test
+    fun `a title cut short in the listing matches the full title`() {
+        val results = screen(el(0, "button", "lofi hip hop radio - beats to relax/stu…"), el(1, "button", "Shorts"))
+        val r = TextMatch.find("lofi hip hop radio - beats to relax/study to", results)
+        assertThat((r as TextMatch.Result.Found).element.index).isEqualTo(0)
+        // A short cut-off label is too little to stand for a title.
+        assertThat(TextMatch.score("Settings and privacy", "Sett…")).isLessThan(TextMatch.ACT_THRESHOLD)
     }
 
     @Test
