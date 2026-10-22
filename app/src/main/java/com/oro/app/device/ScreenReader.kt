@@ -6,96 +6,6 @@ import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
-/** One thing on screen the agent can see and refer to by [index]. */
-data class ScreenElement(
-    val index: Int,
-    val role: String,
-    val label: String,
-    val bounds: Rect,
-    val clickable: Boolean,
-    val longClickable: Boolean,
-    val editable: Boolean,
-    val scrollable: Boolean,
-    val checkable: Boolean,
-    val checked: Boolean,
-    val selected: Boolean,
-    val focused: Boolean,
-    val enabled: Boolean,
-    val password: Boolean,
-    val value: String?,
-    val viewId: String?,
-    val window: String?,
-) {
-    val centerX: Int get() = bounds.centerX()
-    val centerY: Int get() = bounds.centerY()
-    val actionable: Boolean get() = clickable || longClickable || editable || scrollable || checkable
-
-    /** Line used in the model's view of the screen. */
-    fun render(): String = buildString {
-        append('[').append(index).append("] ").append(role)
-        if (label.isNotBlank()) append(" \"").append(label).append('"')
-        if (editable) {
-            when {
-                password -> append(" · password field")
-                !value.isNullOrEmpty() && value != label -> append(" · text: \"").append(value.take(80)).append('"')
-                else -> append(" · empty")
-            }
-        }
-        val flags = buildList {
-            if (scrollable) add("scrollable")
-            if (checkable) add(if (checked) "on" else "off")
-            if (selected) add("selected")
-            if (focused) add("focused")
-            if (!enabled) add("disabled")
-            if (longClickable && !clickable) add("long-press")
-        }
-        if (flags.isNotEmpty()) append(" · ").append(flags.joinToString(", "))
-        if (window != null) append(" · in ").append(window)
-    }
-}
-
-/** A snapshot of the device screen in a form any model can act on. */
-data class ScreenState(
-    val packageName: String,
-    val appLabel: String,
-    val width: Int,
-    val height: Int,
-    val keyboardVisible: Boolean,
-    val elements: List<ScreenElement>,
-    val truncated: Int,
-    val capturedAt: Long = System.currentTimeMillis(),
-) {
-    /** Cheap fingerprint to tell the model whether an action changed anything. */
-    val signature: Int by lazy {
-        (packageName + elements.joinToString("|") { it.role + it.label + it.value + it.checked + it.bounds.top / 40 }).hashCode()
-    }
-
-    fun element(index: Int): ScreenElement? = elements.getOrNull(index)?.takeIf { it.index == index }
-        ?: elements.firstOrNull { it.index == index }
-
-    fun render(maxChars: Int = 7_000): String = buildString {
-        append("App: ").append(appLabel)
-        if (appLabel != packageName) append(" (").append(packageName).append(')')
-        append(" · Screen ").append(width).append('x').append(height)
-        append(" · Keyboard ").append(if (keyboardVisible) "open" else "closed").append('\n')
-        if (elements.isEmpty()) {
-            append("(No readable elements. The app may draw its own UI (game, video, map, WebView still loading). ")
-            append("Wait, scroll, or tap by x,y coordinates.)\n")
-            return@buildString
-        }
-        append("Elements (act on them by number):\n")
-        for (e in elements) {
-            val line = e.render()
-            if (length + line.length > maxChars) {
-                append("… ").append(elements.size - elements.indexOf(e)).append(" more elements not shown; scroll or use find_text.\n")
-                break
-            }
-            append(line).append('\n')
-        }
-        if (truncated > 0) append("(").append(truncated).append(" minor elements omitted)\n")
-    }
-}
-
 /**
  * Flattens the accessibility tree into a numbered list of what matters.
  *
@@ -108,21 +18,30 @@ data class ScreenState(
  *  - Plain texts are kept (the model must be able to *read* the screen, e.g.
  *    a price or a message) but numbered like everything else, so "tap the
  *    text 'Settings'" always has a target.
- *  - The keyboard and system dialogs are separate windows; their nodes are
- *    included and labelled with the window so "Allow" in a permission
- *    dialog is visible.
+ *  - System dialogs and popups are separate windows; their nodes are
+ *    included and tagged, so "Allow" in a permission dialog is visible.
+ *  - The keyboard is NOT listed key by key: forty key nodes per screen were
+ *    the largest single cost in every observation while typing, and the
+ *    agent types with type_text anyway. It is reported as "keyboard open".
+ *
+ * ### Cost on low-end phones
+ * One pass over each window's tree; child labels are gathered only for
+ * unlabeled clickables and stop early; nothing is rendered here.
  */
 object ScreenReader {
 
-    private const val MAX_ELEMENTS = 160
-    private const val MAX_LABEL = 90
+    private const val MAX_ELEMENTS = 150
+    private const val MAX_DEPTH = 60
+
+    /** Label length in normal observations; read_page asks for whole paragraphs. */
+    const val DEFAULT_MAX_LABEL = 80
 
     /** Live nodes for the last snapshot, so actions can use node actions. */
     @Volatile
     var lastNodes: Map<Int, AccessibilityNodeInfo> = emptyMap()
         private set
 
-    fun capture(service: AccessibilityService): ScreenState {
+    fun capture(service: AccessibilityService, maxLabel: Int = DEFAULT_MAX_LABEL): ScreenState {
         val metrics = service.resources.displayMetrics
         val screen = Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
         val windows = runCatching { service.windows }.getOrNull().orEmpty()
@@ -130,16 +49,27 @@ object ScreenReader {
 
         val roots = mutableListOf<Pair<AccessibilityNodeInfo, String?>>()
         val active = service.rootInActiveWindow
-        // Application windows first (top-most last in the list = drawn on top), then system dialogs, then the IME.
+        // Application windows first (lowest layer), then dialogs and system
+        // windows drawn over them. Our own overlay and the keyboard are skipped.
         windows.sortedBy { it.layer }.forEach { w ->
-            if (w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) return@forEach // our own overlay
+            when (w.type) {
+                AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY,
+                AccessibilityWindowInfo.TYPE_INPUT_METHOD,
+                AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> return@forEach
+            }
             val root = w.root ?: return@forEach
             if (root.packageName?.toString() == service.packageName && w.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
             val name = when (w.type) {
-                AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "keyboard"
-                AccessibilityWindowInfo.TYPE_SYSTEM -> if (w.isActive || isDialogLike(root)) "system" else return@forEach
-                AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> return@forEach
-                else -> if (active != null && root == active) null else if (w.isActive || w.isFocused) null else "window"
+                AccessibilityWindowInfo.TYPE_SYSTEM ->
+                    if (isDialogLike(root)) ScreenState.WINDOW_DIALOG
+                    else if (w.isActive || w.isFocused) ScreenState.WINDOW_SYSTEM
+                    else return@forEach
+                else -> when {
+                    active != null && root == active -> null
+                    w.isActive || w.isFocused -> null
+                    isDialogLike(root) -> ScreenState.WINDOW_DIALOG
+                    else -> ScreenState.WINDOW_POPUP
+                }
             }
             roots += root to name
         }
@@ -148,17 +78,17 @@ object ScreenReader {
         val pkg = active?.packageName?.toString()
             ?: roots.firstOrNull { it.second == null }?.first?.packageName?.toString()
             ?: ""
-        val out = mutableListOf<ScreenElement>()
-        val nodes = HashMap<Int, AccessibilityNodeInfo>()
+        val out = ArrayList<ScreenElement>(64)
+        val nodes = ArrayList<AccessibilityNodeInfo>(64)
         var omitted = 0
+        val scratch = Rect()
 
-        fun add(node: AccessibilityNodeInfo, bounds: Rect, label: String, role: String, window: String?) {
+        fun add(node: AccessibilityNodeInfo, bounds: Bounds, label: String, role: String, window: String?) {
             if (out.size >= MAX_ELEMENTS) { omitted++; return }
-            val idx = out.size
             out += ScreenElement(
-                index = idx,
+                index = out.size,
                 role = role,
-                label = label.take(MAX_LABEL),
+                label = clean(label, maxLabel),
                 bounds = bounds,
                 clickable = node.isClickable,
                 longClickable = node.isLongClickable,
@@ -170,69 +100,109 @@ object ScreenReader {
                 focused = node.isFocused,
                 enabled = node.isEnabled,
                 password = node.isPassword,
-                value = if (node.isEditable && !node.isPassword) node.text?.toString() else null,
+                value = if (node.isEditable && !node.isPassword && !showsHint(node)) node.text?.toString() else null,
                 viewId = node.viewIdResourceName,
                 window = window,
             )
-            nodes[idx] = node
+            nodes += node
         }
 
         fun walk(node: AccessibilityNodeInfo, window: String?, insideLabelled: Boolean, depth: Int) {
-            if (depth > 60) return
-            if (!node.isVisibleToUser) return
-            val b = Rect().also { node.getBoundsInScreen(it) }
-            if (b.width() <= 1 || b.height() <= 1 || !Rect.intersects(b, screen)) return
-            b.intersect(screen)
+            if (depth > MAX_DEPTH || !node.isVisibleToUser) return
+            node.getBoundsInScreen(scratch)
+            if (scratch.width() <= 1 || scratch.height() <= 1 || !Rect.intersects(scratch, screen)) return
+            scratch.intersect(screen)
+            val b = Bounds(scratch.left, scratch.top, scratch.right, scratch.bottom)
 
+            val cls = node.className?.toString().orEmpty()
             val actionable = node.isClickable || node.isLongClickable || node.isEditable || node.isCheckable ||
-                (node.isScrollable && b.height() > 120)
+                (node.isScrollable && b.height > 120)
             val own = ownText(node)
             var consumesChildren = false
             if (actionable) {
                 var label = own
                 if (label.isBlank() && !node.isEditable && !node.isScrollable) {
-                    label = descendantText(node, 0).joinToString(" · ").trim()
+                    label = descendantText(node)
                     consumesChildren = label.isNotBlank()
                 }
                 if (node.isEditable && label.isBlank()) label = hintOf(node) ?: ""
                 if (label.isBlank() && !node.isScrollable) label = idHint(node) ?: ""
-                add(node, b, label, roleOf(node), window)
+                add(node, b, label, roleOf(node, cls), window)
+            } else if (cls.contains("ProgressBar") && !insideLabelled) {
+                add(node, b, own, ScreenElement.ROLE_PROGRESS, window)
             } else if (!insideLabelled && own.isNotBlank()) {
-                add(node, b, own, if (node.className?.contains("Image") == true) "image" else "text", window)
+                add(node, b, own, if (cls.contains("Image")) "image" else ScreenElement.ROLE_TEXT, window)
             }
-            for (i in 0 until node.childCount) {
+            val children = node.childCount
+            for (i in 0 until children) {
                 val child = runCatching { node.getChild(i) }.getOrNull() ?: continue
                 walk(child, window, insideLabelled || consumesChildren, depth + 1)
             }
         }
 
         roots.forEach { (root, window) -> walk(root, window, false, 0) }
-        lastNodes = nodes
+
+        // Dedupe renumbers; keep the live nodes aligned with the final indexes.
+        val deduped = ScreenState.dedupe(out)
+        val byOriginal = HashMap<Int, AccessibilityNodeInfo>(deduped.size * 2)
+        if (deduped.size == out.size) {
+            out.indices.forEach { byOriginal[it] = nodes[it] }
+        } else {
+            var j = 0
+            for (i in out.indices) {
+                if (j < deduped.size && sameElement(out[i], deduped[j])) {
+                    byOriginal[j] = nodes[i]
+                    j++
+                }
+            }
+        }
+        lastNodes = byOriginal
 
         val label = AppCatalog.labelFor(service, pkg) ?: pkg
-        return ScreenState(pkg, label, screen.width(), screen.height(), keyboard, out, omitted)
+        return ScreenState(pkg, label, screen.width(), screen.height(), keyboard, deduped, omitted)
+    }
+
+    /** Equal apart from the index: dedupe only drops and renumbers, never edits. */
+    private fun sameElement(a: ScreenElement, b: ScreenElement): Boolean =
+        a.role == b.role && a.label == b.label && a.bounds == b.bounds && a.viewId == b.viewId
+
+    private fun clean(label: String, maxLabel: Int): String {
+        val flat = label.replace('\n', ' ').replace(Regex("\\s{2,}"), " ").trim()
+        return if (flat.length <= maxLabel) flat else flat.take(maxLabel - 1).trimEnd() + "…"
     }
 
     private fun ownText(node: AccessibilityNodeInfo): String {
-        val text = node.text?.toString()?.trim().orEmpty()
+        val text = if (node.isPassword) "" else node.text?.toString()?.trim().orEmpty()
         val desc = node.contentDescription?.toString()?.trim().orEmpty()
         val state = if (Build.VERSION.SDK_INT >= 30) node.stateDescription?.toString()?.trim().orEmpty() else ""
-        return listOf(if (node.isPassword) "" else text, desc, state)
-            .filter { it.isNotEmpty() }.distinct().joinToString(" · ").replace('\n', ' ')
+        return when {
+            text.isEmpty() && desc.isEmpty() -> state
+            text.isEmpty() -> if (state.isEmpty() || state == desc) desc else "$desc · $state"
+            desc.isEmpty() || desc == text -> if (state.isEmpty() || state == text) text else "$text · $state"
+            else -> "$text · $desc"
+        }
     }
 
-    private fun descendantText(node: AccessibilityNodeInfo, depth: Int): List<String> {
-        if (depth > 6) return emptyList()
-        val out = mutableListOf<String>()
-        for (i in 0 until node.childCount) {
-            val c = runCatching { node.getChild(i) }.getOrNull() ?: continue
-            if (!c.isVisibleToUser) continue
-            val t = ownText(c)
-            if (t.isNotBlank()) out += t
-            if (out.joinToString().length > MAX_LABEL) break
-            out += descendantText(c, depth + 1)
+    /** Text of an unlabeled clickable's children, joined; stops once it is long enough to identify the row. */
+    private fun descendantText(node: AccessibilityNodeInfo): String {
+        val parts = ArrayList<String>(4)
+        var length = 0
+        fun visit(n: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 6 || length > DEFAULT_MAX_LABEL) return
+            for (i in 0 until n.childCount) {
+                if (length > DEFAULT_MAX_LABEL) return
+                val c = runCatching { n.getChild(i) }.getOrNull() ?: continue
+                if (!c.isVisibleToUser) continue
+                val t = ownText(c)
+                if (t.isNotBlank() && t !in parts) {
+                    parts += t
+                    length += t.length + 3
+                }
+                visit(c, depth + 1)
+            }
         }
-        return out.distinct()
+        visit(node, 0)
+        return parts.joinToString(" · ")
     }
 
     @Suppress("DEPRECATION")
@@ -241,25 +211,25 @@ object ScreenReader {
     private fun hintOf(node: AccessibilityNodeInfo): String? =
         if (Build.VERSION.SDK_INT >= 26) node.hintText?.toString()?.takeIf { it.isNotBlank() } else null
 
+    private fun showsHint(node: AccessibilityNodeInfo): Boolean =
+        Build.VERSION.SDK_INT >= 26 && node.isShowingHintText
+
     private fun idHint(node: AccessibilityNodeInfo): String? =
         node.viewIdResourceName?.substringAfter(":id/")?.replace('_', ' ')?.takeIf { it.isNotBlank() && it.length < 40 }
 
     private fun isDialogLike(root: AccessibilityNodeInfo): Boolean =
         root.className?.contains("Dialog") == true || root.packageName?.contains("permissioncontroller") == true
 
-    private fun roleOf(node: AccessibilityNodeInfo): String {
-        val cls = node.className?.toString().orEmpty()
-        return when {
-            node.isEditable -> "input"
-            node.isCheckable && cls.contains("Switch") -> "switch"
-            node.isCheckable && cls.contains("Radio") -> "radio"
-            node.isCheckable -> "checkbox"
-            cls.contains("SeekBar") -> "slider"
-            cls.contains("Tab") -> "tab"
-            cls.contains("Image") && node.isClickable -> "icon-button"
-            node.isScrollable && !node.isClickable -> "list"
-            node.isClickable || node.isLongClickable -> "button"
-            else -> "view"
-        }
+    private fun roleOf(node: AccessibilityNodeInfo, cls: String): String = when {
+        node.isEditable -> "input"
+        node.isCheckable && cls.contains("Switch") -> "switch"
+        node.isCheckable && cls.contains("Radio") -> "radio"
+        node.isCheckable -> "checkbox"
+        cls.contains("SeekBar") -> "slider"
+        cls.contains("Tab") -> "tab"
+        cls.contains("Image") && node.isClickable -> "icon"
+        node.isScrollable && !node.isClickable -> ScreenElement.ROLE_LIST
+        node.isClickable || node.isLongClickable -> "button"
+        else -> "view"
     }
 }

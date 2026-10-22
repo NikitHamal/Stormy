@@ -263,7 +263,7 @@ class RunTranscript(initial: String = "") {
                 val more = paths.size - if (first == (paths.first() as? JsonPrimitive)?.content) 1 else 0
                 if (first != null) return if (more > 0) "$first +$more" else first
             }
-            for (key in listOf("question", "path", "file_path", "pattern", "url", "source", "action", "description", "query", "command")) {
+            for (key in listOf("question", "path", "file_path", "pattern", "url", "source", "action", "description", "query", "command", "task")) {
                 val v = (args[key] as? JsonPrimitive)?.content
                 if (!v.isNullOrBlank()) {
                     val dest = (args["destination"] as? JsonPrimitive)?.content

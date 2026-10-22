@@ -1610,7 +1610,7 @@ class EditorViewModel(
                 kotlinx.coroutines.withTimeout(15_000) { com.oro.app.data.ai.mcp.McpRegistry.tools(mcp) }
             }.getOrDefault(emptyList()).map { it.asTool() }
         } else emptyList()
-        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() + mcpTools else emptyList()
+        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() + phoneTools() + mcpTools else emptyList()
         val knownTools = offeredTools.map { it.function.name }.toSet()
 
         // Context that does not change during a run, computed once.
@@ -1872,6 +1872,7 @@ class EditorViewModel(
                     )
                 }
             }
+            name == com.oro.app.data.ai.tools.DeviceDelegationTools.USE_PHONE_NAME -> runPhoneTask(call)
             delegationHandler.handles(name) -> {
                 val args = DelegationHandler.parseArgs(call.function.arguments)
                     ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
@@ -1886,6 +1887,81 @@ class EditorViewModel(
                 }
             }
         }
+    }
+
+    /** use_phone is offered only while the device agent's accessibility service is connected. */
+    private fun phoneTools(): List<Tool> =
+        if (com.oro.app.device.OroAccessibilityService.instance.value != null) {
+            listOf(com.oro.app.data.ai.tools.DeviceDelegationTools.USE_PHONE)
+        } else emptyList()
+
+    /**
+     * use_phone: the coding agent hands a task to the device agent mid-run and
+     * gets back what it did and found.
+     *
+     * The phone task runs with the chat's model and the user's device
+     * settings (approvals, touch display, ad skipping); Leashed mode asks
+     * before the phone is taken over at all. While it runs, the chat's status
+     * line follows the device agent's current step, and stopping the chat run
+     * stops the phone task too. When it ends Oro comes back to this chat.
+     */
+    private suspend fun runPhoneTask(call: ToolCallResponse): ToolResult {
+        val args = DelegationHandler.parseArgs(call.function.arguments)
+            ?: return ToolResult(false, "", "Could not parse the arguments for use_phone as JSON.")
+        fun str(key: String): String? = (args[key] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            ?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
+        val task = str("task") ?: str("goal") ?: str("description")
+            ?: return ToolResult(false, "", "task is required: say what to do on the phone and what counts as done.")
+        val report = str("report")
+        val openPreview = str("open_preview").equals("true", ignoreCase = true)
+        val model = _currentModel.value ?: return ToolResult(false, "", "No model is selected.")
+        val app = OroApplication.getInstance()
+        if (com.oro.app.device.OroAccessibilityService.instance.value == null) {
+            return ToolResult(
+                false, "",
+                "Oro Device Agent is off. Ask the user to turn it on (Settings › Accessibility › Oro Device Agent), or continue without the phone."
+            )
+        }
+        if (com.oro.app.device.DeviceAgent.state.value.running) {
+            return ToolResult(false, "", "The phone is busy with another device task. Continue without it, or try again when it finishes.")
+        }
+        if (preferencesRepository.autonomyMode.first() == com.oro.app.data.ai.agent.AutonomyMode.LEASHED &&
+            !awaitApproval("Use your phone", task)
+        ) {
+            return ToolResult(true, "The user declined the phone task. Do not retry it; continue without it or ask how they want it done.")
+        }
+        val previewUrl = if (openPreview) {
+            _project.value?.rootPath?.let { root ->
+                com.oro.app.data.preview.PreviewServerManager.getInstance().startServerForProject(root)
+            } ?: return ToolResult(false, "", "The live preview could not be started, so there is nothing to open on the phone.")
+        } else null
+        val brief = buildString {
+            if (previewUrl != null) {
+                append("First open ").append(previewUrl)
+                append(" with open_url: it is the live preview of the site the user is building in Oro.\n\n")
+            }
+            append(task)
+            if (report != null) append("\n\nWhen you finish, report: ").append(report)
+        }
+        // The chat's status line follows the phone: what it is doing right now.
+        val statusFollower = viewModelScope.launch {
+            com.oro.app.device.DeviceAgent.state.collect { s ->
+                if (s.running && s.origin == com.oro.app.device.DeviceAgent.Origin.CHAT) {
+                    val step = s.steps.lastOrNull { it.kind != com.oro.app.device.DeviceAgent.StepKind.THOUGHT }?.title ?: s.status
+                    _runStatus.value = AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "On the phone: ${step.take(60)}")
+                }
+            }
+        }
+        val result = try {
+            com.oro.app.device.DeviceAgent.runForResult(
+                app, brief, model, aiRepository, com.oro.app.device.DeviceSettingsStore.load(app)
+            )
+        } finally {
+            statusFollower.cancel()
+        }
+        val text = result.forModel()
+        return if (result.success) ToolResult(true, text)
+        else ToolResult(false, text, result.error ?: "The phone task was not completed.")
     }
 
     private fun toolTokens(tools: List<Tool>?): Int = tools?.sumOf {

@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Device agent quick actions: set alarms and timers through the Clock app's intents. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!-- Storage permissions for Oro/Projects directory -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"

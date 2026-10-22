@@ -8,6 +8,7 @@ import com.oro.app.OroApplication
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.SeedModels
 import com.oro.app.device.DeviceAgent
+import com.oro.app.device.DeviceSettingsStore
 import com.oro.app.device.OroAccessibilityService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +30,7 @@ class DeviceAgentViewModel(private val app: OroApplication) : ViewModel() {
     )
 
     private val prefs = app.getSharedPreferences("device_agent", Context.MODE_PRIVATE)
-    private val _ui = MutableStateFlow(UiState(settings = loadSettings(), history = loadHistory()))
+    private val _ui = MutableStateFlow(UiState(settings = DeviceSettingsStore.load(app), history = loadHistory()))
     val ui: StateFlow<UiState> = _ui.asStateFlow()
     val run: StateFlow<DeviceAgent.State> = DeviceAgent.state
 
@@ -68,12 +69,7 @@ class DeviceAgentViewModel(private val app: OroApplication) : ViewModel() {
 
     fun updateSettings(transform: (DeviceAgent.Settings) -> DeviceAgent.Settings) {
         val next = transform(_ui.value.settings)
-        prefs.edit()
-            .putBoolean("confirm", next.confirmSensitive)
-            .putBoolean("touches", next.showTouches)
-            .putBoolean("return", next.returnToOro)
-            .putInt("max", next.maxActions)
-            .apply()
+        DeviceSettingsStore.save(app, next)
         _ui.update { it.copy(settings = next) }
     }
 
@@ -98,13 +94,6 @@ class DeviceAgentViewModel(private val app: OroApplication) : ViewModel() {
 
     private fun loadHistory(): List<String> =
         prefs.getString("history", null)?.split("\u001F")?.filter { it.isNotBlank() } ?: emptyList()
-
-    private fun loadSettings() = DeviceAgent.Settings(
-        confirmSensitive = prefs.getBoolean("confirm", true),
-        showTouches = prefs.getBoolean("touches", true),
-        returnToOro = prefs.getBoolean("return", true),
-        maxActions = prefs.getInt("max", 60),
-    )
 
     companion object {
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {

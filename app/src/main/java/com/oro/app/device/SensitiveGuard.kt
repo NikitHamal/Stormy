@@ -27,10 +27,15 @@ object SensitiveGuard {
         return when (tool) {
             "tap", "long_press", "double_tap" -> {
                 val e = idx("index")?.let { screen.element(it) } ?: return null
-                val label = e.label
-                if (label.isNotBlank() && SENSITIVE.containsMatchIn(label) && label.length <= 60) {
-                    "tap “${label.take(40)}” in ${screen.appLabel}"
-                } else null
+                sensitiveTap(e, screen)
+            }
+            "tap_text" -> {
+                val text = (args["text"] as? JsonPrimitive)?.contentOrNull ?: return null
+                val nth = idx("nth")
+                when (val m = TextMatch.find(text, screen, nth)) {
+                    is TextMatch.Result.Found -> sensitiveTap(m.element, screen)
+                    else -> null // nothing will be tapped
+                }
             }
             "type_text" -> {
                 val e = idx("index")?.let { screen.element(it) } ?: screen.elements.firstOrNull { it.editable && it.focused }
@@ -51,6 +56,13 @@ object SensitiveGuard {
             }
             else -> null
         }
+    }
+
+    private fun sensitiveTap(e: ScreenElement, screen: ScreenState): String? {
+        val label = e.label
+        return if (label.isNotBlank() && SENSITIVE.containsMatchIn(label) && label.length <= 60) {
+            "tap “${label.take(40)}” in ${screen.appLabel}"
+        } else null
     }
 
     private fun isMessagingApp(pkg: String): Boolean = MESSAGING.any { pkg.contains(it, ignoreCase = true) }

@@ -7,10 +7,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Path
 import android.graphics.Rect
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -36,16 +39,34 @@ class DeviceController(private val service: OroAccessibilityService) {
 
     // ------------------------------------------------------------ observe
 
-    fun capture(): ScreenState = ScreenReader.capture(service)
+    fun capture(maxLabel: Int = ScreenReader.DEFAULT_MAX_LABEL): ScreenState = ScreenReader.capture(service, maxLabel)
 
-    /** Waits until no UI events for [quietMs], at most [maxMs]. */
-    suspend fun settle(quietMs: Long = 450, maxMs: Long = 3_000, minMs: Long = 250) {
+    /**
+     * Whether [text] is visible in the active window, using the platform's
+     * own text search (run in the app's process). Much cheaper than a full
+     * capture, so wait_for can poll with it.
+     */
+    fun textVisible(text: String): Boolean {
+        val root = service.rootInActiveWindow ?: return false
+        val hits = runCatching { root.findAccessibilityNodeInfosByText(text) }.getOrNull().orEmpty()
+        return hits.any { it.isVisibleToUser }
+    }
+
+    /**
+     * Waits until the UI has been quiet (no accessibility events) for
+     * [quietMs], after at least [minMs] and at most [maxMs].
+     *
+     * Event-driven rather than a fixed sleep: a tap on a static list settles
+     * in ~150 ms, an app launch takes the full budget. The service stamps
+     * every event, so polling the stamp costs nothing.
+     */
+    suspend fun settle(quietMs: Long = 300, maxMs: Long = 2_500, minMs: Long = 120) {
         val start = SystemClock.uptimeMillis()
         delay(minMs)
         while (SystemClock.uptimeMillis() - start < maxMs) {
             val idle = SystemClock.uptimeMillis() - service.lastEventAt
             if (idle >= quietMs) return
-            delay(80)
+            delay(50)
         }
     }
 
@@ -164,14 +185,94 @@ class DeviceController(private val service: OroAccessibilityService) {
         else "The field rejected the text. Try tapping it first, or it may not accept input."
     }
 
-    /** Presses the keyboard's action key (search/send/go/enter). */
+    /**
+     * Presses the keyboard's action key (search/send/go/enter): the IME
+     * action on Android 11+, else the keyboard's own action key, found by
+     * its label in the keyboard window.
+     */
     suspend fun submit(): String {
         val node = focusedInput()
         if (node != null && Build.VERSION.SDK_INT >= 30) {
             val ime = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
             if (node.performAction(ime)) return "Pressed Enter on the keyboard."
         }
+        val key = keyboardActionKey()
+        if (key != null) {
+            val r = Rect().also { key.getBoundsInScreen(it) }
+            if (key.performAction(AccessibilityNodeInfo.ACTION_CLICK) || tap(r.centerX(), r.centerY())) {
+                return "Pressed the keyboard's action key."
+            }
+        }
         return "Could not press Enter here. Look for a Send/Search/Go button on screen and tap it instead."
+    }
+
+    private fun keyboardActionKey(): AccessibilityNodeInfo? {
+        val ime = runCatching { service.windows }.getOrNull().orEmpty()
+            .firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }?.root ?: return null
+        var found: AccessibilityNodeInfo? = null
+        fun walk(n: AccessibilityNodeInfo, depth: Int) {
+            if (found != null || depth > 25) return
+            val label = (n.contentDescription ?: n.text)?.toString()?.trim()?.lowercase()
+            if (label != null && label in KEYBOARD_ACTION_KEYS && n.isVisibleToUser) { found = n; return }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, depth + 1) }
+        }
+        walk(ime, 0)
+        return found
+    }
+
+    // ------------------------------------------------------------- media
+
+    /**
+     * Media control for whatever is playing: system media keys, which every
+     * player honours, except seeking in YouTube-style players, which ignore
+     * fast-forward keys but seek 10 s on a double tap at the player's side.
+     */
+    suspend fun media(action: String): String {
+        val a = action.lowercase().replace(' ', '_')
+        if (a == "forward" || a == "rewind") {
+            val player = playerBounds()
+            if (player != null) {
+                val x = if (a == "forward") player.left + player.width * 4 / 5 else player.left + player.width / 5
+                val ok = doubleTap(x, player.centerY)
+                return if (ok) (if (a == "forward") "Skipped forward 10 s in the player." else "Went back 10 s in the player.")
+                else "The seek gesture failed."
+            }
+        }
+        val code = when (a) {
+            "play" -> KeyEvent.KEYCODE_MEDIA_PLAY
+            "pause" -> KeyEvent.KEYCODE_MEDIA_PAUSE
+            "play_pause", "toggle" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+            "next", "skip" -> KeyEvent.KEYCODE_MEDIA_NEXT
+            "previous", "prev", "back" -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
+            "forward", "fast_forward" -> KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+            "rewind" -> KeyEvent.KEYCODE_MEDIA_REWIND
+            "stop" -> KeyEvent.KEYCODE_MEDIA_STOP
+            else -> return "Unknown media action \"$action\". Use play, pause, play_pause, next, previous, forward, rewind or stop."
+        }
+        val am = service.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "No audio service."
+        val now = SystemClock.uptimeMillis()
+        am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
+        am.dispatchMediaKeyEvent(KeyEvent(now, now + 40, KeyEvent.ACTION_UP, code, 0))
+        return "Sent media ${a.replace('_', ' ')} to the current player."
+    }
+
+    /** The video player's area on screen, found by its view id (YouTube and most native players name it so). */
+    private fun playerBounds(): Bounds? {
+        val root = service.rootInActiveWindow ?: return null
+        var best: Bounds? = null
+        val r = Rect()
+        fun walk(n: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 30 || !n.isVisibleToUser) return
+            val id = n.viewIdResourceName?.lowercase()
+            if (id != null && ("player" in id || "video" in id) && "button" !in id && "control" !in id) {
+                n.getBoundsInScreen(r)
+                val b = Bounds(r.left, r.top, r.right, r.bottom)
+                if (b.width >= width * 0.6 && b.height >= 120 && (best == null || b.area > best!!.area)) best = b
+            }
+            for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, depth + 1) }
+        }
+        walk(root, 0)
+        return best
     }
 
     suspend fun scroll(direction: String, e: ScreenElement?, amount: Float = 0.6f): String {
@@ -189,9 +290,9 @@ class DeviceController(private val service: OroAccessibilityService) {
             }
         }
         // Gesture fallback within the element (or screen) bounds.
-        val r = e?.bounds ?: Rect(0, (height * 0.18).toInt(), width, (height * 0.85).toInt())
-        val span = (if (dir == "up" || dir == "down") r.height() else r.width()) * amount.coerceIn(0.2f, 0.9f) / 2
-        val cxp = r.centerX(); val cyp = r.centerY()
+        val r = e?.bounds ?: Bounds(0, (height * 0.18).toInt(), width, (height * 0.85).toInt())
+        val span = (if (dir == "up" || dir == "down") r.height else r.width) * amount.coerceIn(0.2f, 0.9f) / 2
+        val cxp = r.centerX; val cyp = r.centerY
         val ok = when (dir) {
             "down" -> swipe(cxp, (cyp + span).toInt(), cxp, (cyp - span).toInt(), 380)
             "up" -> swipe(cxp, (cyp - span).toInt(), cxp, (cyp + span).toInt(), 380)
@@ -319,6 +420,10 @@ class DeviceController(private val service: OroAccessibilityService) {
 
     private fun showsHint(node: AccessibilityNodeInfo): Boolean =
         Build.VERSION.SDK_INT >= 26 && node.isShowingHintText
+
+    private companion object {
+        val KEYBOARD_ACTION_KEYS = setOf("enter", "search", "go", "send", "done", "next", "return", "↵", "⏎")
+    }
 
     private fun c(v: Int, max: Int) = v.coerceIn(1, max - 1)
     private fun cx(x: Int) = c(x, width).toFloat()

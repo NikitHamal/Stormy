@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material.icons.outlined.Troubleshoot
@@ -228,6 +229,12 @@ object ToolPresentations {
         ),
         "request_approval" to ToolPresentation(
             "Asking you", "Asked you", Icons.AutoMirrored.Outlined.LiveHelp,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        // The coding agent handing a task to the device agent: the detail is
+        // the phone run's report (what it did, what it found), read as prose.
+        "use_phone" to ToolPresentation(
+            "Using the phone", "Used the phone", Icons.Outlined.PhoneAndroid,
             subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
 
