@@ -270,7 +270,7 @@ fun DeviceAgentScreen(
 // ------------------------------------------------------------------ setup
 
 @Composable
-private fun SetupState(onEnable: () -> Unit, onAppInfo: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SetupState(onEnable: () -> Unit, onAppInfo: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Column(
             modifier = Modifier.verticalScroll(rememberScrollState()).padding(vertical = Space.xxl),
@@ -301,7 +301,7 @@ private fun SetupState(onEnable: () -> Unit, onAppInfo: () -> Unit, modifier: Mo
 
 /** Mirrors the editor's empty chat: Orobi, one line, and starters that fill the composer. */
 @Composable
-private fun DeviceWelcome(history: List<String>, onPick: (String) -> Unit, modifier: Modifier = Modifier) {
+internal fun DeviceWelcome(history: List<String>, onPick: (String) -> Unit, modifier: Modifier = Modifier) {
     val recent = history.take(2)
     val starters = Starters.filter { it !in recent }.take(5 - recent.size)
     Box(modifier, contentAlignment = Alignment.Center) {
@@ -380,7 +380,7 @@ private fun StarterRow(text: String, recent: Boolean, onClick: () -> Unit) {
 // ------------------------------------------------------------ transcript
 
 @Composable
-private fun RunTranscriptList(
+internal fun RunTranscriptList(
     run: DeviceAgent.State,
     onAnswer: (String) -> Unit,
     onAgain: () -> Unit,
@@ -793,7 +793,7 @@ private fun runMeta(run: DeviceAgent.State): String = listOfNotNull(
 
 /** Docked above the composer while a task runs: time, actions, where, and Pause. */
 @Composable
-private fun RunBar(run: DeviceAgent.State, onPause: () -> Unit, modifier: Modifier = Modifier) {
+internal fun RunBar(run: DeviceAgent.State, onPause: () -> Unit, modifier: Modifier = Modifier) {
     val running = run.running
     val now by produceState(System.currentTimeMillis(), running) {
         value = System.currentTimeMillis()
@@ -867,7 +867,7 @@ private fun RunBar(run: DeviceAgent.State, onPause: () -> Unit, modifier: Modifi
 
 /** Shown in place of the composer only when no model is enabled at all. */
 @Composable
-private fun NoModelBar(onPick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun NoModelBar(onPick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = OroCorners.xLarge,

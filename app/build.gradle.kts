@@ -1,3 +1,6 @@
+import java.util.Base64
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -197,6 +200,13 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -204,4 +214,55 @@ dependencies {
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+}
+
+// UI screenshots: Robolectric + Roborazzi render the device agent's island and
+// screens on the JVM (app/src/test/java/com/oro/app/screenshots), so their look
+// can be checked without a phone. They are slow, so the normal unit-test run
+// skips them. They run instead of the other app tests with
+// -Poro.screenshots=true, and in CI on the ci/shots branch or any branch named
+// shots/<anything>: the GitHub connector agents use cannot add a workflow, so
+// the existing Android CI renders them there and printScreenshots writes every
+// PNG as base64 text into its log (lines prefixed ORO|), the one form that tool
+// can read back. PNGs land in app/build/outputs/roborazzi.
+// (Line comments on purpose: Kotlin block comments nest, and a glob like
+// shots/<two stars> inside one silently comments out the rest of the file.)
+val ciBranch = (providers.environmentVariable("GITHUB_REF_NAME").orNull
+    ?: providers.environmentVariable("GITHUB_REF").orNull?.removePrefix("refs/heads/")).orEmpty()
+val renderScreenshots = providers.gradleProperty("oro.screenshots").orNull == "true" ||
+    ciBranch == "ci/shots" || ciBranch.startsWith("shots/")
+if (renderScreenshots) logger.lifecycle("Oro: rendering UI screenshots")
+
+val printScreenshots = tasks.register("printScreenshots") {
+    val shots = layout.projectDirectory.dir("build/outputs/roborazzi")
+    doLast {
+        // Every line carries the "ORO|" prefix, so output from tasks running
+        // in parallel cannot end up inside an image.
+        val files = shots.asFile.listFiles { f -> f.extension == "png" }.orEmpty().sortedBy { it.name }
+        println("ORO|SHOTS ${files.size}")
+        files.forEach { f ->
+            println("ORO|FILE ${f.name} ${f.length()}")
+            Base64.getEncoder().encodeToString(f.readBytes()).chunked(4000).forEach { println("ORO|$it") }
+        }
+        println("ORO|END")
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    if (renderScreenshots) {
+        filter { includeTestsMatching("com.oro.app.screenshots.*") }
+        systemProperty("roborazzi.test.record", "true")
+        systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+        maxHeapSize = "3g"
+        // The PNGs are not declared outputs: always render, never from cache.
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
+        testLogging {
+            events("failed")
+            exceptionFormat = TestExceptionFormat.FULL
+        }
+        finalizedBy(printScreenshots)
+    } else {
+        exclude("com/oro/app/screenshots/**")
+    }
 }

@@ -49,6 +49,8 @@ truth = "1.4.5"
 turbine = "1.2.1"
 mockk = "1.14.9"
 robolectric = "4.17"
+# JVM screenshots of Compose UI (test-only; never in the APK). Run with -Poro.screenshots=true.
+roborazzi = "1.77.0"
 
 [libraries]
 # --- AndroidX core ---------------------------------------------------------
@@ -128,6 +130,8 @@ truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
