@@ -630,7 +630,9 @@ object DeviceAgent {
                     attachImages = vision,
                     maxToolResultChars = 14_000,
                     idleTimeoutMs = 90_000,
-                    maxQualityPasses = 1
+                    maxQualityPasses = 1,
+                    // The device tools' own schemas win over the coding tools' (ask_user differs).
+                    toolSchemas = com.oro.app.data.ai.tools.AgentTools.schemasOf(DeviceTools.all)
                 )
             )
             // A "done" claim without finish_task cannot be checked against the

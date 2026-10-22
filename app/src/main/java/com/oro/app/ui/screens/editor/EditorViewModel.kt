@@ -1757,7 +1757,9 @@ class EditorViewModel(
             // No step cap: long builds run to the end. AgentLoop's stuck
             // detection ends genuinely hopeless loops instead.
             config = AgentLoopConfig(
-                attachImages = com.oro.app.data.ai.VisionSupport.supports(model)
+                attachImages = com.oro.app.data.ai.VisionSupport.supports(model),
+                // MCP and use_phone schemas, so raw text-protocol values get their real types.
+                toolSchemas = AgentTools.schemasOf(offeredTools)
             )
         )
         toolExecutor.checkpoint = run {

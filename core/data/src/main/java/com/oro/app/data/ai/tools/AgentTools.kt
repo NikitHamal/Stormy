@@ -467,9 +467,11 @@ object AgentTools {
      * Parameter schemas of the built-in tools by name, for typing raw
      * text-protocol values (TextToolCallParser).
      */
-    val parameterSchemas: Map<String, kotlinx.serialization.json.JsonObject> by lazy {
-        forMainAgent().mapNotNull { t ->
+    val parameterSchemas: Map<String, kotlinx.serialization.json.JsonObject> by lazy { schemasOf(forMainAgent()) }
+
+    /** Name to parameter schema for [tools], so raw text-protocol values are typed by their schema. */
+    fun schemasOf(tools: List<Tool>): Map<String, kotlinx.serialization.json.JsonObject> =
+        tools.mapNotNull { t ->
             (t.function.parameters as? kotlinx.serialization.json.JsonObject)?.let { t.function.name to it }
         }.toMap()
-    }
 }
