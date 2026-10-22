@@ -140,6 +140,8 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
         // Browser-grade transport for the Qwen community provider (see QwenWebClient).
         com.oro.app.data.ai.community.QwenBrowser.bridge = com.oro.app.community.QwenWebBridge(this)
+        // Same for Mercury: passes Vercel's browser check the guest chat sits behind (see MercuryWebClient).
+        com.oro.app.data.ai.community.MercuryBrowser.bridge = com.oro.app.community.MercuryWebBridge(this)
         // Refreshed MCP sign-in tokens are written back to settings.
         com.oro.app.data.ai.mcp.McpRegistry.tokenSink = { serverId, tokens ->
             applicationScope.launch {

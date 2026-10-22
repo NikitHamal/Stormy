@@ -45,7 +45,9 @@ object CommunityClients {
         mapOf(
             ProviderProtocol.K2_GUEST to K2GuestClient(),
             ProviderProtocol.QWEN_WEB to QwenWebClient(),
-            ProviderProtocol.PTERO_GUEST to PteroClient()
+            ProviderProtocol.PTERO_GUEST to PteroClient(),
+            ProviderProtocol.MERCURY_WEB to MercuryWebClient(),
+            ProviderProtocol.UNIKEY_GUEST to UnikeyClient()
         )
     }
 

@@ -254,7 +254,12 @@ object RateLimits {
         AiProvider.KILOCODE to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000, requestsPerDay = 4_000),
         // LLM7 anonymous: 10/min, 60/hour; Ptero 30/min per guest token (rotated).
         AiProvider.LLM7 to RateLimit(requestsPerMinute = 6, tokensPerMinute = 200_000),
-        AiProvider.PTERO to RateLimit(requestsPerMinute = 20, tokensPerMinute = 300_000)
+        AiProvider.PTERO to RateLimit(requestsPerMinute = 20, tokensPerMinute = 300_000),
+        // Unpublished guest limits: paced so one phone never looks like a scraper.
+        AiProvider.UNIKEY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
+        AiProvider.MERCURY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
+        // Inception's free tier: 1,000 requests and 1M input tokens a minute.
+        AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */

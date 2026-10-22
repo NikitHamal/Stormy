@@ -80,7 +80,11 @@ enum class ProviderProtocol {
     /** chat.qwen.ai guest chat: browser-signed requests, phase-tagged SSE. */
     QWEN_WEB,
     /** ptero.pro guest chat: one JSON reply per request, quota per guest token. */
-    PTERO_GUEST
+    PTERO_GUEST,
+    /** chat.inceptionlabs.ai guest chat (Mercury 3): session token + Vercel AI SDK v5 stream. */
+    MERCURY_WEB,
+    /** getunikey.ai anonymous trial: OpenAI-style SSE, a fresh visitor id per request, no tools. */
+    UNIKEY_GUEST
 }
 
 /** How a provider treats credentials. */
@@ -265,6 +269,31 @@ enum class AiProvider(
         apiKeyUrl = "https://token.llm7.io",
         keyNote = "No account needed: anonymous tier (about 10 requests/min), native tool calling. A free token raises the limits."
     ),
+    MERCURY(
+        displayName = "Mercury (community)",
+        baseUrl = "https://chat.inceptionlabs.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to Inception's guest chat: Mercury 3, a very fast diffusion model. " +
+            "Uses an in-app browser when the site asks for a browser check. No native tools. May break without notice.",
+        protocol = ProviderProtocol.MERCURY_WEB
+    ),
+    UNIKEY(
+        displayName = "UniKey (community)",
+        baseUrl = "https://www.getunikey.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to getunikey.ai's anonymous trial: Claude Opus 4.8, GPT-5.6, Grok 4.3, " +
+            "DeepSeek V4, MiniMax M3, Kimi K2.7 Code. A fresh trial per request. No native tools or images. " +
+            "May break without notice.",
+        protocol = ProviderProtocol.UNIKEY_GUEST
+    ),
+    INCEPTION(
+        displayName = "Inception (Mercury)",
+        baseUrl = "https://api.inceptionlabs.ai/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://platform.inceptionlabs.ai/dashboard/api-keys",
+        keyNote = "Official API for Mercury 3, the diffusion model: very fast, 1M context, native tool calling. " +
+            "Has a free tier."
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -399,6 +428,54 @@ object SeedModels {
         model("default", "LLM7 Auto (no key)", AiProvider.LLM7, 131_072)
     )
 
+    /**
+     * Inception's guest chat serves one model, Mercury 3 (a diffusion LLM);
+     * the seed id only picks the reasoning effort the site is asked for. The
+     * recipe is NEB's (2026-10-19). The site sits behind Vercel's browser
+     * check, which a datacenter IP never passes, so these were not re-verified
+     * from one; phones pass it in the in-app browser.
+     */
+    val mercury = listOf(
+        model("mercury:mercury-3", "Mercury 3 (community)", AiProvider.MERCURY, 131_072, tools = false, thinking = true),
+        model("mercury:mercury-3-instant", "Mercury 3 Instant (community)", AiProvider.MERCURY, 131_072, tools = false)
+    )
+
+    /**
+     * getunikey.ai's anonymous trial. Each id was checked on 2026-10-22 for
+     * which model actually answers (the stream's `model` field); ids answered
+     * by a different model (Kimi K3, GLM 5.2) are left out, and "gpt-5.5" is
+     * named for what serves it. Text only: tools and images are refused.
+     */
+    val unikey = listOf(
+        model("unikey:claude-opus-4-8", "Claude Opus 4.8 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:gpt-5.5", "GPT-5.6 Terra (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:minimax/minimax-m3", "MiniMax M3 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:deepseek/deepseek-v4-pro", "DeepSeek V4 Pro (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:x-ai/grok-4.3", "Grok 4.3 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:moonshotai/kimi-k2.7-code", "Kimi K2.7 Code (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:claude-opus-4-7", "Claude Opus 4.7 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false)
+    )
+
+    /**
+     * Inception's official API (key). Windows from its public `/v1/models`
+     * (2026-10-22); Mercury 3 takes a reasoning effort.
+     */
+    val inception = listOf(
+        AiModel(
+            id = "mercury-3",
+            name = "Mercury 3",
+            provider = AiProvider.INCEPTION,
+            contextLength = ModelCapabilities.resolveContextLength("mercury-3", reported = 1_000_000),
+            reportedContextLength = 1_000_000,
+            supportsToolCalls = true,
+            isThinkingModel = true,
+            supportsReasoningEffort = true
+        ),
+        model("mercury-2.5", "Mercury 2.5", AiProvider.INCEPTION, 260_000),
+        model("mercury-2", "Mercury 2", AiProvider.INCEPTION, 128_000)
+    )
+
     val nvidia = listOf(
         model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 131_072),
         model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 131_072),
@@ -457,6 +534,9 @@ object SeedModels {
         AiProvider.QWEN_WEB to qwenWeb,
         AiProvider.PTERO to ptero,
         AiProvider.LLM7 to llm7,
+        AiProvider.MERCURY to mercury,
+        AiProvider.UNIKEY to unikey,
+        AiProvider.INCEPTION to inception,
         AiProvider.CUSTOM to fetchedOnly
     )
 
@@ -498,6 +578,7 @@ object AiModels {
     /** Models worth suggesting for code work, best-first. */
     fun getRecommendedModels(): List<AiModel> = listOf(
         SeedModels.default,
+        SeedModels.unikey.first(),
         SeedModels.kilo.first(),
         SeedModels.ovhcloud.first(),
         SeedModels.pollinations.first(),

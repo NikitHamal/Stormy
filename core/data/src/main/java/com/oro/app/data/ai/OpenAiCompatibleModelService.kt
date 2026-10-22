@@ -63,7 +63,10 @@ internal data class OpenAiModelInfo(
     @SerialName("tools_calling")
     val toolsCalling: Boolean? = null,
     /** LLM7: "pro" models need a balance even with a token; "turbo" ones are free. */
-    val tier: String? = null
+    val tier: String? = null,
+    /** Inception: `["chat.completions"]`, or `["decisions"]` for a model chat cannot use. */
+    @SerialName("supported_endpoints")
+    val supportedEndpoints: List<String>? = null
 ) {
     @Serializable
     internal data class TopProvider(
@@ -129,7 +132,8 @@ object ReasoningEffortSupport {
         Regex("""qwen3"""),
         Regex("""nemotron"""),
         Regex("""glm-[5-9]"""),
-        Regex("""minimax-m""")
+        Regex("""minimax-m"""),
+        Regex("""^mercury-[3-9]""")            // Inception: instant/low/medium/high
     )
 
     fun supports(modelId: String): Boolean {
@@ -211,6 +215,7 @@ class OpenAiCompatibleModelService {
             .asSequence()
             .filter { isValidChatModel(it.id) }
             .filter { it.modelType == null || it.modelType == "chat" }
+            .filter { it.supportedEndpoints == null || "chat.completions" in it.supportedEndpoints }
             .filter { !keylessGateway || it.isFreeModel }
             .filter { !llm7Anonymous || (it.usageBasedOnly != true && it.tier != "pro") }
             .map { mapToAiModel(provider, it) }

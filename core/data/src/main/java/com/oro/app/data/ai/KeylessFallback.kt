@@ -14,20 +14,26 @@ import java.util.concurrent.ConcurrentHashMap
  * models, so a reply is never stitched from two models.
  *
  * The order is by measurement (2026-10-18, every keyless model probed with a
- * streamed tool call): fast and reliable first, rate-paced ones last.
+ * streamed tool call): fast and reliable first, rate-paced ones last. The
+ * community entries (UniKey, K2, Mercury, Ptero, Qwen) take no tools, so they
+ * only ever stand in for text-mode requests.
  */
 object KeylessFallback {
 
     private val ORDER = listOf(
         "kilo-auto/free",
         "openrouter/free",
+        // Claude Opus 4.8 answering in ~3 s (2026-10-22): the strongest free stand-in for text-mode runs.
+        "unikey:claude-opus-4-8",
         "Qwen3.8-27B",
         "DeepSeek-V4-Flash-0731",
         "poolside/laguna-s-2.1:free",
+        "unikey:minimax/minimax-m3",
         "Qwen3.5-397B-A17B",
         "codestral-latest",
         "reflection/beam-free",
         "k2:IFM/K2-Horizon-375B-A23B",
+        "mercury:mercury-3",
         "ptero:deepseek-v4.1-flash:free",
         "qwen:qwen3.7-plus",
         "openai-fast"
