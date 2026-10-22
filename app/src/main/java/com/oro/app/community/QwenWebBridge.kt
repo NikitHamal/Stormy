@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.oro.app.data.ai.community.QwenBrowserBridge
@@ -78,6 +79,18 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
                     // Give the site's risk SDK a moment to initialise before the first call.
                     main.postDelayed({ done.complete(Unit) }, SDK_SETTLE_MS)
                 }
+
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    // Handled: without this, a dead renderer kills the whole app.
+                    if (view === web) {
+                        done.completeExceptionally(IllegalStateException("the in-app browser stopped unexpectedly"))
+                        failPending("the in-app browser stopped unexpectedly; try again")
+                        reset()
+                    } else {
+                        runCatching { view?.destroy() }
+                    }
+                    return true
+                }
             }
         }
         web = view
@@ -93,6 +106,17 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
         // A new identity next time: the site keys its guest quota on these cookies.
         CookieManager.getInstance().setCookie("https://chat.qwen.ai", "ssxmod_itna=; Max-Age=0")
         CookieManager.getInstance().setCookie("https://chat.qwen.ai", "ssxmod_itna2=; Max-Age=0")
+    }
+
+    /** Ends every open reply with an error line, so no caller waits forever (main thread). */
+    private fun failPending(reason: String) {
+        channels.keys.toList().forEach { id ->
+            channels.remove(id)?.let { ch ->
+                ch.trySend("HTTP 0 browser-error")
+                ch.trySend(reason)
+                ch.close()
+            }
+        }
     }
 
     private inner class Js {

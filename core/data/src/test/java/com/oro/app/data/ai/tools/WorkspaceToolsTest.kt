@@ -179,4 +179,26 @@ class WorkspaceToolsTest {
         assertThat(out.output).contains("index.html-16- line 16")
         assertThat(out.output).doesNotContain("line 17")
     }
+
+
+    @Test
+    fun `a batch read stops before it outgrows one result and names what is left`() {
+        val big = (1..900).joinToString("\n") { "const value$it = '${"x".repeat(30)}';" }
+        File(root, "a.js").writeText(big)
+        File(root, "b.js").writeText(big)
+        File(root, "c.js").writeText(big)
+        val out = tools.readFile(args("paths" to JsonArray(listOf(JsonPrimitive("a.js"), JsonPrimitive("b.js"), JsonPrimitive("c.js"))))).result
+        assertThat(out.success).isTrue()
+        assertThat(out.output.length).isAtMost(WorkspaceTools.MAX_BATCH_CHARS + 2_000)
+        assertThat(out.output).contains("File: a.js")
+        assertThat(out.output).contains("Not read")
+        assertThat(out.output).contains("c.js")
+    }
+
+    @Test
+    fun `offset with several paths is refused clearly`() {
+        val out = tools.readFile(args("path" to "index.html", "paths" to "css/style.css", "offset" to 10)).result
+        assertThat(out.success).isFalse()
+        assertThat(out.error).contains("offset applies to one file")
+    }
 }

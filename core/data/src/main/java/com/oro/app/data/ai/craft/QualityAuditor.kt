@@ -135,7 +135,7 @@ class QualityAuditor(private val root: File) {
                 } else if (lower.contains("<body") && !lower.contains("</body>")) {
                     out += Issue(Severity.ERROR, rel, text.count { it == '\n' } + 1, "No closing </body>: the file looks cut off.")
                 }
-                ID_ATTR.findAll(text).groupBy { it.groupValues[2] }.filter { it.value.size > 1 }.forEach { (id, ms) ->
+                duplicateIds(text).forEach { (id, ms) ->
                     out += Issue(Severity.ERROR, rel, lineAt(text, ms[1].range.first), "Duplicate id=\"$id\" (${ms.size} times).")
                 }
                 INLINE_SCRIPT.findAll(text).forEach { m ->
@@ -151,7 +151,8 @@ class QualityAuditor(private val root: File) {
             }
             "css" -> cssBalance(text)?.let { out += Issue(Severity.ERROR, rel, null, it) }
             "js", "mjs" -> JsBalance.check(text)?.let { out += Issue(Severity.ERROR, rel, null, it) }
-            "json" -> if (text.isNotBlank()) {
+            // JSON-with-comments configs (tsconfig, .vscode) are valid as they are.
+            "json" -> if (text.isNotBlank() && !isJsonWithComments(rel)) {
                 runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) }.exceptionOrNull()?.let { e ->
                     val detail = e.message?.lineSequence()?.firstOrNull()?.take(140).orEmpty()
                     out += Issue(Severity.ERROR, rel, null, "Invalid JSON: $detail")
@@ -221,7 +222,7 @@ class QualityAuditor(private val root: File) {
         }
 
         // Duplicate ids.
-        ID_ATTR.findAll(t).groupBy { it.groupValues[2] }.filter { it.value.size > 1 }.forEach { (id, ms) ->
+        duplicateIds(t).forEach { (id, ms) ->
             out += Issue(Severity.ERROR, s.rel, lineAt(t, ms[1].range.first), "Duplicate id=\"$id\" (${ms.size} times); ids must be unique.")
         }
 
@@ -383,7 +384,31 @@ class QualityAuditor(private val root: File) {
         private const val MAX_FILE_BYTES = 600_000L
         private val SCHEMES = listOf("http:", "https:", "data:", "mailto:", "tel:", "javascript:", "blob:", "sms:", "about:")
 
-        private val ID_ATTR = Regex("""\bid\s*=\s*(["'])([^"'\s{}$]+)\1""")
+        /** An `id` attribute; not `data-product-id`, `aria-…-id` or a `:id` binding. */
+        private val ID_ATTR = Regex("""(?<![\w:-])id\s*=\s*(["'])([^"'\s{}$]+)\1""")
+
+        /** Script and template bodies: their markup is strings and clones, not elements on the page. */
+        private val SCRIPT_OR_TEMPLATE = Regex("<(script|template)\\b[^>]*>.*?</\\1\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+        /**
+         * Ids that appear more than once among the page's own elements. A
+         * script that builds markup in a loop or a <template> cloned per item
+         * legitimately repeats ids in the source, so those bodies are blanked
+         * (offsets and lines kept) before counting.
+         */
+        internal fun duplicateIds(html: String): Map<String, List<MatchResult>> {
+            val elements = SCRIPT_OR_TEMPLATE.replace(html) { m -> m.value.map { c -> if (c == '\n') '\n' else ' ' }.joinToString("") }
+            return ID_ATTR.findAll(elements).groupBy { it.groupValues[2] }.filter { it.value.size > 1 }
+        }
+
+        /** Config files that allow comments and trailing commas (JSONC). */
+        internal fun isJsonWithComments(rel: String): Boolean {
+            val path = rel.replace('\\', '/').lowercase()
+            val name = path.substringAfterLast('/')
+            return path.startsWith(".vscode/") || path.contains("/.vscode/") ||
+                name.startsWith("tsconfig") || name.startsWith("jsconfig") ||
+                name == "devcontainer.json" || name == ".devcontainer.json" || name.endsWith(".code-workspace")
+        }
         private val JS_ID_ASSIGN = Regex("""\.id\s*=\s*["'`]([\w-]+)["'`]""")
         private val JS_ID_LOOKUP = Regex("""getElementById\(\s*["']([\w-]+)["']\s*\)|querySelector\(\s*["']#([\w-]+)["']\s*\)""")
         private val REF_ATTR = Regex("""<(link|script|img|source|video|audio|iframe)\b[^>]*?\b(href|src)\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)

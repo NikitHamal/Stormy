@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.launch
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -254,5 +255,50 @@ class MercuryUnikeyTest {
             .message("")
         headers.forEach { (k, v) -> b.header(k, v) }
         return b.build()
+    }
+
+
+    @Test
+    fun `an ai sdk reply that errors after some text is void`() {
+        val p = AiSdkStreamParser()
+        p.onData("""{"type":"text-delta","delta":"<tool_call>\n<function=write_file>"}""")
+        p.onData("""{"type":"error","errorText":"upstream reset"}""")
+        assertThat(p.sawOutput).isTrue()
+        assertThat(p.failed).isTrue()
+
+        val q = AiSdkStreamParser()
+        q.onData("""{"type":"text-delta","delta":"Half an answer"}""")
+        val events = q.onData("""{"type":"finish","finishReason":"error"}""")
+        assertThat(q.failed).isTrue()
+        assertThat(events.none { it is StreamEvent.FinishReason }).isTrue()
+
+        val ok = AiSdkStreamParser()
+        ok.onData("""{"type":"text-delta","delta":"Fine"}""")
+        ok.onData("""{"type":"finish","finishReason":"stop"}""")
+        assertThat(ok.failed).isFalse()
+    }
+
+    @Test
+    fun `cancelling a blocked community call ends it at once`() = kotlinx.coroutines.runBlocking {
+        // A server that accepts and then says nothing: the call blocks reading the response.
+        val server = java.net.ServerSocket(0)
+        kotlin.concurrent.thread(isDaemon = true) {
+            runCatching { server.accept() }.getOrNull()?.let { socket ->
+                runCatching { Thread.sleep(15_000) }
+                socket.close()
+            }
+        }
+        val client = okhttp3.OkHttpClient.Builder().readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).build()
+        val request = Request.Builder().url("http://127.0.0.1:${server.localPort}/").build()
+        val job = launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { CommunityHttp.execute(request, client) { it.code } }
+        }
+        kotlinx.coroutines.delay(500)
+        val started = System.nanoTime()
+        job.cancel()
+        job.join()
+        val ms = (System.nanoTime() - started) / 1_000_000
+        server.close()
+        assertThat(ms).isLessThan(3_000L)
     }
 }

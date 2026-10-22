@@ -213,7 +213,9 @@ class MercuryWebClient(private val base: String = "https://chat.inceptionlabs.ai
     }
 
     private suspend fun FlowCollector<StreamEvent>.finishStream(parser: AiSdkStreamParser) {
-        if (!parser.sawOutput) {
+        // A reply that errored halfway is not an answer: the loop discards the
+        // partial attempt and retries.
+        if (parser.failed || !parser.sawOutput) {
             emit(StreamEvent.Error("$SITE: ${parser.error ?: "the reply was empty"}", retryable = true))
             return
         }

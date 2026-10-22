@@ -50,6 +50,9 @@ class WorkspaceTools(private val root: File) {
         const val DEFAULT_FETCH_CHARS = 20_000
         /** Files one read_file call may return with `paths`. */
         const val MAX_BATCH_READ = 8
+
+        /** A batch read stops adding files past this many characters (tool results are capped at 60k). */
+        const val MAX_BATCH_CHARS = 50_000
         const val MAX_GREP_CONTEXT = 5
 
         /** Folders never worth walking into for search. */
@@ -108,7 +111,13 @@ class WorkspaceTools(private val root: File) {
     fun readFile(args: JsonObject): ToolOutcome = guarded {
         val first = args.str("path")?.trim()?.takeIf { it.isNotEmpty() }
         val all = (listOfNotNull(first) + pathList(args)).distinct()
-        if (all.size > 1) return@guarded readMany(all, args)
+        if (all.size > 1) {
+            // An offset belongs to one file: in a batch it would silently be ignored.
+            if ((args.int("offset") ?: 1) > 1) {
+                return@guarded fail("offset applies to one file. Call read_file with a single path and offset/limit, or drop offset to read the start of each file.")
+            }
+            return@guarded readMany(all, args)
+        }
         readOne(all.firstOrNull(), args.int("offset"), args.int("limit"))
     }
 
@@ -133,14 +142,30 @@ class WorkspaceTools(private val root: File) {
      */
     private fun readMany(paths: List<String>, args: JsonObject): ToolOutcome {
         val limit = args.int("limit")
-        val shown = paths.take(MAX_BATCH_READ)
-        val parts = shown.map { p ->
+        val candidates = paths.take(MAX_BATCH_READ)
+        val parts = mutableListOf<String>()
+        var size = 0
+        var anyOk = false
+        // Stop before the result outgrows what one tool result may hold, and
+        // say which files are left: a batch cut mid-file is useless to retry.
+        val unread = mutableListOf<String>()
+        for (p in candidates) {
+            if (unread.isNotEmpty()) { unread += p; continue }
             val one = guarded { readOne(p, null, limit) }.result
-            if (one.success) one.output else "Error reading $p: ${one.error ?: "failed"}"
+            val part = if (one.success) one.output else "Error reading $p: ${one.error ?: "failed"}"
+            if (parts.isNotEmpty() && size + part.length > MAX_BATCH_CHARS) {
+                unread += p
+                continue
+            }
+            parts += part
+            size += part.length + 2
+            if (one.success) anyOk = true
         }
-        val extra = if (paths.size > shown.size) "\n\n[${paths.size - shown.size} more paths not read; at most $MAX_BATCH_READ per call.]" else ""
-        val anyOk = shown.indices.any { !parts[it].startsWith("Error reading ") }
-        val body = parts.joinToString("\n\n") + extra
+        val notes = buildList {
+            if (unread.isNotEmpty()) add("[Not read, to keep this result small: ${unread.joinToString(", ")}. Read them in another call.]")
+            if (paths.size > candidates.size) add("[${paths.size - candidates.size} more paths not read; at most $MAX_BATCH_READ per call.]")
+        }
+        val body = (parts + notes).joinToString("\n\n")
         return if (anyOk) ok(body) else fail(body)
     }
 

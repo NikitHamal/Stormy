@@ -70,8 +70,8 @@ object AgentTools {
         """
         {"type":"object","properties":{
           "path":{"type":"string","description":"File path relative to the project root."},
-          "content":{"type":"string","description":"The complete file contents (or the next part, with append)."},
-          "append":{"type":"boolean","description":"Add content to the end of the file instead of replacing it. Default false."}
+          "append":{"type":"boolean","description":"Add content to the end of the file instead of replacing it. Default false. Give it before content."},
+          "content":{"type":"string","description":"The complete file contents (or the next part, with append)."}
         },"required":["path","content"]}
         """
     )
@@ -462,4 +462,14 @@ object AgentTools {
 
     /** Full set offered to the main agent, including orchestration tools. */
     fun forMainAgent(): List<Tool> = all + DelegationTools.all
+
+    /**
+     * Parameter schemas of the built-in tools by name, for typing raw
+     * text-protocol values (TextToolCallParser).
+     */
+    val parameterSchemas: Map<String, kotlinx.serialization.json.JsonObject> by lazy {
+        forMainAgent().mapNotNull { t ->
+            (t.function.parameters as? kotlinx.serialization.json.JsonObject)?.let { t.function.name to it }
+        }.toMap()
+    }
 }

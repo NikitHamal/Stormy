@@ -29,6 +29,10 @@ import java.util.UUID
  *
  * Everything else (`start`, `*-start`/`*-end`, steps, sources, server-side
  * tool frames) is bookkeeping for the site's own UI and is skipped.
+ *
+ * An `error` or `abort` frame, or an "error" finish, voids the reply even
+ * after text arrived ([failed]): a reply that broke halfway must not become
+ * the final answer, nor run a tool call cut off where it broke.
  */
 class AiSdkStreamParser {
     var finished = false; private set
@@ -36,6 +40,9 @@ class AiSdkStreamParser {
     var sawOutput = false; private set
     var error: String? = null; private set
     private var sentFinish = false
+
+    /** The site reported an error, aborted, or finished with an error: the reply is void. */
+    val failed: Boolean get() = error != null
 
     fun onData(data: String): List<StreamEvent> {
         if (finished) return emptyList()
@@ -67,8 +74,12 @@ class AiSdkStreamParser {
                 val input = int(meta?.get("inputTokens"))
                 val output = int(meta?.get("outputTokens"))
                 if (input != null || output != null) out += StreamEvent.Usage(input ?: 0, output ?: 0)
-                val reason = str(obj["finishReason"]) ?: str(meta?.get("finishReason"))
-                out += StreamEvent.FinishReason(finishReason(reason))
+                val reason = finishReason(str(obj["finishReason"]) ?: str(meta?.get("finishReason")))
+                if (reason == "error") {
+                    if (error == null) error = "the reply ended with an error"
+                    return out
+                }
+                out += StreamEvent.FinishReason(reason)
                 sentFinish = true
                 out
             }

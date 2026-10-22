@@ -1,6 +1,7 @@
 package com.oro.app.data.ai.agent
 
 import com.oro.app.data.ai.ToolCallResponse
+import com.oro.app.data.ai.tools.ToolAliases
 import com.oro.app.data.ai.tools.ToolResult
 
 /**
@@ -16,6 +17,14 @@ import com.oro.app.data.ai.tools.ToolResult
  *    file, re-running a search that found nothing).
  * The first threshold earns the model a corrective note on its results; only
  * a loop that survives the notes ends the run, with a message that says why.
+ *
+ * "The same result" must mean nothing changed. A read's signature carries the
+ * write epoch -- bumped by every successful file change -- and its images, so
+ * the verify loop the prompt asks for (edit, then check_syntax or a
+ * screenshot that reads the same text) is never mistaken for a loop. A
+ * file change itself is keyed on its arguments alone: its reply ("Appended
+ * N lines, now M") differs every time, but writing the same thing again is
+ * exactly the loop to catch.
  */
 internal class StuckDetector(private val config: AgentLoopConfig) {
 
@@ -28,6 +37,8 @@ internal class StuckDetector(private val config: AgentLoopConfig) {
 
     private var failStreak = 0
     private val window = ArrayDeque<String>()
+    /** Successful file changes so far; a read after one is a new observation. */
+    private var writeEpoch = 0
 
     /** Record one round of [calls] and their raw [results]. */
     fun record(calls: List<ToolCallResponse>, results: List<ToolResult>): Verdict {
@@ -38,8 +49,14 @@ internal class StuckDetector(private val config: AgentLoopConfig) {
         var repeats = 0
         calls.forEachIndexed { i, call ->
             val r = results.getOrNull(i)
-            val outcome = if (r == null) "" else "${r.success}\u0000${(r.error ?: "") + r.output}"
-            val signature = call.function.name + "\u0000" + call.function.arguments + "\u0000" + outcome.hashCode()
+            val changesFiles = ToolAliases.canonicalName(call.function.name) in FILE_CHANGES
+            val signature = if (changesFiles) {
+                "W\u0000" + call.function.name + "\u0000" + call.function.arguments + "\u0000" + (r?.success ?: false)
+            } else {
+                val outcome = if (r == null) "" else "${r.success}\u0000${(r.error ?: "") + r.output}\u0000${r.images.hashCode()}"
+                call.function.name + "\u0000" + call.function.arguments + "\u0000" + outcome.hashCode() + "\u0000" + writeEpoch
+            }
+            if (changesFiles && r?.success == true) writeEpoch++
             window.addLast(signature)
             while (window.size > AgentLoopConfig.REPEAT_WINDOW) window.removeFirst()
             repeats = maxOf(repeats, window.count { it == signature })
@@ -78,5 +95,10 @@ internal class StuckDetector(private val config: AgentLoopConfig) {
             }
         }
         return Verdict(note = notes.takeIf { it.isNotEmpty() }?.joinToString("\n"))
+    }
+
+    private companion object {
+        /** Tools that change project files (canonical names). */
+        val FILE_CHANGES = setOf("write_file", "edit_file", "multi_edit", "delete_file", "move_file", "add_ui_kit")
     }
 }

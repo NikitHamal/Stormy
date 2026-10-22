@@ -320,4 +320,143 @@ class TextToolCallParserTest {
         assertThat(parsed.calls.single().function.name).isEqualTo("read_file")
         assertThat(parsed.visibleText).isEqualTo("Let me read it.")
     }
+
+    // ---------------------------------------------------------------- raw values are opaque
+
+    private val withDelete = known + "delete_file"
+
+    @Test
+    fun `a README showing an example call is written whole and the example never runs`() {
+        val readme = "# Tool format\n```\n<function=delete_file>\n<parameter=path>index.html</parameter>\n</function>\n```\nDone."
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>README.md</parameter>\n" +
+            "<parameter=content>\n$readme\n</parameter>\n</function>\n</tool_call>"
+        val parsed = TextToolCallParser.parse(content, withDelete)
+        val call = parsed.calls.single()
+        assertThat(call.function.name).isEqualTo("write_file")
+        assertThat(text(call, "content")).isEqualTo(readme)
+        assertThat(parsed.incomplete).isEmpty()
+    }
+
+    @Test
+    fun `an example wrapped in its own tool_call stays content too`() {
+        val doc = "Example:\n<tool_call>\n<function=delete_file>\n<parameter=path>a</parameter>\n</function>\n</tool_call>"
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>docs.md</parameter>\n" +
+            "<parameter=content>\n$doc\n</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, withDelete).calls.single()
+        assertThat(call.function.name).isEqualTo("write_file")
+        assertThat(text(call, "content")).isEqualTo(doc)
+    }
+
+    @Test
+    fun `a literal closing tag inside code is content`() {
+        val js = "const CLOSE = '</parameter>';\nconst F = \"</function>\";\nconst T = `</tool_call>`;\nexport { CLOSE, F, T };"
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>tags.js</parameter>\n" +
+            "<parameter=content>\n$js\n</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, known).calls.single()
+        assertThat(text(call, "content")).isEqualTo(js)
+    }
+
+    @Test
+    fun `a closing tag on its own line followed by prose is content`() {
+        val doc = "Close a call with\n</function>\nand you are done."
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>a.md</parameter>\n" +
+            "<parameter=content>\n$doc\n</parameter>\n</function>\n</tool_call>"
+        assertThat(text(TextToolCallParser.parse(content, known).calls.single(), "content")).isEqualTo(doc)
+    }
+
+    @Test
+    fun `html that mentions tool_result is neither cut nor truncated`() {
+        val html = "<p>The app answers with a <tool_result> block.</p>\n<p>User: hello</p>"
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>docs.html</parameter>\n" +
+            "<parameter=content>\n$html\n</parameter>\n</function>\n</tool_call>"
+        assertThat(TextToolCallParser.fakeResultStart(content)).isEqualTo(-1)
+        assertThat(text(TextToolCallParser.parse(content, known).calls.single(), "content")).isEqualTo(html)
+    }
+
+    @Test
+    fun `an invented result and the fake call after it are cut from a one-piece reply`() {
+        val first = "<tool_call>\n<function=read_file>\n<parameter=path>a.html</parameter>\n</function>\n</tool_call>\n"
+        val reply = first + "<tool_result name=\"read_file\">\n<html></html>\n</tool_result>\n" +
+            "<tool_call>\n<function=delete_file>\n<parameter=path>a.html</parameter>\n</function>\n</tool_call>"
+        val parsed = TextToolCallParser.parse(reply, withDelete)
+        assertThat(parsed.calls.map { it.function.name }).containsExactly("read_file")
+        assertThat(TextToolCallParser.fakeResultStart(reply)).isEqualTo(first.length)
+    }
+
+    @Test
+    fun `a marker inside the first file does not hide a later invented result`() {
+        val first = "<tool_call>\n<function=write_file>\n<parameter=path>a.md</parameter>\n<parameter=content>\n" +
+            "Replies look like <tool_result> blocks.\n</parameter>\n</function>\n</tool_call>\n"
+        val reply = first + "<tool_result name=\"write_file\">ok</tool_result>\nAll done!"
+        assertThat(TextToolCallParser.fakeResultStart(reply)).isEqualTo(first.length)
+        assertThat(TextToolCallParser.parse(reply, known).visibleText).doesNotContain("All done")
+    }
+
+    @Test
+    fun `json inside tool_call ends at its brace, not at a closer in a string`() {
+        val content = "<tool_call>\n{\"name\": \"write_file\", \"arguments\": {\"path\": \"a.md\", " +
+            "\"content\": \"wrap calls in </tool_call> tags\"}}\n</tool_call>"
+        val call = TextToolCallParser.parse(content, known).calls.single()
+        assertThat(text(call, "content")).isEqualTo("wrap calls in </tool_call> tags")
+    }
+
+    @Test
+    fun `a complete call followed by a cut one runs only the first`() {
+        val content = "<tool_call>\n<function=read_file>\n<parameter=path>a.html</parameter>\n</function>\n</tool_call>\n" +
+            "<tool_call>\n<function=write_file>\n<parameter=path>b.html</parameter>\n<parameter=content>\n<html><bo"
+        val parsed = TextToolCallParser.parse(content, known)
+        assertThat(parsed.calls.map { it.function.name }).containsExactly("read_file")
+        assertThat(parsed.incomplete).containsExactly("write_file")
+        assertThat(parsed.incompleteCalls.single().function.name).isEqualTo("write_file")
+    }
+
+    @Test
+    fun `an unclosed read-only call keeps the arguments that arrived`() {
+        val parsed = TextToolCallParser.parse("<tool_call>\n<function=read_file>\n<parameter=path>a.html", known)
+        assertThat(parsed.calls).isEmpty()
+        assertThat(text(parsed.incompleteCalls.single(), "path")).isEqualTo("a.html")
+    }
+
+    @Test
+    fun `with a schema, a bare parameter line that is not the tool's own stays content`() {
+        val schemas = com.oro.app.data.ai.tools.AgentTools.parameterSchemas
+        val doc = "To edit, send\n<parameter=old_string>the old text</parameter>\nand the new one."
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>help.md</parameter>\n" +
+            "<parameter=content>\n$doc\n</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, known, schemas).calls.single()
+        assertThat(text(call, "content")).isEqualTo(doc)
+        assertThat(argsOf(call).keys).containsExactly("path", "content")
+    }
+
+    // ---------------------------------------------------------------- typing
+
+    private fun schema(json: String) =
+        kotlinx.serialization.json.Json.parseToJsonElement(json) as kotlinx.serialization.json.JsonObject
+
+    @Test
+    fun `values follow the tool's schema when it is known`() {
+        val search = schema("""{"type":"object","properties":{"page":{"type":"integer"},"zip":{"type":"string"},"exact":{"type":"boolean"},"tags":{"type":"array","items":{"type":"string"}}}}""")
+        val content = "<tool_call>\n<function=mcp__shop__search>\n<parameter=page>2</parameter>\n<parameter=zip>02134</parameter>\n" +
+            "<parameter=exact>true</parameter>\n<parameter=tags>[\"a\", \"b\"]</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, setOf("mcp__shop__search"), mapOf("mcp__shop__search" to search)).calls.single()
+        val args = argsOf(call)
+        assertThat((args["page"] as kotlinx.serialization.json.JsonPrimitive).isString).isFalse()
+        assertThat((args["zip"] as kotlinx.serialization.json.JsonPrimitive).content).isEqualTo("02134")
+        assertThat((args["zip"] as kotlinx.serialization.json.JsonPrimitive).isString).isTrue()
+        assertThat((args["exact"] as kotlinx.serialization.json.JsonPrimitive).content).isEqualTo("true")
+        assertThat(args["tags"]).isInstanceOf(kotlinx.serialization.json.JsonArray::class.java)
+    }
+
+    @Test
+    fun `without a schema, numbers with a leading zero and huge numbers stay text`() {
+        val content = "<tool_call>\n<function=ask_user>\n<parameter=code>02134</parameter>\n" +
+            "<parameter=big>123456789012345678901234</parameter>\n<parameter=n>7</parameter>\n</function>\n</tool_call>"
+        val args = argsOf(TextToolCallParser.parse(content, known).calls.single())
+        assertThat((args["code"] as kotlinx.serialization.json.JsonPrimitive).isString).isTrue()
+        assertThat((args["big"] as kotlinx.serialization.json.JsonPrimitive).isString).isTrue()
+        assertThat((args["n"] as kotlinx.serialization.json.JsonPrimitive).isString).isFalse()
+        // The key-value form used to crash on a 20-digit value.
+        val kv = "<tool_call>ask_user<arg_key>big</arg_key><arg_value>123456789012345678901234</arg_value></tool_call>"
+        assertThat(TextToolCallParser.parse(kv, known).calls).hasSize(1)
+    }
 }

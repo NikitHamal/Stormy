@@ -133,4 +133,25 @@ class QualityAuditorTest {
         assertThat(auditor.quickCheck("app.js", "document.getElementById('later').addEventListener('click', () => {});")).isEmpty()
         assertThat(auditor.quickCheck("ok.html", goodHtml.trimIndent())).isEmpty()
     }
+
+
+    @Test
+    fun `data attributes and markup built in scripts are not duplicate ids`() {
+        val auditor = QualityAuditor(tmp.root)
+        assertThat(auditor.quickCheck("shop.html", "<div data-product-id=\"1\"></div><button data-product-id=\"1\">Buy</button>")).isEmpty()
+        val built = "<ul id=\"list\"></ul><script>for (const p of ps) list.innerHTML += '<li id=\"row\">' + p + '</li>';" +
+            "const t = '<li id=\"row\">';</script><template><li id=\"tpl\"></li></template><template><li id=\"tpl\"></li></template>"
+        assertThat(auditor.quickCheck("list.html", built)).isEmpty()
+        // A real duplicate is still caught.
+        assertThat(auditor.quickCheck("dup.html", "<p id=\"a\"></p>\n<p id=\"a\"></p>").single().message).contains("Duplicate id")
+    }
+
+    @Test
+    fun `json with comments is fine in config files and an error elsewhere`() {
+        val auditor = QualityAuditor(tmp.root)
+        val jsonc = "{\n  // strict checks\n  \"compilerOptions\": { \"strict\": true, },\n}"
+        assertThat(auditor.quickCheck("tsconfig.json", jsonc)).isEmpty()
+        assertThat(auditor.quickCheck(".vscode/settings.json", jsonc)).isEmpty()
+        assertThat(auditor.quickCheck("data/products.json", jsonc)).hasSize(1)
+    }
 }

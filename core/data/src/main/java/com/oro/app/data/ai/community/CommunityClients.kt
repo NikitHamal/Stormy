@@ -7,9 +7,11 @@ import com.oro.app.data.ai.ChatRequestMessage
 import com.oro.app.data.ai.ChatStreamParser
 import com.oro.app.data.ai.ProviderProtocol
 import com.oro.app.data.ai.StreamEvent
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
@@ -134,18 +136,36 @@ internal object CommunityHttp {
         }
     }
 
-    /** Run a call, cancelling it if the collecting coroutine is cancelled. */
+    /**
+     * Run a call, cancelling it the moment the collecting coroutine is
+     * cancelled.
+     *
+     * The thread is blocked inside execute() or a body read, so it cannot
+     * notice cancellation by itself, and a completion handler would only fire
+     * once it returned -- Stop used to leave a silent stream open until bytes
+     * arrived or the read timed out. A watcher child, started before the call
+     * and resumed on another thread when the scope is cancelled, cancels the
+     * call, which makes the blocked read throw at once.
+     */
     suspend fun <T> execute(
         request: Request,
         client: okhttp3.OkHttpClient = AiHttp.streaming,
         block: suspend (Response) -> T
     ): T {
         val call: Call = client.newCall(request)
-        val handle = currentCoroutineContext()[Job]?.invokeOnCompletion { call.cancel() }
-        try {
-            return call.execute().use { block(it) }
-        } finally {
-            handle?.dispose()
+        return coroutineScope {
+            val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    call.cancel()
+                }
+            }
+            try {
+                call.execute().use { block(it) }
+            } finally {
+                watcher.cancel()
+            }
         }
     }
 

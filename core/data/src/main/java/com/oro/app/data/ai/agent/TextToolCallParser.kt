@@ -32,12 +32,26 @@ import kotlinx.serialization.json.contentOrNull
  *  - fenced ```json blocks holding a call object or an array of them
  *  - a reply that is nothing but one call object
  *
- * Weak models drop closing tags; a missing `</parameter>` or `</function>`
- * inside a closed `<tool_call>` block is tolerated. What is never accepted is
- * a call that may have been cut off -- an unclosed block whose last value is
- * still open, typically because the output limit hit in the middle of a file.
- * Those land in [Parsed.incomplete] and are not run: a truncated write_file
- * would replace a good file with half of one.
+ * ### Raw values are opaque
+ *
+ * A raw value is a file the model is writing, and files mention markup: a
+ * README that shows an example call, a script holding the string
+ * `'</parameter>'`, docs about `<tool_result>`. So the raw format is read by
+ * a scanner, not by splitting on tags. Tags mark structure only outside open
+ * values; inside one, markup the value itself opens and closes (an example
+ * `<function=...>` call with its parameters) stays content, and a
+ * `</parameter>` closes the value only where structure follows it (another
+ * parameter, `</function>`, `</tool_call>`, the end) or where it ends its
+ * line. A `<function=` inside a value never becomes a call. JSON inside a
+ * `<tool_call>` ends at its balanced brace, never at a `</tool_call>` inside
+ * one of its strings.
+ *
+ * Weak models drop closing tags; a missing `</parameter>` before the next
+ * parameter, `</function>` or `</tool_call>` on its own line is tolerated.
+ * What is never accepted is a call that may have been cut off -- a value
+ * still open at the end of the text, typically because the output limit hit
+ * in the middle of a file. Those land in [Parsed.incomplete] and are not run:
+ * a truncated write_file would replace a good file with half of one.
  *
  * Deliberately NOT handled: `read_file(path="x")` call syntax in prose. The
  * old parser accepted it, which meant an explanation such as "I would use
@@ -45,6 +59,9 @@ import kotlinx.serialization.json.contentOrNull
  *
  * Only names that resolve (through [ToolAliases]) to a tool actually offered
  * are accepted, so example JSON in an answer is not mistaken for a call.
+ * When the offered tools' JSON schemas are known, raw values are typed by the
+ * schema (an MCP `page` integer stays an integer, a zip code "02134" stays
+ * text); otherwise by a conservative guess.
  */
 object TextToolCallParser {
 
@@ -59,12 +76,17 @@ object TextToolCallParser {
          * after a normal stop (the model just forgot the closer); suspect when
          * the reply ended on the output limit.
          */
-        val openEnded: Set<String> = emptySet()
+        val openEnded: Set<String> = emptySet(),
+        /**
+         * The cut-off calls of [incomplete] with whatever arguments arrived. Never
+         * run as they are, except a read-only call after an explicit stop (a
+         * reply that ends on `<parameter=path>a.html` without its closers).
+         */
+        val incompleteCalls: List<ToolCallResponse> = emptyList()
     )
 
-    private val TOOL_CALL_TAG = Regex("""(?is)<tool_call>\s*(.*?)\s*(?:</tool_call>|$)""")
-    private val FUNCTION_OPEN = Regex("""(?i)<function\s*(?:=\s*|\s+name\s*=\s*)["']?([\w.\-]+)["']?\s*>""")
-    private val PARAMETER_OPEN = Regex("""(?i)<parameter\s*(?:=\s*|\s+name\s*=\s*)["']?([\w.\-]+)["']?\s*>""")
+    private const val TOOL_CALL_OPEN = "<tool_call>"
+    private const val TOOL_CALL_CLOSE = "</tool_call>"
     private const val PARAMETER_CLOSE = "</parameter>"
     private const val FUNCTION_CLOSE = "</function>"
     private val FENCE = Regex("""(?s)```(?:json|tool_call|tool|javascript|js)?[ \t]*\r?\n(.*?)\r?\n?```""")
@@ -84,11 +106,13 @@ object TextToolCallParser {
     private val INTEGER = Regex("-?\\d+")
     private val DECIMAL = Regex("-?\\d+\\.\\d+")
     private val JSON_NAME = Regex(""""name"\s*:\s*"([\w.\-]+)"""")
+    private val BARE_NAME = Regex("[A-Za-z_.][\\w.\\-]*")
 
     /**
-     * Arguments that are always text. Key-value formats carry raw values, and
-     * guessing a type from the value turned a JSON file's `content` into an
-     * object (write_file then failed) and "404" into a number.
+     * Arguments that are always text when no schema says otherwise. Key-value
+     * formats carry raw values, and guessing a type from the value turned a
+     * JSON file's `content` into an object (write_file then failed) and "404"
+     * into a number.
      */
     private val TEXT_KEYS = setOf(
         "path", "file_path", "content", "old_string", "new_string", "pattern", "query", "url",
@@ -105,8 +129,8 @@ object TextToolCallParser {
         "<｜tool▁call", "<ifm|tool_call"
     )
 
-    /** Closing tokens: a fabricated result only counts after one of these. */
-    private val CLOSERS = listOf("</tool_call>", FUNCTION_CLOSE, "<|tool_call_end|>", "<｜tool▁call▁end｜>", "</ifm|tool_call>")
+    /** Ends of special-token calls the raw scanner does not read; a fabricated result may follow them. */
+    private val SPECIAL_CLOSERS = listOf("<|tool_call_end|>", "<｜tool▁call▁end｜>", "</ifm|tool_call>")
 
     /**
      * What a text-mode model writes when, instead of stopping after its calls,
@@ -153,56 +177,84 @@ object TextToolCallParser {
     /**
      * Where a fabricated tool result (or an invented next turn) starts, or -1.
      *
-     * Only counts after a completed call and outside any open one, so a file
-     * that merely mentions `<tool_result>` is not cut. [from] skips text
-     * already scanned; markers are short, so callers back it off a little.
+     * Only counts after a completed call and outside every call block, open
+     * values included, so a file that merely mentions `<tool_result>` or a
+     * line starting "User:" is never cut. Every occurrence of every marker is
+     * considered, not just the first: in a reply that arrives in one piece, the
+     * first marker may sit inside a file and the invented result come later.
+     * [from] skips text already scanned; markers are short, so callers back it
+     * off a little.
      */
     fun fakeResultStart(content: CharSequence, from: Int = 0): Int {
         val start = from.coerceIn(0, content.length)
+        // Cheap first: almost every chunk holds no marker at all.
+        if (FAKE_RESULT_MARKERS.none { content.indexOf(it, start) >= 0 }) return -1
+        val text = content.toString()
+        val blocks = RawScanner(text) { null }.scan()
+        var firstEnd = Int.MAX_VALUE
+        for (b in blocks) if (b.endsCleanly) firstEnd = minOf(firstEnd, b.end)
+        for (closer in SPECIAL_CLOSERS) {
+            val i = text.indexOf(closer)
+            if (i >= 0) firstEnd = minOf(firstEnd, i + closer.length)
+        }
+        if (firstEnd == Int.MAX_VALUE) return -1
         var best = -1
         for (marker in FAKE_RESULT_MARKERS) {
-            val i = content.indexOf(marker, start)
-            if (i >= 0 && (best < 0 || i < best)) best = i
+            var i = text.indexOf(marker, maxOf(start, firstEnd))
+            while (i >= 0 && (best < 0 || i < best)) {
+                if (blocks.none { i >= it.start && i < it.end }) {
+                    best = i
+                    break
+                }
+                i = text.indexOf(marker, i + 1)
+            }
         }
-        if (best < 0) return -1
-        val before = content.subSequence(0, best).toString()
-        val lastClose = CLOSERS.maxOf { before.lastIndexOf(it) }
-        if (lastClose < 0) return -1
-        val tail = before.substring(lastClose)
-        if (OPENERS.any { tail.contains(it) }) return -1
         return best
     }
 
-    fun parse(content: String, knownTools: Set<String>): Parsed {
+    /**
+     * @param schemas the offered tools' JSON parameter schemas by name, used to
+     *   type raw values. Tools without one get the conservative guess.
+     */
+    fun parse(content: String, knownTools: Set<String>, schemas: Map<String, JsonObject> = emptyMap()): Parsed {
         if (content.isBlank()) return Parsed(content, emptyList())
         val known = knownTools.map { ToolAliases.canonicalName(it) }.toSet()
         val calls = mutableListOf<ToolCallResponse>()
         val incomplete = mutableListOf<String>()
+        val incompleteCalls = mutableListOf<ToolCallResponse>()
         val openEnded = mutableSetOf<String>()
         var text = if (content.contains("|tool_call>")) content.replace(NAMESPACED_TAG, "<$1") else content
+        // Invented results after the calls are not part of the reply.
+        fakeResultStart(text).takeIf { it >= 0 }?.let { text = text.substring(0, it) }
+
+        fun schemaOf(name: String): JsonObject? = schemas[name] ?: schemas[ToolAliases.canonicalName(name)]
+
+        fun newCall(name: String, args: String): ToolCallResponse = ToolCallResponse(
+            id = "call_text_${calls.size + incompleteCalls.size}_${System.nanoTime() % 1_000_000}",
+            type = "function",
+            function = FunctionCall(name = name.trim(), arguments = args)
+        )
+
+        fun argsText(arguments: JsonElement?): String = when (arguments) {
+            null -> "{}"
+            is JsonPrimitive -> arguments.contentOrNull?.takeIf { it.isNotBlank() } ?: "{}"
+            else -> arguments.toString()
+        }
 
         fun accept(name: String?, arguments: JsonElement?, closed: Boolean = true): Boolean {
             if (name.isNullOrBlank()) return false
             if (ToolAliases.canonicalName(name) !in known) return false
-            val args = when (arguments) {
-                null -> "{}"
-                is JsonPrimitive -> arguments.contentOrNull?.takeIf { it.isNotBlank() } ?: "{}"
-                else -> arguments.toString()
-            }
-            val id = "call_text_${calls.size}_${System.nanoTime() % 1_000_000}"
-            calls += ToolCallResponse(
-                id = id,
-                type = "function",
-                function = FunctionCall(name = name.trim(), arguments = args)
-            )
-            if (!closed) openEnded += id
+            val call = newCall(name, argsText(arguments))
+            calls += call
+            if (!closed) openEnded += call.id
             return true
         }
 
         /** Records a call that was cut off. True when the name is a known tool. */
-        fun cutOff(name: String?): Boolean {
+        fun cutOff(name: String?, arguments: JsonElement? = null): Boolean {
             if (name.isNullOrBlank() || ToolAliases.canonicalName(name) !in known) return false
             incomplete += name.trim()
+            incompleteCalls += newCall(name, argsText(arguments))
             return true
         }
 
@@ -219,42 +271,50 @@ object TextToolCallParser {
             else -> false
         }
 
-        // 1. <tool_call> blocks.
-        TOOL_CALL_TAG.findAll(text).toList().forEach { m ->
-            val inner = m.groupValues[1]
-            val closed = m.value.trimEnd().endsWith("</tool_call>", ignoreCase = true)
-            val handled = when {
-                FUNCTION_OPEN.containsMatchIn(inner) -> acceptFunctions(inner, closed, ::accept, ::cutOff)
-                inner.contains("<arg_key>") || inner.contains("<arg_value>") -> {
-                    if (!closed && !inner.trimEnd().endsWith("</arg_value>")) cutOff(inner.substringBefore('<').trim())
-                    else acceptKeyValue(inner, ::accept)
-                }
-                !inner.trimStart().startsWith("{") && !inner.trimStart().startsWith("[") &&
-                    inner.trim().matches(Regex("[A-Za-z_.][\\w.\\-]*")) ->
-                    accept(inner.trim(), null) // a bare name: a call with no arguments
-                else -> {
-                    val json = extractJson(inner)
-                    if (json == null && !closed) cutOff(JSON_NAME.find(inner)?.groupValues?.get(1))
-                    else acceptObject(parseJson(json ?: inner))
+        /** One raw-format call: run it, record it as cut off, or (unknown name) leave it alone. */
+        fun handle(call: RawCall, wrapperClosed: Boolean): Boolean {
+            val props = schemaOf(call.name)?.get("properties") as? JsonObject
+            val args: JsonElement? = when {
+                call.json != null -> parseJson(call.json)
+                else -> JsonObject(LinkedHashMap<String, JsonElement>().also { map ->
+                    call.values.forEach { (k, v) -> map[k] = typed(k, v, props?.get(k) as? JsonObject) }
+                })
+            }
+            val complete = call.complete || wrapperClosed
+            return if (!complete && !call.lastClosed) cutOff(call.name, args) else accept(call.name, args, complete)
+        }
+
+        // 1. The raw format and <tool_call> blocks, in text order.
+        val handledSpans = mutableListOf<IntRange>()
+        for (block in RawScanner(text) { name -> (schemaOf(name)?.get("properties") as? JsonObject)?.keys }.scan()) {
+            val handled = when (block) {
+                is RawCall -> handle(block, wrapperClosed = false)
+                is Wrapper -> if (block.calls.isNotEmpty()) {
+                    // Every call in the block counts; don't stop at the first.
+                    block.calls.map { handle(it, wrapperClosed = block.closed) }.any { it }
+                } else {
+                    val inner = block.inner
+                    when {
+                        inner.contains("<arg_key>") || inner.contains("<arg_value>") -> {
+                            if (!block.closed && !inner.trimEnd().endsWith("</arg_value>")) cutOff(inner.substringBefore('<').trim())
+                            else acceptKeyValue(inner, { name -> schemaOf(name) }, ::accept)
+                        }
+                        !inner.trimStart().startsWith("{") && !inner.trimStart().startsWith("[") &&
+                            inner.trim().matches(BARE_NAME) ->
+                            accept(inner.trim(), null) // a bare name: a call with no arguments
+                        else -> {
+                            val json = extractJson(inner)
+                            if (json == null && !block.closed) cutOff(JSON_NAME.find(inner)?.groupValues?.get(1))
+                            else acceptObject(parseJson(json ?: inner))
+                        }
+                    }
                 }
             }
-            if (handled) text = text.replace(m.value, "")
+            if (handled) handledSpans += block.start until block.end
         }
+        if (handledSpans.isNotEmpty()) text = removeSpans(text, handledSpans)
 
-        // 2. Bare <function=...> blocks.
-        var searchFrom = 0
-        var guard = 0
-        while (guard++ < 64) {
-            val open = FUNCTION_OPEN.find(text, searchFrom) ?: break
-            val end = functionEnd(text, open)
-            val segment = text.substring(open.range.first, end)
-            // Followed by more text (another call): the model moved on, so it is complete.
-            val handled = acceptFunctions(segment, closed = end < text.length, accept = ::accept, cutOff = ::cutOff)
-            // Unknown names stay in the text; parsing carries on after them.
-            if (handled) text = text.removeRange(open.range.first, end) else searchFrom = end
-        }
-
-        // 2b. Kimi K2 and DeepSeek special-token sections.
+        // 2. Kimi K2 and DeepSeek special-token sections.
         if (text.contains("<|tool_call_begin|>")) {
             KIMI_CALL.findAll(text).toList().forEach { m ->
                 val raw = m.groupValues[2]
@@ -311,85 +371,357 @@ object TextToolCallParser {
         }
 
         if (calls.isNotEmpty() || incomplete.isNotEmpty()) text = text.replace(WRAPPER, "").replace(EMPTY_FENCE, "")
-        return Parsed(text.replace(Regex("\n{3,}"), "\n\n").trim(), calls, incomplete, openEnded)
+        return Parsed(text.replace(Regex("\n{3,}"), "\n\n").trim(), calls, incomplete, openEnded, incompleteCalls)
     }
 
-    /**
-     * Where a bare `<function=…>` block that starts at [open] ends: after its
-     * `</function>`, else at the next `<function=`, else at the end.
-     */
-    private fun functionEnd(text: String, open: MatchResult): Int {
-        val bodyStart = open.range.last + 1
-        val close = text.indexOf(FUNCTION_CLOSE, bodyStart, ignoreCase = true)
-        val next = FUNCTION_OPEN.find(text, bodyStart)?.range?.first ?: -1
-        return when {
-            close >= 0 && (next < 0 || close < next) -> close + FUNCTION_CLOSE.length
-            next >= 0 -> next
-            else -> text.length
+    private fun removeSpans(text: String, spans: List<IntRange>): String = buildString {
+        var at = 0
+        spans.sortedBy { it.first }.forEach { r ->
+            if (r.first > at) append(text, at, r.first)
+            at = maxOf(at, r.last + 1)
         }
+        if (at < text.length) append(text, at, text.length)
     }
 
+    // ------------------------------------------------------------------ raw-format scanner
+
+    /** Something the scanner found, spanning [start] until [end]. */
+    private sealed interface Block {
+        val start: Int
+        val end: Int
+        /** A complete call ends here: a fabricated result may follow it. */
+        val endsCleanly: Boolean
+    }
+
+    /** One `<function=…>` block. */
+    private class RawCall(
+        override val start: Int,
+        override val end: Int,
+        val name: String,
+        val values: LinkedHashMap<String, String>,
+        /** A JSON body (`<function=name>{...}</function>`) instead of parameters. */
+        val json: String?,
+        /** Ended by `</function>`, by a `</tool_call>`, or by another call starting. */
+        val complete: Boolean,
+        /** False when the last value (or a JSON body) ran to the end of the text: cut off. */
+        val lastClosed: Boolean,
+    ) : Block {
+        override val endsCleanly: Boolean get() = complete || lastClosed
+    }
+
+    /** A `<tool_call>` block: raw-format [calls], or another format's [inner] text. */
+    private class Wrapper(
+        override val start: Int,
+        override val end: Int,
+        val closed: Boolean,
+        val calls: List<RawCall>,
+        val inner: String,
+    ) : Block {
+        override val endsCleanly: Boolean get() = closed || (calls.isNotEmpty() && calls.all { it.endsCleanly })
+    }
+
+    private class Tag(val name: String, val end: Int)
+
+    private class Value(val text: String, val closed: Boolean, val next: Int)
+
     /**
-     * Every `<function=…>` call in [container]. A call counts as complete when
-     * it has `</function>`, when the enclosing `<tool_call>` block is [closed],
-     * or when another call follows it; otherwise it is accepted only if its
-     * last parameter was closed, and is then marked open-ended.
+     * Reads the raw format left to right. [keysOf] gives a tool's parameter
+     * names when its schema is known: a `<parameter=x>` line inside a value
+     * only ends that value (the model dropped its `</parameter>`) when `x` is
+     * a parameter of the tool not set yet.
      */
-    private fun acceptFunctions(
-        container: String,
-        closed: Boolean,
-        accept: (String?, JsonElement?, Boolean) -> Boolean,
-        cutOff: (String?) -> Boolean
-    ): Boolean {
-        var any = false
-        var from = 0
-        while (true) {
-            val open = FUNCTION_OPEN.find(container, from) ?: break
-            val name = open.groupValues[1]
-            val bodyStart = open.range.last + 1
-            val close = container.indexOf(FUNCTION_CLOSE, bodyStart, ignoreCase = true)
-            val next = FUNCTION_OPEN.find(container, bodyStart)?.range?.first ?: -1
-            val bodyEnd = when {
-                close >= 0 && (next < 0 || close < next) -> close
-                next >= 0 -> next
-                else -> container.length
+    private class RawScanner(private val t: String, private val keysOf: (String) -> Set<String>?) {
+
+        fun scan(): List<Block> {
+            val out = mutableListOf<Block>()
+            var i = 0
+            while (i < t.length) {
+                val lt = t.indexOf('<', i)
+                if (lt < 0) break
+                if (isToolCallOpen(lt)) {
+                    val w = wrapper(lt)
+                    out += w
+                    i = maxOf(w.end, lt + 1)
+                    continue
+                }
+                val fn = openTag(lt, "function")
+                if (fn != null) {
+                    val c = function(lt, fn, inWrapper = false)
+                    out += c
+                    i = maxOf(c.end, lt + 1)
+                    continue
+                }
+                i = lt + 1
             }
-            val explicitEnd = (close >= 0 && (next < 0 || close < next)) || next >= 0 || closed
-            val (args, lastClosed) = parameters(container.substring(bodyStart, bodyEnd))
-            any = if (!explicitEnd && !lastClosed) {
-                cutOff(name) || any
-            } else {
-                accept(name, args, explicitEnd) || any
-            }
-            from = if (close >= 0 && close == bodyEnd) close + FUNCTION_CLOSE.length else bodyEnd
-            if (from >= container.length) break
+            return out
         }
-        return any
-    }
 
-    /**
-     * The arguments of one function body and whether its last parameter was
-     * explicitly closed. A body with no `<parameter=` tags may be JSON
-     * (`<function=name>{...}</function>`).
-     */
-    private fun parameters(body: String): Pair<JsonElement?, Boolean> {
-        val opens = PARAMETER_OPEN.findAll(body).toList()
-        if (opens.isEmpty()) {
-            val json = extractJson(body)
-            return (json?.let { parseJson(it) }) to (json != null || body.isBlank())
+        private fun wrapper(start: Int): Wrapper {
+            val k = skipWs(start + TOOL_CALL_OPEN.length)
+            if (openTag(k, "function") != null) {
+                val calls = mutableListOf<RawCall>()
+                var p = k
+                while (true) {
+                    val tag = openTag(p, "function") ?: break
+                    val c = function(p, tag, inWrapper = true)
+                    calls += c
+                    p = skipWs(c.end)
+                    if (p >= t.length) return Wrapper(start, t.length, false, calls, "")
+                    if (isToolCallClose(p)) return Wrapper(start, p + TOOL_CALL_CLOSE.length, true, calls, "")
+                    if (openTag(p, "function") != null) continue
+                    // A stray fence or word before the closer: skip to it, unless another call starts first.
+                    val close = t.indexOf(TOOL_CALL_CLOSE, p, ignoreCase = true)
+                    val next = nextOpener(p)
+                    return if (close >= 0 && (next < 0 || close < next)) Wrapper(start, close + TOOL_CALL_CLOSE.length, true, calls, "")
+                    else Wrapper(start, p, false, calls, "")
+                }
+                return Wrapper(start, p, false, calls, "")
+            }
+            if (k < t.length && (t[k] == '{' || t[k] == '[')) {
+                // JSON ends at its balanced brace, never at a closer inside one of its strings.
+                val jsonEnd = jsonEnd(t, k)
+                if (jsonEnd > 0) {
+                    val after = skipWs(jsonEnd)
+                    val close = t.indexOf(TOOL_CALL_CLOSE, after, ignoreCase = true)
+                    val next = nextOpener(after)
+                    val end = if (close >= 0 && (next < 0 || close < next)) close + TOOL_CALL_CLOSE.length else jsonEnd
+                    return Wrapper(start, end, true, emptyList(), t.substring(k, jsonEnd))
+                }
+            }
+            // Key-value, a bare name, or JSON the model left unbalanced: up to the first closer.
+            val close = t.indexOf(TOOL_CALL_CLOSE, k, ignoreCase = true)
+            return if (close >= 0) Wrapper(start, close + TOOL_CALL_CLOSE.length, true, emptyList(), t.substring(k, close).trim())
+            else Wrapper(start, t.length, false, emptyList(), t.substring(minOf(k, t.length)).trim())
         }
-        val args = LinkedHashMap<String, JsonElement>()
-        var lastClosed = true
-        opens.forEachIndexed { i, p ->
-            val valueStart = p.range.last + 1
-            val limit = if (i + 1 < opens.size) opens[i + 1].range.first else body.length
-            val close = body.indexOf(PARAMETER_CLOSE, valueStart, ignoreCase = true)
-            val closedHere = close in valueStart until limit
-            val raw = trimOneNewline(body.substring(valueStart, if (closedHere) close else limit))
-            if (i == opens.lastIndex) lastClosed = closedHere
-            args[p.groupValues[1]] = typed(p.groupValues[1], if (closedHere) raw else raw.trimEnd())
+
+        private fun function(start: Int, tag: Tag, inWrapper: Boolean): RawCall {
+            val values = LinkedHashMap<String, String>()
+            val keys = keysOf(tag.name)
+            var json: String? = null
+            var lastClosed = true
+            var p = tag.end
+            while (true) {
+                p = skipWs(p)
+                if (p >= t.length) return RawCall(start, t.length, tag.name, values, json, false, lastClosed)
+                if (isFunctionClose(p)) return RawCall(start, p + FUNCTION_CLOSE.length, tag.name, values, json, true, true)
+                if (isToolCallClose(p)) {
+                    // Its wrapper's closer (kept for the wrapper), or a stray one after a bare call.
+                    val end = if (inWrapper) p else p + TOOL_CALL_CLOSE.length
+                    return RawCall(start, end, tag.name, values, json, true, lastClosed)
+                }
+                if (isToolCallOpen(p) || openTag(p, "function") != null) {
+                    // The model moved on to the next call: this one is complete.
+                    return RawCall(start, p, tag.name, values, json, true, lastClosed)
+                }
+                val param = openTag(p, "parameter")
+                if (param != null) {
+                    val v = value(param.end, param.name, values.keys, keys)
+                    values[param.name] = v.text
+                    lastClosed = v.closed
+                    p = v.next
+                    continue
+                }
+                if (values.isEmpty() && json == null && (t[p] == '{' || t[p] == '[')) {
+                    val end = jsonEnd(t, p)
+                    if (end < 0) return RawCall(start, t.length, tag.name, values, null, false, false)
+                    json = t.substring(p, end)
+                    p = end
+                    continue
+                }
+                // A stray line (a fence, a note) between values is skipped; prose after the call ends it.
+                val resume = strayLines(p, values.keys, keys)
+                if (resume > p) {
+                    p = resume
+                    continue
+                }
+                return RawCall(start, p, tag.name, values, json, false, lastClosed)
+            }
         }
-        return JsonObject(args) to lastClosed
+
+        /** Where scanning resumes when up to three junk lines are followed by a parameter or `</function>`; else [p]. */
+        private fun strayLines(p: Int, assigned: Set<String>, keys: Set<String>?): Int {
+            var line = p
+            repeat(3) {
+                val nl = t.indexOf('\n', line)
+                if (nl < 0) return p
+                val q = skipInline(nl + 1)
+                val param = openTag(q, "parameter")
+                if (isFunctionClose(q) || (param != null && param.name !in assigned && (keys == null || param.name in keys))) return q
+                if (q < t.length && t[q] == '<') return p
+                line = q
+            }
+            return p
+        }
+
+        /**
+         * One raw value, starting right after its `<parameter=…>` tag.
+         *
+         * Markup the value opens itself is counted, so it closes as content:
+         * `<function…>` / `</function>`, `<parameter…>` / `</parameter>` and
+         * `<tool_call>` / `</tool_call>` pairs (an example call in a README).
+         * At depth 0 a `</parameter>` closes the value only where structure
+         * follows or its line ends; otherwise it is literal text. A value the
+         * model left open ends at a line that starts the next parameter of the
+         * tool, or that holds the call's own `</function>` / `</tool_call>`.
+         */
+        private fun value(start: Int, key: String, assigned: Set<String>, keys: Set<String>?): Value {
+            var nestFunc = 0
+            var nestParam = 0
+            var nestCall = 0
+            var k = start
+            while (true) {
+                val lt = t.indexOf('<', k)
+                if (lt < 0) break
+                k = lt
+                if (isParameterClose(k)) {
+                    val after = k + PARAMETER_CLOSE.length
+                    if (nestParam > 0) { nestParam--; k = after; continue }
+                    if (structuralAfter(after) || restOfLineBlank(after)) return Value(clean(start, k, closed = true), true, after)
+                    k = after
+                    continue
+                }
+                if (opensLike(k, "<parameter")) {
+                    val tag = openTag(k, "parameter")
+                    if (tag != null && nestFunc == 0 && nestCall == 0 && atLineStart(k, start) &&
+                        tag.name != key && tag.name !in assigned && (keys == null || tag.name in keys)
+                    ) {
+                        // The model left this value open and went on to the next parameter.
+                        return Value(clean(start, k, closed = false), true, k)
+                    }
+                    if (!selfClosing(k)) nestParam++
+                    k = tag?.end ?: (k + 1)
+                    continue
+                }
+                if (opensLike(k, "<function")) {
+                    if (!selfClosing(k)) nestFunc++
+                    k = openTag(k, "function")?.end ?: (k + 1)
+                    continue
+                }
+                if (isFunctionClose(k)) {
+                    val after = k + FUNCTION_CLOSE.length
+                    if (nestFunc > 0) { nestFunc--; k = after; continue }
+                    if (nestCall == 0 && atLineStart(k, start) && structuralAfter(after)) {
+                        return Value(clean(start, k, closed = false), true, k)
+                    }
+                    k = after
+                    continue
+                }
+                if (isToolCallOpen(k)) {
+                    nestCall++
+                    k += TOOL_CALL_OPEN.length
+                    continue
+                }
+                if (isToolCallClose(k)) {
+                    val after = k + TOOL_CALL_CLOSE.length
+                    if (nestCall > 0) { nestCall--; k = after; continue }
+                    if (nestFunc == 0 && atLineStart(k, start) && structuralAfter(after)) {
+                        return Value(clean(start, k, closed = false), true, k)
+                    }
+                    k = after
+                    continue
+                }
+                k++
+            }
+            // Ran to the end of the text: cut off.
+            return Value(clean(start, t.length, closed = false), false, t.length)
+        }
+
+        /** One leading and one trailing newline belong to the tags; an unclosed value also loses trailing blanks. */
+        private fun clean(from: Int, to: Int, closed: Boolean): String {
+            val v = trimOneNewline(t.substring(from, to))
+            return if (closed) v else v.trimEnd()
+        }
+
+        private fun structuralAfter(p: Int): Boolean {
+            val q = skipWs(p)
+            return q >= t.length || isFunctionClose(q) || isToolCallClose(q) || isToolCallOpen(q) ||
+                openTag(q, "parameter") != null || openTag(q, "function") != null
+        }
+
+        private fun restOfLineBlank(p: Int): Boolean {
+            var q = p
+            while (q < t.length && t[q] != '\n') {
+                if (t[q] != ' ' && t[q] != '\t' && t[q] != '\r') return false
+                q++
+            }
+            return true
+        }
+
+        /** Only blanks between the line's start (or the value's start) and [k]. */
+        private fun atLineStart(k: Int, floor: Int): Boolean {
+            var j = k - 1
+            while (j >= floor && (t[j] == ' ' || t[j] == '\t' || t[j] == '\r')) j--
+            return j < floor || t[j] == '\n'
+        }
+
+        private fun nextOpener(p: Int): Int {
+            var i = p
+            while (true) {
+                val lt = t.indexOf('<', i)
+                if (lt < 0) return -1
+                if (isToolCallOpen(lt) || openTag(lt, "function") != null) return lt
+                i = lt + 1
+            }
+        }
+
+        private fun skipWs(p: Int): Int {
+            var q = p
+            while (q < t.length && t[q].isWhitespace()) q++
+            return q
+        }
+
+        private fun skipInline(p: Int): Int {
+            var q = p
+            while (q < t.length && (t[q] == ' ' || t[q] == '\t' || t[q] == '\r')) q++
+            return q
+        }
+
+        private fun at(i: Int, token: String): Boolean = t.regionMatches(i, token, 0, token.length, ignoreCase = true)
+        private fun isToolCallOpen(i: Int) = at(i, TOOL_CALL_OPEN)
+        private fun isToolCallClose(i: Int) = at(i, TOOL_CALL_CLOSE)
+        private fun isFunctionClose(i: Int) = at(i, FUNCTION_CLOSE)
+        private fun isParameterClose(i: Int) = at(i, PARAMETER_CLOSE)
+
+        /** `<parameter` / `<function` starting a tag of that name (`=`, a space or `>` next). */
+        private fun opensLike(i: Int, prefix: String): Boolean {
+            if (!at(i, prefix)) return false
+            val c = t.getOrNull(i + prefix.length) ?: return false
+            return c == '=' || c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r'
+        }
+
+        private fun selfClosing(i: Int): Boolean {
+            val gt = t.indexOf('>', i)
+            return gt > 0 && t[gt - 1] == '/'
+        }
+
+        /** `<tag=name>`, `<tag=“name”>` or `<tag name="name">` at [i]. */
+        fun openTag(i: Int, tag: String): Tag? {
+            if (i < 0 || i >= t.length || !at(i, "<$tag")) return null
+            var j = i + tag.length + 1
+            if (j >= t.length) return null
+            when (t[j]) {
+                '=' -> j++
+                ' ', '\t' -> {
+                    while (j < t.length && (t[j] == ' ' || t[j] == '\t')) j++
+                    if (!at(j, "name")) return null
+                    j += 4
+                    while (j < t.length && t[j] == ' ') j++
+                    if (j >= t.length || t[j] != '=') return null
+                    j++
+                }
+                else -> return null
+            }
+            while (j < t.length && t[j] == ' ') j++
+            val quote = if (j < t.length && (t[j] == '"' || t[j] == '\'')) t[j++] else null
+            val nameStart = j
+            while (j < t.length && (t[j].isLetterOrDigit() || t[j] == '_' || t[j] == '.' || t[j] == '-')) j++
+            if (j == nameStart) return null
+            val name = t.substring(nameStart, j)
+            if (quote != null && j < t.length && t[j] == quote) j++
+            while (j < t.length && t[j] == ' ') j++
+            if (j >= t.length || t[j] != '>') return null
+            return Tag(name, j + 1)
+        }
     }
 
     /** One leading and one trailing newline belong to the tags, not the value. */
@@ -408,34 +740,74 @@ object TextToolCallParser {
         return t
     }
 
-    /** Raw text to a JSON value: text keys stay text; numbers, booleans and JSON are typed. */
-    private fun typed(key: String, raw: String): JsonElement {
+    // ------------------------------------------------------------------ typing
+
+    /**
+     * A raw value as JSON: by the parameter's schema type when known, else
+     * text keys stay text and plain numbers, booleans and JSON are typed.
+     */
+    private fun typed(key: String, raw: String, spec: JsonObject?): JsonElement {
+        val t = raw.trim()
+        return when (schemaType(spec)) {
+            "string" -> JsonPrimitive(raw)
+            "integer" -> t.toLongOrNull()?.let { JsonPrimitive(it) }
+                ?: t.toDoubleOrNull()?.takeIf { !it.isInfinite() && it == Math.floor(it) && kotlin.math.abs(it) < 9.0E15 }
+                    ?.let { JsonPrimitive(it.toLong()) }
+                ?: JsonPrimitive(raw)
+            "number" -> t.toLongOrNull()?.let { JsonPrimitive(it) } ?: t.toDoubleOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(raw)
+            "boolean" -> when (t.lowercase()) {
+                "true" -> JsonPrimitive(true)
+                "false" -> JsonPrimitive(false)
+                else -> JsonPrimitive(raw)
+            }
+            "array", "object" -> parseJson(t) ?: JsonPrimitive(raw)
+            else -> guessed(key, raw)
+        }
+    }
+
+    private fun schemaType(spec: JsonObject?): String? {
+        if (spec == null) return null
+        val enum = spec["enum"] as? JsonArray
+        if (enum != null && enum.isNotEmpty()) {
+            val first = enum.first() as? JsonPrimitive
+            if (first != null && first.isString) return "string"
+        }
+        return when (val type = spec["type"]) {
+            is JsonPrimitive -> type.contentOrNull
+            is JsonArray -> type.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.firstOrNull { it != "null" }
+            else -> null
+        }
+    }
+
+    /** No schema: text keys stay text; plain numbers (not "02134"), booleans and JSON are typed. */
+    private fun guessed(key: String, raw: String): JsonElement {
         if (key in TEXT_KEYS) return JsonPrimitive(raw)
         val t = raw.trim()
+        val leadingZero = t.length > 1 && (t.startsWith("0") || t.startsWith("-0")) && !t.startsWith("0.") && !t.startsWith("-0.")
         return when {
             t == "true" || t == "false" -> JsonPrimitive(t.toBoolean())
-            t.matches(INTEGER) -> t.toLongOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(raw)
-            t.matches(DECIMAL) -> t.toDoubleOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(raw)
+            !leadingZero && t.matches(INTEGER) -> t.toLongOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(raw)
+            !leadingZero && t.matches(DECIMAL) -> t.toDoubleOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(raw)
             t.startsWith("[") || t.startsWith("{") -> parseJson(t) ?: JsonPrimitive(raw)
             else -> JsonPrimitive(raw)
         }
     }
 
+    // ------------------------------------------------------------------ other formats
+
     /** GLM/K2 `name <arg_key>k</arg_key><arg_value>v</arg_value>...` blocks. */
-    private fun acceptKeyValue(inner: String, accept: (String?, JsonElement?, Boolean) -> Boolean): Boolean {
+    private fun acceptKeyValue(
+        inner: String,
+        schemaOf: (String) -> JsonObject?,
+        accept: (String?, JsonElement?, Boolean) -> Boolean
+    ): Boolean {
         val name = inner.substringBefore('<').trim()
+        val props = schemaOf(name)?.get("properties") as? JsonObject
         val args = LinkedHashMap<String, JsonElement>()
         KV_PAIR.findAll(inner).forEach { m ->
             // Keys arrive with template debris such as `path":`; keep the identifier.
             val key = Regex("[A-Za-z_][\\w]*").find(m.groupValues[1])?.value ?: return@forEach
-            val raw = m.groupValues[2].trim('\n')
-            args[key] = when {
-                key in TEXT_KEYS -> JsonPrimitive(raw)
-                raw.trim() == "true" || raw.trim() == "false" -> JsonPrimitive(raw.trim().toBoolean())
-                raw.trim().matches(INTEGER) -> JsonPrimitive(raw.trim().toLong())
-                raw.trim().startsWith("[") || raw.trim().startsWith("{") -> parseJson(raw.trim()) ?: JsonPrimitive(raw)
-                else -> JsonPrimitive(raw)
-            }
+            args[key] = typed(key, m.groupValues[2].trim('\n'), props?.get(key) as? JsonObject)
         }
         val debris = Regex("\"[}\\]]+\\s*$")
         // File bodies are taken verbatim: a JS file may well start with a quote.
@@ -489,6 +861,12 @@ object TextToolCallParser {
     fun extractJson(text: String): String? {
         val start = text.indexOfFirst { it == '{' || it == '[' }
         if (start < 0) return null
+        val end = jsonEnd(text, start)
+        return if (end < 0) null else text.substring(start, end)
+    }
+
+    /** End (exclusive) of the balanced JSON value opening at [start], or -1 when it never closes. */
+    private fun jsonEnd(text: String, start: Int): Int {
         var depth = 0
         var inString = false
         var escaped = false
@@ -507,10 +885,10 @@ object TextToolCallParser {
                 '{', '[' -> depth++
                 '}', ']' -> {
                     depth--
-                    if (depth == 0) return text.substring(start, i + 1)
+                    if (depth == 0) return i + 1
                 }
             }
         }
-        return null
+        return -1
     }
 }

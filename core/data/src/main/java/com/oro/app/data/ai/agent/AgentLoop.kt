@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -117,7 +118,13 @@ data class AgentLoopConfig(
      * Times the same call with the same result may recur within the recent
      * window ([REPEAT_WINDOW] calls) before the run gives up.
      */
-    val repeatStopAfter: Int = 6
+    val repeatStopAfter: Int = 6,
+    /**
+     * JSON parameter schemas of tools beyond the built-ins (MCP servers, the
+     * device agent's tools), by name. Text-protocol values are typed by these;
+     * the built-in tools' schemas are always known.
+     */
+    val toolSchemas: Map<String, JsonObject> = emptyMap()
 ) {
     companion object {
         /** No iteration cap. */
@@ -164,6 +171,9 @@ class AgentLoop(
     private val random: Random = Random.Default
 ) {
 
+    /** Schemas that type text-protocol values: the built-ins plus whatever the caller offers. */
+    private val schemas: Map<String, JsonObject> by lazy { AgentTools.parameterSchemas + config.toolSchemas }
+
     /**
      * Run until the model stops calling tools.
      *
@@ -208,15 +218,30 @@ class AgentLoop(
             // Calls the output limit cut off: never run, the model resends them.
             var cutOff = emptyList<String>()
             if (calls.isEmpty() && knownTools.isNotEmpty()) {
-                val parsed = TextToolCallParser.parse(turn.content, knownTools)
+                val parsed = TextToolCallParser.parse(turn.content, knownTools, schemas)
                 var parsedCalls = parsed.calls
-                cutOff = parsed.incomplete
-                // A block left open is only suspect when the reply hit the limit.
-                val last = parsedCalls.lastOrNull()
-                if (turn.finishReason == "length" && last != null && last.id in parsed.openEnded) {
-                    parsedCalls = parsedCalls.dropLast(1)
-                    cutOff = cutOff + last.function.name
+                val cut = parsed.incomplete.toMutableList()
+                // A block left open is suspect when the reply hit the limit, and
+                // a file write left open is suspect when the provider could not
+                // say why the reply ended: the rest of the call may be missing.
+                val suspect = parsedCalls.filter { c ->
+                    c.id in parsed.openEnded && (turn.finishReason == "length" ||
+                        (turn.finishReason == null && ToolAliases.canonicalName(c.function.name) in FILE_WRITES))
                 }
+                if (suspect.isNotEmpty()) {
+                    parsedCalls = parsedCalls - suspect.toSet()
+                    cut += suspect.map { it.function.name }
+                }
+                // A read-only call missing only its closers after an explicit
+                // stop is complete enough to run: nothing is written.
+                if (turn.finishReason == "stop") {
+                    val salvage = parsed.incompleteCalls.filter { isReadOnly(it) }
+                    if (salvage.isNotEmpty()) {
+                        parsedCalls = parsedCalls + salvage
+                        salvage.forEach { cut.remove(it.function.name) }
+                    }
+                }
+                cutOff = cut
                 if (parsedCalls.isNotEmpty() || cutOff.isNotEmpty()) {
                     calls = parsedCalls
                     visible = parsed.visibleText
@@ -321,6 +346,11 @@ class AgentLoop(
             }
 
             val results = executeCalls(calls, listener)
+            // Calls ran: the run is moving. Retry budgets are for consecutive
+            // trouble, not a lifetime allowance -- runs have no step cap now.
+            malformedNudges = 0
+            truncatedRetries = 0
+            lengthContinuations = 0
 
             // Stuck detection: repeated calls with unchanged results and
             // streaks of failures earn a corrective note; a loop that
@@ -388,9 +418,11 @@ class AgentLoop(
     /** What to tell the model about calls the output limit cut off. */
     private fun truncatedCallNudge(names: List<String>, textMode: Boolean): String = buildString {
         val what = names.distinct().joinToString(", ")
-        append("Your reply hit the output limit in the middle of ")
+        append("Your reply ended in the middle of ")
         append(if (textMode) "a <tool_call> for $what" else "the $what call")
-        append(", so that call was NOT run (a cut-off file would be broken). Send it again in smaller pieces: ")
+        append(" (the output limit, or the call was never closed), so that call was NOT run (a cut-off file ")
+        append("would be broken). Close every call with </parameter>, </function> and </tool_call>. ")
+        append("Send it again in smaller pieces: ")
         append("create a long file with write_file holding only its first part, then add the rest with further ")
         append("write_file calls with append=true, a few hundred lines each. Keep edits short.")
     }
@@ -673,6 +705,9 @@ class AgentLoop(
     companion object {
         /** Longest fabricated-result marker, so a marker split across deltas is still found. */
         private const val FAKE_MARKER_OVERLAP = 24
+
+        /** Calls whose missing tail could lose file content. */
+        private val FILE_WRITES = setOf("write_file", "edit_file", "multi_edit")
 
         /**
          * Whether native call arguments are a complete JSON object, not cut off

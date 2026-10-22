@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.util.Base64
 import android.view.View
 import android.webkit.WebView
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
 import com.oro.app.data.preview.Device
 import com.oro.app.data.preview.PageShot
@@ -39,6 +40,9 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
 
     private val lock = Mutex()
 
+    /** The current render's renderer process died; its WebView must not be used again. */
+    @Volatile private var rendererGone = false
+
     override suspend fun capture(projectRoot: File, page: String, devices: List<Device>): List<PageShot> =
         lock.withLock { devices.map { render(projectRoot, page, it) } }
 
@@ -63,6 +67,7 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
             val w = (device.width * density).toInt()
             val h = (device.height * density).toInt()
             val wv = WebView(app)
+            rendererGone = false
             try {
                 wv.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 wv.setBackgroundColor(Color.WHITE)
@@ -83,11 +88,19 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 if (cont.isActive) cont.resume(Unit)
                             }
+
+                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                // Handled: a user's page that crashes the renderer must not crash Oro.
+                                rendererGone = true
+                                if (cont.isActive) cont.resume(Unit)
+                                return true
+                            }
                         }
                         wv.loadUrl(File(root, page).toURI().toString())
                     }
                 }
                 delay(700) // fonts, images and first layout settle
+                check(!rendererGone) { "The preview's renderer stopped while loading $page" }
                 block(wv)
             } finally {
                 wv.stopLoading()
@@ -95,12 +108,19 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
             }
         }
 
-    private suspend fun evaluate(wv: WebView, js: String): String = suspendCancellableCoroutine { cont ->
-        wv.evaluateJavascript(js) { result -> if (cont.isActive) cont.resume(result ?: "null") }
+    /** Runs [js]; a renderer that died (or hangs) fails fast instead of suspending forever. */
+    private suspend fun evaluate(wv: WebView, js: String): String {
+        check(!rendererGone) { "The preview's renderer stopped" }
+        return withTimeoutOrNull(EVALUATE_TIMEOUT_MS) {
+            suspendCancellableCoroutine { cont ->
+                wv.evaluateJavascript(js) { result -> if (cont.isActive) cont.resume(result ?: "null") }
+            }
+        } ?: error(if (rendererGone) "The preview's renderer stopped" else "The page did not answer within ${EVALUATE_TIMEOUT_MS / 1000}s")
     }
 
     /** Draw into a bitmap at most 720 px wide; JPEG, base64. */
     private fun snapshot(wv: WebView, device: Device): String {
+        check(!rendererGone) { "The preview's renderer stopped" }
         val scale = minOf(1f, 720f / wv.width)
         val bw = (wv.width * scale).toInt().coerceAtLeast(1)
         val bh = (wv.height * scale).toInt().coerceAtLeast(1)
@@ -157,6 +177,8 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
     }
 
     companion object {
+        private const val EVALUATE_TIMEOUT_MS = 10_000L
+
         private const val SEL = """function sel(e){if(!e||!e.tagName)return '';var s=e.tagName.toLowerCase();if(e.id)s+='#'+e.id;else if(e.className&&typeof e.className==='string'){var c=e.className.trim().split(/\s+/).slice(0,2).join('.');if(c)s+='.'+c;}return s;}"""
 
         private const val METRICS_JS = """(function(){$SEL

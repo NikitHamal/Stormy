@@ -345,4 +345,83 @@ class AgentLoopTest {
         assertThat(ran).isEqualTo(0)
         assertThat(model.requests).hasSize(3)
     }
+
+
+    // --------------------------------------------------------------- review round: budgets, salvage, verify loops
+
+    @Test
+    fun `an unclosed read-only call after an explicit stop still runs`() = runTest {
+        val model = ScriptedModel(
+            {
+                flowOf(
+                    StreamEvent.Started,
+                    StreamEvent.ContentDelta("Checking.\n<tool_call>\n<function=read_file>\n<parameter=path>a.html"),
+                    StreamEvent.FinishReason("stop"),
+                    StreamEvent.Completed
+                )
+            },
+            { text("Looks good.") }
+        )
+        val ran = mutableListOf<String>()
+        val result = loop(model) { c -> ran += c.function.arguments; ToolResult(true, "<p>x</p>") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Looks good."))
+        assertThat(ran.single()).contains("a.html")
+    }
+
+    @Test
+    fun `retry budgets reset once calls run`() = runTest {
+        val cut = "<tool_call>\n<function=write_file>\n<parameter=path>a.html</parameter>\n<parameter=content>\n<html><bo"
+        val cutTurn = { flowOf(StreamEvent.Started, StreamEvent.ContentDelta(cut), StreamEvent.FinishReason("length"), StreamEvent.Completed) }
+        fun read(n: Int) = { text("<tool_call>\n<function=read_file>\n<parameter=path>part$n.html</parameter>\n</function>\n</tool_call>") }
+        val model = ScriptedModel(
+            cutTurn, read(1), cutTurn, read(2), cutTurn, read(3), cutTurn, read(4), { text("Done.") }
+        )
+        val result = loop(model) { ToolResult(true, "ok") }.go(mutableListOf())
+        // Four cut-offs in one run, but never more than one in a row: the run goes on.
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+    }
+
+    @Test
+    fun `an unclosed file write is not run when the provider gives no finish reason`() = runTest {
+        val open = "<tool_call>\n<function=write_file>\n<parameter=path>a.html</parameter>\n" +
+            "<parameter=content>\n<html></html>\n</parameter>"
+        val model = ScriptedModel({ text(open) }, { text("Done.") })
+        var ran = 0
+        val result = loop(model) { ran++; ToolResult(true, "") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+        assertThat(ran).isEqualTo(0)
+        assertThat(model.requests[1].messages.last().content).contains("never closed")
+    }
+
+    @Test
+    fun `a verify loop that reads the same text after each edit is not a repeat`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> =
+                if (n < 8) {
+                    n++
+                    tools(
+                        call("e$n", "edit_file", """{"path":"a.css","old_string":"v${n - 1}","new_string":"v$n"}"""),
+                        call("c$n", "check_syntax", "{}")
+                    )
+                } else text("Done.")
+        }
+        val result = loop(model) { c ->
+            if (c.function.name == "check_syntax") ToolResult(true, "No issues found in 3 files.") else ToolResult(true, "Edited a.css")
+        }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+    }
+
+    @Test
+    fun `the same append over and over is caught although its reply changes`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> =
+                tools(call("w${n++}", "write_file", """{"path":"a.js","append":true,"content":"x();"}"""))
+        }
+        var lines = 0
+        val result = loop(model) { ToolResult(true, "Appended 1 line to a.js (now ${++lines} lines).") }.go(mutableListOf())
+        assertThat((result as AgentRunResult.Failed).message).contains("repeating")
+        assertThat(model.n).isEqualTo(AgentLoopConfig().repeatStopAfter)
+    }
 }
