@@ -3,15 +3,12 @@ package com.oro.app.data.repository
 import com.oro.app.data.local.entity.ProjectTemplate
 import com.oro.app.data.repository.templates.AndroidTemplates
 import com.oro.app.data.repository.templates.BasicHtmlTemplates
-import com.oro.app.data.repository.templates.BlogTemplates
-import com.oro.app.data.repository.templates.DashboardTemplates
 import com.oro.app.data.repository.templates.ExpressTemplates
-import com.oro.app.data.repository.templates.LandingPageTemplates
 import com.oro.app.data.repository.templates.NextJsTemplates
 import com.oro.app.data.repository.templates.PhaserTemplates
-import com.oro.app.data.repository.templates.PortfolioTemplates
 import com.oro.app.data.repository.templates.PwaTemplates
 import com.oro.app.data.repository.templates.ReactTemplates
+import com.oro.app.data.repository.templates.StudioTemplates
 import com.oro.app.data.repository.templates.SvelteTemplates
 import com.oro.app.data.repository.templates.TailwindTemplates
 import com.oro.app.data.repository.templates.ThreeJsTemplates
@@ -32,7 +29,7 @@ object ProjectTemplateGenerator {
             ProjectTemplate.BLANK -> createBlankTemplate(projectDir)
             ProjectTemplate.HTML_BASIC -> createBasicHtmlTemplate(projectDir)
             ProjectTemplate.TAILWIND -> createTailwindTemplate(projectDir)
-            ProjectTemplate.LANDING_PAGE -> createLandingPageTemplate(projectDir)
+            ProjectTemplate.LANDING_PAGE -> StudioTemplates.install(projectDir, StudioTemplates.LANDING)
             ProjectTemplate.REACT -> createReactTemplate(projectDir)
             ProjectTemplate.VUE -> createVueTemplate(projectDir)
             ProjectTemplate.SVELTE -> createSvelteTemplate(projectDir)
@@ -42,9 +39,12 @@ object ProjectTemplateGenerator {
             ProjectTemplate.PHASER -> createPhaserTemplate(projectDir)
             ProjectTemplate.THREE_JS -> createThreeJsTemplate(projectDir)
             ProjectTemplate.EXPRESS_API -> createExpressApiTemplate(projectDir)
-            ProjectTemplate.PORTFOLIO -> createPortfolioTemplate(projectDir)
-            ProjectTemplate.BLOG -> createBlogTemplate(projectDir)
-            ProjectTemplate.DASHBOARD -> createDashboardTemplate(projectDir)
+            ProjectTemplate.PORTFOLIO -> StudioTemplates.install(projectDir, StudioTemplates.PORTFOLIO)
+            ProjectTemplate.BLOG -> StudioTemplates.install(projectDir, StudioTemplates.BLOG)
+            ProjectTemplate.DASHBOARD -> StudioTemplates.install(projectDir, StudioTemplates.DASHBOARD)
+            ProjectTemplate.STORE -> StudioTemplates.install(projectDir, StudioTemplates.STORE)
+            ProjectTemplate.DOCS -> StudioTemplates.install(projectDir, StudioTemplates.DOCS)
+            ProjectTemplate.ARCADE -> StudioTemplates.install(projectDir, StudioTemplates.ARCADE)
         }
     }
 
@@ -61,11 +61,6 @@ object ProjectTemplateGenerator {
     private fun createTailwindTemplate(projectDir: File) {
         File(projectDir, "index.html").writeText(TailwindTemplates.HTML)
         File(projectDir, "style.css").writeText(TailwindTemplates.CSS)
-    }
-
-    private fun createLandingPageTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(LandingPageTemplates.HTML)
-        File(projectDir, "style.css").writeText(LandingPageTemplates.CSS)
     }
 
     private fun createReactTemplate(projectDir: File) {
@@ -177,22 +172,4 @@ object ProjectTemplateGenerator {
         File(projectDir, ".env.example").writeText(ExpressTemplates.ENV_EXAMPLE)
     }
 
-    private fun createPortfolioTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(PortfolioTemplates.HTML)
-        File(projectDir, "style.css").writeText(PortfolioTemplates.CSS)
-        File(projectDir, "script.js").writeText(PortfolioTemplates.JS)
-    }
-
-    private fun createBlogTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(BlogTemplates.INDEX_HTML)
-        File(projectDir, "post.html").writeText(BlogTemplates.POST_HTML)
-        File(projectDir, "style.css").writeText(BlogTemplates.CSS)
-        File(projectDir, "script.js").writeText(BlogTemplates.JS)
-    }
-
-    private fun createDashboardTemplate(projectDir: File) {
-        File(projectDir, "index.html").writeText(DashboardTemplates.HTML)
-        File(projectDir, "style.css").writeText(DashboardTemplates.CSS)
-        File(projectDir, "script.js").writeText(DashboardTemplates.JS)
-    }
 }

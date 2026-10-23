@@ -71,7 +71,7 @@ class RunTranscriptTest {
     }
 
     @Test
-    fun `ask_user card shows question and answer, failures show the error`() {
+    fun `ask_user renders as an answered quote, not a tool card`() {
         val t = RunTranscript()
         val ask = call("q", "ask_user", """{"question":"Which colour?","options":["Blue","Green"]}""")
         t.toolStarted(ask)
@@ -80,8 +80,21 @@ class RunTranscriptTest {
         t.toolStarted(edit)
         t.toolFinished(edit, ToolResult(false, "", "old_string was not found in a.css."))
         val r = t.render()
-        assertThat(r).contains("✅ Which colour? → Green")
+        assertThat(r).contains("> **You answered** · Which colour?\n> **Green**")
+        assertThat(r).doesNotContain("Ask User")
         assertThat(r).contains("❌ old_string was not found in a.css.")
+    }
+
+    @Test
+    fun `a card handed back with You decide reads as such`() {
+        val t = RunTranscript()
+        val ask = call(
+            "q", "ask_user",
+            """{"questions":[{"question":"What's the cafe called?"},{"question":"Which look fits?"}]}"""
+        )
+        t.toolStarted(ask)
+        t.toolFinished(ask, ToolResult(true, com.oro.app.data.ai.tools.UserQuestions.DECIDE_RESULT))
+        assertThat(t.render()).isEqualTo("> **You let Orobi decide** · What's the cafe called? (+1 more)")
     }
 
     @Test
@@ -102,5 +115,65 @@ class RunTranscriptTest {
         val content = "<think>plan</think>\n\nLet me look.\n\n🔧 **Read File**\n✅ File: a.html\n1|x\n\n🔧 **Edit File**\n❌ not found\n\nDone."
         assertThat(RunTranscript.toHistoryText(content))
             .isEqualTo("Let me look.\n\n[Read File: done]\n\n[Edit File: failed]\n\nDone.")
+    }
+
+    @Test
+    fun `batched ask_user lists every answer and marks skips`() {
+        val t = RunTranscript()
+        val ask = call(
+            "q", "ask_user",
+            """{"questions":[{"question":"Framework?","options":[{"label":"React"}]},{"question":"Name?"}]}"""
+        )
+        t.toolStarted(ask)
+        assertThat(t.render()).isEmpty()
+        val output = com.oro.app.data.ai.tools.UserQuestions.formatAnswers(
+            com.oro.app.data.ai.tools.UserQuestions.parse(
+                kotlinx.serialization.json.Json.parseToJsonElement(ask.function.arguments)
+                    as kotlinx.serialization.json.JsonObject
+            ),
+            listOf("React", null)
+        )
+        t.toolFinished(ask, ToolResult(true, output))
+        val r = t.render()
+        assertThat(r).contains("1. Framework? — **React**")
+        assertThat(r).contains("2. Name? — _skipped_")
+    }
+
+    @Test
+    fun `rows keep their subject when the output names no file`() {
+        val t = RunTranscript()
+        val skill = call("s", "use_skill", """{"name":"design-system"}""")
+        t.toolStarted(skill)
+        t.toolFinished(skill, ToolResult(true, "Skill design-system (97 lines)\nTokens and motion."))
+        val write = call("w", "write_file", """{"path":"index.html","content":"<p>hi</p>"}""")
+        t.toolStarted(write)
+        val blocks = parseAiMessageContent(t.render(), isStreaming = true)
+            .filterIsInstance<MessageContentBlock.ToolCallBlock>()
+        assertThat(blocks.map { it.filePath }).containsExactly("design-system", "index.html").inOrder()
+        // The subject line is for the row; the detail sheet shows the real output.
+        assertThat(blocks.first().output.orEmpty()).doesNotContain("subject:")
+    }
+
+    @Test
+    fun `file tools are not given a second subject`() {
+        val t = RunTranscript()
+        val read = call("r", "read_file", """{"path":"a.css"}""")
+        t.toolStarted(read)
+        t.toolFinished(read, ToolResult(true, "File: a.css (3 lines)\n1|a"))
+        assertThat(t.render()).doesNotContain("subject:")
+    }
+
+    @Test
+    fun `the running tool's subject is read from the last card`() {
+        val t = RunTranscript()
+        val read = call("r", "read_file", """{"path":"a.css"}""")
+        t.toolStarted(read)
+        t.toolFinished(read, ToolResult(true, "File: a.css (3 lines)\n1|a"))
+        assertThat(RunTranscript.runningSubject(t.render())).isNull()
+        val write = call("w", "write_file", """{"path":"index.html","content":"x"}""")
+        t.toolStarted(write)
+        assertThat(RunTranscript.runningSubject(t.render())).isEqualTo("index.html")
+        t.toolFinished(write, ToolResult(true, "Created index.html (1 lines).\nFile: index.html"))
+        assertThat(RunTranscript.runningSubject(t.render())).isNull()
     }
 }

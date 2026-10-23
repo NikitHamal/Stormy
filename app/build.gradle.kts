@@ -1,3 +1,6 @@
+import java.util.Base64
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -20,6 +23,22 @@ android {
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+
+        // On-device dictation (Whistle). Only ARM: that is what the engine
+        // ships for and what phones run; elsewhere dictation falls back to the
+        // system recogniser.
+        externalNativeBuild {
+            cmake {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+                arguments += listOf("-DANDROID_STL=c++_static")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 
@@ -79,6 +98,15 @@ android {
         buildConfig = true
     }
 
+    // Oro's UI is English-only (no values-xx folders), but the libraries
+    // bundle their own strings in ~80 languages. Keeping only English drops
+    // those from resources.arsc and keeps library labels (sheet handles,
+    // date pickers, TalkBack hints) in the same language as the rest of the
+    // app. Add a locale here when the app itself is translated.
+    androidResources {
+        localeFilters += setOf("en")
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -96,6 +124,8 @@ android {
                 "/META-INF/INDEX.LIST",
                 "/META-INF/*.kotlin_module",
                 "DebugProbesKt.bin",
+                // Read only by kotlin-reflect, which Oro does not use.
+                "/kotlin/**",
             )
         }
         jniLibs {
@@ -113,9 +143,31 @@ android {
 
 
 composeCompiler {
-    // Emits a report of which composables are skippable/restartable so that
-    // recomposition regressions are visible in CI artifacts.
-    includeSourceInformation.set(true)
+    // Models from core:data / the JDK are compiled without the Compose
+    // compiler, so Compose cannot infer their stability and would treat them
+    // as unstable -- every screen taking a Project, GitCommit or List<...>
+    // would recompose on every emission. The shared config declares the ones
+    // that are immutable in practice. (Strong skipping is the default from
+    // Kotlin 2.0.20 on, so it needs no flag here.)
+    stabilityConfigurationFiles.add(
+        rootProject.layout.projectDirectory.file("compose-stability.conf")
+    )
+    // includeSourceInformation is left at the plugin default: forcing it on
+    // put per-call-site source metadata into release builds as well. Pass
+    // -PcomposeReports=true to get skippability/stability reports instead.
+    if (providers.gradleProperty("composeReports").orNull == "true") {
+        reportsDestination.set(layout.buildDirectory.dir("compose_compiler"))
+        metricsDestination.set(layout.buildDirectory.dir("compose_compiler"))
+    }
+}
+
+// AndroidX build stamps (META-INF/*.version): nothing reads them while the app
+// runs, but Layout Inspector needs the Compose ones to inspect a debug build,
+// so only release builds drop them.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.resources.excludes.add("/META-INF/*.version")
+    }
 }
 
 dependencies {
@@ -137,8 +189,9 @@ dependencies {
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3.window.sizeclass)
-    implementation(libs.androidx.material3.adaptive.navigation.suite)
+    // material3-window-size-class and material3-adaptive-navigation-suite were
+    // declared but never imported; the latter pulled androidx.window (and its
+    // manifest entries) into every build for nothing.
     implementation(libs.androidx.material.icons.extended)
 
     implementation(libs.androidx.navigation.compose)
@@ -147,12 +200,16 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
+    implementation(libs.a2ui.compose.runtime)
+    implementation(libs.a2ui.compose.ui)
     implementation(libs.coil.compose)
     implementation(libs.coil.svg)
     implementation(libs.coil.network.okhttp)
 
+    // Only the core editor: highlighting is done by SimpleLanguageFactory, so
+    // the TextMate language module (and its grammar/regex engine) was dead
+    // weight in the APK and in class loading.
     implementation(libs.sora.editor)
-    implementation(libs.sora.editor.language.textmate)
 
     implementation(libs.markwon.core)
     implementation(libs.markwon.html)
@@ -164,6 +221,13 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -171,4 +235,60 @@ dependencies {
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+}
+
+// UI screenshots: Robolectric + Roborazzi render the device agent's island and
+// screens on the JVM (app/src/test/java/com/oro/app/screenshots), so their look
+// can be checked without a phone. They are slow, so the normal unit-test run
+// skips them. They run instead of the other app tests with
+// -Poro.screenshots=true, and in CI on the ci/shots branch or any branch named
+// shots/<anything>: the GitHub connector agents use cannot add a workflow, so
+// the existing Android CI renders them there and printScreenshots writes every
+// PNG as base64 text into its log (lines prefixed ORO|), the one form that tool
+// can read back. PNGs land in app/build/outputs/roborazzi.
+// (Line comments on purpose: Kotlin block comments nest, and a glob like
+// shots/<two stars> inside one silently comments out the rest of the file.)
+val ciBranch = (providers.environmentVariable("GITHUB_REF_NAME").orNull
+    ?: providers.environmentVariable("GITHUB_REF").orNull?.removePrefix("refs/heads/")).orEmpty()
+val renderScreenshots = providers.gradleProperty("oro.screenshots").orNull == "true" ||
+    ciBranch == "ci/shots" || ciBranch.startsWith("shots/")
+if (renderScreenshots) logger.lifecycle("Oro: rendering UI screenshots")
+
+val printScreenshots = tasks.register("printScreenshots") {
+    val shots = layout.projectDirectory.dir("build/outputs/roborazzi")
+    doLast {
+        // Every line carries the "ORO|" prefix, so output from tasks running
+        // in parallel cannot end up inside an image.
+        val files = shots.asFile.listFiles { f -> f.extension == "png" }.orEmpty().sortedBy { it.name }
+        println("ORO|SHOTS ${files.size}")
+        files.forEach { f ->
+            println("ORO|FILE ${f.name} ${f.length()}")
+            Base64.getEncoder().encodeToString(f.readBytes()).chunked(4000).forEach { println("ORO|$it") }
+        }
+        println("ORO|END")
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    // Live device-agent eval (app/src/test/.../LiveDeviceEval.kt): opt-in, real
+    // free models over the network. -Poro.liveDeviceEval=<run id> and its
+    // .models / .scenarios / .maxActions / .timeoutSec options reach the test.
+    project.properties.filterKeys { it.startsWith("oro.liveDeviceEval") }
+        .forEach { (k, v) -> systemProperty(k, v.toString()) }
+    if (renderScreenshots) {
+        filter { includeTestsMatching("com.oro.app.screenshots.*") }
+        systemProperty("roborazzi.test.record", "true")
+        systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+        maxHeapSize = "3g"
+        // The PNGs are not declared outputs: always render, never from cache.
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
+        testLogging {
+            events("failed")
+            exceptionFormat = TestExceptionFormat.FULL
+        }
+        finalizedBy(printScreenshots)
+    } else {
+        exclude("com/oro/app/screenshots/**")
+    }
 }

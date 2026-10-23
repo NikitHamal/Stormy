@@ -3,7 +3,7 @@
 // PNGs straight into ffmpeg's stdin (no frames on disk, bounded memory).
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import ffmpegPath from 'ffmpeg-static';
 import { chromium } from 'playwright';
 import { ROOT, config, openComposition, arg } from './lib.mjs';
@@ -19,13 +19,25 @@ const E = cfg.encode;
 fs.mkdirSync(path.dirname(out), { recursive: true });
 
 const total = Math.round((to - from) * fps);
+
+// Sound: regenerate the score + sound design from the cue sheet (deterministic, ~5 s) and mux it
+// in the same encode. --no-audio renders picture only.
+const withAudio = !arg('no-audio');
+const audio = path.join(ROOT, 'out', 'oro-launch-audio.wav');
+if (withAudio) {
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'audio.mjs')], { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('audio generation failed');
+}
+const audioIn = withAudio ? ['-ss', String(from), '-t', String(to - from), '-i', audio] : [];
+const audioOut = withAudio ? ['-map', '0:v', '-map', '1:a', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-shortest'] : [];
 const browser = await chromium.launch({ args: ['--disable-gpu', '--font-render-hinting=none', '--disable-lcd-text'] });
 const pages = [];
 for (let i = 0; i < workers; i++) pages.push(await openComposition(format, { browser }));
 const { W, H } = pages[0].comp;
 
 const ff = spawn(ffmpegPath, [
-  '-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-',
+  '-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-', ...audioIn,
+  ...audioOut,
   '-c:v', E.codec, '-preset', E.preset, '-crf', String(E.crf), ...(E.tune ? ['-tune', E.tune] : []),
   '-pix_fmt', E.pixFmt, '-r', String(fps), '-movflags', '+faststart',
   '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',

@@ -7,6 +7,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.ui.screens.settings.SettingsViewModel
 import com.oro.app.ui.screens.providers.ProvidersScreen
+import com.oro.app.ui.screens.providers.ProvidersViewModel
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -42,13 +43,36 @@ sealed class Screen(val route: String) {
     data object Memories : Screen("memories")
     data object GitSettings : Screen("git_settings")
     data object Providers : Screen("providers")
+    data object Mcp : Screen("mcp")
+    data object Voice : Screen("voice")
+    data object Skills : Screen("skills")
+    data object DeviceAgent : Screen("device_agent")
+    data object Timeline : Screen("timeline/{projectId}") {
+        fun createRoute(projectId: String) = "timeline/$projectId"
+    }
+    data object ProviderEditor : Screen("provider_editor/{ref}") {
+        fun createRoute(ref: String) = "provider_editor/" + android.net.Uri.encode(ref)
+    }
 }
 
 @Composable
 fun OroNavGraph(
     navController: NavHostController,
-    startDestination: String
+    startDestination: String,
+    openDeviceAgent: Boolean = false,
+    onDeviceAgentOpened: () -> Unit = {}
 ) {
+    // Orobi brings Oro forward when it has a question or finishes a device
+    // task; land on the device agent screen rather than wherever the user was.
+    androidx.compose.runtime.LaunchedEffect(openDeviceAgent) {
+        if (openDeviceAgent && startDestination != Screen.Onboarding.route) {
+            if (navController.currentDestination?.route != Screen.DeviceAgent.route) {
+                navController.navigate(Screen.DeviceAgent.route) { launchSingleTop = true }
+            }
+            onDeviceAgentOpened()
+        }
+    }
+
     // NavHost's transition lambdas are not @Composable, so the specs are read
     // here, in composable scope, and captured. Reading them per transition
     // would not compile -- and would be wasteful even if it did.
@@ -135,8 +159,15 @@ fun OroNavGraph(
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onDeviceAgentClick = {
+                    navController.navigate(Screen.DeviceAgent.route)
                 }
             )
+        }
+
+        composable(Screen.DeviceAgent.route) {
+            com.oro.app.ui.screens.device.DeviceAgentScreen(onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -178,19 +209,47 @@ fun OroNavGraph(
                 },
                 onGitSettingsClick = {
                     navController.navigate(Screen.GitSettings.route)
+                },
+                onTimelineClick = {
+                    navController.navigate(Screen.Timeline.createRoute(projectId))
                 }
             )
         }
 
+        composable(Screen.Timeline.route) { entry ->
+            com.oro.app.ui.screens.timeline.TimelineScreen(
+                projectId = entry.arguments?.getString("projectId").orEmpty(),
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Skills.route) {
+            com.oro.app.ui.screens.skills.SkillsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.Voice.route) {
+            com.oro.app.voice.VoiceSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.Mcp.route) {
+            com.oro.app.ui.screens.mcp.McpScreen(onBackClick = { navController.popBackStack() })
+        }
+
         composable(Screen.Providers.route) {
-            val viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
-            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
             ProvidersScreen(
-                apiKeys = uiState.apiKeys,
-                customBaseUrl = uiState.customBaseUrl,
-                onKeyChange = viewModel::setApiKey,
-                onCustomBaseUrlChange = viewModel::setCustomBaseUrl,
-                onBackClick = { navController.popBackStack() }
+                viewModel = viewModel,
+                onBackClick = { navController.popBackStack() },
+                onOpenEditor = { ref -> navController.navigate(Screen.ProviderEditor.createRoute(ref)) }
+            )
+        }
+
+        composable(Screen.ProviderEditor.route) { entry ->
+            val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
+            com.oro.app.ui.screens.providers.ProviderEditorScreen(
+                viewModel = viewModel,
+                route = entry.arguments?.getString("ref"),
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -210,6 +269,15 @@ fun OroNavGraph(
                 },
                 onNavigateToProviders = {
                     navController.navigate(Screen.Providers.route)
+                },
+                onNavigateToMcp = {
+                    navController.navigate(Screen.Mcp.route)
+                },
+                onNavigateToVoice = {
+                    navController.navigate(Screen.Voice.route)
+                },
+                onNavigateToSkills = {
+                    navController.navigate(Screen.Skills.route)
                 }
             )
         }

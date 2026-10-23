@@ -1,0 +1,227 @@
+[
+  {
+    "file": "01-orobi-main-theme",
+    "title": "Orobi (Main Theme)",
+    "seconds": 157.6,
+    "lufs": -14,
+    "truePeak": -1.8,
+    "lra": 6.1,
+    "markers": [
+      {
+        "bar": 0,
+        "time": 0,
+        "label": "Intro"
+      },
+      {
+        "bar": 8,
+        "time": 19.2,
+        "label": "Verse"
+      },
+      {
+        "bar": 16,
+        "time": 38.4,
+        "label": "Groove"
+      },
+      {
+        "bar": 24,
+        "time": 57.599999999999994,
+        "label": "Build"
+      },
+      {
+        "bar": 32,
+        "time": 76.8,
+        "label": "Anthem"
+      },
+      {
+        "bar": 48,
+        "time": 115.19999999999999,
+        "label": "Bridge"
+      },
+      {
+        "bar": 52,
+        "time": 124.8,
+        "label": "Final anthem"
+      },
+      {
+        "bar": 60,
+        "time": 144,
+        "label": "Outro"
+      }
+    ]
+  },
+  {
+    "file": "02-infinity-loop",
+    "title": "Infinity Loop",
+    "seconds": 137,
+    "lufs": -14,
+    "truePeak": -1.3,
+    "lra": 4.7,
+    "markers": [
+      {
+        "bar": 0,
+        "time": 0,
+        "label": "Intro"
+      },
+      {
+        "bar": 4,
+        "time": 12,
+        "label": "Loop A"
+      },
+      {
+        "bar": 12,
+        "time": 36,
+        "label": "Loop B — the motif"
+      },
+      {
+        "bar": 20,
+        "time": 60,
+        "label": "Rain break"
+      },
+      {
+        "bar": 24,
+        "time": 72,
+        "label": "Loop A again"
+      },
+      {
+        "bar": 32,
+        "time": 96,
+        "label": "Loop C"
+      },
+      {
+        "bar": 40,
+        "time": 120,
+        "label": "Fade"
+      }
+    ]
+  },
+  {
+    "file": "03-describe-it",
+    "title": "Describe It",
+    "seconds": 106.3,
+    "lufs": -14,
+    "truePeak": -1.5,
+    "lra": 4.4,
+    "markers": [
+      {
+        "bar": 0,
+        "time": 0,
+        "label": "Intro"
+      },
+      {
+        "bar": 4,
+        "time": 7.868852459016393,
+        "label": "Verse"
+      },
+      {
+        "bar": 12,
+        "time": 23.606557377049178,
+        "label": "Pre"
+      },
+      {
+        "bar": 16,
+        "time": 31.475409836065573,
+        "label": "Chorus"
+      },
+      {
+        "bar": 36,
+        "time": 70.81967213114754,
+        "label": "Chorus"
+      },
+      {
+        "bar": 24,
+        "time": 47.213114754098356,
+        "label": "Post-chorus"
+      },
+      {
+        "bar": 28,
+        "time": 55.08196721311475,
+        "label": "Verse 2"
+      },
+      {
+        "bar": 44,
+        "time": 86.55737704918033,
+        "label": "Outro"
+      }
+    ]
+  },
+  {
+    "file": "04-night-build",
+    "title": "Night Build",
+    "seconds": 148.2,
+    "lufs": -14,
+    "truePeak": -1.1,
+    "lra": 5,
+    "markers": [
+      {
+        "bar": 0,
+        "time": 0,
+        "label": "Dusk"
+      },
+      {
+        "bar": 8,
+        "time": 28.235294117647058,
+        "label": "Working"
+      },
+      {
+        "bar": 24,
+        "time": 84.70588235294117,
+        "label": "The turn"
+      },
+      {
+        "bar": 24,
+        "time": 84.70588235294117,
+        "label": "Dawn"
+      },
+      {
+        "bar": 36,
+        "time": 127.05882352941177,
+        "label": "Morning"
+      }
+    ]
+  },
+  {
+    "file": "05-unleashed",
+    "title": "Unleashed",
+    "seconds": 113.1,
+    "lufs": -14,
+    "truePeak": -2.3,
+    "lra": 1.9,
+    "markers": [
+      {
+        "bar": 0,
+        "time": 0,
+        "label": "Countdown"
+      },
+      {
+        "bar": 4,
+        "time": 7.2727272727272725,
+        "label": "Verse"
+      },
+      {
+        "bar": 12,
+        "time": 21.818181818181817,
+        "label": "Anthem"
+      },
+      {
+        "bar": 28,
+        "time": 50.90909090909091,
+        "label": "Anthem II"
+      },
+      {
+        "bar": 44,
+        "time": 80,
+        "label": "Lift"
+      },
+      {
+        "bar": 46,
+        "time": 83.63636363636364,
+        "label": "Anthem in E"
+      },
+      {
+        "bar": 56,
+        "time": 101.81818181818181,
+        "label": "Landing"
+      }
+    ]
+  }
+]

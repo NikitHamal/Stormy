@@ -42,7 +42,7 @@ enum class ProjectTemplate(
     BLANK("Blank", "Start from scratch", TemplateCategory.WEB),
     HTML_BASIC("Basic HTML", "Simple HTML5 boilerplate", TemplateCategory.WEB),
     TAILWIND("Tailwind CSS", "HTML with Tailwind CDN", TemplateCategory.WEB),
-    LANDING_PAGE("Landing Page", "Modern landing page template", TemplateCategory.WEB),
+    LANDING_PAGE("Landing page", "Product page with pricing, FAQ and sign-up", TemplateCategory.WEB),
 
     // Framework templates
     REACT("React", "React app with Vite", TemplateCategory.FRAMEWORK),
@@ -60,9 +60,12 @@ enum class ProjectTemplate(
 
     // Full-stack templates
     EXPRESS_API("Express API", "Node.js REST API", TemplateCategory.BACKEND),
-    PORTFOLIO("Portfolio", "Personal portfolio site", TemplateCategory.WEB),
-    BLOG("Blog", "Static blog template", TemplateCategory.WEB),
-    DASHBOARD("Dashboard", "Admin dashboard UI", TemplateCategory.WEB)
+    PORTFOLIO("Portfolio", "Selected work, filters and a contact form", TemplateCategory.WEB),
+    BLOG("Blog", "Editorial journal with search and an article page", TemplateCategory.WEB),
+    DASHBOARD("Dashboard", "Live stats, charts and orders on the built-in backend", TemplateCategory.WEB),
+    STORE("Store", "Product catalogue with a basket, on the built-in backend", TemplateCategory.WEB),
+    DOCS("Docs", "Documentation site with search and code blocks", TemplateCategory.WEB),
+    ARCADE("Arcade game", "Canvas game with touch controls and high scores", TemplateCategory.GAME)
 }
 
 @Serializable

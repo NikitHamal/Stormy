@@ -1,0 +1,44 @@
+/* Roastery dashboard — on top of the Oro UI kit's app shell, stats, table and chart. */
+:root{--brand:hsl(var(--brand-h) 78% 48%);--brand-strong:hsl(var(--brand-h) 80% 40%)}
+:root[data-theme=dark]{--brand:hsl(var(--brand-h) 90% 66%);--brand-strong:hsl(var(--brand-h) 90% 74%);--on-brand:#06122b}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--brand:hsl(var(--brand-h) 90% 66%);--brand-strong:hsl(var(--brand-h) 90% 74%);--on-brand:#06122b}}
+
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.1rem;color:var(--text);padding:var(--s-2) var(--s-3) var(--s-5)}
+.brand-mark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--brand);color:var(--on-brand);font-weight:800}
+.side-nav{gap:var(--s-1)}
+.side-foot{margin-top:auto;padding:var(--s-3)}
+.app-body{min-width:0}
+
+.page-head{display:flex;flex-wrap:wrap;gap:var(--s-4);align-items:center;justify-content:space-between;margin:var(--s-3) 0 var(--s-6)}
+.page-head h1{font-size:var(--step-3);margin:0}
+.page-head p{margin:0}
+
+.alert{display:flex;flex-wrap:wrap;gap:var(--s-3);align-items:center;justify-content:space-between;margin-bottom:var(--s-5)}
+
+.stats{margin-bottom:var(--s-5)}
+.stat-value .skeleton{display:block}
+.stat-delta{min-height:1.4em}
+
+.panels{display:grid;gap:var(--s-5);grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);margin-bottom:var(--s-5)}
+@media (max-width:1100px){.panels{grid-template-columns:1fr}}
+.panel{display:flex;flex-direction:column;gap:var(--s-4)}
+.panel-head{display:flex;flex-wrap:wrap;gap:var(--s-3);align-items:center;justify-content:space-between}
+.panel-head h2{font-size:var(--step-1);margin:0}
+.search{flex:0 1 260px}
+
+.top-list{list-style:none;padding:0;margin:0;display:grid;gap:var(--s-4)}
+.top-list li{display:grid;gap:6px}
+.top-row{display:flex;justify-content:space-between;gap:var(--s-3);font-size:var(--step--1)}
+.top-row strong{color:var(--text);font-weight:600}
+.meter{height:8px;border-radius:var(--r-full);background:var(--surface-2);overflow:hidden}
+.meter span{display:block;height:100%;border-radius:inherit;background:var(--brand);transform-origin:left;animation:grow var(--dur-4) var(--ease-out)}
+@keyframes grow{from{transform:scaleX(0)}}
+
+.status{display:inline-block;font-size:.8rem;font-weight:600;padding:3px 10px;border-radius:var(--r-full)}
+.status-paid{background:color-mix(in srgb,var(--success) 14%,transparent);color:var(--success)}
+.status-pending{background:color-mix(in srgb,var(--warning) 16%,transparent);color:var(--warning)}
+.status-refunded{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
+
+.modal-body .error{margin:0;color:var(--danger);font-weight:600}
+@media (prefers-reduced-motion:reduce){.meter span{animation:none}}

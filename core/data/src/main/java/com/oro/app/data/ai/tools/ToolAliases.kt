@@ -16,6 +16,14 @@ import kotlinx.serialization.json.JsonPrimitive
 object ToolAliases {
 
     private val nameAliases = mapOf(
+        // craft
+        "load_skill" to "use_skill",
+        "get_skill" to "use_skill",
+        "read_skill" to "use_skill",
+        "audit_project" to "check_syntax",
+        "review_project" to "check_syntax",
+        "lint_project" to "check_syntax",
+        "install_ui_kit" to "add_ui_kit",
         // edits
         "patch_file" to "edit_file",
         "str_replace" to "edit_file",
@@ -94,7 +102,9 @@ object ToolAliases {
         ),
         "delete_file" to mapOf("file_path" to "path", "file" to "path"),
         "web_fetch" to mapOf("link" to "url", "uri" to "url"),
-        "ask_user" to mapOf("prompt" to "question", "choices" to "options", "message" to "question")
+        "ask_user" to mapOf("prompt" to "question", "choices" to "options", "message" to "question"),
+        "use_skill" to mapOf("skill" to "name", "skill_name" to "name", "topic" to "name"),
+        "add_ui_kit" to mapOf("hue" to "brand_hue", "brand_color_hue" to "brand_hue")
     )
 
     fun canonicalName(name: String): String {

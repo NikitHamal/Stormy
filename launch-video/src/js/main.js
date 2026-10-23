@@ -36,6 +36,7 @@ async function boot() {
   const dots = box(layers.bg, 'dots', { left: px(-W), top: px(-H), width: px(W * 3), height: px(H * 3) });
 
   const L = layout(W, H);
+  stage.classList.add(L.V ? 'fmt-v' : 'fmt-l');
   const ctx = { cfg, W, H, P, L, layers, factors, stage, shared: {}, cam: {}, o: {}, bg: P.dark.bg };
   ctx.phone = createPhone(layers.main, P, cfg.scenes.find((s) => s.id === 'live')?.site || {}, {
     preview: cfg.scenes.find((s) => s.id === 'live')?.previewLabel || 'Preview',

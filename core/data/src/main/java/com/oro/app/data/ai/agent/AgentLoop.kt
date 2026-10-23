@@ -9,8 +9,6 @@ import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.ToolAliases
 import com.oro.app.data.ai.tools.ToolResult
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -18,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -40,7 +39,7 @@ fun interface AgentToolRunner {
 
 /** What the run is doing right now, for the working indicator. */
 data class AgentStatus(val kind: Kind, val label: String) {
-    enum class Kind { THINKING, WRITING, RUNNING_TOOL, WAITING_FOR_USER, RETRYING, COMPACTING }
+    enum class Kind { THINKING, WRITING, RUNNING_TOOL, WAITING_FOR_USER, RETRYING, COMPACTING, VERIFYING }
 
     companion object {
         val Thinking = AgentStatus(Kind.THINKING, "Thinking")
@@ -66,6 +65,8 @@ interface AgentLoopListener {
     fun onToolStarted(call: ToolCallResponse) {}
     fun onToolFinished(call: ToolCallResponse, result: ToolResult) {}
     fun onUsage(promptTokens: Int, completionTokens: Int) {}
+    /** Same report with the cache hits; defaults to [onUsage]. */
+    fun onUsage(promptTokens: Int, completionTokens: Int, cachedTokens: Int) = onUsage(promptTokens, completionTokens)
 }
 
 sealed interface AgentRunResult {
@@ -78,8 +79,16 @@ sealed interface AgentRunResult {
 }
 
 data class AgentLoopConfig(
-    /** Model calls per run before stopping (each tool round trip is one). */
-    val maxIterations: Int = 40,
+    /**
+     * Model calls per run before stopping (each tool round trip is one).
+     * Unlimited by default: a healthy run is never paused for its length.
+     * Runaway runs are caught by stuck detection instead ([stuckNudgeAfter]).
+     */
+    val maxIterations: Int = UNLIMITED,
+    /** Whether tool-produced screenshots are shown to the model (vision models only). */
+    val attachImages: Boolean = false,
+    /** Times a run asks the model to resend a tool call that did not parse. */
+    val maxMalformedCallRetries: Int = 2,
     /** Retries per model call for transient failures. */
     val maxRetries: Int = 4,
     /** Retries for an empty or reasoning-only reply. */
@@ -91,8 +100,61 @@ data class AgentLoopConfig(
     /** Cap on one tool result kept in history, in characters. */
     val maxToolResultChars: Int = 60_000,
     /** Times a reply cut off by the output limit is continued. */
-    val maxLengthContinuations: Int = 2
-)
+    val maxLengthContinuations: Int = 2,
+    /** Times the final check may send the agent back to fix what it found. */
+    val maxQualityPasses: Int = 2,
+    /** Times a run asks the model to resend a call cut off by the output limit. */
+    val maxTruncatedCallRetries: Int = 3,
+    /**
+     * Consecutive tool rounds in which every call failed before the model is
+     * told to step back and change approach; the nudge repeats at multiples.
+     */
+    val stuckNudgeAfter: Int = 3,
+    /** Consecutive all-failed tool rounds after which the run gives up. */
+    val stuckStopAfter: Int = 8,
+    /**
+     * Times the same call with the same result may recur within the recent
+     * window ([REPEAT_WINDOW] calls) before the run gives up.
+     */
+    val repeatStopAfter: Int = 6,
+    /**
+     * JSON parameter schemas of tools beyond the built-ins (MCP servers, the
+     * device agent's tools), by name. Text-protocol values are typed by these;
+     * the built-in tools' schemas are always known.
+     */
+    val toolSchemas: Map<String, JsonObject> = emptyMap(),
+    /**
+     * Last line of a text-protocol tool-results message: how the model ends
+     * the run. The coding agent finishes with a plain summary; the device
+     * agent with finish_task, so it says so (a plain reply there ends the run
+     * unconfirmed).
+     */
+    val textResultsFooter: String = "Continue. When the task is done, reply with a short summary and no tool call.",
+    /**
+     * Stop reading a reply that loops on the same passage (see
+     * [AgentLoop.repetitionCut]) and keep its first copy. Off by default: code
+     * and data can repeat legitimately. The device agent's replies are short
+     * prose, where a small model once looped on one paragraph for 220 s.
+     */
+    val cutRepetition: Boolean = false,
+    /**
+     * Called after each round of tool calls with the calls and their results.
+     * A non-null result is what the app adds for the model to read next: with
+     * the tool results in text mode, as a note right after them otherwise. The
+     * editor reports here how the pages a round changed render on a phone
+     * ([ModelProfile.previewEachRound]), saving the model a verification turn.
+     * A failure in the hook is ignored; the round's results stand.
+     */
+    val roundNote: (suspend (List<ToolCallResponse>, List<ToolResult>) -> String?)? = null,
+) {
+    companion object {
+        /** No iteration cap. */
+        const val UNLIMITED: Int = Int.MAX_VALUE
+
+        /** Calls remembered for cycle detection. */
+        const val REPEAT_WINDOW: Int = 30
+    }
+}
 
 /**
  * The agent loop: call the model, run the tools it asks for, feed results
@@ -117,8 +179,10 @@ data class AgentLoopConfig(
  *  - Native tool calls are used when present; otherwise tool calls written as
  *    text are recovered ([TextToolCallParser]) and their results fed back as a
  *    user message, which every provider accepts.
- *  - Consecutive read-only calls run concurrently; anything that writes, and
- *    anything interactive, runs alone and in order.
+ *  - Tool calls run by what they touch ([ToolBatch]): calls on different
+ *    files run concurrently (up to four at once), calls on the same file keep
+ *    their order, and anything interactive or unknown runs alone, in place.
+ *    Results always come back in the order the model asked.
  *  - Cancellation propagates: cancelling the calling coroutine stops the
  *    stream, any running tool, and any pending question.
  */
@@ -130,6 +194,9 @@ class AgentLoop(
     private val random: Random = Random.Default
 ) {
 
+    /** Schemas that type text-protocol values: the built-ins plus whatever the caller offers. */
+    private val schemas: Map<String, JsonObject> by lazy { AgentTools.parameterSchemas + config.toolSchemas }
+
     /**
      * Run until the model stops calling tools.
      *
@@ -139,36 +206,120 @@ class AgentLoop(
      *   0 normally and rises after a context-length error, asking for harder
      *   pruning.
      * @param knownTools names the model may call, for text-call recovery.
+     * @param finalCheck runs when the model says it is done. A non-null result
+     *   is a list of defects; it goes back as a user message and the run
+     *   continues, at most [AgentLoopConfig.maxQualityPasses] times. This is
+     *   the quality gate that gives every model, weak ones especially, a
+     *   careful engineer's second pass (see QualityGate).
      */
     suspend fun run(
         conversation: MutableList<ChatRequestMessage>,
         knownTools: Set<String>,
         listener: AgentLoopListener,
+        finalCheck: (suspend () -> String?)? = null,
         prepare: suspend (history: List<ChatRequestMessage>, pressure: Int) -> AgentRequest
     ): AgentRunResult {
         var iteration = 0
         var lengthContinuations = 0
-        val recentCalls = ArrayDeque<String>()
+        var qualityPasses = 0
+        var malformedNudges = 0
+        var truncatedRetries = 0
+        var reasoningNudged = false
+        val stuck = StuckDetector(config)
 
         while (true) {
             if (iteration >= config.maxIterations) return AgentRunResult.IterationLimit(iteration)
             iteration++
 
-            val turn = when (val outcome = callModel(conversation, iteration, listener, prepare)) {
+            val turn = when (val outcome = callModel(conversation, iteration, listener, prepare, knownTools.isNotEmpty())) {
                 is CallOutcome.Failure -> return AgentRunResult.Failed(outcome.message, outcome.retryable)
-                is CallOutcome.Success -> outcome.turn
+                is CallOutcome.OnlyReasoning -> {
+                    // Thinking models sometimes spend the whole reply reasoning. One
+                    // plain instruction usually gets the answer; a second time, stop.
+                    if (reasoningNudged) return AgentRunResult.Failed(outcome.message, retryable = true)
+                    reasoningNudged = true
+                    conversation += ChatRequestMessage(role = "user", content = REASONING_ONLY_NUDGE)
+                    continue
+                }
+                is CallOutcome.Success -> outcome.turn.also { if (!it.isEmpty) reasoningNudged = false }
             }
 
             var calls = turn.toolCalls
             var visible = turn.content
             var fromText = false
+            // Calls the output limit cut off: never run, the model resends them.
+            var cutOff = emptyList<String>()
+            // The same calls named with their target ("write_file app.js"), for the nudge.
+            var cutLabels = emptyList<String>()
             if (calls.isEmpty() && knownTools.isNotEmpty()) {
-                val parsed = TextToolCallParser.parse(turn.content, knownTools)
-                if (parsed.calls.isNotEmpty()) {
-                    calls = parsed.calls
+                val parsed = TextToolCallParser.parse(turn.content, knownTools, schemas)
+                var parsedCalls = parsed.calls
+                val cut = parsed.incomplete.toMutableList()
+                // A block left open is suspect when the reply hit the limit, and
+                // a file write left open is suspect when the provider could not
+                // say why the reply ended: the rest of the call may be missing.
+                val suspect = parsedCalls.filter { c ->
+                    c.id in parsed.openEnded && (turn.finishReason == "length" ||
+                        (turn.finishReason == null && ToolAliases.canonicalName(c.function.name) in FILE_WRITES))
+                }
+                if (suspect.isNotEmpty()) {
+                    parsedCalls = parsedCalls - suspect.toSet()
+                    cut += suspect.map { it.function.name }
+                }
+                // A read-only call missing only its closers after an explicit
+                // stop is complete enough to run: nothing is written.
+                if (turn.finishReason == "stop") {
+                    val salvage = parsed.incompleteCalls.filter { isReadOnly(it) }
+                    if (salvage.isNotEmpty()) {
+                        parsedCalls = parsedCalls + salvage
+                        salvage.forEach { cut.remove(it.function.name) }
+                    }
+                }
+                cutOff = cut
+                val cutCalls = (parsed.incompleteCalls + suspect).toMutableList()
+                cutLabels = cut.map { name ->
+                    val c = cutCalls.firstOrNull { it.function.name == name }?.also { cutCalls.remove(it) }
+                    label(name, c?.function?.arguments)
+                }
+                if (parsedCalls.isNotEmpty() || cutOff.isNotEmpty()) {
+                    calls = parsedCalls
                     visible = parsed.visibleText
                     fromText = true
                 }
+            } else if (calls.isNotEmpty() && turn.finishReason == "length") {
+                // Native calls stream in order, so only the last can be cut mid-arguments.
+                val last = calls.last()
+                if (!isCompleteJson(last.function.arguments)) {
+                    calls = calls.dropLast(1)
+                    cutOff = listOf(last.function.name)
+                    cutLabels = listOf(label(last.function.name, last.function.arguments))
+                }
+            }
+            // Tool-call markup that did not parse (bad JSON, unknown tool, a
+            // template the model half-remembered): nothing ran. Say so and ask
+            // again, rather than ending the run on a reply full of markup.
+            val malformed = calls.isEmpty() && cutOff.isEmpty() && knownTools.isNotEmpty() &&
+                TextToolCallParser.looksLikeToolCall(turn.content)
+            if (malformed) {
+                visible = turn.content.substring(0, TextToolCallParser.visiblePrefixLength(turn.content)).trimEnd()
+            }
+            if (malformed && malformedNudges < config.maxMalformedCallRetries) {
+                malformedNudges++
+                listener.onTurnComplete(visible, emptyList())
+                conversation += ChatRequestMessage(role = "assistant", content = stripThinking(turn.content))
+                conversation += ChatRequestMessage(role = "user", content = malformedCallNudge(knownTools, turn.content))
+                continue
+            }
+            if (malformed) {
+                // Still unreadable after the nudges: say so, rather than
+                // presenting the prose before the broken call as a finished answer.
+                listener.onTurnComplete(visible, emptyList())
+                conversation += ChatRequestMessage(role = "assistant", content = stripThinking(visible).ifBlank { "(unreadable tool call)" })
+                return AgentRunResult.Failed(
+                    "The model kept writing tool calls the app could not read, so nothing ran. " +
+                        "Retry, or pick a model with native tool calling.",
+                    retryable = true
+                )
             }
             calls = calls.mapIndexed { i, c ->
                 if (c.id.isBlank()) c.copy(id = "call_${iteration}_$i") else c
@@ -176,6 +327,24 @@ class AgentLoop(
             listener.onTurnComplete(visible, calls)
 
             val historyText = stripThinking(turn.content)
+
+            // Only cut-off calls: nothing ran. Ask for them again, smaller.
+            if (calls.isEmpty() && cutOff.isNotEmpty()) {
+                if (truncatedRetries >= config.maxTruncatedCallRetries) {
+                    return AgentRunResult.Failed(
+                        "The model's replies keep getting cut off by its output limit before a " +
+                            "${cutOff.first()} call is complete. Try a model with a larger output limit, " +
+                            "or ask for a smaller change.",
+                        retryable = false
+                    )
+                }
+                truncatedRetries++
+                // The cut-off markup is not kept: resending a half file teaches nothing.
+                val prose = if (fromText) stripThinking(visible) else historyText
+                conversation += ChatRequestMessage(role = "assistant", content = prose.ifBlank { "(reply cut off)" })
+                conversation += ChatRequestMessage(role = "user", content = truncatedCallNudge(cutLabels.ifEmpty { cutOff }, fromText))
+                continue
+            }
 
             if (calls.isEmpty()) {
                 if (turn.finishReason == "length" && lengthContinuations < config.maxLengthContinuations) {
@@ -189,11 +358,26 @@ class AgentLoop(
                     continue
                 }
                 conversation += ChatRequestMessage(role = "assistant", content = historyText)
+                if (finalCheck != null && qualityPasses < config.maxQualityPasses && iteration < config.maxIterations) {
+                    listener.onStatus(AgentStatus(AgentStatus.Kind.VERIFYING, "Reviewing quality"))
+                    val feedback = try { finalCheck() } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+                    if (!feedback.isNullOrBlank()) {
+                        qualityPasses++
+                        conversation += ChatRequestMessage(role = "user", content = feedback)
+                        continue
+                    }
+                }
                 return AgentRunResult.Completed(stripThinking(visible))
             }
 
             if (fromText) {
-                conversation += ChatRequestMessage(role = "assistant", content = historyText)
+                // Keep only what ran: a cut-off tail must not be imitated next turn.
+                val kept = if (cutOff.isEmpty()) historyText else {
+                    stripThinking(visible) + "\n" + calls.joinToString("\n") {
+                        TextToolProtocol.formatCall(it.function.name, it.function.arguments)
+                    }
+                }
+                conversation += ChatRequestMessage(role = "assistant", content = kept.trim())
             } else {
                 conversation += AssistantMessageWithToolCalls(
                     content = historyText.ifBlank { null },
@@ -202,19 +386,23 @@ class AgentLoop(
             }
 
             val results = executeCalls(calls, listener)
+            // Calls ran: the run is moving. Retry budgets are for consecutive
+            // trouble, not a lifetime allowance -- runs have no step cap now.
+            malformedNudges = 0
+            truncatedRetries = 0
+            lengthContinuations = 0
 
-            // Repetition guard: the same call three times running is a loop.
-            val finalResults = results.mapIndexed { i, result ->
-                val key = calls[i].function.name + "\u0000" + calls[i].function.arguments
-                recentCalls.addLast(key)
-                while (recentCalls.size > 3) recentCalls.removeFirst()
-                if (recentCalls.size == 3 && recentCalls.all { it == key }) {
-                    result.copy(
-                        output = result.output + "\n\n[Note: this exact call has now been made three " +
-                            "times in a row. Its result will not change; try a different approach.]"
-                    )
-                } else result
+            // Stuck detection: repeated calls with unchanged results and
+            // streaks of failures earn a corrective note; a loop that
+            // outlasts the notes ends the run.
+            val verdict = stuck.record(calls, results)
+            val finalResults = if (verdict.note == null) results else results.mapIndexed { i, r ->
+                if (i == results.lastIndex) r.copy(output = r.output + "\n\n" + verdict.note) else r
             }
+            val cutNote = if (cutOff.isEmpty()) null else truncatedCallNudge(cutLabels.ifEmpty { cutOff }, fromText)
+            val roundNote = config.roundNote?.let { hook ->
+                try { hook(calls, finalResults) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+            }?.trim()?.takeIf { it.isNotEmpty() }
 
             if (fromText) {
                 conversation += ChatRequestMessage(
@@ -225,7 +413,9 @@ class AgentLoop(
                             append("<tool_result name=\"").append(call.function.name).append("\">\n")
                             append(resultText(finalResults[i])).append("\n</tool_result>\n")
                         }
-                        append("Continue. When the task is done, reply with a short summary and no tool call.")
+                        if (cutNote != null) append(cutNote).append('\n')
+                        if (roundNote != null) append(roundNote).append('\n')
+                        append(config.textResultsFooter)
                     }
                 )
             } else {
@@ -237,10 +427,35 @@ class AgentLoop(
                         name = call.function.name
                     )
                 }
+                // One message after the results: the cut-off note first (it decides what to resend).
+                val notes = listOfNotNull(cutNote, roundNote)
+                if (notes.isNotEmpty()) conversation += ChatRequestMessage(role = "user", content = notes.joinToString("\n\n"))
             }
 
-            // Legacy explicit finish: the summary is the answer.
-            val finish = calls.indexOfFirst { ToolAliases.canonicalName(it.function.name) == "finish_task" }
+            // Screenshots go to the model as an image turn (tool messages cannot
+            // carry images on most APIs). Only the newest set is kept: images
+            // are the most expensive thing in a context window.
+            val images = finalResults.flatMap { it.images }
+            if (images.isNotEmpty() && config.attachImages) {
+                for (i in conversation.indices) {
+                    if (conversation[i].images.isNotEmpty()) conversation[i] = conversation[i].copy(images = emptyList())
+                }
+                conversation += ChatRequestMessage(
+                    role = "user",
+                    content = "The screenshots your last tool call captured. Look at them before you continue.",
+                    images = images.take(3)
+                )
+            }
+
+            if (verdict.stop != null) return AgentRunResult.Failed(verdict.stop, retryable = false)
+
+            // Legacy explicit finish: the summary is the answer. Only a finish
+            // that went through ends the run: one refused by the tool runner (an
+            // earlier action in the turn failed) was planned for a screen that
+            // never came, and its summary would be invented.
+            val finish = calls.indices.firstOrNull { i ->
+                ToolAliases.canonicalName(calls[i].function.name) == "finish_task" && results.getOrNull(i)?.success != false
+            } ?: -1
             if (finish >= 0) {
                 val summary = runCatching {
                     com.oro.app.data.ai.tools.JsonParserUtils.parseToJsonObject(calls[finish].function.arguments)
@@ -249,6 +464,37 @@ class AgentLoop(
                 return AgentRunResult.Completed(listOf(stripThinking(visible), summary).filter { it.isNotBlank() }.joinToString("\n\n"))
             }
         }
+    }
+
+    /**
+     * "write_file app.js": a cut-off call named with the file it targeted, read
+     * from whatever arguments arrived (raw JSON may be unfinished).
+     */
+    private fun label(name: String, arguments: String?): String {
+        val path = arguments?.let { PATH_IN_ARGS.find(it)?.groupValues?.get(1) }?.takeIf { it.isNotBlank() && it.length < 200 }
+        return if (path != null) "$name $path" else name
+    }
+
+    /** What to tell the model about calls the output limit cut off. */
+    private fun truncatedCallNudge(names: List<String>, textMode: Boolean): String = buildString {
+        val what = names.distinct().joinToString(", ")
+        append("Your reply ended in the middle of ")
+        append(if (textMode) "a <tool_call> for $what" else "the $what call")
+        append(" (the output limit, or the call was never closed), so that call was NOT run (a cut-off file ")
+        append("would be broken). Close every call with </parameter>, </function> and </tool_call>. ")
+        append("Send it again in smaller pieces: ")
+        append("create a long file with write_file holding only its first part, then add the rest with further ")
+        append("write_file calls with append=true, a few hundred lines each. Keep edits short.")
+    }
+
+    private fun malformedCallNudge(knownTools: Set<String>, reply: String): String = buildString {
+        append("Your last reply contained a tool call that could not be read, so nothing ran. ")
+        // Show the model its own broken line: weak models repeat a reply verbatim
+        // when told only that "something" was wrong.
+        TextToolCallParser.firstMarkupLine(reply)?.let { append("This line was not understood: `").append(it).append("`. ") }
+        append("Send it again in exactly this format (values are raw text, no JSON escaping):\n")
+        append("<tool_call>\n<function=TOOL_NAME>\n<parameter=NAME>value</parameter>\n</function>\n</tool_call>\n")
+        append("TOOL_NAME must be one of: ").append(knownTools.sorted().joinToString(", ")).append('.')
     }
 
     // ------------------------------------------------------------ model call
@@ -266,13 +512,16 @@ class AgentLoop(
     private sealed interface CallOutcome {
         data class Success(val turn: Turn) : CallOutcome
         data class Failure(val message: String, val retryable: Boolean) : CallOutcome
+        /** Retries came back empty but the model did reason: worth one explicit nudge. */
+        data class OnlyReasoning(val message: String) : CallOutcome
     }
 
     private suspend fun callModel(
         conversation: List<ChatRequestMessage>,
         iteration: Int,
         listener: AgentLoopListener,
-        prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest
+        prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest,
+        hideToolMarkup: Boolean = false
     ): CallOutcome {
         var attempt = 0
         var emptyRetries = 0
@@ -282,7 +531,7 @@ class AgentLoop(
             listener.onStatus(AgentStatus.Thinking)
             listener.onModelCallStarted(iteration, attempt)
             val request = prepare(conversation, pressure)
-            val turn = collectTurn(request, listener)
+            val turn = collectTurn(request, listener, hideToolMarkup)
 
             val error = turn.error
             if (error != null) {
@@ -316,25 +565,39 @@ class AgentLoop(
                     sleep(backoff(emptyRetries, null) / 2)
                     continue
                 }
-                return CallOutcome.Failure(
-                    "The model returned an empty response" +
-                        if (turn.reasoning.isNotBlank()) " (it reasoned but wrote no answer)." else ".",
-                    retryable = true
-                )
+                if (turn.reasoning.isNotBlank()) {
+                    return CallOutcome.OnlyReasoning("The model returned an empty response (it reasoned but wrote no answer).")
+                }
+                return CallOutcome.Failure("The model returned an empty response.", retryable = true)
             }
             return CallOutcome.Success(turn)
         }
     }
 
     /** Collect one streamed completion, with an idle watchdog. */
-    private suspend fun collectTurn(request: AgentRequest, listener: AgentLoopListener): Turn {
+    private suspend fun collectTurn(
+        request: AgentRequest,
+        listener: AgentLoopListener,
+        hideToolMarkup: Boolean = false
+    ): Turn {
         val content = StringBuilder()
+        // Text-protocol tool calls (often a whole file) stream as markup; only
+        // the prose before them is shown live. onTurnComplete sets the final
+        // visible text either way.
+        var shown = 0
+        var markupFound = false
         val reasoning = StringBuilder()
         var toolCalls = emptyList<ToolCallResponse>()
         var finishReason: String? = null
         var error: StreamEvent.Error? = null
         var completed = false
         var writing = false
+        // Text mode: the model may run on past its calls and invent their
+        // results. Stop reading there -- it saves the wait, and the invented
+        // results never reach the history.
+        val textMode = hideToolMarkup && request.tools.isNullOrEmpty()
+        var scanned = 0
+        var repeatChecked = 0
 
         val flow = try {
             client.stream(request)
@@ -366,11 +629,45 @@ class AgentLoop(
                     when (val event = received.getOrThrow()) {
                         is StreamEvent.ContentDelta -> {
                             content.append(event.content)
+                            if (textMode) {
+                                val fake = TextToolCallParser.fakeResultStart(content, (scanned - FAKE_MARKER_OVERLAP).coerceAtLeast(0))
+                                scanned = content.length
+                                if (fake >= 0) {
+                                    content.setLength(fake)
+                                    if (finishReason == null) finishReason = "stop"
+                                    completed = true
+                                    break
+                                }
+                            }
+                            if (config.cutRepetition && content.length - repeatChecked >= REPEAT_STEP) {
+                                repeatChecked = content.length
+                                val cut = repetitionCut(content)
+                                if (cut >= 0) {
+                                    content.setLength(cut)
+                                    if (finishReason == null) finishReason = "stop"
+                                    completed = true
+                                    break
+                                }
+                            }
                             if (!writing && content.isNotBlank()) {
                                 writing = true
                                 listener.onStatus(AgentStatus.Writing)
                             }
-                            listener.onText(event.content)
+                            if (!hideToolMarkup) {
+                                listener.onText(event.content)
+                            } else if (!markupFound) {
+                                val visible = TextToolCallParser.visiblePrefixLength(content, shown)
+                                if (visible > shown) {
+                                    listener.onText(content.substring(shown, visible))
+                                    shown = visible
+                                }
+                                if (visible < content.length &&
+                                    TextToolCallParser.looksLikeToolCall(content.substring(visible))
+                                ) {
+                                    markupFound = true
+                                    listener.onStatus(AgentStatus(AgentStatus.Kind.WRITING, "Preparing tool call"))
+                                }
+                            }
                         }
                         is StreamEvent.ReasoningDelta -> {
                             reasoning.append(event.reasoning)
@@ -378,7 +675,7 @@ class AgentLoop(
                         }
                         is StreamEvent.ToolCalls -> toolCalls = toolCalls + event.toolCalls
                         is StreamEvent.FinishReason -> finishReason = event.reason
-                        is StreamEvent.Usage -> listener.onUsage(event.promptTokens, event.completionTokens)
+                        is StreamEvent.Usage -> listener.onUsage(event.promptTokens, event.completionTokens, event.cachedTokens)
                         is StreamEvent.Error -> { error = event; break }
                         is StreamEvent.Completed -> { completed = true; break }
                         is StreamEvent.Started, is StreamEvent.RawSSE -> Unit
@@ -399,46 +696,33 @@ class AgentLoop(
 
     // ----------------------------------------------------------------- tools
 
+    /**
+     * Runs one round of calls in dependency order ([ToolBatch]). Each call is
+     * announced as it starts; the indicator shows "Running N tools" while
+     * several run together, otherwise what the one call is doing.
+     */
     private suspend fun executeCalls(
         calls: List<ToolCallResponse>,
         listener: AgentLoopListener
-    ): List<ToolResult> {
-        val results = arrayOfNulls<ToolResult>(calls.size)
-        var i = 0
-        while (i < calls.size) {
-            // Gather a run of consecutive read-only calls.
-            var j = i
-            while (j < calls.size && isReadOnly(calls[j])) j++
-            if (j - i >= 2) {
-                val group = (i until j).toList()
-                group.forEach { listener.onToolStarted(calls[it]) }
-                listener.onStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Running ${group.size} tools"))
-                coroutineScope {
-                    group.map { idx ->
-                        async {
-                            val r = runOne(calls[idx])
-                            results[idx] = r
-                            listener.onToolFinished(calls[idx], r)
-                        }
-                    }.awaitAll()
-                }
-                i = j
-            } else {
-                val call = calls[i]
-                listener.onToolStarted(call)
-                val name = ToolAliases.canonicalName(call.function.name)
-                val kind = when (name) {
-                    "ask_user", "request_approval" -> AgentStatus.Kind.WAITING_FOR_USER
-                    else -> AgentStatus.Kind.RUNNING_TOOL
-                }
-                listener.onStatus(AgentStatus(kind, AgentTools.activityLabel(name, subjectOf(call))))
-                val r = runOne(call)
-                results[i] = r
-                listener.onToolFinished(call, r)
-                i++
-            }
+    ): List<ToolResult> = ToolBatch(calls).run(
+        onStarted = { started, running ->
+            started.forEach { listener.onToolStarted(calls[it]) }
+            listener.onStatus(
+                if (running > 1) AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Running $running tools")
+                else activityStatus(calls[started.first()])
+            )
+        },
+        onFinished = { index, result -> listener.onToolFinished(calls[index], result) }
+    ) { runOne(it) }
+
+    /** The working indicator while [call] runs on its own. */
+    private fun activityStatus(call: ToolCallResponse): AgentStatus {
+        val name = ToolAliases.canonicalName(call.function.name)
+        val kind = when (name) {
+            "ask_user", "request_approval" -> AgentStatus.Kind.WAITING_FOR_USER
+            else -> AgentStatus.Kind.RUNNING_TOOL
         }
-        return results.map { it ?: ToolResult(false, "", "Tool did not run") }
+        return AgentStatus(kind, AgentTools.activityLabel(name, subjectOf(call)))
     }
 
     private suspend fun runOne(call: ToolCallResponse): ToolResult = try {
@@ -481,6 +765,58 @@ class AgentLoop(
     }
 
     companion object {
+        /** Longest fabricated-result marker, so a marker split across deltas is still found. */
+        private const val FAKE_MARKER_OVERLAP = 24
+
+        /** New characters between checks for a looping reply. */
+        private const val REPEAT_STEP = 256
+
+        /**
+         * Where to cut a reply that has started looping, or -1. It loops when
+         * its last [window] characters already appeared twice before, at
+         * least [MIN_PERIOD] apart (a paragraph, not "......"). The cut keeps
+         * everything before the repeating stretch and one copy of it, to the
+         * end of its line or sentence.
+         */
+        internal fun repetitionCut(text: CharSequence, window: Int = 200): Int {
+            if (text.length < window + 2 * MIN_PERIOD) return -1
+            val s = text.toString()
+            val end = s.length - window
+            val tail = s.substring(end)
+            val first = s.indexOf(tail)
+            if (first < 0 || first >= end) return -1
+            val second = s.indexOf(tail, first + 1)
+            if (second < 0 || second >= end) return -1
+            val period = second - first
+            if (period < MIN_PERIOD) return -1
+            // Back from the end while the text repeats with that period: the loop's first copy starts there.
+            var start = s.length - period
+            while (start > 0 && s[start - 1] == s[start - 1 + period]) start--
+            // The same quote three times with other words between is not a loop.
+            if (s.length - start < 2 * period) return -1
+            val cut = start + period
+            if (s[cut - 1] == '\n' || s[cut - 1] in ".!?") return cut
+            val line = s.indexOf('\n', cut)
+            if (line in cut until start + 2 * period) return line + 1
+            val sentence = Regex("""[.!?](\s|$)""").find(s, cut)?.range?.first
+            return if (sentence != null && sentence < start + 2 * period) sentence + 1 else cut
+        }
+
+        private const val MIN_PERIOD = 40
+
+        /** Calls whose missing tail could lose file content. */
+        private val FILE_WRITES = setOf("write_file", "edit_file", "multi_edit")
+
+        /**
+         * Whether native call arguments are a complete JSON object, not cut off
+         * mid-stream. The plain parser only (no repairs): repairing a cut-off
+         * argument string is exactly how half a file would get written.
+         */
+        internal fun isCompleteJson(arguments: String): Boolean =
+            arguments.isBlank() || runCatching {
+                com.oro.app.data.ai.AiHttp.json.parseToJsonElement(arguments) is kotlinx.serialization.json.JsonObject
+            }.getOrDefault(false)
+
         private val CONTEXT_OVERFLOW = Regex(
             "context[ _-]?length|maximum context|context window|too many tokens|" +
                 "reduce the length|prompt is too long|input is too long|token limit|exceeds the (model|max)",
@@ -489,6 +825,14 @@ class AgentLoop(
 
         fun isContextOverflow(error: StreamEvent.Error): Boolean =
             error.httpCode == 413 || (error.httpCode in setOf(400, 422, null) && CONTEXT_OVERFLOW.containsMatchIn(error.message))
+
+        /** Sent once when a model keeps replying with reasoning only. */
+        const val REASONING_ONLY_NUDGE =
+            "[Oro: your last replies contained only reasoning -- no answer and no tool call, so nothing " +
+                "happened. Reply now with the next tool call, or with your final answer if the task is done. " +
+                "Keep any further reasoning short.]"
+
+        private val PATH_IN_ARGS = Regex(""""(?:path|file_path)"\s*:\s*"([^"\n]+)"""")
 
         private val THINK_BLOCK = Regex("(?is)<(think|thinking|reasoning)>.*?</\\1>")
 

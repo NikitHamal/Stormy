@@ -334,7 +334,7 @@ private fun ChangedFileChips(entries: List<ToolCallEntry>) {
                     Text(
                         text = entry.subject?.substringAfterLast('/').orEmpty(),
                         style = MaterialTheme.typography.labelMedium.copy(
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = com.oro.app.ui.theme.PoppinsFontFamily
                         ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1
@@ -346,7 +346,7 @@ private fun ChangedFileChips(entries: List<ToolCallEntry>) {
                             style = MaterialTheme.typography.labelMedium,
                             // Diff keeps a hue, muted -- see DiffColors. The
                             // sign is doing the work; the tint only speeds it.
-                            color = MaterialTheme.colorScheme.tertiary
+                            color = androidx.compose.ui.graphics.Color(0xFF2E9E62)
                         )
                     }
                     if (entry.deletions > 0) {

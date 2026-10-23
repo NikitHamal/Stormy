@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.flow
  * screens sending at once must share one budget, since the provider counts
  * them together.
  */
-private val rateLimiter = ProviderRateLimiter()
+private val rateLimiter = ProviderRateLimiter.shared
 
 /**
  * Same 4-chars-per-token heuristic the rest of the app uses.
@@ -75,30 +75,41 @@ class AiRepository(
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
         /** Told when the local free-tier pacer makes this request wait. */
-        onRateLimitWait: (suspend () -> Unit)? = null
+        onRateLimitWait: (suspend () -> Unit)? = null,
+        /** This call's reasoning level for [model], over the saved one (e.g. the device agent's quick steps). */
+        reasoningLevel: String? = null
     ): Flow<StreamEvent> {
         val providerManager = createProviderManager()
 
         // Pace against the free tier before sending. A 429 arrives part-way
         // through an agent run, after files are already written, and reads as
         // the app breaking rather than as a quota.
-        if (rateLimiter.isDailyBudgetSpent(model.provider)) {
-            return flow {
-                emit(
-                    StreamEvent.Error(
-                        "${model.provider.displayName}'s free daily limit is used up. " +
-                            "Switch provider in the model picker, or try again tomorrow."
+        if (rateLimiter.isBudgetSpent(model.provider)) {
+            if (!providerManager.fallsBackWhenBusy(model)) {
+                return flow {
+                    emit(
+                        StreamEvent.Error(
+                            "${model.provider.displayName}'s free limit is used up for now. " +
+                                "Switch provider in the model picker, or try again later."
+                        )
                     )
-                )
+                }
             }
+            // Keyless: a spent free budget is just a busy model; the next free
+            // one answers (the manager skips a busy model and paces stand-ins).
+            com.oro.app.data.ai.KeylessFallback.markBusy(
+                model.id,
+                StreamEvent.Error("${model.provider.displayName}'s free limit is used up", httpCode = 429, retryAfterMs = BUDGET_SKIP_MS)
+            )
+        } else {
+            if (onRateLimitWait != null && rateLimiter.remainingThisMinute(model.provider) == 0) {
+                onRateLimitWait()
+            }
+            rateLimiter.acquire(
+                provider = model.provider,
+                estimatedTokens = messages.estimateTokens()
+            )
         }
-        if (onRateLimitWait != null && rateLimiter.remainingThisMinute(model.provider) == 0) {
-            onRateLimitWait()
-        }
-        rateLimiter.acquire(
-            provider = model.provider,
-            estimatedTokens = messages.estimateTokens()
-        )
 
         // Get the stream from the selected provider
         val stream = providerManager.streamChatCompletion(
@@ -108,9 +119,11 @@ class AiRepository(
             temperature = temperature,
             maxTokens = maxTokens,
             // Read from preferences here rather than threaded through every
-            // caller: the setting is global, and the provider drops it for
-            // models that do not advertise support.
-            reasoningEffort = preferencesRepository.reasoningEffort.first()
+            // caller. Per model: the manager resolves each model's own level
+            // (and again for a keyless stand-in, whose scale differs).
+            reasoningLevels = preferencesRepository.reasoningLevels.first().let { saved ->
+                if (reasoningLevel == null) saved else saved + (model.id to reasoningLevel)
+            }
         )
 
         return stream ?: flow {
@@ -139,7 +152,7 @@ class AiRepository(
             tools = tools,
             temperature = temperature,
             maxTokens = maxTokens,
-            reasoningEffort = preferencesRepository.reasoningEffort.first()
+            reasoningLevels = preferencesRepository.reasoningLevels.first()
         )
     }
 
@@ -159,7 +172,8 @@ class AiRepository(
     private suspend fun createProviderManager(): AiProviderManager {
         return AiProviderManager.fromApiKeys(
             apiKeys = preferencesRepository.apiKeys.first(),
-            customBaseUrl = preferencesRepository.customBaseUrl.first()
+            customBaseUrl = preferencesRepository.customBaseUrl.first(),
+            settings = preferencesRepository.providerSettings.first()
         )
     }
 
@@ -183,8 +197,9 @@ class AiRepository(
         projectContext: String = "",
         agentMode: Boolean = true,
         nativeTools: Boolean = true,
-        toolList: List<Tool> = emptyList()
-    ): ChatRequestMessage = systemMessage(projectContext, agentMode, nativeTools, toolList)
+        toolList: List<Tool> = emptyList(),
+        profile: com.oro.app.data.ai.agent.ModelProfile = com.oro.app.data.ai.agent.ModelProfiles.DEFAULT
+    ): ChatRequestMessage = systemMessage(projectContext, agentMode, nativeTools, toolList, profile)
 
     /**
      * Create a user message
@@ -265,12 +280,17 @@ class AiRepository(
     }
 
     companion object {
+        /** How long a keyless model with a spent free budget is skipped before it is tried again. */
+        private const val BUDGET_SKIP_MS = 30 * 60_000L
+
         /** The system message; static so tests and tools can build the real prompt. */
         fun systemMessage(
             projectContext: String = "",
             agentMode: Boolean = true,
             nativeTools: Boolean = true,
-            toolList: List<Tool> = emptyList()
+            toolList: List<Tool> = emptyList(),
+            /** The model's harness profile: its prompt section and whether long files are written whole. */
+            profile: com.oro.app.data.ai.agent.ModelProfile = com.oro.app.data.ai.agent.ModelProfiles.DEFAULT
         ): ChatRequestMessage {
             val systemPrompt = buildString {
                 append(ORO_IDENTITY)
@@ -279,45 +299,26 @@ class AiRepository(
                     append(AGENT_RULES)
                     if (!nativeTools && toolList.isNotEmpty()) {
                         append("\n\n")
-                        append(textToolProtocol(toolList))
+                        append(com.oro.app.data.ai.agent.TextToolProtocol.render(toolList, wholeFiles = profile.wholeFiles))
                     }
                 } else {
                     append(CHAT_RULES)
                 }
                 append("\n\n")
                 append(WEB_GUIDELINES)
+                // Constant per profile, ahead of the per-run context: the cacheable prefix holds.
+                if (agentMode && profile.promptSection.isNotBlank()) {
+                    append("\n\n")
+                    append(profile.promptSection.trim())
+                }
                 if (projectContext.isNotBlank()) {
                     append("\n\n# Project context\n")
+                    append("(As of the start of this task. Files may have changed since: read a file for its current text.)\n")
                     append(projectContext.trim())
                 }
             }
             return ChatRequestMessage(role = "system", content = systemPrompt)
         }
-
-        private fun textToolProtocol(tools: List<Tool>): String = buildString {
-            appendLine("# Calling tools")
-            appendLine("The Oro app on the user's device executes tools for you: write a <tool_call> block and the")
-            appendLine("app runs it on the user's real project files, then sends you the result. Use only these")
-            appendLine("tools and this format; ignore any other tool instructions or special tool-call tokens.")
-            appendLine("To call a tool, write exactly one block per call and nothing after the last block:")
-            appendLine("<tool_call>")
-            appendLine("{\"name\": \"read_file\", \"arguments\": {\"path\": \"index.html\"}}")
-            appendLine("</tool_call>")
-            appendLine("The arguments are a JSON object; escape newlines and quotes inside strings.")
-            appendLine("Results come back in a <tool_result> message. When the task is done, reply")
-            appendLine("normally with no <tool_call> block.")
-            appendLine()
-            appendLine("Available tools:")
-            tools.forEach { tool ->
-                val params = (tool.function.parameters as? kotlinx.serialization.json.JsonObject)
-                    ?.get("properties")?.let { it as? kotlinx.serialization.json.JsonObject }
-                    ?.keys?.joinToString(", ").orEmpty()
-                val firstSentence = tool.function.description.replace("\n", " ")
-                    .substringBefore(". ").trim().removeSuffix(".")
-                appendLine("- ${tool.function.name}($params): $firstSentence.")
-            }
-        }
-
 
         /**
          * Written for current models, in the style of the open harnesses
@@ -329,8 +330,10 @@ class AiRepository(
          */
         private val ORO_IDENTITY = """
             You are Orobi, the coding agent built into Oro, a web studio on Android. Users build
-            websites and web apps -- HTML, CSS, JavaScript and Tailwind -- and see them in Oro's
-            live preview. You work directly on the files of the open project.
+            websites, web apps and games -- HTML, CSS, JavaScript, Tailwind and CDN libraries -- and
+            see them in Oro's live preview. You work directly on the files of the open project.
+            Your work is judged against the best product studios: it must look designed, feel alive,
+            handle every state, and work on a phone the first time.
 
             Be concise and direct. Write in plain language for someone on a phone: short
             paragraphs, no filler, no restating the request. Use Markdown sparingly.
@@ -338,31 +341,47 @@ class AiRepository(
 
         private val AGENT_RULES = """
             # How you work
-            - Do the task, don't describe it. Use the tools to read and change files; never paste
-              a whole file into chat for the user to copy.
-            - Understand before you change: look at the project structure and read the files you
-              will touch. Never edit a file you have not read in this conversation.
-            - Prefer small, targeted edits with edit_file / multi_edit over rewriting whole files.
-              old_string must match the file exactly; if an edit fails, re-read the file and retry
-              with the exact text instead of guessing.
-            - Match the project's existing structure, naming and style. Don't add frameworks,
-              build steps or dependencies the project doesn't already use. There is no node, npm
-              or build tooling on the device: load libraries from a CDN when needed.
-            - You can call several independent read-only tools at once (read_file, grep, glob).
-            - For work with several distinct steps, publish a short plan with update_plan and keep
-              it current. Skip it for small tasks.
-            - Verify your work: re-read what you changed when unsure, check that links between
-              files (paths in <link>, <script>, imports) are correct, and use check_syntax on files
-              you wrote. Fix what you find before finishing.
-            - Keep going until the task is fully done. If something fails, read the error, adjust
-              and try again; don't stop at the first problem.
-            - Use ask_user only when genuinely blocked: the request is ambiguous in a way that
-              changes the outcome, or you need something only the user knows. Don't ask permission
-              for ordinary work and don't ask what you can find out by reading the project. For
-              destructive steps (deleting files you didn't create, discarding user work) use
-              request_approval first.
-            - Never claim to have done something you did not do. If you could not finish, say what
-              is left and why.
+            1. Understand. Look at the project structure (list_files with symbols=true outlines every
+               file: ids, selectors, functions, fetched URLs) and read the files you will touch. Never
+               edit a file you have not read in this conversation.
+            2. Load expertise. Before building or restyling UI, call use_skill for the playbooks that
+               fit (always "design-system" for new UI). A new site or app with no styles yet: call
+               add_ui_kit and build on its tokens and classes.
+            3. Plan. For work with several steps, publish a short plan with update_plan.
+            4. Build. Complete, working files -- no TODOs, placeholders or lorem ipsum. Prefer small
+               edits with edit_file / multi_edit; old_string must match the file exactly -- if an edit
+               fails, re-read the file and copy the exact text. Keep each file focused (markup, styles
+               and script in their own files); for a very long file, write its first part with
+               write_file, then the rest with write_file append=true. Write and edit results end with
+               a quick check of that file: fix what it reports right away.
+            5. Verify. Run check_syntax with no path (whole project) and fix every ERROR and WARN.
+               For UI, look at it with screenshot_preview and fix what you see; get_preview_errors
+               shows runtime errors. The app also reviews your files when you finish and sends back
+               anything you missed.
+            6. Keep going until the task is fully done. If something fails, read the error, adjust
+               and retry. Never claim something you did not do.
+
+            # Rules
+            - Do the task, don't describe it. Never paste a whole file into chat for the user to copy.
+            - Match the project's structure, naming and style. There is no node, npm or build tooling
+              on the device: load libraries from a CDN (jsDelivr, unpkg, esm.sh).
+            - Work in parallel: every round trip costs the user time. In one turn, read all the files
+              you need (read_file takes several paths), run independent searches together, and create
+              independent new files together.
+            - For destructive steps (deleting files you didn't create) use request_approval first.
+
+            # Asking
+            - A vague request for something new (a site, an app, a big feature) that leaves open facts
+              which would change the result -- what it is for, who it is for, its name, the must-have
+              pages or features, the look, data to keep -- gets ONE ask_user call before you build: 2-4
+              short questions written for this request, each with 2-4 one-tap options and your
+              recommended option first (recommended: true). Never ask what the request, the project or
+              common sense already answer.
+            - Specific requests, edits and fixes: don't ask, do the work. "Just build it", "surprise me",
+              "you decide": don't ask.
+            - When the user skips or lets you decide, choose sensible defaults (your recommended options)
+              and list them in one line in your final summary. Later in a task, ask only when truly
+              blocked, and never twice about the same thing.
 
             # Finishing
             When done, reply with a brief summary: what you changed (files), anything the user must
@@ -378,14 +397,24 @@ class AiRepository(
         """.trimIndent()
 
         private val WEB_GUIDELINES = """
-            # Web guidelines
-            - Semantic HTML5, a viewport meta tag, accessible markup (labels, alt text, headings in
-              order, sufficient contrast).
-            - Mobile-first, responsive layouts. Most users preview on a phone.
-            - With Tailwind, use utility classes and keep custom CSS minimal; without it, keep CSS
-              organised and use custom properties for colours and spacing.
-            - Modern JavaScript, no inline event-handler attributes, handle errors, keep it small.
-            - Relative paths between project files; never reference files that don't exist.
+            # Craft standard
+            - Design system first: colours, type scale, spacing (4px grid), radii, shadows and motion as
+              CSS custom properties (or a Tailwind theme). One accent colour; neutrals do the rest. Strong
+              type hierarchy, generous whitespace, semantic HTML5, a viewport meta tag.
+            - Cut taglines, helper text and secondary labels a screen doesn't need; fix the layout instead.
+            - Every interactive element has hover, focus-visible, active and disabled styles; touch
+              targets >= 44px; labels, alt text and contrast >= 4.5:1.
+            - Every data view has loading (skeleton), empty, error (with retry) and success states. Forms
+              validate inline and show busy/success states. No alert().
+            - Motion with purpose: 150-400ms, ease-out, transform/opacity only, scroll reveals and
+              micro-interactions; honour prefers-reduced-motion.
+            - Mobile-first and responsive; no horizontal scroll at 360px. Real, specific copy; one icon set
+              (Lucide or inline SVG). Photos that match the subject: web_fetch
+              https://api.openverse.org/v1/images/?q=<subject>&license_type=commercial&page_size=8 and use the
+              URLs it returns, credited. Never invent images.unsplash.com photo ids (they 404).
+            - Data that must persist: localStorage, or Oro's built-in REST backend (/api/<collection>
+              backed by db.json, with accounts at /api/auth and file uploads -- see the backend, auth
+              and dashboard skills). Relative paths; never reference missing files.
         """.trimIndent()
     }
 }

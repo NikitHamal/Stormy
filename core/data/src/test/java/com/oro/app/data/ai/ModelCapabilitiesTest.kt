@@ -26,10 +26,11 @@ class ModelCapabilitiesTest {
     @Test
     fun `large families are not flattened to the default`() {
         val cases = mapOf(
-            "gpt-5.4" to 400_000,
-            "claude-opus-5" to 200_000,
+            "gpt-5.4" to 1_050_000,
+            "gpt-5.1" to 400_000,
+            "claude-opus-5" to 1_000_000,
             "qwen3-coder-480b" to 262_144,
-            "deepseek-v4-pro" to 163_840,
+            "deepseek-v4-pro" to 1_048_576,
             "nvidia/nemotron-3-super-120b-a12b" to 262_144,
             "openai/gpt-oss-120b" to 131_072,
             "agnes-2.5-flash" to 524_288,
@@ -39,7 +40,14 @@ class ModelCapabilitiesTest {
             "Meta-Llama-3_3-70B-Instruct" to 131_072,
             "Qwen3.5-397B-A17B" to 262_144,
             "reflection/beam-free" to 1_048_576,
-            "kimi-k2-instruct" to 262_144
+            "kimi-k2-instruct" to 262_144,
+            "claude-opus-4-8" to 1_000_000,
+            "anthropic/claude-opus-4.8" to 1_000_000,
+            "x-ai/grok-4.3" to 1_000_000,
+            "k2:IFM/K2-Horizon-375B-A23B" to 524_288,
+            "mercury-3" to 1_000_000,
+            "glm-5.3-flash" to 1_000_000,
+            "qwen3.8-max" to 983_616
         )
         cases.forEach { (id, expected) ->
             assertThat(ModelCapabilities.contextWindowFor(id)).isEqualTo(expected)
@@ -180,6 +188,38 @@ class ProviderRateLimiterTest {
     @Test
     fun `sizes in version numbers are not read as context sizes`() {
         // "3.5m" style false positives: the dot-guard keeps "nemotron-3.5" a version.
-        assertThat(ModelCapabilities.contextWindowFor("nvidia/nemotron-3.5-lightning:free")).isEqualTo(1_000_000)
+        assertThat(ModelCapabilities.contextWindowFor("nvidia/nemotron-3.5-lightning:free")).isEqualTo(262_144)
+    }
+
+    @Test
+    fun `an hourly cap counts as a spent budget until the hour frees up`() = runTest {
+        val clock = FakeClock()
+        // No shipped provider has an hourly cap now (VLM Run's 30 an hour was removed as
+        // too small for agent runs), so the limiter gets one for the test.
+        val hourly = RateLimit(requestsPerMinute = 60, tokensPerMinute = 1_000_000, requestsPerHour = 28)
+        val limiter = ProviderRateLimiter(
+            now = { clock.now },
+            sleep = clock::sleep,
+            limits = { if (it == AiProvider.KILOCODE) hourly else null }
+        )
+        repeat(28) { limiter.acquire(AiProvider.KILOCODE, 100) }
+        assertThat(limiter.isBudgetSpent(AiProvider.KILOCODE)).isTrue()
+        assertThat(limiter.isDailyBudgetSpent(AiProvider.KILOCODE)).isFalse()
+        clock.now += 61 * 60_000L
+        assertThat(limiter.isBudgetSpent(AiProvider.KILOCODE)).isFalse()
+        // Providers without hourly or daily caps are never "spent".
+        assertThat(limiter.isBudgetSpent(AiProvider.CEREBRAS)).isFalse()
+    }
+
+    @Test
+    fun `every current claude has a 1M window, haiku 4_5 and older 200K`() {
+        listOf(
+            "claude-fable-5-1", "claude-fable-5", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5",
+            "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "anthropic/claude-opus-4.6",
+            "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", "claude-haiku-5-5"
+        ).forEach { assertThat(ModelCapabilities.contextWindowFor(it)).isEqualTo(1_000_000) }
+        listOf("claude-haiku-4-5", "claude-opus-4-5-20251101", "claude-sonnet-4-5").forEach {
+            assertThat(ModelCapabilities.contextWindowFor(it)).isEqualTo(200_000)
+        }
     }
 }

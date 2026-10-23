@@ -24,7 +24,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -51,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
@@ -84,6 +88,10 @@ import com.oro.app.ui.components.inspector.tabs.TextTab
  * @param onPickImage Callback to open image picker
  * @param enableAiFeatures Whether to show AI editing features (default: true)
  * @param hasValidModel Whether a valid AI model is available
+ * @param onSelectParent Select the element's parent instead (hidden if null)
+ * @param onSelectChild Select the element's first child instead (hidden if null)
+ * @param onUndo Undo the last edit written to the project (hidden if null)
+ * @param canUndo Whether there is an edit to undo
  * @param modifier Modifier for the composable
  */
 @Composable
@@ -97,6 +105,10 @@ fun VisualElementInspector(
     onPickImage: (() -> Unit)? = null,
     enableAiFeatures: Boolean = true,
     hasValidModel: Boolean = true,
+    onSelectParent: (() -> Unit)? = null,
+    onSelectChild: (() -> Unit)? = null,
+    onUndo: (() -> Unit)? = null,
+    canUndo: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -145,7 +157,10 @@ fun VisualElementInspector(
                 onAiEdit = if (enableAiFeatures && onAiEditRequest != null) {
                     { prompt -> onAiEditRequest(prompt) }
                 } else null,
-                hasValidModel = hasValidModel
+                hasValidModel = hasValidModel,
+                onSelectParent = onSelectParent?.takeIf { element.hasParent },
+                onSelectChild = onSelectChild?.takeIf { element.hasChild },
+                onUndo = onUndo?.takeIf { canUndo }
             )
 
             // Tabs
@@ -253,7 +268,10 @@ private fun InspectorHeader(
     onClose: () -> Unit,
     onCopyHtml: () -> Unit,
     onAiEdit: ((String) -> Unit)?,
-    hasValidModel: Boolean = true
+    hasValidModel: Boolean = true,
+    onSelectParent: (() -> Unit)? = null,
+    onSelectChild: (() -> Unit)? = null,
+    onUndo: (() -> Unit)? = null
 ) {
     var showAiPrompt by remember { mutableStateOf(false) }
     var aiPromptText by remember { mutableStateOf("") }
@@ -320,6 +338,17 @@ private fun InspectorHeader(
 
             // Quick actions
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Walk the tree when the tap landed on a child or a wrapper.
+                if (onSelectParent != null) {
+                    HeaderAction(Icons.Outlined.KeyboardArrowUp, "Select parent", onSelectParent)
+                }
+                if (onSelectChild != null) {
+                    HeaderAction(Icons.Outlined.KeyboardArrowDown, "Select child", onSelectChild)
+                }
+                if (onUndo != null) {
+                    HeaderAction(Icons.AutoMirrored.Outlined.Undo, "Undo last edit", onUndo)
+                }
+
                 // AI Edit button - only show if AI features are enabled
                 if (onAiEdit != null) {
                     IconButton(
@@ -329,7 +358,7 @@ private fun InspectorHeader(
                         Icon(
                             // A wand: this rewrites the element you picked.
                             imageVector = Icons.Outlined.AutoFixHigh,
-                            contentDescription = "AI Edit",
+                            contentDescription = "Ask Orobi about this element",
                             modifier = Modifier.size(18.dp),
                             tint = if (showAiPrompt) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant
@@ -393,6 +422,19 @@ private fun InspectorHeader(
     }
 }
 
+/** A compact icon action in the inspector header. */
+@Composable
+private fun HeaderAction(icon: ImageVector, description: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
 /**
  * Warning shown when no AI model is selected
  */
@@ -418,13 +460,13 @@ private fun NoModelWarning() {
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "No AI Model Selected",
+                    text = "No model selected",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
                 Text(
-                    text = "Please select a model in AI Models settings to use AI editing",
+                    text = "Pick one in AI models to ask Orobi.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
                 )
@@ -483,7 +525,7 @@ private fun AiPromptInput(
                     Box {
                         if (value.isEmpty()) {
                             Text(
-                                text = "Describe changes (e.g., 'make text blue')...",
+                                text = "Ask Orobi to change this element",
                                 style = TextStyle(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 13.sp

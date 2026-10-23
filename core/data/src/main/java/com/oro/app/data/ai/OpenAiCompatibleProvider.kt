@@ -24,8 +24,12 @@ class OpenAiCompatibleProvider(
     private val apiKey: String,
     /** Only used by [AiProvider.CUSTOM], where the URL is user-supplied. */
     baseUrlOverride: String = "",
-    extraHeaders: Map<String, String> = emptyMap()
+    extraHeaders: Map<String, String> = emptyMap(),
+    /** Name in error messages; custom providers carry the user's name. */
+    nameOverride: String = ""
 ) {
+    private val displayName: String = nameOverride.ifBlank { provider.displayName }
+
     /**
      * Headers the provider always wants (attribution, origin), merged with
      * anything the caller adds. OpenRouter and Kilo Code want attribution
@@ -39,7 +43,17 @@ class OpenAiCompatibleProvider(
         (baseUrlOverride.takeIf { it.isNotBlank() } ?: provider.baseUrl).trimEnd('/')
 
     private fun missingKeyMessage(): String {
-        return "${provider.displayName} API key is required. Add it in Settings > AI."
+        return "$displayName API key is required. Add it in Settings > AI."
+    }
+
+    /**
+     * `reasoning_effort` for this request: only a level the model's control on
+     * this provider has. Providers that do not take the field answer 400
+     * rather than ignoring it, so anything else sends nothing.
+     */
+    private fun effortField(model: AiModel, level: String?): String? {
+        val control = model.reasoningControl ?: return null
+        return level?.takeIf { control.wire == ReasoningWire.REASONING_EFFORT && control.has(it) }
     }
 
     /**
@@ -51,7 +65,8 @@ class OpenAiCompatibleProvider(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
-        reasoningEffort: ReasoningEffort? = null
+        /** The model's level as its provider names it ([ReasoningControls.chosen]). */
+        reasoningLevel: String? = null
     ): Flow<StreamEvent> {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return flowOf(StreamEvent.Error(missingKeyMessage()))
@@ -62,18 +77,14 @@ class OpenAiCompatibleProvider(
                 model = model.id,
                 messages = messages,
                 stream = true,
-                temperature = temperature,
+                temperature = temperature.takeUnless { ReasoningControls.omitsTemperature(model) },
                 maxTokens = maxTokens,
                 tools = if (model.supportsToolCalls && tools != null) tools else null,
                 toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null,
-                // Sent only when the model advertises support: providers that
-                // do not accept the field answer 400 rather than ignoring it.
-                reasoningEffort = reasoningEffort
-                    ?.takeIf { model.supportsReasoningEffort }
-                    ?.wireValue
+                reasoningEffort = effortField(model, reasoningLevel)
             )
 
-            val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
+            val requestBody = encodeChatRequest(json, request)
                 .toRequestBody("application/json".toMediaType())
 
             val httpRequestBuilder = Request.Builder()
@@ -152,7 +163,11 @@ class OpenAiCompatibleProvider(
                         }
                     }
 
-                    trySend(errorFor(response?.code, retryHeader(response), body, t))
+                    // A stream that broke after a 200 is a dropped connection,
+                    // not a refusal: classify it by the failure, so it retries
+                    // (it used to read "request failed (200)" and end the run).
+                    val code = response?.code?.takeUnless { response.isSuccessful }
+                    trySend(errorFor(code, retryHeader(response), body, t))
                     channel.close()
                 }
             }
@@ -175,7 +190,8 @@ class OpenAiCompatibleProvider(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
-        reasoningEffort: ReasoningEffort? = null
+        /** The model's level as its provider names it ([ReasoningControls.chosen]). */
+        reasoningLevel: String? = null
     ): Result<ChatCompletionResponse> = withContext(Dispatchers.IO) {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return@withContext Result.failure(IOException(missingKeyMessage()))
@@ -186,18 +202,14 @@ class OpenAiCompatibleProvider(
                 model = model.id,
                 messages = messages,
                 stream = false,
-                temperature = temperature,
+                temperature = temperature.takeUnless { ReasoningControls.omitsTemperature(model) },
                 maxTokens = maxTokens,
                 tools = if (model.supportsToolCalls && tools != null) tools else null,
                 toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null,
-                // Sent only when the model advertises support: providers that
-                // do not accept the field answer 400 rather than ignoring it.
-                reasoningEffort = reasoningEffort
-                    ?.takeIf { model.supportsReasoningEffort }
-                    ?.wireValue
+                reasoningEffort = effortField(model, reasoningLevel)
             )
 
-            val requestBody = json.encodeToString(ChatCompletionRequest.serializer(), request)
+            val requestBody = encodeChatRequest(json, request)
                 .toRequestBody("application/json".toMediaType())
 
             val httpRequestBuilder = Request.Builder()
@@ -240,7 +252,7 @@ class OpenAiCompatibleProvider(
 
     /** Map a failed request to a user-readable, retry-classified error. */
     private fun errorFor(code: Int?, retryAfterHeader: String?, body: String?, t: Throwable?): StreamEvent.Error {
-        val name = provider.displayName
+        val name = displayName
         val detail = ChatStreamParser.describeErrorBody(body)
         val retryAfter = ChatStreamParser.retryAfterMs(retryAfterHeader, body)
         if (code == null) {

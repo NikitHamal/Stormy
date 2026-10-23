@@ -25,11 +25,10 @@ object DelegationTools {
                 its own context.
 
                 Worth it when the work means reading across many files and you
-                only need the conclusion, or when two independent pieces of work
-                can run at once. Not worth it for a handful of tool calls or a
-                lookup whose target you already know -- the subagent starts with
-                nothing but your prompt, and returns only a summary, so both
-                handoffs drop detail.
+                only need the conclusion. Not worth it for a handful of tool
+                calls or a lookup whose target you already know -- the subagent
+                starts with nothing but your prompt, and returns only a summary,
+                so both handoffs drop detail.
 
                 Brief it like a peer: state the goal, what you have already
                 ruled out, and which files are worth reading. That prompt is the
@@ -37,7 +36,8 @@ object DelegationTools {
                 not understand the task well enough to hand it off.
 
                 The call returns the subagent's summary when it finishes.
-                Several spawn_subagent calls in one turn run concurrently.
+                Explore, plan and review subagents started in one turn run side
+                by side (and beside your reads); build and general ones run alone.
 
                 Types: explore (read-only search), plan (research, no edits),
                 build (implement a scoped change), review (find defects),

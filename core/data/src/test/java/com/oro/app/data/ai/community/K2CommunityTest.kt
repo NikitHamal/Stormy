@@ -44,6 +44,18 @@ class K2CommunityTest {
     }
 
     @Test
+    fun `a details element inside the answer does not swallow the tool call`() {
+        val content = "<details type=\"reasoning\" done=\"true\">\n<summary>Thought</summary>\n" +
+            "> I should add an FAQ with </details> tags.\n</details>\n" +
+            "<ifm|tool_call>write_file\n<ifm|arg_key>path</ifm|arg_key>\n<ifm|arg_value>faq.html</ifm|arg_value>\n" +
+            "<ifm|arg_key>content</ifm|arg_key>\n<ifm|arg_value><details>\n<summary>Q</summary>\nA\n</details>\n</ifm|arg_value>\n</ifm|tool_call>"
+        val (reasoning, answer) = K2FrameParser.split(content)
+        assertThat(reasoning).isEqualTo("I should add an FAQ with </details> tags.")
+        assertThat(answer).startsWith("<ifm|tool_call>write_file")
+        assertThat(answer).endsWith("</ifm|tool_call>")
+    }
+
+    @Test
     fun `answer without reasoning block passes through`() {
         assertThat(K2FrameParser.split("plain answer")).isEqualTo("" to "plain answer")
     }
@@ -79,12 +91,14 @@ class K2CommunityTest {
         assertThat(model.supportsToolCalls).isFalse()
         assertThat(model.id).startsWith("k2:")
         assertThat(ModelGroup.caption(model)).contains("unofficial")
-        // It is the keyless default, so it sits in Recommended; other community
-        // models land in the Community group.
+        // Still recommended (one tap from the default); other community models
+        // land in the Community group.
         assertThat(ModelGroup.of(model)).isEqualTo(ModelGroup.RECOMMENDED)
         assertThat(ModelGroup.of(model.copy(id = "k2:other"))).isEqualTo(ModelGroup.COMMUNITY)
-        assertThat(AiProvider.DEFAULT).isEqualTo(AiProvider.K2_HORIZON)
-        assertThat(AiModels.getRecommendedModels().first()).isEqualTo(model)
+        // Mercury 3 replaced K2 as the out-of-the-box default.
+        assertThat(AiProvider.DEFAULT).isEqualTo(AiProvider.MERCURY)
+        assertThat(AiModels.getRecommendedModels().first().id).isEqualTo("mercury:mercury-3")
+        assertThat(AiModels.getRecommendedModels()).contains(model)
     }
 
     @Test

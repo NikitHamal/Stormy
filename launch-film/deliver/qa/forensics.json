@@ -1,0 +1,3108 @@
+{
+ "file": "out/film.mp4",
+ "fps": 60.0,
+ "size": [
+  1920,
+  1080
+ ],
+ "frames": 2100,
+ "range": [
+  0,
+  2099
+ ],
+ "pass": false,
+ "fails": 1,
+ "warnings": 29,
+ "declared": {
+  "cuts": [
+   [
+    834,
+    841
+   ],
+   [
+    1200,
+    1200
+   ],
+   [
+    1320,
+    1320
+   ],
+   [
+    1560,
+    1560
+   ],
+   [
+    1800,
+    1800
+   ]
+  ],
+  "freezes": [
+   [
+    225,
+    240
+   ]
+  ],
+  "ignore": [],
+  "cue_moments": 124,
+  "reading": [
+   [
+    32,
+    80
+   ],
+   [
+    136,
+    210
+   ],
+   [
+    136,
+    210
+   ],
+   [
+    326,
+    368
+   ],
+   [
+    422,
+    470
+   ],
+   [
+    656,
+    698
+   ],
+   [
+    752,
+    812
+   ],
+   [
+    752,
+    812
+   ],
+   [
+    896,
+    938
+   ],
+   [
+    1022,
+    1070
+   ],
+   [
+    1367,
+    1415
+   ],
+   [
+    1487,
+    1535
+   ],
+   [
+    1712,
+    1770
+   ],
+   [
+    1920,
+    2040
+   ],
+   [
+    2024,
+    2100
+   ],
+   [
+    593,
+    713
+   ]
+  ]
+ },
+ "pace": "crisp",
+ "thresholds": {
+  "spike_min": 1.0,
+  "region_spike_min": 1.5,
+  "region_busy": 0.15,
+  "spike_ratio": 2.5,
+  "spike_add": 0.3,
+  "burst_frames": 3,
+  "flow_explained": 0.5,
+  "stall_max": 0.05,
+  "stall_moving": 0.8,
+  "hold_mad": 0.1,
+  "max_hold": 48,
+  "frozen_px": 16,
+  "max_end_hold": 121,
+  "quiet_window": 60,
+  "quiet_mad": 0.15,
+  "ghost_delta": 80,
+  "ghost_px": 2000,
+  "border_delta": 40,
+  "border_frac": 0.25,
+  "sliver_frames": 3,
+  "judder_window": 24,
+  "judder_resp": 0.7,
+  "sharp_ratio": 3.0,
+  "sharp_min": 30.0,
+  "band_area": 0.03,
+  "smear_area": 0.2,
+  "seam_abs": 0.4,
+  "seam_ratio": 1.5,
+  "det_min": 0.3,
+  "det_ratio": 5.0
+ },
+ "stats": {
+  "mad_median": 0.296,
+  "mad_p90": 3.774,
+  "mad_max": 158.601,
+  "mad_max_frame": 1320,
+  "spike_classes": {
+   "motion": 6,
+   "burst": 11,
+   "region-hit": 5,
+   "busy": 4,
+   "cut": 7,
+   "hit": 2
+  },
+  "fast_crossings": 316,
+  "energy_per_second": [
+   0.26,
+   0.93,
+   0.4,
+   0.65,
+   1.43,
+   0.03,
+   0.25,
+   0.57,
+   0.7,
+   0.85,
+   3.32,
+   0.67,
+   0.26,
+   0.62,
+   0.98,
+   0.67,
+   5.1,
+   0.14,
+   0.45,
+   0.09,
+   2.82,
+   9.46,
+   3.52,
+   0.08,
+   0.29,
+   0.2,
+   1.41,
+   0.68,
+   0.27,
+   3.9,
+   10.35,
+   5.1,
+   0.05,
+   0.08,
+   0.05
+  ],
+  "energy_per_act": {
+   "pile": {
+    "mean": 0.56,
+    "p90": 1.39,
+    "still_frac": 0.09
+   },
+   "turn": {
+    "mean": 0.64,
+    "p90": 1.74,
+    "still_frac": 0.45
+   },
+   "build": {
+    "mean": 1.22,
+    "p90": 2.95,
+    "still_frac": 0.12
+   },
+   "live": {
+    "mean": 0.82,
+    "p90": 1.35,
+    "still_frac": 0.0
+   },
+   "change": {
+    "mean": 1.45,
+    "p90": 5.86,
+    "still_frac": 0.5
+   },
+   "fly": {
+    "mean": 6.14,
+    "p90": 10.08,
+    "still_frac": 0.0
+   },
+   "free": {
+    "mean": 1.02,
+    "p90": 0.9,
+    "still_frac": 0.55
+   },
+   "ship": {
+    "mean": 1.57,
+    "p90": 3.78,
+    "still_frac": 0.34
+   },
+   "end": {
+    "mean": 3.13,
+    "p90": 14.33,
+    "still_frac": 0.57
+   }
+  }
+ },
+ "flags": [
+  {
+   "check": "hold",
+   "severity": "fail",
+   "frame": "1359-1423",
+   "t": 22.65,
+   "note": "65 f (1.1 s) frozen: reads as a stalled player; add a build (push, drift, breath) or declare it with --freeze-ok",
+   "act": "free"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 0,
+   "t": 0.0,
+   "note": "7.1% of the frame (34 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "pile"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 60,
+   "t": 1.0,
+   "note": "5.2% of the frame (25 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "pile"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 120,
+   "t": 2.0,
+   "note": "3.3% of the frame (16 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "pile"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 180,
+   "t": 3.0,
+   "note": "5.6% of the frame (27 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "pile"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 240,
+   "t": 4.0,
+   "note": "3.5% of the frame (17 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "turn"
+  },
+  {
+   "check": "hold",
+   "severity": "warn",
+   "frame": "303-374",
+   "t": 5.05,
+   "note": "72 f (1.2 s) where only small elements move (mean change 0.029): the frame reads locked-off; add a push or drift",
+   "act": "turn"
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "394-467",
+   "t": 6.567,
+   "note": "74 f of near-stillness (mean change 0.205); fine for a read, otherwise add drift or a push",
+   "act": "turn"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 540,
+   "t": 9.0,
+   "note": "3.8% of the frame (18 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "turn"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 600,
+   "t": 10.0,
+   "note": "9.6% of the frame (46 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "build"
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "744-815",
+   "t": 12.4,
+   "note": "72 f of near-stillness (mean change 0.151); fine for a read, otherwise add drift or a push",
+   "act": "build"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 780,
+   "t": 13.0,
+   "note": "3.5% of the frame (17 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "build"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 960,
+   "t": 16.0,
+   "note": "4.6% of the frame (22 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "change"
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "1007-1079",
+   "t": 16.783,
+   "note": "73 f of near-stillness (mean change 0.207); fine for a read, otherwise add drift or a push",
+   "act": "change"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1020,
+   "t": 17.0,
+   "note": "4.2% of the frame (20 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "change"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1080,
+   "t": 18.0,
+   "note": "4.0% of the frame (19 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "change"
+  },
+  {
+   "check": "spike",
+   "severity": "warn",
+   "frame": 1098,
+   "t": 18.3,
+   "note": "a 2-frame change on the cue at f1098 (2.761 vs 0.23 around it): fine if it is a designed hit; a fade or reveal that finishes in 1-2 frames reads as a pop",
+   "act": "change",
+   "mad": 2.761,
+   "cls": "hit",
+   "region": null
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "1104-1199",
+   "t": 18.4,
+   "note": "96 f of near-stillness (mean change 0.131); fine for a read, otherwise add drift or a push",
+   "act": "change"
+  },
+  {
+   "check": "spike",
+   "severity": "warn",
+   "frame": 1108,
+   "t": 18.467,
+   "note": "a 2-frame change on the cue at f1108 (2.71 vs 0.18 around it): fine if it is a designed hit; a fade or reveal that finishes in 1-2 frames reads as a pop",
+   "act": "change",
+   "mad": 2.71,
+   "cls": "hit",
+   "region": null
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1320,
+   "t": 22.0,
+   "note": "6.2% of the frame (30 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "free"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1380,
+   "t": 23.0,
+   "note": "4.4% of the frame (21 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "free"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1440,
+   "t": 24.0,
+   "note": "6.2% of the frame (30 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "free"
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "1454-1548",
+   "t": 24.233,
+   "note": "95 f of near-stillness (mean change 0.174); fine for a read, otherwise add drift or a push",
+   "act": "free"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1500,
+   "t": 25.0,
+   "note": "5.6% of the frame (27 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "free"
+  },
+  {
+   "check": "judder",
+   "severity": "warn",
+   "frame": "1608-1631",
+   "t": 26.8,
+   "note": "a slow move (0.104 px/f) in p4 [832, 412, 256, 256] advances in whole-pixel stairs (2 jumps): put all translation inside one transform and animate no left/top",
+   "act": "ship",
+   "track": "p4"
+  },
+  {
+   "check": "judder",
+   "severity": "warn",
+   "frame": "1656-1679",
+   "t": 27.6,
+   "note": "a slow move (0.093 px/f) in p4 [832, 412, 256, 256] advances in whole-pixel stairs (2 jumps): put all translation inside one transform and animate no left/top",
+   "act": "ship",
+   "track": "p4"
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "1686-1775",
+   "t": 28.1,
+   "note": "90 f of near-stillness (mean change 0.148); fine for a read, otherwise add drift or a push",
+   "act": "ship"
+  },
+  {
+   "check": "judder",
+   "severity": "warn",
+   "frame": "1740-1763",
+   "t": 29.0,
+   "note": "a slow move (0.104 px/f) in p4 [832, 412, 256, 256] advances in whole-pixel stairs (2 jumps): put all translation inside one transform and animate no left/top",
+   "act": "ship",
+   "track": "p4"
+  },
+  {
+   "check": "banding",
+   "severity": "warn",
+   "frame": 1740,
+   "t": 29.0,
+   "note": "3.3% of the frame (16 tiles) is smooth gradient in flat 8-bit plateaus: visible bands; use dithered PNG backdrops (red boxes in the sheet)",
+   "act": "ship"
+  },
+  {
+   "check": "quiet",
+   "severity": "warn",
+   "frame": "1911-2099",
+   "t": 31.85,
+   "note": "189 f of near-stillness (mean change 0.086); fine for a read, otherwise add drift or a push",
+   "act": "end"
+  }
+ ],
+ "checks": {
+  "spikes": [
+   {
+    "frame": 277,
+    "frames": [
+     277,
+     278
+    ],
+    "mad": 1.914,
+    "neighbour_median": 0.067,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "flow_residual": 0.41,
+    "out_and_back": false,
+    "class": "motion",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 386,
+    "frames": [
+     384,
+     386
+    ],
+    "mad": 1.534,
+    "neighbour_median": 0.345,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 392,
+    "frames": [
+     392,
+     392
+    ],
+    "mad": 6.423,
+    "neighbour_median": 0.735,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "flow_residual": 0.92,
+    "out_and_back": false,
+    "class": "region-hit",
+    "seam": null,
+    "cue": 390
+   },
+   {
+    "frame": 396,
+    "frames": [
+     395,
+     396
+    ],
+    "mad": 2.902,
+    "neighbour_median": 0.206,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "flow_residual": 0.89,
+    "out_and_back": false,
+    "class": "busy",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 460,
+    "frames": [
+     460,
+     460
+    ],
+    "mad": 1.581,
+    "neighbour_median": 0.026,
+    "flow_residual": 0.0,
+    "out_and_back": false,
+    "class": "motion",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 466,
+    "frames": [
+     466,
+     470
+    ],
+    "mad": 4.411,
+    "neighbour_median": 1.482,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": 465
+   },
+   {
+    "frame": 507,
+    "frames": [
+     507,
+     508
+    ],
+    "mad": 4.333,
+    "neighbour_median": 0.161,
+    "region": [
+     1280,
+     720,
+     640,
+     360
+    ],
+    "flow_residual": 0.95,
+    "out_and_back": false,
+    "class": "region-hit",
+    "seam": null,
+    "cue": 510
+   },
+   {
+    "frame": 512,
+    "frames": [
+     510,
+     512
+    ],
+    "mad": 1.778,
+    "neighbour_median": 0.146,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": 510
+   },
+   {
+    "frame": 582,
+    "frames": [
+     582,
+     582
+    ],
+    "mad": 4.922,
+    "neighbour_median": 1.28,
+    "region": [
+     0,
+     360,
+     640,
+     360
+    ],
+    "flow_residual": 0.18,
+    "out_and_back": false,
+    "class": "motion",
+    "seam": null,
+    "cue": 582
+   },
+   {
+    "frame": 582,
+    "frames": [
+     582,
+     582
+    ],
+    "mad": 7.329,
+    "neighbour_median": 1.535,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "flow_residual": 0.14,
+    "out_and_back": false,
+    "class": "motion",
+    "seam": null,
+    "cue": 582
+   },
+   {
+    "frame": 592,
+    "frames": [
+     592,
+     592
+    ],
+    "mad": 2.257,
+    "neighbour_median": 0.707,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "flow_residual": 0.69,
+    "out_and_back": false,
+    "class": "region-hit",
+    "seam": null,
+    "cue": 592
+   },
+   {
+    "frame": 594,
+    "frames": [
+     594,
+     594
+    ],
+    "mad": 2.12,
+    "neighbour_median": 0.571,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "flow_residual": 0.52,
+    "out_and_back": false,
+    "class": "region-hit",
+    "seam": null,
+    "cue": 592
+   },
+   {
+    "frame": 830,
+    "frames": [
+     829,
+     831
+    ],
+    "mad": 2.699,
+    "neighbour_median": 0.845,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 835,
+    "frames": [
+     835,
+     836
+    ],
+    "mad": 3.131,
+    "neighbour_median": 0.621,
+    "region": [
+     0,
+     0,
+     640,
+     360
+    ],
+    "class": "cut",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 835,
+    "frames": [
+     834,
+     835
+    ],
+    "mad": 38.683,
+    "neighbour_median": 1.095,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "class": "cut",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 836,
+    "frames": [
+     835,
+     836
+    ],
+    "mad": 14.889,
+    "neighbour_median": 0.437,
+    "region": [
+     1280,
+     0,
+     640,
+     360
+    ],
+    "class": "cut",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 1098,
+    "frames": [
+     1098,
+     1099
+    ],
+    "mad": 2.761,
+    "neighbour_median": 0.228,
+    "flow_residual": 0.86,
+    "out_and_back": false,
+    "class": "hit",
+    "seam": null,
+    "cue": 1098
+   },
+   {
+    "frame": 1108,
+    "frames": [
+     1107,
+     1108
+    ],
+    "mad": 2.71,
+    "neighbour_median": 0.184,
+    "flow_residual": 0.89,
+    "out_and_back": false,
+    "class": "hit",
+    "seam": null,
+    "cue": 1108
+   },
+   {
+    "frame": 1173,
+    "frames": [
+     1172,
+     1174
+    ],
+    "mad": 1.15,
+    "neighbour_median": 0.217,
+    "class": "burst",
+    "seam": null,
+    "cue": 1170
+   },
+   {
+    "frame": 1200,
+    "frames": [
+     1200,
+     1200
+    ],
+    "mad": 23.816,
+    "neighbour_median": 0.266,
+    "class": "cut",
+    "seam": 1200,
+    "cue": null
+   },
+   {
+    "frame": 1262,
+    "frames": [
+     1262,
+     1263
+    ],
+    "mad": 39.953,
+    "neighbour_median": 13.269,
+    "region": [
+     0,
+     720,
+     640,
+     360
+    ],
+    "flow_residual": 0.89,
+    "out_and_back": false,
+    "class": "busy",
+    "seam": null,
+    "cue": 1260
+   },
+   {
+    "frame": 1262,
+    "frames": [
+     1262,
+     1263
+    ],
+    "mad": 40.376,
+    "neighbour_median": 13.915,
+    "region": [
+     1280,
+     720,
+     640,
+     360
+    ],
+    "flow_residual": 0.87,
+    "out_and_back": false,
+    "class": "busy",
+    "seam": null,
+    "cue": 1260
+   },
+   {
+    "frame": 1320,
+    "frames": [
+     1320,
+     1320
+    ],
+    "mad": 158.601,
+    "neighbour_median": 5.102,
+    "class": "cut",
+    "seam": 1320,
+    "cue": null
+   },
+   {
+    "frame": 1425,
+    "frames": [
+     1424,
+     1426
+    ],
+    "mad": 3.195,
+    "neighbour_median": 0.472,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": 1425
+   },
+   {
+    "frame": 1440,
+    "frames": [
+     1439,
+     1440
+    ],
+    "mad": 4.159,
+    "neighbour_median": 1.168,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "flow_residual": 0.66,
+    "out_and_back": false,
+    "class": "busy",
+    "seam": null,
+    "cue": 1440
+   },
+   {
+    "frame": 1545,
+    "frames": [
+     1544,
+     1546
+    ],
+    "mad": 3.636,
+    "neighbour_median": 1.229,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": 1545
+   },
+   {
+    "frame": 1560,
+    "frames": [
+     1560,
+     1560
+    ],
+    "mad": 8.3,
+    "neighbour_median": 0.126,
+    "class": "cut",
+    "seam": 1560,
+    "cue": 1560
+   },
+   {
+    "frame": 1620,
+    "frames": [
+     1620,
+     1620
+    ],
+    "mad": 3.044,
+    "neighbour_median": 0.175,
+    "region": [
+     640,
+     0,
+     640,
+     360
+    ],
+    "flow_residual": 0.47,
+    "out_and_back": false,
+    "class": "motion",
+    "seam": null,
+    "cue": 1620
+   },
+   {
+    "frame": 1654,
+    "frames": [
+     1653,
+     1655
+    ],
+    "mad": 21.293,
+    "neighbour_median": 7.351,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 1654,
+    "frames": [
+     1653,
+     1655
+    ],
+    "mad": 7.375,
+    "neighbour_median": 2.557,
+    "region": [
+     1280,
+     360,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 1666,
+    "frames": [
+     1666,
+     1667
+    ],
+    "mad": 3.666,
+    "neighbour_median": 0.82,
+    "flow_residual": 0.2,
+    "out_and_back": false,
+    "class": "motion",
+    "seam": null,
+    "cue": 1665
+   },
+   {
+    "frame": 1800,
+    "frames": [
+     1800,
+     1800
+    ],
+    "mad": 107.326,
+    "neighbour_median": 17.659,
+    "class": "cut",
+    "seam": 1800,
+    "cue": 1798
+   },
+   {
+    "frame": 1873,
+    "frames": [
+     1870,
+     1873
+    ],
+    "mad": 63.193,
+    "neighbour_median": 24.747,
+    "region": [
+     1280,
+     720,
+     640,
+     360
+    ],
+    "class": "burst",
+    "seam": null,
+    "cue": null
+   },
+   {
+    "frame": 1891,
+    "frames": [
+     1891,
+     1892
+    ],
+    "mad": 6.217,
+    "neighbour_median": 1.623,
+    "region": [
+     640,
+     360,
+     640,
+     360
+    ],
+    "flow_residual": 0.94,
+    "out_and_back": false,
+    "class": "region-hit",
+    "seam": null,
+    "cue": 1890
+   },
+   {
+    "frame": 1909,
+    "frames": [
+     1908,
+     1910
+    ],
+    "mad": 3.71,
+    "neighbour_median": 1.36,
+    "class": "burst",
+    "seam": null,
+    "cue": 1907
+   }
+  ],
+  "stalls": [],
+  "holds": [
+   {
+    "from": 303,
+    "to": 374,
+    "frames": 72,
+    "seconds": 1.2,
+    "kind": "quiet",
+    "mean_mad": 0.029,
+    "max_changed_px": 319
+   },
+   {
+    "from": 1359,
+    "to": 1423,
+    "frames": 65,
+    "seconds": 1.08,
+    "kind": "frozen",
+    "mean_mad": 0.05,
+    "max_changed_px": 72
+   }
+  ],
+  "quiet": [
+   {
+    "from": 394,
+    "to": 467,
+    "mean_mad": 0.205,
+    "kind": "quiet"
+   },
+   {
+    "from": 744,
+    "to": 815,
+    "mean_mad": 0.151,
+    "kind": "quiet"
+   },
+   {
+    "from": 1007,
+    "to": 1079,
+    "mean_mad": 0.207,
+    "kind": "quiet"
+   },
+   {
+    "from": 1104,
+    "to": 1199,
+    "mean_mad": 0.131,
+    "kind": "quiet"
+   },
+   {
+    "from": 1454,
+    "to": 1548,
+    "mean_mad": 0.174,
+    "kind": "quiet"
+   },
+   {
+    "from": 1686,
+    "to": 1775,
+    "mean_mad": 0.148,
+    "kind": "quiet"
+   },
+   {
+    "from": 1911,
+    "to": 2099,
+    "mean_mad": 0.086,
+    "kind": "quiet"
+   }
+  ],
+  "hook": {
+   "first_2s": 0.598,
+   "typical_2s": 0.793,
+   "first_change_s": 0.0
+  },
+  "ghosts": [],
+  "crossings": [
+   {
+    "frame": 81,
+    "px": 4752,
+    "motion_px": 31856,
+    "bbox": [
+     666,
+     806,
+     518,
+     86
+    ]
+   },
+   {
+    "frame": 82,
+    "px": 5100,
+    "motion_px": 31020,
+    "bbox": [
+     636,
+     806,
+     518,
+     86
+    ]
+   },
+   {
+    "frame": 83,
+    "px": 4588,
+    "motion_px": 32492,
+    "bbox": [
+     610,
+     804,
+     516,
+     88
+    ]
+   },
+   {
+    "frame": 84,
+    "px": 5044,
+    "motion_px": 32200,
+    "bbox": [
+     586,
+     804,
+     514,
+     90
+    ]
+   },
+   {
+    "frame": 85,
+    "px": 5788,
+    "motion_px": 31144,
+    "bbox": [
+     564,
+     804,
+     512,
+     90
+    ]
+   },
+   {
+    "frame": 86,
+    "px": 6456,
+    "motion_px": 29164,
+    "bbox": [
+     546,
+     804,
+     508,
+     90
+    ]
+   },
+   {
+    "frame": 87,
+    "px": 6028,
+    "motion_px": 29780,
+    "bbox": [
+     528,
+     804,
+     506,
+     90
+    ]
+   },
+   {
+    "frame": 88,
+    "px": 5932,
+    "motion_px": 29232,
+    "bbox": [
+     512,
+     804,
+     504,
+     90
+    ]
+   },
+   {
+    "frame": 89,
+    "px": 5344,
+    "motion_px": 28732,
+    "bbox": [
+     498,
+     806,
+     502,
+     88
+    ]
+   },
+   {
+    "frame": 90,
+    "px": 4436,
+    "motion_px": 35352,
+    "bbox": [
+     486,
+     804,
+     500,
+     90
+    ]
+   },
+   {
+    "frame": 91,
+    "px": 3524,
+    "motion_px": 38264,
+    "bbox": [
+     474,
+     806,
+     498,
+     88
+    ]
+   },
+   {
+    "frame": 92,
+    "px": 2732,
+    "motion_px": 38432,
+    "bbox": [
+     464,
+     804,
+     496,
+     90
+    ]
+   },
+   {
+    "frame": 93,
+    "px": 2096,
+    "motion_px": 35916,
+    "bbox": [
+     232,
+     802,
+     718,
+     92
+    ]
+   },
+   {
+    "frame": 244,
+    "px": 6788,
+    "motion_px": 133712,
+    "bbox": [
+     352,
+     0,
+     1534,
+     990
+    ]
+   },
+   {
+    "frame": 245,
+    "px": 13880,
+    "motion_px": 148468,
+    "bbox": [
+     8,
+     0,
+     1862,
+     986
+    ]
+   },
+   {
+    "frame": 246,
+    "px": 14248,
+    "motion_px": 159856,
+    "bbox": [
+     6,
+     2,
+     1848,
+     980
+    ]
+   },
+   {
+    "frame": 247,
+    "px": 11656,
+    "motion_px": 168708,
+    "bbox": [
+     0,
+     6,
+     1792,
+     968
+    ]
+   },
+   {
+    "frame": 248,
+    "px": 9020,
+    "motion_px": 183244,
+    "bbox": [
+     2,
+     14,
+     1764,
+     950
+    ]
+   },
+   {
+    "frame": 249,
+    "px": 8228,
+    "motion_px": 202988,
+    "bbox": [
+     6,
+     16,
+     1728,
+     934
+    ]
+   },
+   {
+    "frame": 250,
+    "px": 9240,
+    "motion_px": 214080,
+    "bbox": [
+     0,
+     22,
+     1690,
+     910
+    ]
+   },
+   {
+    "frame": 251,
+    "px": 11416,
+    "motion_px": 206292,
+    "bbox": [
+     0,
+     28,
+     1628,
+     880
+    ]
+   },
+   {
+    "frame": 252,
+    "px": 11332,
+    "motion_px": 180268,
+    "bbox": [
+     0,
+     38,
+     1550,
+     838
+    ]
+   },
+   {
+    "frame": 253,
+    "px": 8972,
+    "motion_px": 146640,
+    "bbox": [
+     18,
+     54,
+     1424,
+     780
+    ]
+   },
+   {
+    "frame": 254,
+    "px": 4064,
+    "motion_px": 110308,
+    "bbox": [
+     86,
+     100,
+     1222,
+     566
+    ]
+   },
+   {
+    "frame": 473,
+    "px": 3388,
+    "motion_px": 55164,
+    "bbox": [
+     788,
+     406,
+     372,
+     482
+    ]
+   },
+   {
+    "frame": 474,
+    "px": 3844,
+    "motion_px": 51708,
+    "bbox": [
+     792,
+     428,
+     382,
+     450
+    ]
+   },
+   {
+    "frame": 475,
+    "px": 2584,
+    "motion_px": 49728,
+    "bbox": [
+     792,
+     454,
+     408,
+     416
+    ]
+   },
+   {
+    "frame": 529,
+    "px": 2028,
+    "motion_px": 26616,
+    "bbox": [
+     492,
+     618,
+     924,
+     212
+    ]
+   },
+   {
+    "frame": 530,
+    "px": 2424,
+    "motion_px": 28160,
+    "bbox": [
+     488,
+     610,
+     934,
+     214
+    ]
+   },
+   {
+    "frame": 531,
+    "px": 2876,
+    "motion_px": 27168,
+    "bbox": [
+     482,
+     600,
+     946,
+     220
+    ]
+   },
+   {
+    "frame": 532,
+    "px": 3160,
+    "motion_px": 31156,
+    "bbox": [
+     474,
+     592,
+     960,
+     222
+    ]
+   },
+   {
+    "frame": 533,
+    "px": 3240,
+    "motion_px": 32784,
+    "bbox": [
+     468,
+     580,
+     980,
+     228
+    ]
+   },
+   {
+    "frame": 534,
+    "px": 3712,
+    "motion_px": 34660,
+    "bbox": [
+     458,
+     568,
+     1000,
+     262
+    ]
+   },
+   {
+    "frame": 535,
+    "px": 3840,
+    "motion_px": 36072,
+    "bbox": [
+     450,
+     554,
+     1018,
+     268
+    ]
+   },
+   {
+    "frame": 536,
+    "px": 3856,
+    "motion_px": 37984,
+    "bbox": [
+     440,
+     542,
+     1030,
+     274
+    ]
+   },
+   {
+    "frame": 537,
+    "px": 4156,
+    "motion_px": 39644,
+    "bbox": [
+     432,
+     532,
+     1044,
+     242
+    ]
+   },
+   {
+    "frame": 538,
+    "px": 3876,
+    "motion_px": 37476,
+    "bbox": [
+     426,
+     522,
+     1056,
+     244
+    ]
+   },
+   {
+    "frame": 539,
+    "px": 3688,
+    "motion_px": 38768,
+    "bbox": [
+     418,
+     514,
+     1070,
+     246
+    ]
+   },
+   {
+    "frame": 540,
+    "px": 3184,
+    "motion_px": 39604,
+    "bbox": [
+     412,
+     502,
+     1082,
+     252
+    ]
+   },
+   {
+    "frame": 541,
+    "px": 2992,
+    "motion_px": 40916,
+    "bbox": [
+     408,
+     496,
+     1090,
+     254
+    ]
+   },
+   {
+    "frame": 542,
+    "px": 2352,
+    "motion_px": 39132,
+    "bbox": [
+     402,
+     490,
+     1102,
+     256
+    ]
+   },
+   {
+    "frame": 600,
+    "px": 3612,
+    "motion_px": 28220,
+    "bbox": [
+     324,
+     392,
+     914,
+     64
+    ]
+   },
+   {
+    "frame": 603,
+    "px": 2304,
+    "motion_px": 60180,
+    "bbox": [
+     326,
+     406,
+     1044,
+     260
+    ]
+   },
+   {
+    "frame": 604,
+    "px": 3388,
+    "motion_px": 63676,
+    "bbox": [
+     328,
+     412,
+     1040,
+     260
+    ]
+   },
+   {
+    "frame": 605,
+    "px": 4548,
+    "motion_px": 63604,
+    "bbox": [
+     328,
+     418,
+     1042,
+     260
+    ]
+   },
+   {
+    "frame": 606,
+    "px": 4228,
+    "motion_px": 65148,
+    "bbox": [
+     330,
+     424,
+     1042,
+     260
+    ]
+   },
+   {
+    "frame": 607,
+    "px": 2788,
+    "motion_px": 51816,
+    "bbox": [
+     338,
+     634,
+     1034,
+     58
+    ]
+   },
+   {
+    "frame": 608,
+    "px": 2856,
+    "motion_px": 29848,
+    "bbox": [
+     338,
+     642,
+     1042,
+     58
+    ]
+   },
+   {
+    "frame": 609,
+    "px": 2772,
+    "motion_px": 68896,
+    "bbox": [
+     334,
+     430,
+     1326,
+     280
+    ]
+   },
+   {
+    "frame": 610,
+    "px": 2724,
+    "motion_px": 81116,
+    "bbox": [
+     336,
+     438,
+     1322,
+     282
+    ]
+   },
+   {
+    "frame": 611,
+    "px": 2760,
+    "motion_px": 88912,
+    "bbox": [
+     342,
+     400,
+     1312,
+     330
+    ]
+   },
+   {
+    "frame": 612,
+    "px": 4244,
+    "motion_px": 102424,
+    "bbox": [
+     344,
+     394,
+     1310,
+     348
+    ]
+   },
+   {
+    "frame": 613,
+    "px": 4948,
+    "motion_px": 129360,
+    "bbox": [
+     342,
+     380,
+     1310,
+     376
+    ]
+   },
+   {
+    "frame": 614,
+    "px": 5628,
+    "motion_px": 144808,
+    "bbox": [
+     344,
+     368,
+     1306,
+     402
+    ]
+   },
+   {
+    "frame": 615,
+    "px": 9164,
+    "motion_px": 148460,
+    "bbox": [
+     346,
+     348,
+     1300,
+     440
+    ]
+   },
+   {
+    "frame": 616,
+    "px": 5476,
+    "motion_px": 193268,
+    "bbox": [
+     350,
+     332,
+     1294,
+     476
+    ]
+   },
+   {
+    "frame": 617,
+    "px": 6744,
+    "motion_px": 206184,
+    "bbox": [
+     354,
+     304,
+     1286,
+     526
+    ]
+   },
+   {
+    "frame": 618,
+    "px": 7812,
+    "motion_px": 219516,
+    "bbox": [
+     358,
+     258,
+     1278,
+     600
+    ]
+   },
+   {
+    "frame": 619,
+    "px": 9932,
+    "motion_px": 228696,
+    "bbox": [
+     362,
+     232,
+     1268,
+     656
+    ]
+   },
+   {
+    "frame": 620,
+    "px": 11436,
+    "motion_px": 235132,
+    "bbox": [
+     366,
+     202,
+     1258,
+     710
+    ]
+   },
+   {
+    "frame": 621,
+    "px": 13168,
+    "motion_px": 232448,
+    "bbox": [
+     372,
+     170,
+     1246,
+     780
+    ]
+   },
+   {
+    "frame": 622,
+    "px": 13132,
+    "motion_px": 233308,
+    "bbox": [
+     380,
+     138,
+     1230,
+     856
+    ]
+   },
+   {
+    "frame": 623,
+    "px": 13172,
+    "motion_px": 221168,
+    "bbox": [
+     388,
+     106,
+     1214,
+     938
+    ]
+   },
+   {
+    "frame": 624,
+    "px": 12156,
+    "motion_px": 208244,
+    "bbox": [
+     396,
+     72,
+     1196,
+     1008
+    ]
+   },
+   {
+    "frame": 625,
+    "px": 9588,
+    "motion_px": 159132,
+    "bbox": [
+     558,
+     38,
+     1024,
+     102
+    ]
+   },
+   {
+    "frame": 626,
+    "px": 9416,
+    "motion_px": 123344,
+    "bbox": [
+     564,
+     4,
+     1008,
+     102
+    ]
+   },
+   {
+    "frame": 627,
+    "px": 7476,
+    "motion_px": 94376,
+    "bbox": [
+     570,
+     0,
+     994,
+     70
+    ]
+   },
+   {
+    "frame": 701,
+    "px": 4348,
+    "motion_px": 20852,
+    "bbox": [
+     478,
+     560,
+     602,
+     334
+    ]
+   },
+   {
+    "frame": 702,
+    "px": 3636,
+    "motion_px": 21708,
+    "bbox": [
+     508,
+     578,
+     550,
+     316
+    ]
+   },
+   {
+    "frame": 703,
+    "px": 3176,
+    "motion_px": 21912,
+    "bbox": [
+     500,
+     580,
+     540,
+     314
+    ]
+   },
+   {
+    "frame": 704,
+    "px": 2928,
+    "motion_px": 19604,
+    "bbox": [
+     746,
+     804,
+     276,
+     90
+    ]
+   },
+   {
+    "frame": 705,
+    "px": 2996,
+    "motion_px": 20276,
+    "bbox": [
+     732,
+     804,
+     276,
+     90
+    ]
+   },
+   {
+    "frame": 706,
+    "px": 2776,
+    "motion_px": 20236,
+    "bbox": [
+     720,
+     804,
+     274,
+     90
+    ]
+   },
+   {
+    "frame": 707,
+    "px": 2040,
+    "motion_px": 20228,
+    "bbox": [
+     708,
+     804,
+     272,
+     90
+    ]
+   },
+   {
+    "frame": 964,
+    "px": 2208,
+    "motion_px": 81052,
+    "bbox": [
+     236,
+     70,
+     1112,
+     1010
+    ]
+   },
+   {
+    "frame": 965,
+    "px": 4072,
+    "motion_px": 93624,
+    "bbox": [
+     240,
+     60,
+     1448,
+     1020
+    ]
+   },
+   {
+    "frame": 966,
+    "px": 5104,
+    "motion_px": 104224,
+    "bbox": [
+     244,
+     60,
+     1446,
+     1020
+    ]
+   },
+   {
+    "frame": 967,
+    "px": 5604,
+    "motion_px": 116752,
+    "bbox": [
+     252,
+     60,
+     1440,
+     1020
+    ]
+   },
+   {
+    "frame": 968,
+    "px": 6124,
+    "motion_px": 127812,
+    "bbox": [
+     258,
+     60,
+     1444,
+     1020
+    ]
+   },
+   {
+    "frame": 969,
+    "px": 6300,
+    "motion_px": 139504,
+    "bbox": [
+     266,
+     60,
+     1440,
+     1020
+    ]
+   },
+   {
+    "frame": 970,
+    "px": 6504,
+    "motion_px": 152376,
+    "bbox": [
+     276,
+     60,
+     1432,
+     1020
+    ]
+   },
+   {
+    "frame": 971,
+    "px": 6896,
+    "motion_px": 161128,
+    "bbox": [
+     286,
+     60,
+     1426,
+     1020
+    ]
+   },
+   {
+    "frame": 972,
+    "px": 7648,
+    "motion_px": 169960,
+    "bbox": [
+     298,
+     60,
+     1420,
+     1020
+    ]
+   },
+   {
+    "frame": 973,
+    "px": 8792,
+    "motion_px": 179344,
+    "bbox": [
+     312,
+     60,
+     1410,
+     1020
+    ]
+   },
+   {
+    "frame": 974,
+    "px": 10700,
+    "motion_px": 184948,
+    "bbox": [
+     330,
+     60,
+     1398,
+     1020
+    ]
+   },
+   {
+    "frame": 975,
+    "px": 12132,
+    "motion_px": 190688,
+    "bbox": [
+     346,
+     60,
+     1388,
+     1020
+    ]
+   },
+   {
+    "frame": 976,
+    "px": 15656,
+    "motion_px": 193064,
+    "bbox": [
+     372,
+     62,
+     1368,
+     1018
+    ]
+   },
+   {
+    "frame": 977,
+    "px": 19460,
+    "motion_px": 194640,
+    "bbox": [
+     394,
+     62,
+     1354,
+     1018
+    ]
+   },
+   {
+    "frame": 978,
+    "px": 22440,
+    "motion_px": 218060,
+    "bbox": [
+     0,
+     62,
+     1754,
+     1016
+    ]
+   },
+   {
+    "frame": 979,
+    "px": 24936,
+    "motion_px": 223768,
+    "bbox": [
+     10,
+     66,
+     1752,
+     1014
+    ]
+   },
+   {
+    "frame": 980,
+    "px": 22264,
+    "motion_px": 235536,
+    "bbox": [
+     24,
+     66,
+     1748,
+     1008
+    ]
+   },
+   {
+    "frame": 981,
+    "px": 20520,
+    "motion_px": 242104,
+    "bbox": [
+     92,
+     66,
+     1688,
+     998
+    ]
+   },
+   {
+    "frame": 982,
+    "px": 17820,
+    "motion_px": 248296,
+    "bbox": [
+     208,
+     72,
+     1582,
+     980
+    ]
+   },
+   {
+    "frame": 983,
+    "px": 17056,
+    "motion_px": 266236,
+    "bbox": [
+     14,
+     168,
+     1784,
+     868
+    ]
+   },
+   {
+    "frame": 984,
+    "px": 16012,
+    "motion_px": 283136,
+    "bbox": [
+     0,
+     118,
+     1808,
+     874
+    ]
+   },
+   {
+    "frame": 985,
+    "px": 14616,
+    "motion_px": 284012,
+    "bbox": [
+     10,
+     118,
+     1808,
+     856
+    ]
+   },
+   {
+    "frame": 986,
+    "px": 13372,
+    "motion_px": 275700,
+    "bbox": [
+     0,
+     184,
+     1826,
+     758
+    ]
+   },
+   {
+    "frame": 987,
+    "px": 12004,
+    "motion_px": 265032,
+    "bbox": [
+     18,
+     114,
+     1816,
+     810
+    ]
+   },
+   {
+    "frame": 988,
+    "px": 11084,
+    "motion_px": 244712,
+    "bbox": [
+     26,
+     112,
+     1814,
+     794
+    ]
+   },
+   {
+    "frame": 989,
+    "px": 11060,
+    "motion_px": 222776,
+    "bbox": [
+     2,
+     112,
+     1842,
+     964
+    ]
+   }
+  ],
+  "borders": [],
+  "judder": [
+   {
+    "from": 1608,
+    "to": 1631,
+    "speed": 0.104,
+    "jumps": 2,
+    "isolated": 2,
+    "track": "p4",
+    "box": [
+     832,
+     412,
+     256,
+     256
+    ]
+   },
+   {
+    "from": 1656,
+    "to": 1679,
+    "speed": 0.093,
+    "jumps": 2,
+    "isolated": 2,
+    "track": "p4",
+    "box": [
+     832,
+     412,
+     256,
+     256
+    ]
+   },
+   {
+    "from": 1740,
+    "to": 1763,
+    "speed": 0.104,
+    "jumps": 2,
+    "isolated": 2,
+    "track": "p4",
+    "box": [
+     832,
+     412,
+     256,
+     256
+    ]
+   }
+  ],
+  "sharpness": [],
+  "banding": [
+   {
+    "frame": 0,
+    "area": 0.0708,
+    "tiles": 34,
+    "flagged": true
+   },
+   {
+    "frame": 60,
+    "area": 0.0521,
+    "tiles": 25,
+    "flagged": true
+   },
+   {
+    "frame": 120,
+    "area": 0.0333,
+    "tiles": 16,
+    "flagged": true
+   },
+   {
+    "frame": 180,
+    "area": 0.0563,
+    "tiles": 27,
+    "flagged": true
+   },
+   {
+    "frame": 240,
+    "area": 0.0354,
+    "tiles": 17,
+    "flagged": true
+   },
+   {
+    "frame": 300,
+    "area": 0.0083,
+    "tiles": 4,
+    "flagged": false
+   },
+   {
+    "frame": 480,
+    "area": 0.0021,
+    "tiles": 1,
+    "flagged": false
+   },
+   {
+    "frame": 540,
+    "area": 0.0375,
+    "tiles": 18,
+    "flagged": true
+   },
+   {
+    "frame": 600,
+    "area": 0.0958,
+    "tiles": 46,
+    "flagged": true
+   },
+   {
+    "frame": 720,
+    "area": 0.0208,
+    "tiles": 10,
+    "flagged": false
+   },
+   {
+    "frame": 780,
+    "area": 0.0354,
+    "tiles": 17,
+    "flagged": true
+   },
+   {
+    "frame": 840,
+    "area": 0.0146,
+    "tiles": 7,
+    "flagged": false
+   },
+   {
+    "frame": 900,
+    "area": 0.0167,
+    "tiles": 8,
+    "flagged": false
+   },
+   {
+    "frame": 960,
+    "area": 0.0458,
+    "tiles": 22,
+    "flagged": true
+   },
+   {
+    "frame": 1020,
+    "area": 0.0417,
+    "tiles": 20,
+    "flagged": true
+   },
+   {
+    "frame": 1080,
+    "area": 0.0396,
+    "tiles": 19,
+    "flagged": true
+   },
+   {
+    "frame": 1140,
+    "area": 0.0292,
+    "tiles": 14,
+    "flagged": false
+   },
+   {
+    "frame": 1200,
+    "area": 0.0146,
+    "tiles": 7,
+    "flagged": false
+   },
+   {
+    "frame": 1260,
+    "area": 0.0063,
+    "tiles": 3,
+    "flagged": false
+   },
+   {
+    "frame": 1320,
+    "area": 0.0625,
+    "tiles": 30,
+    "flagged": true
+   },
+   {
+    "frame": 1380,
+    "area": 0.0437,
+    "tiles": 21,
+    "flagged": true
+   },
+   {
+    "frame": 1440,
+    "area": 0.0625,
+    "tiles": 30,
+    "flagged": true
+   },
+   {
+    "frame": 1500,
+    "area": 0.0563,
+    "tiles": 27,
+    "flagged": true
+   },
+   {
+    "frame": 1560,
+    "area": 0.0125,
+    "tiles": 6,
+    "flagged": false
+   },
+   {
+    "frame": 1620,
+    "area": 0.0021,
+    "tiles": 1,
+    "flagged": false
+   },
+   {
+    "frame": 1740,
+    "area": 0.0333,
+    "tiles": 16,
+    "flagged": true
+   },
+   {
+    "frame": 1860,
+    "area": 0.0021,
+    "tiles": 1,
+    "flagged": false
+   },
+   {
+    "frame": 1920,
+    "area": 0.0021,
+    "tiles": 1,
+    "flagged": false
+   },
+   {
+    "frame": 1980,
+    "area": 0.0021,
+    "tiles": 1,
+    "flagged": false
+   }
+  ],
+  "banding_sheet": "/data/workspace/Stormy/launch-film/out/qa/banding.png",
+  "smear": [
+   {
+    "frame": 0,
+    "area": 0.0015,
+    "patchy": 0.002,
+    "field": 0.741,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 30,
+    "area": 0.0021,
+    "patchy": 0.003,
+    "field": 0.641,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 60,
+    "area": 0.0025,
+    "patchy": 0.004,
+    "field": 0.581,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 90,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.008,
+    "level": 33,
+    "flagged": false
+   },
+   {
+    "frame": 120,
+    "area": 0.0001,
+    "patchy": 0.007,
+    "field": 0.018,
+    "level": 30,
+    "flagged": false
+   },
+   {
+    "frame": 150,
+    "area": 0.0017,
+    "patchy": 0.011,
+    "field": 0.165,
+    "level": 24,
+    "flagged": false
+   },
+   {
+    "frame": 180,
+    "area": 0.0007,
+    "patchy": 0.008,
+    "field": 0.093,
+    "level": 24,
+    "flagged": false
+   },
+   {
+    "frame": 210,
+    "area": 0.0026,
+    "patchy": 0.037,
+    "field": 0.071,
+    "level": 24,
+    "flagged": false
+   },
+   {
+    "frame": 240,
+    "area": 0.001,
+    "patchy": 0.105,
+    "field": 0.009,
+    "level": 31,
+    "flagged": false
+   },
+   {
+    "frame": 270,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.987,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 300,
+    "area": 0.0006,
+    "patchy": 0.001,
+    "field": 0.936,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 330,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.928,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 360,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.925,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 390,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.929,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 420,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.892,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 450,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.891,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 480,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.299,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 510,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.293,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 540,
+    "area": 0.0061,
+    "patchy": 0.015,
+    "field": 0.416,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 570,
+    "area": 0.0041,
+    "patchy": 0.011,
+    "field": 0.381,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 600,
+    "area": 0.0039,
+    "patchy": 0.011,
+    "field": 0.363,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 630,
+    "area": 0.0004,
+    "patchy": 0.001,
+    "field": 0.607,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 660,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.2,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 690,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.207,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 720,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.405,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 750,
+    "area": 0.0005,
+    "patchy": 0.002,
+    "field": 0.2,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 780,
+    "area": 0.0005,
+    "patchy": 0.002,
+    "field": 0.199,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 810,
+    "area": 0.0005,
+    "patchy": 0.003,
+    "field": 0.191,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 840,
+    "area": 0.0025,
+    "patchy": 0.003,
+    "field": 0.825,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 870,
+    "area": 0.0024,
+    "patchy": 0.003,
+    "field": 0.807,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 900,
+    "area": 0.0029,
+    "patchy": 0.004,
+    "field": 0.738,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 930,
+    "area": 0.0027,
+    "patchy": 0.004,
+    "field": 0.721,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 960,
+    "area": 0.0095,
+    "patchy": 0.014,
+    "field": 0.675,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 990,
+    "area": 0.0006,
+    "patchy": 0.002,
+    "field": 0.355,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1020,
+    "area": 0.0024,
+    "patchy": 0.007,
+    "field": 0.328,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1050,
+    "area": 0.0024,
+    "patchy": 0.007,
+    "field": 0.329,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1080,
+    "area": 0.0034,
+    "patchy": 0.01,
+    "field": 0.338,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1110,
+    "area": 0.0092,
+    "patchy": 0.086,
+    "field": 0.107,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1140,
+    "area": 0.0096,
+    "patchy": 0.09,
+    "field": 0.107,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1170,
+    "area": 0.0092,
+    "patchy": 0.087,
+    "field": 0.106,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1200,
+    "area": 0.0136,
+    "patchy": 0.022,
+    "field": 0.618,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 1230,
+    "area": 0.0133,
+    "patchy": 0.025,
+    "field": 0.529,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 1260,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.378,
+    "level": 118,
+    "flagged": false
+   },
+   {
+    "frame": 1290,
+    "area": 0.0022,
+    "patchy": 0.005,
+    "field": 0.469,
+    "level": 229,
+    "flagged": false
+   },
+   {
+    "frame": 1320,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.046,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 1350,
+    "area": 0.002,
+    "patchy": 0.004,
+    "field": 0.473,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1380,
+    "area": 0.0036,
+    "patchy": 0.008,
+    "field": 0.468,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1410,
+    "area": 0.0019,
+    "patchy": 0.004,
+    "field": 0.468,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1440,
+    "area": 0.0006,
+    "patchy": 0.001,
+    "field": 0.463,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1470,
+    "area": 0.0007,
+    "patchy": 0.002,
+    "field": 0.468,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1500,
+    "area": 0.0014,
+    "patchy": 0.003,
+    "field": 0.452,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1530,
+    "area": 0.0014,
+    "patchy": 0.003,
+    "field": 0.448,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1560,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.342,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 1590,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.009,
+    "level": 27,
+    "flagged": false
+   },
+   {
+    "frame": 1620,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.403,
+    "level": 34,
+    "flagged": false
+   },
+   {
+    "frame": 1650,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.404,
+    "level": 34,
+    "flagged": false
+   },
+   {
+    "frame": 1680,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.412,
+    "level": 31,
+    "flagged": false
+   },
+   {
+    "frame": 1710,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.361,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1740,
+    "area": 0.0005,
+    "patchy": 0.001,
+    "field": 0.352,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1770,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.335,
+    "level": 25,
+    "flagged": false
+   },
+   {
+    "frame": 1800,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.771,
+    "level": 229,
+    "flagged": false
+   },
+   {
+    "frame": 1830,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.695,
+    "level": 229,
+    "flagged": false
+   },
+   {
+    "frame": 1860,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.254,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1890,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.966,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1920,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.931,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1950,
+    "area": 0.0001,
+    "patchy": 0.0,
+    "field": 0.929,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 1980,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.927,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 2010,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.904,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 2040,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.902,
+    "level": 26,
+    "flagged": false
+   },
+   {
+    "frame": 2070,
+    "area": 0.0,
+    "patchy": 0.0,
+    "field": 0.899,
+    "level": 26,
+    "flagged": false
+   }
+  ],
+  "smear_sheet": "/data/workspace/Stormy/launch-film/out/qa/smear.png",
+  "seams": [
+   {
+    "frame": 240,
+    "mad": 0.095,
+    "neighbour_median": 0.231
+   },
+   {
+    "frame": 600,
+    "mad": 1.663,
+    "neighbour_median": 1.09
+   },
+   {
+    "frame": 840,
+    "mad": 3.53,
+    "neighbour_median": 2.636
+   },
+   {
+    "frame": 960,
+    "mad": 1.564,
+    "neighbour_median": 1.18
+   },
+   {
+    "frame": 1200,
+    "mad": 23.816,
+    "neighbour_median": 0.266
+   },
+   {
+    "frame": 1320,
+    "mad": 158.601,
+    "neighbour_median": 5.102
+   },
+   {
+    "frame": 1560,
+    "mad": 8.3,
+    "neighbour_median": 0.126
+   },
+   {
+    "frame": 1800,
+    "mad": 107.326,
+    "neighbour_median": 17.659
+   }
+  ],
+  "loop": null,
+  "determinism": null
+ }
+}

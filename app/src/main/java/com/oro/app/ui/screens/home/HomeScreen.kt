@@ -4,8 +4,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import com.oro.app.ui.brand.OrobiIdle
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.ui.draw.blur
-import androidx.compose.animation.core.animateDpAsState
+import android.os.Build
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import com.oro.app.ui.theme.OroTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.oro.app.ui.components.expressive.SortOption
 import com.oro.app.ui.components.expressive.FilterTuneButton
 import com.oro.app.ui.components.expressive.AdvancedFilterPanel
@@ -25,7 +30,6 @@ import com.oro.app.ui.theme.Sizes
 import com.oro.app.ui.theme.Elevation
 import com.oro.app.ui.theme.ExpressiveShapes
 import com.oro.app.ui.components.expressive.expressivePress
-import com.oro.app.ui.components.agent.AgentVisuals
 import androidx.compose.material3.ripple
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Surface
@@ -69,6 +73,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Add
@@ -82,6 +88,7 @@ import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Clear
@@ -134,6 +141,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.R
 import com.oro.app.domain.model.Project
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -141,9 +150,11 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onProjectClick: (String) -> Unit,
     onSettingsClick: () -> Unit,
+    onDeviceAgentClick: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val sessionCounts by viewModel.sessionCounts.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -157,10 +168,24 @@ fun HomeScreen(
     var selectedSort by remember { mutableStateOf(ProjectSortRecent) }
     var filterPanelOpen by remember { mutableStateOf(false) }
 
+    // Which projects are git repositories, probed on the IO dispatcher and only
+    // while the "Has Git" filter is active. This used to be a File.exists() per
+    // project inside the remember block below, i.e. disk I/O on the main
+    // thread on every recomposition that touched the list.
+    val gitProjectIds by produceState<Set<String>?>(null, uiState.projects, selectedFilter) {
+        if (selectedFilter != "git") return@produceState
+        val projects = uiState.projects
+        value = withContext(Dispatchers.IO) {
+            projects
+                .filter { java.io.File(it.rootPath, ".git").exists() }
+                .mapTo(HashSet()) { it.id }
+        }
+    }
+
     // Quick filter and sort applied here rather than in the view model: both
     // are view concerns that do not survive leaving the screen, and routing
     // them through state would mean a round trip for every chip tap.
-    val visibleProjects = remember(uiState.projects, selectedFilter, selectedSort) {
+    val visibleProjects = remember(uiState.projects, selectedFilter, selectedSort, gitProjectIds) {
         val now = System.currentTimeMillis()
         uiState.projects
             .filter { project ->
@@ -170,7 +195,7 @@ fun HomeScreen(
                     // Detected from the working tree: Project carries no git
                     // flag, and adding one would mean a schema migration for a
                     // value that can go stale the moment the user runs init.
-                    "git" -> java.io.File(project.rootPath, ".git").exists()
+                    "git" -> gitProjectIds?.contains(project.id) == true
                     else -> true
                 }
             }
@@ -228,8 +253,17 @@ fun HomeScreen(
     // it entirely, so cards, the empty-state badge and the top-bar buttons
     // stayed bright above it -- the dial was competing with the very things it
     // is meant to sit in front of.
-    val backdropBlur by animateDpAsState(
-        targetValue = if (showFabMenu) 6.dp else 0.dp,
+    //
+    // The blur radius is read only inside graphicsLayer {}, so the animation
+    // redraws one layer per frame instead of recomposing the whole Scaffold
+    // (top bar, list and all) on every frame as it did when the animated Dp
+    // was read here. In Lite mode there is no blur at all -- a full-screen
+    // RenderEffect is among the most expensive things a budget GPU can be
+    // asked to do -- and the scrim alone carries the "recede" effect.
+    val blurSupported = !OroTheme.liteMode &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val backdropBlur = animateFloatAsState(
+        targetValue = if (showFabMenu && blurSupported) SpeedDialBlurDp else 0f,
         animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         label = "speedDialBlur"
     )
@@ -237,7 +271,18 @@ fun HomeScreen(
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.then(
-                if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier
+                if (blurSupported) {
+                    Modifier.graphicsLayer {
+                        val radius = backdropBlur.value.dp.toPx()
+                        renderEffect = if (radius > 0f) {
+                            BlurEffect(renderEffect = null, radiusX = radius, radiusY = radius)
+                        } else {
+                            null
+                        }
+                    }
+                } else {
+                    Modifier
+                }
             ),
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -256,28 +301,9 @@ fun HomeScreen(
                                 onClick = { filterPanelOpen = !filterPanelOpen }
                             )
                         },
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Orobi as the app mark, alive but quiet: it
-                                // breathes and blinks, it does not glance about.
-                                OrobiIdle(
-                                    look = false,
-                                    showShadow = false,
-                                    contentDescription = null,
-                                    modifier = Modifier.width(34.dp)
-                                )
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    text = context.getString(R.string.home_title),
-                                    style = MaterialTheme.typography.headlineSmall.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        letterSpacing = (-0.4).sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        },
+                        title = { HomeTitle() },
                         actions = {
+                            DeviceAgentButton(onClick = onDeviceAgentClick)
                             FlowerIconButton(
                                 icon = Icons.Outlined.Search,
                                 contentDescription = "Search projects",
@@ -340,6 +366,7 @@ fun HomeScreen(
                     else -> {
                         ProjectsList(
                             projects = visibleProjects,
+                            sessionCounts = sessionCounts,
                             onProjectClick = { project ->
                                 viewModel.openProject(project.id)
                                 onProjectClick(project.id)
@@ -510,8 +537,33 @@ private fun SearchBar(
     )
 }
 
+/** Orobi as the app mark beside the app's name, as Home's top bar shows it. */
 @Composable
-private fun EmptyState(
+internal fun HomeTitle() {
+    val context = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // Orobi as the app mark, alive but quiet: it breathes and blinks, it
+        // does not glance about.
+        OrobiIdle(
+            look = false,
+            showShadow = false,
+            contentDescription = null,
+            modifier = Modifier.width(34.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(
+            text = context.getString(R.string.home_title),
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.4).sp
+            ),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+internal fun EmptyState(
     onCreateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -519,7 +571,8 @@ private fun EmptyState(
     ExpressiveEmptyState(
         icon = Icons.Outlined.Code,
         title = context.getString(R.string.home_empty_title),
-        description = context.getString(R.string.home_empty_subtitle),
+        // No tagline: Orobi, the title and the button say it all.
+        description = "",
         shape = EmptyStateShape.Cookie,
         actionLabel = context.getString(R.string.home_create_project),
         onAction = onCreateClick,
@@ -545,8 +598,9 @@ private fun EmptySearchState(
 }
 
 @Composable
-private fun ProjectsList(
+internal fun ProjectsList(
     projects: List<Project>,
+    sessionCounts: Map<String, Int>,
     onProjectClick: (Project) -> Unit,
     onDeleteClick: (Project) -> Unit,
     onEditClick: (Project) -> Unit,
@@ -565,6 +619,7 @@ private fun ProjectsList(
         ) { project ->
             SwipeableProjectCard(
                 project = project,
+                chatCount = sessionCounts[project.id] ?: 0,
                 onClick = { onProjectClick(project) },
                 onDeleteClick = { onDeleteClick(project) },
                 onEditClick = { onEditClick(project) },
@@ -595,6 +650,7 @@ private fun ProjectsList(
 @Composable
 private fun SwipeableProjectCard(
     project: Project,
+    chatCount: Int,
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onEditClick: () -> Unit,
@@ -602,10 +658,26 @@ private fun SwipeableProjectCard(
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val shareContext = androidx.compose.ui.platform.LocalContext.current
+    val shareScope = rememberCoroutineScope()
+
+    // The live link is read from the project's deploy state on disk, off the
+    // main thread, before the sheet opens -- so the sheet never jumps when the
+    // link rows appear, and opening it never reads a file on the UI thread.
+    var liveUrl by remember { mutableStateOf<String?>(null) }
+    val openMenu: () -> Unit = {
+        shareScope.launch {
+            liveUrl = withContext(Dispatchers.IO) {
+                runCatching { com.oro.app.share.ProjectSharing.liveUrl(java.io.File(project.rootPath)) }.getOrNull()
+            }
+            showMenu = true
+        }
+    }
 
     if (showMenu) {
         ActionSheet(
             title = project.name,
+            subtitle = liveUrl,
             onDismiss = { showMenu = false },
             actions = listOf(
                 SheetAction(
@@ -629,6 +701,25 @@ private fun SwipeableProjectCard(
                     icon = Icons.Outlined.Edit,
                     onClick = onEditClick
                 ),
+                SheetAction(
+                    label = "Share as zip",
+                    icon = Icons.Outlined.Share,
+                    description = "Every file, ready to open anywhere",
+                    onClick = {
+                        shareScope.launch {
+                            runCatching {
+                                com.oro.app.share.ProjectSharing.shareZip(shareContext, java.io.File(project.rootPath), project.name)
+                            }
+                        }
+                    }
+                ),
+                *(liveUrl?.let { url ->
+                    arrayOf(SheetAction(
+                        label = "Share live link",
+                        icon = Icons.Outlined.Link,
+                        onClick = { com.oro.app.share.ProjectSharing.shareLink(shareContext, project.name, url) }
+                    ))
+                } ?: emptyArray()),
                 SheetAction(
                     label = "Delete project",
                     icon = Icons.Outlined.Delete,
@@ -723,17 +814,19 @@ private fun SwipeableProjectCard(
                     val accentSlot = remember(project.id) {
                         (project.id.hashCode().mod(ProjectAccentCount))
                     }
-                    val accent = AgentVisuals.accent(accentSlot)
+                    // The silhouette is the project's identity; the fill is one
+                    // legible tone. The accent containers were near the card's
+                    // own tone in light mode, so some marks all but vanished.
                     Surface(
                         modifier = Modifier.size(Sizes.avatarLarge),
                         shape = ExpressiveShapes.forIndex(accentSlot),
-                        color = accent.container
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
                                 text = project.name.firstOrNull()?.uppercase() ?: "?",
                                 style = MaterialTheme.typography.titleMediumEmphasized,
-                                color = accent.onContainer
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -777,7 +870,14 @@ private fun SwipeableProjectCard(
                         }
                         Spacer(modifier = Modifier.height(Space.xxs))
                         Text(
-                            text = project.formattedLastOpened,
+                            // How much conversation lives in the project is
+                            // worth a glance before opening it; zero says
+                            // nothing, so it is left out.
+                            text = when (chatCount) {
+                                0 -> project.formattedLastOpened
+                                1 -> "${project.formattedLastOpened} · 1 chat"
+                                else -> "${project.formattedLastOpened} · $chatCount chats"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -787,7 +887,7 @@ private fun SwipeableProjectCard(
                     // to this icon opens wherever the row has scrolled to, and
                     // near the bottom of the screen it flips above the anchor
                     // and lands under the thumb that just tapped it.
-                    IconButton(onClick = { showMenu = true }) {
+                    IconButton(onClick = openMenu) {
                         Icon(
                             imageVector = Icons.Outlined.MoreVert,
                             contentDescription = "Actions for ${project.name}",
@@ -801,10 +901,41 @@ private fun SwipeableProjectCard(
 }
 
 /**
- * Number of distinct project marks. Matches the palette and shape lists in
- * AgentVisuals/ExpressiveShapes so colour and silhouette stay paired.
+ * The device agent's entry. While Orobi is operating the phone a magenta dot
+ * sits on it, so the way back to a running task is always visible. Only the
+ * running flag is observed, so a live run does not recompose the home screen.
  */
+@Composable
+internal fun DeviceAgentButton(onClick: () -> Unit) {
+    val running by remember {
+        com.oro.app.device.DeviceAgent.state
+            .map { it.running }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+    Box {
+        FlowerIconButton(
+            icon = Icons.Outlined.TouchApp,
+            contentDescription = if (running) "Device agent, working" else "Device agent",
+            onClick = onClick
+        )
+        if (running) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Space.xs + Space.xxs)
+                    .size(Space.sm)
+                    .clip(CircleShape)
+                    .background(com.oro.app.ui.brand.OroBrand.Magenta)
+            )
+        }
+    }
+}
+
+/** Number of distinct project mark silhouettes (see ExpressiveShapes.forIndex). */
 private const val ProjectAccentCount = 5
+
+/** Backdrop blur behind the open speed dial, in dp. */
+private const val SpeedDialBlurDp = 6f
 
 /** Quick filters offered beside the project search. */
 private const val ProjectFilterAll = "all"

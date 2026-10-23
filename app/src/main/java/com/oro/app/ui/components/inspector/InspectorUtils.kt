@@ -138,14 +138,4 @@ object InspectorUtils {
     fun isImageElement(element: InspectorElementData): Boolean {
         return element.tagName.equals("IMG", ignoreCase = true)
     }
-
-    /**
-     * Extract text content from innerHTML (strips HTML tags)
-     */
-    fun extractTextContent(innerHTML: String, maxLength: Int = 100): String {
-        return innerHTML
-            .replace(Regex("<[^>]*>"), "")
-            .trim()
-            .take(maxLength)
-    }
 }

@@ -56,6 +56,18 @@ sealed class UserInputResult {
  */
 interface ToolInteractionCallback {
     suspend fun askUser(question: String, options: List<String>?): String?
+
+    /**
+     * Ask a batch of questions and wait for all answers: one entry per
+     * question, null where the user skipped it. Null overall means the user
+     * dismissed the whole set. The default asks them one by one, so older
+     * callbacks keep working.
+     */
+    suspend fun askQuestions(questions: List<UserQuestion>): List<String?>? {
+        val answers = mutableListOf<String?>()
+        for (q in questions) answers += askUser(q.question, q.options.map { it.label }.ifEmpty { null })
+        return answers
+    }
     suspend fun onTaskFinished(summary: String)
     suspend fun onFileChanged(path: String, changeType: FileChangeType, oldContent: String?, newContent: String?)
     suspend fun onTodoCreated(todo: TodoItem)
@@ -143,7 +155,26 @@ class ToolExecutor(
         toolName: String,
         args: JsonObject
     ): ToolResult? {
+        if (com.oro.app.data.ai.mcp.McpNames.isMcp(toolName)) {
+            return com.oro.app.data.ai.mcp.McpRegistry.call(mcpSettings, toolName, args).fold(
+                onSuccess = { (text, isError) ->
+                    if (isError) ToolResult(false, text.take(20_000), "The MCP tool reported an error.")
+                    else ToolResult(true, text.ifBlank { "(no output)" }.take(40_000))
+                },
+                onFailure = { ToolResult(false, "", it.message ?: "MCP call failed") }
+            )
+        }
         val ws = workspace ?: currentProjectPath?.let { WorkspaceTools(it).also { w -> workspace = w } }
+        checkpoint?.let { rec ->
+            val paths = when (toolName) {
+                "write_file", "edit_file", "multi_edit", "delete_file" -> listOfNotNull(args.getStringArg("path"))
+                "move_file" -> listOfNotNull(args.getStringArg("source"), args.getStringArg("destination"))
+                else -> emptyList()
+            }
+            if (paths.isNotEmpty()) {
+                kotlinx.coroutines.withContext(Dispatchers.IO) { paths.forEach { runCatching { rec.capture(it) } } }
+            }
+        }
         val outcome: ToolOutcome = when (toolName) {
             "read_file", "write_file", "edit_file", "multi_edit", "list_files",
             "glob", "grep", "delete_file", "move_file", "web_fetch" -> {
@@ -151,19 +182,84 @@ class ToolExecutor(
                     return ToolResult(false, "", "No project is open, so there are no files to work with.")
                 }
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    when (toolName) {
-                        "read_file" -> ws.readFile(args)
-                        "write_file" -> ws.writeFile(args)
-                        "edit_file" -> ws.editFile(args)
-                        "multi_edit" -> ws.multiEdit(args)
-                        "list_files" -> ws.listFiles(args)
-                        "glob" -> ws.glob(args)
-                        "grep" -> ws.grep(args)
-                        "delete_file" -> ws.deleteFile(args)
-                        "move_file" -> ws.moveFile(args)
-                        else -> ws.webFetch(args)
-                    }
+                    ProjectTools.dispatch(ws, toolName, args) ?: ws.webFetch(args)
                 }
+            }
+            "search_project" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val q = args.getStringArg("query").orEmpty()
+                val limit = args.getStringArg("limit")?.toIntOrNull()?.coerceIn(1, 20) ?: 8
+                val search = projectSearch?.takeIf { it.first == root.path }?.second
+                    ?: com.oro.app.data.ai.search.ProjectSearch(root).also { projectSearch = root.path to it }
+                val hits = kotlinx.coroutines.withContext(Dispatchers.IO) { search.search(q, limit) }
+                return ToolResult(true, if (hits.isEmpty()) "No matches for \"$q\"." else hits.joinToString("\n\n") {
+                    "${it.path}:${it.startLine}-${it.endLine}\n${it.snippet}"
+                })
+            }
+            "docs_lookup" -> {
+                val q = args.getStringArg("query").orEmpty()
+                return ToolResult(true, com.oro.app.data.ai.search.WebDocs.format(com.oro.app.data.ai.search.WebDocs.lookup(q)))
+            }
+            "open_pull_request" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val token = githubToken?.invoke()?.trim().orEmpty()
+                if (token.isEmpty()) return ToolResult(false, "", "No GitHub sign-in. Ask the user to add a GitHub token under Settings > Git credentials.")
+                val title = args.getStringArg("title")?.trim().orEmpty()
+                if (title.isEmpty()) return ToolResult(false, "", "title is required")
+                val body = args.getStringArg("body").orEmpty() + "\n\n---\nOpened from Oro."
+                return com.oro.app.data.git.PullRequests(root, token).open(
+                    repo = args.getStringArg("repo"), title = title, body = body,
+                    branch = args.getStringArg("branch")?.trim()?.ifEmpty { null }, base = args.getStringArg("base")
+                ).fold(
+                    onSuccess = { ToolResult(true, "Opened pull request #${it.number}: ${it.url}\nBranch ${it.branch}, ${it.changedFiles.size} files: ${it.changedFiles.take(30).joinToString(", ")}") },
+                    onFailure = { ToolResult(false, "", it.message ?: "Could not open the pull request") }
+                )
+            }
+            "use_skill" -> {
+                val wanted = com.oro.app.data.ai.skills.Skills.slug(args.getStringArg("name").orEmpty())
+                val all = com.oro.app.data.ai.skills.Skills.all(skillsDir ?: File("/nonexistent"), currentProjectPath)
+                val skill = all.firstOrNull { it.name == wanted }
+                    ?: return ToolResult(false, "", "No skill named '$wanted'. Available: ${all.joinToString(", ") { it.name }}")
+                val starter = if (skill.files.isEmpty()) "" else buildString {
+                    append("\n\n# Starter files\nWrite each with write_file (skip or merge any that already exist in the project), then adapt them to the request.\n")
+                    skill.files.forEach { (path, content) -> append("\n## ").append(path).append("\n```\n").append(content.trimEnd()).append("\n```\n") }
+                }
+                return ToolResult(true, "Skill ${skill.name}: ${skill.description}\n\n${skill.body}$starter")
+            }
+            "screenshot_preview", "audit_page" -> {
+                val previewer = com.oro.app.data.preview.PagePreviewers.instance
+                    ?: return ToolResult(false, "", "Page rendering is not available here.")
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val page = args.getStringArg("page")?.trim()?.trimStart('/')?.ifEmpty { null } ?: "index.html"
+                if (!File(root, page).isFile) return ToolResult(false, "", "$page does not exist in the project.")
+                return runCatching {
+                    if (toolName == "audit_page") {
+                        ToolResult(true, previewer.audit(root, page))
+                    } else {
+                        val shots = previewer.capture(root, page, com.oro.app.data.preview.Device.parse(args.getStringArg("device")))
+                        ToolResult(
+                            true,
+                            shots.joinToString("\n\n") { "## ${it.device} (${it.width}x${it.height})\n${it.metrics}" } +
+                                if (shots.any { it.jpegBase64 != null }) "\n\n(Screenshots attached in the next message for models that can see images.)" else "",
+                            images = shots.mapNotNull { it.jpegBase64 }
+                        )
+                    }
+                }.getOrElse { ToolResult(false, "", "Could not render $page: ${it.message}") }
+            }
+            "get_preview_errors" -> {
+                val out = com.oro.app.data.preview.PreviewDiagnostics.report(projectId, args.getBooleanArg("include_warnings", true))
+                if (args.getBooleanArg("clear", false)) com.oro.app.data.preview.PreviewDiagnostics.clear(projectId)
+                return ToolResult(true, out)
+            }
+            "check_syntax" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                val path = args.getStringArg("path")?.trim()?.removePrefix("./")?.trimStart('/')?.takeIf { it.isNotEmpty() && it != "." }
+                return kotlinx.coroutines.withContext(Dispatchers.IO) { CraftTools.check(root, path) { advancedToolExecutor.execute(projectId, "check_syntax", args) } }
+            }
+            "add_ui_kit" -> {
+                val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
+                checkpoint?.let { rec -> kotlinx.coroutines.withContext(Dispatchers.IO) { CraftTools.UI_KIT_PATHS.forEach { runCatching { rec.capture(it) } } } }
+                kotlinx.coroutines.withContext(Dispatchers.IO) { CraftTools.addUiKit(root, args) }
             }
             "ask_user" -> return executeAskUser(args)
             "finish_task" -> return executeFinishTask(args)
@@ -179,7 +275,10 @@ class ToolExecutor(
                 triggerAutoLearning(projectId, change.path, change.newContent)
             }
         }
-        return outcome.result
+        // Writes report self-contained defects of the file at once, saving
+        // the model a check_syntax round trip.
+        val root = currentProjectPath ?: return outcome.result
+        return kotlinx.coroutines.withContext(Dispatchers.Default) { ProjectTools.withQuickCheck(root, toolName, outcome) }
     }
 
     // Session-based todo storage
@@ -188,6 +287,24 @@ class ToolExecutor(
 
     // Interaction callback for user input and notifications
     var interactionCallback: ToolInteractionCallback? = null
+
+    /** Cached project search index, keyed by project root. */
+    private var projectSearch: Pair<String, com.oro.app.data.ai.search.ProjectSearch>? = null
+
+    /** App-wide skills folder (set by the app); project skills live in .oro/skills. */
+    @Volatile
+    var skillsDir: File? = null
+
+    /** The user's GitHub token, for open_pull_request. */
+    var githubToken: (suspend () -> String?)? = null
+
+    /** MCP servers for the current run; set by the caller that offered their tools. */
+    @Volatile
+    var mcpSettings: com.oro.app.data.ai.mcp.McpSettings = com.oro.app.data.ai.mcp.McpSettings()
+
+    /** The running agent turn's checkpoint; files are captured before their first change. */
+    @Volatile
+    var checkpoint: com.oro.app.data.ai.checkpoint.Checkpoints.Recorder? = null
 
     /**
      * Execute a tool call and return the result
@@ -221,7 +338,9 @@ class ToolExecutor(
             // before anything else and are NOT behind enableArgumentValidation.
             // That flag exists to trade strictness for permissiveness on
             // argument shapes; a security boundary must not be switchable.
-            AgentPathPolicy.denyIfAnyPathBlocked(arguments, currentProjectPath)?.let { reason ->
+            // MCP tools act on remote services, not project files: their
+            // "path" arguments are repository paths, not paths on this device.
+            if (!com.oro.app.data.ai.mcp.McpNames.isMcp(toolName)) AgentPathPolicy.denyIfAnyPathBlocked(arguments, currentProjectPath)?.let { reason ->
                 android.util.Log.w(TAG, "Blocked $toolName: $reason")
                 return ToolResult(success = false, output = "", error = reason)
             }
@@ -1218,9 +1337,13 @@ class ToolExecutor(
      * so the model does not proceed as if it had one.
      */
     private suspend fun executeAskUser(args: JsonObject): ToolResult {
-        val question = args.getStringArg("question")?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return ToolResult(false, "", "Missing required argument: question")
-        val options = parseOptions(args)
+        val questions = UserQuestions.parse(args)
+        if (questions.isEmpty()) {
+            return ToolResult(
+                false, "",
+                "Missing required argument: questions (an array of {question, header, options}) or question"
+            )
+        }
 
         val callback = interactionCallback
             ?: return ToolResult(
@@ -1229,41 +1352,10 @@ class ToolExecutor(
                     "reasonable assumption, state it in your reply, and continue."
             )
 
-        val answer = callback.askUser(question, options)?.trim()
-        return when {
-            answer == null -> ToolResult(
-                true,
-                "The user dismissed the question without answering. Do not ask it " +
-                    "again; proceed with your best judgement and state any assumption " +
-                    "you make, or stop and explain what you need."
-            )
-            answer.isEmpty() -> ToolResult(true, "The user replied with an empty answer.")
-            else -> ToolResult(true, "User answered: $answer")
-        }
-    }
-
-    /** `options` as a JSON array, a JSON-array string, or a comma list. */
-    private fun parseOptions(args: JsonObject): List<String>? {
-        val element = args["options"] ?: return null
-        val list = when (element) {
-            is kotlinx.serialization.json.JsonArray -> element.mapNotNull {
-                (it as? kotlinx.serialization.json.JsonPrimitive)?.content
-            }
-            is kotlinx.serialization.json.JsonPrimitive -> {
-                val raw = element.content.trim()
-                if (raw.startsWith("[")) {
-                    runCatching {
-                        (Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonArray)
-                            .map { (it as kotlinx.serialization.json.JsonPrimitive).content }
-                    }.getOrElse { raw.trim('[', ']').split(",") }
-                } else {
-                    raw.split(",")
-                }
-            }
-            else -> emptyList()
-        }
-        return list.map { it.trim().trim('"') }.filter { it.isNotEmpty() }.distinct().take(6)
-            .takeIf { it.isNotEmpty() }
+        // Null: the user tapped "You decide" (the card's one-tap way out).
+        val answers = callback.askQuestions(questions)
+            ?: return ToolResult(true, UserQuestions.DECIDE_RESULT)
+        return ToolResult(true, UserQuestions.formatAnswers(questions, answers))
     }
 
     private suspend fun executeFinishTask(args: JsonObject): ToolResult {

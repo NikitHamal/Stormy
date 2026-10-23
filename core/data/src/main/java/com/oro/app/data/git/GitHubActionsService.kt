@@ -3,7 +3,6 @@ package com.oro.app.data.git
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -16,7 +15,9 @@ import java.util.concurrent.TimeUnit
 class GitHubActionsService(
     private val credentialsManager: GitCredentialsManager
 ) {
-    private val client = OkHttpClient.Builder()
+    // Derived from the shared client so it shares its connection pool and
+    // dispatcher threads (a separate builder stood up a second set of both).
+    private val client = com.oro.app.data.ai.AiHttp.client.newBuilder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)

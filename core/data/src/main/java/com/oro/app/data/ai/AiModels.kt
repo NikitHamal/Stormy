@@ -5,33 +5,6 @@ import kotlinx.serialization.Serializable
 /**
  * Represents an AI model available for use
  */
-/**
- * How much the model should think before answering.
- *
- * Only meaningful on models that expose a reasoning budget; the request layer
- * omits the field entirely for the rest rather than sending something they will
- * reject. Three steps, not five: the difference between adjacent levels has to
- * be noticeable or the control is just a dial the user fiddles with.
- */
-@Serializable
-enum class ReasoningEffort(val label: String, val wireValue: String) {
-    /** Answer quickly. Good for edits whose shape is already decided. */
-    LOW("Low", "low"),
-
-    /** The default trade-off. */
-    BALANCED("Balanced", "medium"),
-
-    /** Think longer. Worth it for debugging and design questions. */
-    DEEP("Deep", "high");
-
-    companion object {
-        val DEFAULT = BALANCED
-
-        fun fromName(value: String?): ReasoningEffort =
-            entries.find { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
-    }
-}
-
 @Serializable
 data class AiModel(
     val id: String,
@@ -49,15 +22,6 @@ data class AiModel(
     val supportsToolCalls: Boolean = true,
     val isThinkingModel: Boolean = false,
     /**
-     * Whether this model accepts a reasoning-effort setting.
-     *
-     * Separate from [isThinkingModel]: a model can reason internally without
-     * letting the caller size that budget, and sending the parameter to one
-     * that does not accept it is a 400 rather than a graceful ignore on several
-     * providers.
-     */
-    val supportsReasoningEffort: Boolean = false,
-    /**
      * Whether the user has this model switched on.
      *
      * Only the model picker and the management screen read it; the request
@@ -65,15 +29,42 @@ data class AiModel(
      * on the domain model rather than looked up separately so a list of models
      * and their state cannot drift apart between two queries.
      */
-    val isEnabled: Boolean = true
-)
+    val isEnabled: Boolean = true,
+    /** USD per token as the provider publishes it (OpenRouter/Kilo); null when unknown. */
+    val inputPricePerToken: Double? = null,
+    val outputPricePerToken: Double? = null
+) {
+    /**
+     * The reasoning control this model exposes on its provider, with the
+     * provider's own levels ([ReasoningControls]); null when it has none.
+     *
+     * Derived rather than stored, and separate from [isThinkingModel]: a model
+     * can reason without letting the caller size it, and sending a level to
+     * one that does not take it is a 400 on several providers.
+     */
+    val reasoningControl: ReasoningControl? get() = ReasoningControls.forModel(this)
+
+    val supportsReasoningEffort: Boolean get() = reasoningControl != null
+}
 
 /** How Oro talks to a provider. */
 enum class ProviderProtocol {
     /** OpenAI-compatible `/chat/completions` + `/models`. */
     OPENAI,
     /** chat.ifm.ai guest completions, cumulative `content` frames. */
-    K2_GUEST
+    K2_GUEST,
+    /** chat.qwen.ai guest chat: browser-signed requests, phase-tagged SSE. */
+    QWEN_WEB,
+    /** ptero.pro guest chat: one JSON reply per request, quota per guest token. */
+    PTERO_GUEST,
+    /** chat.inceptionlabs.ai guest chat (Mercury 3): session token + Vercel AI SDK v5 stream. */
+    MERCURY_WEB,
+    /** getunikey.ai anonymous trial: OpenAI-style SSE, a fresh visitor id per request, no tools. */
+    UNIKEY_GUEST,
+    /** A lab's official Hugging Face Space relaying to its own API, over Gradio's queue protocol. */
+    HF_SPACE,
+    /** Cloudflare's AI Playground: an Agents SDK WebSocket (setConfig RPC + AI SDK chat stream). */
+    CF_PLAYGROUND
 }
 
 /** How a provider treats credentials. */
@@ -98,14 +89,17 @@ enum class ApiKeyRequirement {
  *
  * On key requirements, verified with live chat completions (streaming and
  * native tool calls) from a plain HTTP client on 2026-10-17:
- *  - Pollinations (`text.pollinations.ai/openai`, model `openai-fast`) answers
- *    anonymously; roughly one reply per 30 s per IP, over that it answers
- *    HTTP 402 `FREE_LIMIT` with a retry hint.
- *  - OVHcloud AI Endpoints answers anonymously on its documented free tier;
- *    2 requests/min per model per IP, HTTP 429 when exceeded.
  *  - Kilo's gateway (`api.kilo.ai/api/gateway`) serves its `:free` / `isFree`
  *    models without a key (about 200 requests/hour per IP); a key unlocks the
  *    rest of the catalogue.
+ *
+ * Keyless routes too limited for an agent run (~20-60 model calls in 5-15
+ * minutes with 10-60k-token prompts) were removed on 2026-10-23, see
+ * docs/research/keyless-providers.md: Pollinations (about one reply per 30 s),
+ * VLM Run (30 requests an hour, 100 a day), OpenBMB's MiniCPM demo (four
+ * requests at a time across all visitors, logs conversations), and the
+ * anonymous tiers of OVHcloud (2 requests a minute per model) and LLM7
+ * (about 100k tokens a day). OVHcloud and LLM7 stay for users with a key.
  * OpenCode Zen's free tier is gated to the OpenCode client itself ("can only
  * be used from within OpenCode"); re-tested 2026-10-17 with the
  * `Bearer public` + `User-Agent: opencode/1.0` headers some tools use, every
@@ -139,19 +133,13 @@ enum class AiProvider(
     /** Wire protocol. Anything but OPENAI is a community web-chat bridge. */
     val protocol: ProviderProtocol = ProviderProtocol.OPENAI
 ) {
-    POLLINATIONS(
-        displayName = "Pollinations",
-        baseUrl = "https://text.pollinations.ai/openai",
-        apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "No account needed. Anonymous tier (about one reply every 30 s), tool calling supported."
-    ),
     OVHCLOUD(
         displayName = "OVHcloud AI Endpoints",
         baseUrl = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
-        apiKeyRequirement = ApiKeyRequirement.OPTIONAL,
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
         apiKeyUrl = "https://endpoints.ai.cloud.ovh.net",
-        keyNote = "No account needed. Anonymous tier is 2 requests/min per model; " +
-            "a key raises it. Qwen 3.5/3.8, gpt-oss, Llama 3.3 with tool calling."
+        keyNote = "Free with an OVHcloud account. Qwen 3.5/3.8, gpt-oss, Llama 3.3 with tool calling. " +
+            "The anonymous tier (2 requests a minute per model) is too slow for agent runs."
     ),
     GEMINI(
         displayName = "Google Gemini",
@@ -235,6 +223,79 @@ enum class AiProvider(
             "reasoning). Long inputs, no native tools. May break without notice.",
         protocol = ProviderProtocol.K2_GUEST
     ),
+    QWEN_WEB(
+        displayName = "Qwen (community)",
+        baseUrl = "https://chat.qwen.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to Qwen Chat's guest mode (Qwen3.8 Max, Qwen3.7 Plus, Omni Flash). Falls back to " +
+            "an in-app browser when the site asks for one, and to another free Qwen when it asks for a human check. May break without notice.",
+        protocol = ProviderProtocol.QWEN_WEB
+    ),
+    PTERO(
+        displayName = "Ptero (community)",
+        baseUrl = "https://ptero.pro",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to ptero.pro's free guest chat (DeepSeek V4.1 Flash, Qwen 3.7 Flash, Mercury 2.5…). " +
+            "A fresh guest identity per request. No native tools.",
+        protocol = ProviderProtocol.PTERO_GUEST
+    ),
+    LLM7(
+        displayName = "LLM7",
+        baseUrl = "https://api.llm7.io/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://token.llm7.io",
+        keyNote = "Free token at token.llm7.io; native tool calling. " +
+            "The anonymous tier (about 100k tokens a day) is too small for agent runs."
+    ),
+    MERCURY(
+        displayName = "Mercury (community)",
+        baseUrl = "https://chat.inceptionlabs.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to Inception's guest chat: Mercury 3, a very fast diffusion model. " +
+            "Uses an in-app browser when the site asks for a browser check. No native tools. May break without notice.",
+        protocol = ProviderProtocol.MERCURY_WEB
+    ),
+    UNIKEY(
+        displayName = "UniKey (community)",
+        baseUrl = "https://www.getunikey.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to getunikey.ai's anonymous trial: Claude Opus 4.8, GPT-5.6, Grok 4.3, " +
+            "DeepSeek V4, MiniMax M3, Kimi K2.7 Code. A fresh trial per request. No native tools or images. " +
+            "May break without notice.",
+        protocol = ProviderProtocol.UNIKEY_GUEST
+    ),
+    INCEPTION(
+        displayName = "Inception (Mercury)",
+        baseUrl = "https://api.inceptionlabs.ai/v1",
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
+        apiKeyUrl = "https://platform.inceptionlabs.ai/dashboard/api-keys",
+        keyNote = "Official API for Mercury 3, the diffusion model: very fast, 1M context, native tool calling. " +
+            "Has a free tier."
+    ),
+    HY3(
+        displayName = "Hy3 (Tencent, community)",
+        baseUrl = "https://tencent-hy3.hf.space",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Tencent's Hy3 (295B MoE, 256K context) through Tencent's own Hugging Face demo: no account, " +
+            "native tool calls, think level. Shared with the demo's visitors; may change without notice.",
+        protocol = ProviderProtocol.HF_SPACE
+    ),
+    CLOUDFLARE_PLAYGROUND(
+        displayName = "Cloudflare AI Playground (community)",
+        baseUrl = "https://playground.ai.cloudflare.com",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Workers AI models (Gemma 4 26B, GLM-4.7 Flash) through Cloudflare's public playground: " +
+            "no account. Rate limited per minute across all its visitors; no native tools.",
+        protocol = ProviderProtocol.CF_PLAYGROUND
+    ),
+    LAGUNA(
+        displayName = "Laguna (Poolside, community)",
+        baseUrl = "https://poolside-laguna-s-2-1.hf.space",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Poolside's Laguna S 2.1 coding model through Poolside's own Hugging Face demo: no account, " +
+            "tool calls. Answers arrive whole (the demo does not stream); shared with the demo's visitors.",
+        protocol = ProviderProtocol.HF_SPACE
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -259,7 +320,7 @@ enum class AiProvider(
          * Provider used before the user configures anything. Must be one that
          * works with no key, otherwise a fresh install cannot send a message.
          */
-        val DEFAULT = K2_HORIZON
+        val DEFAULT = MERCURY
     }
 }
 
@@ -298,27 +359,6 @@ object SeedModels {
     )
 
     /**
-     * Pollinations serves one model on the anonymous tier. Verified October
-     * 2026: `openai-fast` (GPT-OSS 20B) and it does support tool calls, which
-     * is what makes it viable as the no-setup default for an agentic editor.
-     */
-    val pollinations = listOf(
-        model("openai-fast", "GPT-OSS 20B (free, no key)", AiProvider.POLLINATIONS, 131_072)
-    )
-
-    /**
-     * Verified keyless with native tool calls, 2026-10-17. OVH also serves
-     * `gpt-oss-120b`, left out of the seed only because the id collides with
-     * the Cerebras seed (model ids are the table's primary key); a refresh
-     * still discovers it.
-     */
-    val ovhcloud = listOf(
-        model("Qwen3.5-397B-A17B", "Qwen3.5 397B (free, no key)", AiProvider.OVHCLOUD, 262_144),
-        model("Qwen3.8-27B", "Qwen3.8 27B (free, no key)", AiProvider.OVHCLOUD, 262_144),
-        model("Meta-Llama-3_3-70B-Instruct", "Llama 3.3 70B (free, no key)", AiProvider.OVHCLOUD, 131_072)
-    )
-
-    /**
      * Kilo's free pool rotates; these were live and tool-capable without a key
      * on 2026-10-17. `kilo-auto/free` is the router and the most durable id.
      */
@@ -337,14 +377,70 @@ object SeedModels {
      * live on 2026-10-17 with a real completion.
      */
     val k2Horizon = listOf(
-        model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 131_072, tools = false, thinking = true)
+        model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 524_288, tools = false, thinking = true)
+    )
+
+    /** Guest models on chat.qwen.ai, listed by its /api/models without an account (2026-10-18). */
+    val qwenWeb = listOf(
+        model("qwen:qwen3.8-max", "Qwen3.8 Max (community)", AiProvider.QWEN_WEB, 983_616, tools = false, thinking = true),
+        model("qwen:qwen3.7-plus", "Qwen3.7 Plus (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true),
+        model("qwen:qwen3.8-omni-flash", "Qwen3.8 Omni Flash (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true)
+    )
+
+    /**
+     * ptero.pro guest models. Only these two are served as themselves: the
+     * site's other ids (Mercury, GPT-OSS, Nemotron, ...) were all answered by
+     * qwen3.7-flash on 2026-10-18 ("model_used"), so listing them would be a lie.
+     */
+    val ptero = listOf(
+        model("ptero:deepseek-v4.1-flash:free", "DeepSeek V4.1 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
+        model("ptero:qwen3.7-flash:free", "Qwen 3.7 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false)
+    )
+
+    /**
+     * Inception's guest chat serves one model, Mercury 3 (a diffusion LLM,
+     * 1M context). Its reasoning effort (Instant, Low, Medium, High) is the
+     * model's reasoning setting, not a separate model ([ReasoningControls]).
+     * The recipe is NEB's (2026-10-19). The site sits behind Vercel's browser
+     * check, which a datacenter IP never passes; phones pass it in the in-app
+     * browser.
+     */
+    val mercury = listOf(
+        model("mercury:mercury-3", "Mercury 3 (community)", AiProvider.MERCURY, 1_000_000, tools = false, thinking = true)
+    )
+
+    /**
+     * getunikey.ai's anonymous trial. Each id was checked on 2026-10-22 for
+     * which model actually answers (the stream's `model` field); ids answered
+     * by a different model (Kimi K3, GLM 5.2) are left out, and "gpt-5.5" is
+     * named for what serves it. Text only: tools and images are refused.
+     */
+    val unikey = listOf(
+        model("unikey:claude-opus-4-8", "Claude Opus 4.8 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:gpt-5.5", "GPT-5.6 Terra (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:minimax/minimax-m3", "MiniMax M3 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:deepseek/deepseek-v4-pro", "DeepSeek V4 Pro (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:x-ai/grok-4.3", "Grok 4.3 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:moonshotai/kimi-k2.7-code", "Kimi K2.7 Code (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:claude-opus-4-7", "Claude Opus 4.7 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false)
+    )
+
+    /**
+     * Inception's official API (key). Windows from its public `/v1/models`
+     * (2026-10-22); Mercury 3 takes a reasoning effort.
+     */
+    val inception = listOf(
+        model("mercury-3", "Mercury 3", AiProvider.INCEPTION, 1_000_000, thinking = true),
+        model("mercury-2.5", "Mercury 2.5", AiProvider.INCEPTION, 260_000),
+        model("mercury-2", "Mercury 2", AiProvider.INCEPTION, 128_000)
     )
 
     val nvidia = listOf(
-        model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 131_072),
-        model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 131_072),
+        model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 262_144),
+        model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 262_144),
         model("openai/gpt-oss-120b", "GPT-OSS 120B", AiProvider.NVIDIA, 131_072),
-        model("deepseek-ai/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", AiProvider.NVIDIA, 163_840)
+        model("deepseek-ai/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", AiProvider.NVIDIA, 1_048_576)
     )
 
     val agnes = listOf(
@@ -356,23 +452,23 @@ object SeedModels {
     val groq = listOf(
         model("moonshotai/kimi-k2-instruct", "Kimi K2 Instruct", AiProvider.GROQ, 131_072),
         model("openai/gpt-oss-120b", "GPT-OSS 120B", AiProvider.GROQ, 131_072),
-        model("qwen/qwen3-32b", "Qwen3 32B", AiProvider.GROQ, 131_072)
+        model("qwen/qwen3.8-27b", "Qwen3.8 27B", AiProvider.GROQ, 131_072)
     )
 
+    /** Cerebras deprecated qwen-3-coder-480b; its /models lists gpt-oss-120b at 131,072 (65,536 on the free tier). */
     val cerebras = listOf(
-        model("qwen-3-coder-480b", "Qwen3 Coder 480B", AiProvider.CEREBRAS, 131_072),
         model("gpt-oss-120b", "GPT-OSS 120B", AiProvider.CEREBRAS, 131_072)
     )
 
     val mistral = listOf(
         model("devstral-medium-latest", "Devstral Medium", AiProvider.MISTRAL, 131_072),
-        model("mistral-large-latest", "Mistral Large", AiProvider.MISTRAL, 131_072)
+        model("mistral-large-latest", "Mistral Large", AiProvider.MISTRAL, 262_144)
     )
 
     val openCodeZen = listOf(
-        model("claude-sonnet-5-5", "Claude Sonnet 5.5", AiProvider.OPENCODE_ZEN, 200_000),
-        model("gpt-5.4", "GPT-5.4", AiProvider.OPENCODE_ZEN, 400_000),
-        model("qwen3.8-max", "Qwen3.8 Max", AiProvider.OPENCODE_ZEN, 262_144)
+        model("claude-sonnet-5-5", "Claude Sonnet 5.5", AiProvider.OPENCODE_ZEN, 1_000_000),
+        model("gpt-5.4", "GPT-5.4", AiProvider.OPENCODE_ZEN, 1_050_000),
+        model("qwen3.8-max", "Qwen3.8 Max", AiProvider.OPENCODE_ZEN, 983_616)
     )
 
     /**
@@ -383,8 +479,8 @@ object SeedModels {
     private val fetchedOnly = emptyList<AiModel>()
 
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
-        AiProvider.POLLINATIONS to pollinations,
-        AiProvider.OVHCLOUD to ovhcloud,
+        // OVHcloud and LLM7 need a key now; their catalogues come from /models.
+        AiProvider.OVHCLOUD to fetchedOnly,
         AiProvider.GEMINI to fetchedOnly,
         AiProvider.NVIDIA to nvidia,
         AiProvider.OPENROUTER to fetchedOnly,
@@ -395,6 +491,12 @@ object SeedModels {
         AiProvider.CEREBRAS to cerebras,
         AiProvider.MISTRAL to mistral,
         AiProvider.K2_HORIZON to k2Horizon,
+        AiProvider.QWEN_WEB to qwenWeb,
+        AiProvider.PTERO to ptero,
+        AiProvider.LLM7 to fetchedOnly,
+        AiProvider.MERCURY to mercury,
+        AiProvider.UNIKEY to unikey,
+        AiProvider.INCEPTION to inception,
         AiProvider.CUSTOM to fetchedOnly
     )
 
@@ -403,16 +505,13 @@ object SeedModels {
     val all: List<AiModel> = byProvider.values.flatten()
 
     /**
-     * The model a fresh install starts on. Chosen by measurement, 2026-10-17:
-     * the same two agent tasks (edit two files; create a page and link it
-     * from both) were run end to end on every keyless option. K2 Horizon
-     * finished each in ~3-4 s with no failed tool calls (4/4 runs, text tool
-     * mode); Kilo Auto took 10-16 s (4/4, native tools); OVH Qwen3.5 ~5 s but
-     * is paced to 2 requests/min; Pollinations hit its 30 s free limit and did
-     * not finish. K2 is a community endpoint, so the error card and
-     * [AiModels.getRecommendedModels] keep Kilo one tap away.
+     * The model a fresh install starts on: Mercury 3, at High effort. It is
+     * newer than K2 Horizon and beats it on both speed (over 1,000 tokens/s)
+     * and quality. It is a community endpoint behind a browser check, so
+     * [KeylessFallback] moves a blocked request to the next free model, and
+     * [AiModels.getRecommendedModels] keeps K2, UniKey and Kilo one tap away.
      */
-    val default: AiModel = k2Horizon.first()
+    val default: AiModel = mercury.first()
 }
 
 /**
@@ -420,7 +519,7 @@ object SeedModels {
  */
 object AiModels {
 
-    fun getModelsForProvider(provider: AiProvider): List<AiModel> = SeedModels[provider]
+    fun getModelsForProvider(provider: AiProvider): List<AiModel> = SeedModels[provider] + KeylessSeeds[provider]
 
     /**
      * Seed default for a provider, falling back to the keyless default so a
@@ -429,16 +528,18 @@ object AiModels {
     fun getDefaultModel(provider: AiProvider): AiModel =
         SeedModels[provider].firstOrNull() ?: SeedModels.default
 
-    fun getAllModels(): List<AiModel> = SeedModels.all
+    fun getAllModels(): List<AiModel> = SeedModels.all + KeylessSeeds.all
 
-    fun findModelById(modelId: String): AiModel? = SeedModels.all.find { it.id == modelId }
+    fun findModelById(modelId: String): AiModel? =
+        SeedModels.all.find { it.id == modelId } ?: KeylessSeeds.all.find { it.id == modelId }
 
     /** Models worth suggesting for code work, best-first. */
     fun getRecommendedModels(): List<AiModel> = listOf(
         SeedModels.default,
+        SeedModels.unikey.first(),
+        SeedModels.k2Horizon.first(),
         SeedModels.kilo.first(),
-        SeedModels.ovhcloud.first(),
-        SeedModels.pollinations.first(),
+        KeylessSeeds.hy3.first(),
         SeedModels.cerebras.first(),
         SeedModels.groq.first(),
         SeedModels.nvidia.first()

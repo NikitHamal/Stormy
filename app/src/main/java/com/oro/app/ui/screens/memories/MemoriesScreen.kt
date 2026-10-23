@@ -66,7 +66,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,11 +98,27 @@ fun MemoriesScreen(
     onBackClick: () -> Unit,
     viewModel: MemoriesViewModel = viewModel(factory = MemoriesViewModel.Factory)
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf<MemoryItemState?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var searchActive by remember { mutableStateOf(false) }
+
+    // Memoised: the search filter scans every memory's key and value, and it
+    // used to run inline on every recomposition of the screen (each keystroke
+    // anywhere, each FAB/dialog toggle), not just when its inputs changed.
+    val filteredMemories = remember(uiState.projectMemories, searchQuery) {
+        if (searchQuery.isBlank()) {
+            uiState.projectMemories
+        } else {
+            uiState.projectMemories.filter { projectMemory ->
+                projectMemory.memories.any { memory ->
+                    memory.key.contains(searchQuery, ignoreCase = true) ||
+                        memory.value.contains(searchQuery, ignoreCase = true)
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -185,13 +201,7 @@ fun MemoriesScreen(
                 }
                 else -> {
                     MemoriesList(
-                        projectMemories = uiState.projectMemories.filter { projectMemory ->
-                            if (searchQuery.isBlank()) true
-                            else projectMemory.memories.any { memory ->
-                                memory.key.contains(searchQuery, ignoreCase = true) ||
-                                memory.value.contains(searchQuery, ignoreCase = true)
-                            }
-                        },
+                        projectMemories = filteredMemories,
                         selectedProject = uiState.selectedProject,
                         onProjectSelect = { viewModel.selectProject(it) },
                         onEditMemory = { projectId, memory ->

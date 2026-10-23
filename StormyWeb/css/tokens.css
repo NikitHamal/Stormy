@@ -1,0 +1,51 @@
+/* Oro design tokens, mirrored from core/designsystem (Color.kt, Type.kt, Tokens.kt, Shape.kt).
+   Change a value here and in Kotlin together. */
+@font-face { font-family: 'Poppins'; font-weight: 400; src: url('../assets/fonts/Poppins-Regular.ttf'); }
+@font-face { font-family: 'Poppins'; font-weight: 500; src: url('../assets/fonts/Poppins-Medium.ttf'); }
+@font-face { font-family: 'Poppins'; font-weight: 600; src: url('../assets/fonts/Poppins-SemiBold.ttf'); }
+@font-face { font-family: 'Poppins'; font-weight: 700; src: url('../assets/fonts/Poppins-Bold.ttf'); }
+@font-face { font-family: 'JetBrains Mono'; font-weight: 100 800; src: url('../assets/fonts/JetBrainsMono.ttf'); }
+
+:root, [data-theme="light"] {
+  --primary: #12151C; --on-primary: #FFFFFF; --primary-container: #E1E4E9; --on-primary-container: #0E1117;
+  --secondary: #4E5666; --secondary-container: #EDEFF2; --on-secondary-container: #181C25;
+  --error: #D93F3F; --on-error: #FFFFFF; --error-container: #FBE3E3; --on-error-container: #5C1414;
+  --background: #F7F8FA; --on-background: #0E1117; --surface: #F7F8FA; --on-surface: #0E1117;
+  --surface-variant: #EDEFF2; --on-surface-variant: #5A6273; --outline: #7C8494; --outline-variant: #D3D7DE;
+  --inverse-surface: #181C25; --inverse-on-surface: #EDEFF2; --inverse-primary: #D9DDE4;
+  --sc-lowest: #FFFFFF; --sc-low: #F0F2F5; --sc: #E9ECF0; --sc-high: #E1E4E9; --sc-highest: #D6DAE1;
+  --user-bubble: #12151C; --user-text: #F2F4F7; --scrim: rgba(14,17,23,.32);
+  --orobi-skin: #1A1F4A; --orobi-eye: #FDDFC6;
+}
+[data-theme="dark"] {
+  --primary: #F2F4F7; --on-primary: #0B0D12; --primary-container: #2A303C; --on-primary-container: #E8ECF2;
+  --secondary: #9AA3B2; --secondary-container: #222834; --on-secondary-container: #E1E5EC;
+  --error: #FF6B6B; --on-error: #3D0B0B; --error-container: #5C1717; --on-error-container: #FFDADA;
+  --background: #0B0D12; --on-background: #E8ECF2; --surface: #0B0D12; --on-surface: #E8ECF2;
+  --surface-variant: #222834; --on-surface-variant: #9AA3B2; --outline: #6B7486; --outline-variant: #2A303C;
+  --inverse-surface: #E8ECF2; --inverse-on-surface: #181C25; --inverse-primary: #3A4150;
+  --sc-lowest: #06080B; --sc-low: #12151C; --sc: #181C25; --sc-high: #222834; --sc-highest: #2B3240;
+  --user-bubble: #E8ECF2; --user-text: #0B0D12; --scrim: rgba(0,0,0,.55);
+  --orobi-skin: #FDDFC6; --orobi-eye: #1A1F4A;
+}
+:root {
+  --peach: #FDDFC6; --magenta: #F800F8; --ink: #1A1F4A; --apricot: #FFB38A; --success: #3DDC97;
+  /* Space */ --xxs: 2px; --xs: 4px; --sm: 8px; --md: 12px; --lg: 16px; --xl: 24px; --xxl: 32px;
+  /* Corners */ --r-tiny: 4px; --r-small: 8px; --r-medium: 12px; --r-large: 16px; --r-xlarge: 24px; --r-xxl: 28px; --r-pill: 999px;
+  /* Sizes */ --touch: 48px; --icon-s: 16px; --icon: 20px; --icon-l: 24px; --avatar: 32px; --avatar-l: 40px;
+  --font: 'Poppins', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --emph: cubic-bezier(.05,.7,.1,1); --std: cubic-bezier(.2,0,0,1);
+}
+/* Type scale (Type.kt): size / line height / tracking */
+.t-display-s { font: 400 36px/44px var(--font); } .t-headline-s { font: 500 24px/32px var(--font); }
+.t-title-l { font: 600 22px/28px var(--font); } .t-title-l-e { font: 700 22px/28px var(--font); }
+.t-title-m { font: 500 16px/24px var(--font); letter-spacing: .15px; } .t-title-m-e { font: 600 16px/24px var(--font); letter-spacing: .1px; }
+.t-title-s { font: 500 14px/20px var(--font); letter-spacing: .1px; } .t-title-s-e { font: 600 14px/20px var(--font); }
+.t-body-l { font: 400 16px/24px var(--font); letter-spacing: .5px; } .t-body-l-e { font: 500 16px/24px var(--font); letter-spacing: .4px; }
+.t-body-m { font: 400 14px/20px var(--font); letter-spacing: .25px; } .t-body-m-e { font: 500 14px/20px var(--font); }
+.t-body-s { font: 400 12px/16px var(--font); letter-spacing: .4px; }
+.t-label-l { font: 500 14px/20px var(--font); letter-spacing: .1px; } .t-label-l-e { font: 600 14px/20px var(--font); }
+.t-label-m { font: 500 12px/16px var(--font); letter-spacing: .5px; } .t-label-m-e { font: 600 12px/16px var(--font); }
+.t-label-s { font: 500 11px/16px var(--font); letter-spacing: .5px; } .t-label-s-e { font: 600 11px/16px var(--font); letter-spacing: 1.2px; text-transform: uppercase; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--on-surface-variant); } .err { color: var(--error); } .primary { color: var(--primary); }

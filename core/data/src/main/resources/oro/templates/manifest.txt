@@ -1,0 +1,25 @@
+# One file per line: <template>/<path>. Read by StudioTemplates.
+arcade/css/site.css
+arcade/index.html
+arcade/js/game.js
+blog/css/site.css
+blog/index.html
+blog/js/site.js
+blog/post.html
+dashboard/css/site.css
+dashboard/db.json
+dashboard/index.html
+dashboard/js/site.js
+docs/css/site.css
+docs/index.html
+docs/js/site.js
+landing/css/site.css
+landing/index.html
+landing/js/site.js
+portfolio/css/site.css
+portfolio/index.html
+portfolio/js/site.js
+store/css/site.css
+store/db.json
+store/index.html
+store/js/site.js

@@ -29,6 +29,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import com.oro.app.ui.theme.OroTheme
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,9 +87,26 @@ fun SoraCodeEditorView(
     var lastExternalContent by remember { mutableStateOf(content) }
     var isUpdatingFromEditor by remember { mutableStateOf(false) }
 
-    // Track text selection for AI edit button
+    // The editor's listeners are installed once, in the AndroidView factory,
+    // so they must read the *current* callback rather than the one captured
+    // on first composition.
+    val currentOnContentChange by rememberUpdatedState(onContentChange)
+
+    // Lite mode turns off the cursor's movement animation, which otherwise
+    // animates on every keystroke and every tap.
+    val liteMode = OroTheme.liteMode
+
+    // What has already been applied to the editor, so the settings effects
+    // below do not redo work the factory just did. Re-setting the language in
+    // particular restarts syntax analysis of the whole file, and it used to
+    // run (with two colour-scheme rebuilds) right after every file opened.
+    val applied = remember { AppliedEditorConfig() }
+
+    // Track text selection for AI edit button. Only the bounds are tracked;
+    // the selected text is extracted when the button is pressed. Copying it
+    // on every SelectionChangeEvent meant a substring of the whole selection
+    // per drag step -- the entire file, for select-all on a big file.
     var hasSelection by remember { mutableStateOf(false) }
-    var selectedText by remember { mutableStateOf("") }
     var selectionStartLine by remember { mutableStateOf(0) }
     var selectionEndLine by remember { mutableStateOf(0) }
 
@@ -107,34 +126,40 @@ fun SoraCodeEditorView(
         isUpdatingFromEditor = false
     }
 
-    // Update editor settings when they change
-    LaunchedEffect(showLineNumbers, wordWrap, fontSize, editorInstance) {
+    // Update editor settings when they change. Each setter is skipped when
+    // the value is already in place: setWordwrap / setTextSize re-layout the
+    // whole document.
+    LaunchedEffect(showLineNumbers, wordWrap, fontSize, liteMode, editorInstance) {
         editorInstance?.let { editor ->
             withContext(Dispatchers.Main) {
-                editor.isLineNumberEnabled = showLineNumbers
-                editor.isWordwrap = wordWrap
-                editor.setTextSize(fontSize)
-                // Disable auto-completion feature
-                editor.getComponent(EditorAutoCompletion::class.java)?.isEnabled = false
+                if (editor.isLineNumberEnabled != showLineNumbers) {
+                    editor.isLineNumberEnabled = showLineNumbers
+                }
+                if (editor.isWordwrap != wordWrap) editor.isWordwrap = wordWrap
+                if (applied.fontSize != fontSize) {
+                    editor.setTextSize(fontSize)
+                    applied.fontSize = fontSize
+                }
+                if (editor.isCursorAnimationEnabled == liteMode) {
+                    editor.isCursorAnimationEnabled = !liteMode
+                }
             }
         }
     }
 
-    // Update theme when dark mode changes
-    LaunchedEffect(isDarkTheme, editorInstance) {
-        editorInstance?.let { editor ->
-            withContext(Dispatchers.Main) {
-                editor.colorScheme = createColorScheme(isDarkTheme, fileExtension)
-            }
-        }
-    }
-
-    // Update language/colors when file extension changes
+    // Update language/colours when the file type or theme changes. (There
+    // were two effects here, both rebuilding the colour scheme on each open.)
     LaunchedEffect(fileExtension, editorInstance, isDarkTheme) {
         editorInstance?.let { editor ->
             withContext(Dispatchers.Main) {
-                editor.setEditorLanguage(SimpleLanguageFactory.getLanguage(fileExtension))
-                editor.colorScheme = createColorScheme(isDarkTheme, fileExtension)
+                if (applied.extension != fileExtension) {
+                    editor.setEditorLanguage(SimpleLanguageFactory.getLanguage(fileExtension))
+                }
+                if (applied.extension != fileExtension || applied.darkTheme != isDarkTheme) {
+                    editor.colorScheme = createColorScheme(isDarkTheme, fileExtension)
+                }
+                applied.extension = fileExtension
+                applied.darkTheme = isDarkTheme
             }
         }
     }
@@ -144,7 +169,11 @@ fun SoraCodeEditorView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 createCodeEditor(ctx, isDarkTheme, fileExtension).also { editor ->
-                    editorInstance = editor
+                    // Recorded before editorInstance is published, so the
+                    // effects keyed on it see the factory's work as done.
+                    applied.extension = fileExtension
+                    applied.darkTheme = isDarkTheme
+                    applied.fontSize = fontSize
 
                     // Set initial content
                     editor.setText(content)
@@ -154,16 +183,22 @@ fun SoraCodeEditorView(
                     editor.isLineNumberEnabled = showLineNumbers
                     editor.isWordwrap = wordWrap
                     editor.setTextSize(fontSize)
+                    editor.isCursorAnimationEnabled = !liteMode
                     // Auto-completion is disabled
                     editor.getComponent(EditorAutoCompletion::class.java)?.isEnabled = false
 
-                    // Set up content change listener
-                    editor.subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
+                    editorInstance = editor
+
+                    // Set up content change listener. Pushed synchronously on
+                    // purpose: this view is reused across file switches and the
+                    // view model writes into whichever file is current, so a
+                    // deferred push could land in the wrong file.
+                    editor.subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
                         val newText = editor.text.toString()
                         if (newText != lastExternalContent) {
                             isUpdatingFromEditor = true
                             lastExternalContent = newText
-                            onContentChange(newText)
+                            currentOnContentChange(newText)
                         }
                     }
 
@@ -171,17 +206,12 @@ fun SoraCodeEditorView(
                     if (onAiEditRequest != null) {
                         editor.subscribeEvent(SelectionChangeEvent::class.java) { event, _ ->
                             val cursor = event.editor.cursor
-                            if (cursor.isSelected) {
+                            if (cursor.isSelected && cursor.left != cursor.right) {
                                 hasSelection = true
-                                selectedText = event.editor.text.subSequence(
-                                    cursor.left,
-                                    cursor.right
-                                ).toString()
                                 selectionStartLine = cursor.leftLine
                                 selectionEndLine = cursor.rightLine
                             } else {
                                 hasSelection = false
-                                selectedText = ""
                             }
                         }
                     }
@@ -194,7 +224,7 @@ fun SoraCodeEditorView(
 
         // Floating AI Edit button - appears when text is selected
         AnimatedVisibility(
-            visible = hasSelection && onAiEditRequest != null && selectedText.isNotEmpty(),
+            visible = hasSelection && onAiEditRequest != null,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut() + scaleOut(),
             modifier = Modifier
@@ -203,7 +233,15 @@ fun SoraCodeEditorView(
         ) {
             IconButton(
                 onClick = {
-                    onAiEditRequest?.invoke(
+                    val selectedText = editorInstance?.let { editor ->
+                        val cursor = editor.cursor
+                        if (cursor.isSelected) {
+                            editor.text.subSequence(cursor.left, cursor.right).toString()
+                        } else {
+                            null
+                        }
+                    }.orEmpty()
+                    if (selectedText.isNotEmpty()) onAiEditRequest?.invoke(
                         AiCodeEditRequest(
                             selectedText = selectedText,
                             startLine = selectionStartLine,
@@ -214,7 +252,6 @@ fun SoraCodeEditorView(
                     )
                     // Clear selection state after triggering
                     hasSelection = false
-                    selectedText = ""
                 },
                 colors = IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -237,6 +274,13 @@ fun SoraCodeEditorView(
             editorInstance = null
         }
     }
+}
+
+/** Editor settings already applied to the view; see SoraCodeEditorView. */
+private class AppliedEditorConfig {
+    var extension: String? = null
+    var darkTheme: Boolean? = null
+    var fontSize: Float? = null
 }
 
 /**

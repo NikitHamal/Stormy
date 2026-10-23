@@ -99,7 +99,8 @@ export default {
     if (wp < 1) {
       ph.set({ cx: pg.cx + offA(F.main), cy: pg.cy, h: pg.h });
       const k = ph.k;
-      const maxScroll = Math.max(0, 940 - (ph.screenH - 84));
+      // Scroll from the hero down to the work and the call to action.
+      const maxScroll = Math.max(0, 1400 - (ph.screenH - 84) - 120);
       ph.content({
         bt: t - T.build, skelOn: 1 - ease.std(prog(t, 0, 0.25)),
         scroll: maxScroll * ease.inOut(prog(t, ...T.scroll)), live: t >= T.live ? 1 : 0, pingT: t - T.live,

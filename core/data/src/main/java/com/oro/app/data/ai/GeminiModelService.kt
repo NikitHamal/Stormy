@@ -156,11 +156,8 @@ class GeminiModelService {
             reportedContextLength = reported,
             supportsStreaming = true,
             supportsToolCalls = true,
-            isThinkingModel = isThinkingModel,
-            // Gemini exposes a thinking budget from 2.5 onwards, except on the
-            // lite tiers.
-            supportsReasoningEffort = versionNumber(lowerId) >= 2.5 &&
-                !lowerId.contains("flash-lite")
+            // The thinking level comes from ReasoningControls (provider + id).
+            isThinkingModel = isThinkingModel
         )
     }
 

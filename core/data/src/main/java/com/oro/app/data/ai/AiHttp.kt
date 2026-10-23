@@ -98,7 +98,12 @@ sealed class StreamEvent {
     ) : StreamEvent()
 
     /** Token usage reported by the provider, when it reports any. */
-    data class Usage(val promptTokens: Int, val completionTokens: Int) : StreamEvent()
+    data class Usage(
+        val promptTokens: Int,
+        val completionTokens: Int,
+        /** Prompt tokens served from the provider's prompt cache (already included in [promptTokens]). */
+        val cachedTokens: Int = 0
+    ) : StreamEvent()
     data object Completed : StreamEvent()
 
     /** Unparsed SSE payload, forwarded for the debug log. */

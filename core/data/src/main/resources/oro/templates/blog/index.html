@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Field Notes · Essays on making things slowly</title>
+  <meta name="description" content="Field Notes is a weekly journal about craft, focus and building small things that last.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="oro-ui/oro.css">
+  <link rel="stylesheet" href="css/site.css">
+  <script src="oro-ui/oro.js" defer></script>
+  <script src="js/site.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="index.html">Field Notes</a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="#latest">Essays</a>
+        <a href="#topics">Topics</a>
+        <a href="#subscribe">Newsletter</a>
+      </nav>
+      <div class="row">
+        <button class="btn btn-ghost btn-icon" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+        <button class="btn btn-ghost btn-icon nav-toggle" aria-label="Open menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="container">
+    <section class="masthead reveal">
+      <p class="kicker">Issue 112 · Spring 2026</p>
+      <h1>Essays on making things <em>slowly</em>.</h1>
+      <p class="lead">A weekly journal about craft, focus and building small things that last. Read by 41,000 people who’d rather do one thing well.</p>
+    </section>
+
+    <a class="feature reveal" href="post.html">
+      <div class="feature-art" aria-hidden="true"><span class="sun"></span><span class="hill h1"></span><span class="hill h2"></span></div>
+      <div class="feature-body">
+        <span class="tag">Craft</span>
+        <h2>The case for unfinished notebooks</h2>
+        <p>Why the pages you abandon teach you more than the ones you finish — and how to keep a working notebook you actually return to.</p>
+        <p class="byline"><span class="avatar" aria-hidden="true">EO</span> Elena Ortiz · 9 min read</p>
+      </div>
+    </a>
+
+    <section id="topics" class="topics" aria-label="Topics">
+      <div class="filters" role="group" aria-label="Filter essays by topic">
+        <button class="chip" aria-pressed="true" data-topic="all">All</button>
+        <button class="chip" aria-pressed="false" data-topic="craft">Craft</button>
+        <button class="chip" aria-pressed="false" data-topic="focus">Focus</button>
+        <button class="chip" aria-pressed="false" data-topic="tools">Tools</button>
+      </div>
+      <label class="search"><span class="sr">Search essays</span>
+        <input class="input" type="search" placeholder="Search essays" id="search">
+      </label>
+    </section>
+
+    <section id="latest" class="posts" aria-label="Latest essays">
+      <article class="post reveal" data-topic="focus">
+        <a href="post.html">
+          <span class="tag">Focus</span>
+          <h3>Two hours, one window</h3>
+          <p>A month of working with a single app open taught me what my calendar never could.</p>
+          <span class="meta">Mar 12 · 6 min</span>
+        </a>
+      </article>
+      <article class="post reveal" data-topic="tools">
+        <a href="post.html">
+          <span class="tag">Tools</span>
+          <h3>The pencil that outlived three laptops</h3>
+          <p>On tools that ask for nothing, and the strange loyalty they earn.</p>
+          <span class="meta">Mar 5 · 4 min</span>
+        </a>
+      </article>
+      <article class="post reveal" data-topic="craft">
+        <a href="post.html">
+          <span class="tag">Craft</span>
+          <h3>Sanding is a form of listening</h3>
+          <p>What a furniture maker in Kyoto taught me about finishing software.</p>
+          <span class="meta">Feb 26 · 8 min</span>
+        </a>
+      </article>
+      <article class="post reveal" data-topic="focus">
+        <a href="post.html">
+          <span class="tag">Focus</span>
+          <h3>Boredom is a feature</h3>
+          <p>The best ideas I had last year all arrived while waiting for a kettle.</p>
+          <span class="meta">Feb 19 · 5 min</span>
+        </a>
+      </article>
+      <article class="post reveal" data-topic="craft">
+        <a href="post.html">
+          <span class="tag">Craft</span>
+          <h3>Make the boring version first</h3>
+          <p>Every lasting thing I’ve built started out embarrassingly plain.</p>
+          <span class="meta">Feb 12 · 7 min</span>
+        </a>
+      </article>
+      <article class="post reveal" data-topic="tools">
+        <a href="post.html">
+          <span class="tag">Tools</span>
+          <h3>A drawer of index cards</h3>
+          <p>The smallest database I’ve ever loved, and why it scales better than it should.</p>
+          <span class="meta">Feb 5 · 6 min</span>
+        </a>
+      </article>
+    </section>
+    <p class="empty" id="no-posts" hidden>No essays match that search.</p>
+
+    <section id="subscribe" class="subscribe reveal">
+      <div>
+        <h2>One essay, every Sunday.</h2>
+        <p>No tracking, no noise. Unsubscribe in one click.</p>
+      </div>
+      <form class="sub-form" novalidate>
+        <label class="sr" for="sub-email">Email address</label>
+        <input class="input" id="sub-email" type="email" placeholder="you@example.com" autocomplete="email" required>
+        <button class="btn btn-primary" type="submit">Subscribe</button>
+        <p class="error" id="sub-error" hidden>That email doesn’t look right.</p>
+      </form>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <p>© 2026 Field Notes. Written by hand in Porto.</p>
+    <nav class="row" aria-label="Footer"><a href="#">RSS</a><a href="#">Archive</a><a href="#">About</a></nav>
+  </footer>
+</body>
+</html>

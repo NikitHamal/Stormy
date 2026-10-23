@@ -57,6 +57,10 @@ interface ProjectDao {
     @Query("UPDATE projects SET lastUsedModelId = :modelId WHERE id = :projectId")
     suspend fun updateLastUsedModelId(projectId: String, modelId: String?)
 
+    /** Move every project on model [from] to [to]; returns how many changed. */
+    @Query("UPDATE projects SET lastUsedModelId = :to WHERE lastUsedModelId = :from")
+    suspend fun replaceLastUsedModelId(from: String, to: String): Int
+
     @Query("SELECT * FROM projects ORDER BY isPinned DESC, lastOpenedAt DESC")
     suspend fun getAllProjectsSync(): List<ProjectEntity>
 

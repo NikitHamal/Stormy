@@ -68,6 +68,26 @@
 # Keep ViewModelProvider.Factory implementations
 -keep class * implements androidx.lifecycle.ViewModelProvider$Factory { *; }
 
-# Keep Git-related classes that may be instantiated via Factory pattern
--keep class com.oro.app.ui.screens.git.** { *; }
+# Git data layer: GitHub API models are (de)serialized and JGit callbacks are
+# wired by name. The git *UI* package is deliberately not kept wholesale any
+# more: it is ~3k lines of composables, and a blanket -keep stopped R8 from
+# inlining/optimizing them. Its ViewModels are covered by the rules above and
+# its factories are plain code, not reflection.
 -keep class com.oro.app.data.git.** { *; }
+
+# WebView bridges (PreviewActivity's inspector interface). Methods annotated
+# @JavascriptInterface are only ever called from JavaScript, so R8 sees them as
+# unused and would strip or rename them.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Release builds: drop verbose/debug logging calls entirely (R8 removes the
+# call and the string building feeding it). Warnings and errors are kept.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+}
+
+# Whistle JNI bridge
+-keep class com.oro.app.voice.WhistleNative { *; }

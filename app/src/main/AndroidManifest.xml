@@ -4,6 +4,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Background agent runs: keep-alive notification and run updates. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Voice dictation in the prompt bar. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Device agent quick actions: set alarms and timers through the Clock app's intents. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!-- Storage permissions for Oro/Projects directory -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -14,6 +22,22 @@
     <!-- For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE to write to shared storage -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+
+    <!-- Android 11+ package visibility: find the system speech recogniser. -->
+    <!-- Device agent: find launchable apps by name without QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
 
     <application
         android:name=".OroApplication"
@@ -54,6 +78,51 @@
             android:exported="false"
             android:theme="@style/Theme.Oro"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <activity
+            android:name=".ui.screens.mcp.McpOAuthActivity"
+            android:exported="true"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="oro-mcp" android:host="callback" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".agent.AgentRunService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Device agent: Orobi operates the phone through accessibility. -->
+        <service
+            android:name=".device.OroAccessibilityService"
+            android:exported="true"
+            android:label="Oro Device Agent"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/oro_accessibility_service" />
+        </service>
+
+        <!-- Device agent: Notification access lets it reach media sessions (exact
+             seeking, play/pause, what is playing). It never reads notifications. -->
+        <service
+            android:name=".device.OroNotificationListener"
+            android:exported="true"
+            android:label="Oro Device Agent"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- FileProvider for sharing files securely -->
         <provider

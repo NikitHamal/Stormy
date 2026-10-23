@@ -45,6 +45,10 @@ interface AiModelDao {
     @Query("DELETE FROM ai_models WHERE id = :id")
     suspend fun deleteModelById(id: String)
 
+    /** Correct a seeded row's window when the seed catalogue's figure changes. */
+    @Query("UPDATE ai_models SET reportedContextLength = :context, contextLength = :context WHERE id = :id AND isCustom = 0")
+    suspend fun updateSeedContext(id: String, context: Int)
+
     /**
      * Bulk enable/disable. One statement rather than reading every row,
      * mapping it and writing it back -- with a few hundred models from a
@@ -64,6 +68,16 @@ interface AiModelDao {
 
     @Query("DELETE FROM ai_models WHERE provider = :provider AND isCustom = 0")
     suspend fun deleteModelsByProvider(provider: String)
+
+    /** Fetched (not hand-added) models whose id starts with [prefix]. */
+    @Query("DELETE FROM ai_models WHERE substr(id, 1, length(:prefix)) = :prefix AND isCustom = 0")
+    suspend fun deleteFetchedModelsWithPrefix(prefix: String)
+
+    @Query("DELETE FROM ai_models WHERE substr(id, 1, length(:prefix)) = :prefix")
+    suspend fun deleteAllModelsWithPrefix(prefix: String)
+
+    @Query("SELECT * FROM ai_models WHERE substr(id, 1, length(:prefix)) = :prefix ORDER BY isCustom DESC, name ASC")
+    fun observeModelsWithPrefix(prefix: String): Flow<List<AiModelEntity>>
 
     @Query("UPDATE ai_models SET isEnabled = :isEnabled, updatedAt = :timestamp WHERE id = :id")
     suspend fun setModelEnabled(id: String, isEnabled: Boolean, timestamp: Long = System.currentTimeMillis())

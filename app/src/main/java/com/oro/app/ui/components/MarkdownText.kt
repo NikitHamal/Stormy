@@ -110,20 +110,11 @@ private fun MarkdownTextBlock(
 ) {
     val context = LocalContext.current
 
-    // Load Poppins typeface
-    val poppinsTypeface = remember(context) {
-        ResourcesCompat.getFont(context, R.font.poppins_regular_static)
-    }
-
-    val markwon = remember(context, textColor, linkColor) {
-        Markwon.builder(context)
-            .usePlugin(HtmlPlugin.create())
-            .usePlugin(LinkifyPlugin.create())
-            .usePlugin(StrikethroughPlugin.create())
-            .usePlugin(TablePlugin.create(context))
-            .usePlugin(TaskListPlugin.create(context))
-            .build()
-    }
+    // Shared across every block of every message: building a Markwon with the
+    // table/task-list/HTML plugins is far from free, and it used to happen
+    // once per text block, i.e. several times per chat message.
+    val poppinsTypeface = remember(context) { MarkwonCache.typeface(context) }
+    val markwon = remember(context) { MarkwonCache.full(context) }
 
     val spanned = remember(text, markwon) {
         markwon.toMarkdown(text)
@@ -141,13 +132,85 @@ private fun MarkdownTextBlock(
             }
         },
         update = { textView ->
-            textView.setTextColor(textColor.toArgb())
-            textView.setLinkTextColor(linkColor.toArgb())
-            textView.typeface = poppinsTypeface ?: Typeface.DEFAULT
-            markwon.setParsedMarkdown(textView, spanned)
+            textView.applyMarkdown(markwon, spanned, textColor, linkColor, poppinsTypeface)
         },
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+/**
+ * Pushes state into the TextView only when it changed. AndroidView runs
+ * `update` on every recomposition of the caller (each streamed token re-runs
+ * it for every visible message), and setParsedMarkdown/setTypeface each force
+ * a full text re-layout even when handed the same value.
+ */
+private fun TextView.applyMarkdown(
+    markwon: Markwon,
+    spanned: android.text.Spanned,
+    textColor: Color,
+    linkColor: Color,
+    typeface: Typeface?
+) {
+    val text = textColor.toArgb()
+    if (currentTextColor != text) setTextColor(text)
+    val link = linkColor.toArgb()
+    if (linkTextColors?.defaultColor != link) setLinkTextColor(link)
+    val face = typeface ?: Typeface.DEFAULT
+    if (this.typeface !== face) this.typeface = face
+    // The view's plain tag is ours: these TextViews are created and owned
+    // solely by the AndroidView factories in this file.
+    if (tag !== spanned) {
+        tag = spanned
+        markwon.setParsedMarkdown(this, spanned)
+    }
+}
+
+/**
+ * Process-wide Markwon instances and the body typeface. Built from the
+ * application context, so holding them in an object leaks no activity.
+ */
+private object MarkwonCache {
+    @Volatile private var fullInstance: Markwon? = null
+    @Volatile private var simpleInstance: Markwon? = null
+    @Volatile private var poppins: Typeface? = null
+    @Volatile private var poppinsLoaded = false
+
+    fun full(context: android.content.Context): Markwon =
+        fullInstance ?: synchronized(this) {
+            fullInstance ?: run {
+                val app = context.applicationContext
+                Markwon.builder(app)
+                    .usePlugin(HtmlPlugin.create())
+                    .usePlugin(LinkifyPlugin.create())
+                    .usePlugin(StrikethroughPlugin.create())
+                    .usePlugin(TablePlugin.create(app))
+                    .usePlugin(TaskListPlugin.create(app))
+                    .build()
+                    .also { fullInstance = it }
+            }
+        }
+
+    fun simple(context: android.content.Context): Markwon =
+        simpleInstance ?: synchronized(this) {
+            simpleInstance ?: Markwon.builder(context.applicationContext)
+                .usePlugin(LinkifyPlugin.create())
+                .usePlugin(StrikethroughPlugin.create())
+                .build()
+                .also { simpleInstance = it }
+        }
+
+    fun typeface(context: android.content.Context): Typeface? {
+        if (poppinsLoaded) return poppins
+        return synchronized(this) {
+            if (!poppinsLoaded) {
+                poppins = runCatching {
+                    ResourcesCompat.getFont(context.applicationContext, R.font.poppins_regular_static)
+                }.getOrNull()
+                poppinsLoaded = true
+            }
+            poppins
+        }
+    }
 }
 
 /**
@@ -263,16 +326,18 @@ private sealed class MarkdownBlock {
     data class InlineCode(val code: String) : MarkdownBlock()
 }
 
+/** Compiled once; it used to be recompiled for every message parsed. */
+private val CodeBlockPattern = Regex("```(\\w*)\\n([\\s\\S]*?)```")
+
 /**
  * Parse markdown content to extract code blocks separately
  * This allows us to render code blocks with custom styling
  */
 private fun parseMarkdownContent(markdown: String): List<MarkdownBlock> {
     val blocks = mutableListOf<MarkdownBlock>()
-    val codeBlockPattern = Regex("```(\\w*)\\n([\\s\\S]*?)```")
 
     var lastEnd = 0
-    val matches = codeBlockPattern.findAll(markdown)
+    val matches = CodeBlockPattern.findAll(markdown)
 
     for (match in matches) {
         // Add text before code block
@@ -321,17 +386,8 @@ fun SimpleMarkdownText(
 ) {
     val context = LocalContext.current
 
-    // Load Poppins typeface
-    val poppinsTypeface = remember(context) {
-        ResourcesCompat.getFont(context, R.font.poppins_regular_static)
-    }
-
-    val markwon = remember(context) {
-        Markwon.builder(context)
-            .usePlugin(LinkifyPlugin.create())
-            .usePlugin(StrikethroughPlugin.create())
-            .build()
-    }
+    val poppinsTypeface = remember(context) { MarkwonCache.typeface(context) }
+    val markwon = remember(context) { MarkwonCache.simple(context) }
 
     val spanned = remember(markdown, markwon) {
         markwon.toMarkdown(markdown)
@@ -349,10 +405,7 @@ fun SimpleMarkdownText(
             }
         },
         update = { textView ->
-            textView.setTextColor(textColor.toArgb())
-            textView.setLinkTextColor(linkColor.toArgb())
-            textView.typeface = poppinsTypeface ?: Typeface.DEFAULT
-            markwon.setParsedMarkdown(textView, spanned)
+            textView.applyMarkdown(markwon, spanned, textColor, linkColor, poppinsTypeface)
         },
         modifier = modifier
     )

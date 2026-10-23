@@ -22,6 +22,13 @@ android {
     }
 }
 
+composeCompiler {
+    // Same stability declarations as :app; see compose-stability.conf.
+    stabilityConfigurationFiles.add(
+        rootProject.layout.projectDirectory.file("compose-stability.conf")
+    )
+}
+
 dependencies {
     api(project(":core:common"))
     implementation(libs.androidx.core.ktx)

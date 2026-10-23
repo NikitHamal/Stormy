@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -37,6 +38,20 @@ class DirectEditService(
 ) {
     private val _status = MutableStateFlow<DirectEditStatus>(DirectEditStatus.Idle)
     val status: StateFlow<DirectEditStatus> = _status.asStateFlow()
+
+    /**
+     * The page being edited (its location.pathname). Style, text and image
+     * writes go to that page and the stylesheet it links, rather than always
+     * to index.html and whichever CSS file a folder walk finds first.
+     */
+    @Volatile
+    var pagePath: String? = null
+
+    /** One write to a file, kept so it can be undone while the file still holds it. */
+    private data class Snapshot(val file: File, val before: String, val after: String)
+    private val history = ArrayDeque<Snapshot>()
+    private val _canUndo = MutableStateFlow(false)
+    val canUndo: StateFlow<Boolean> = _canUndo.asStateFlow()
 
     /**
      * One debounce job per (selector, property).
@@ -104,32 +119,30 @@ class DirectEditService(
             } catch (e: Exception) {
                 _status.value = DirectEditStatus.Error(e.message ?: "Failed to apply style")
             } finally {
-                debouncedJobs.remove(key)
+                // A newer edit to the same property may own the key by now.
+                if (debouncedJobs[key] === coroutineContext[Job]) debouncedJobs.remove(key)
                 onComplete()
             }
         }
     }
 
     /**
-     * Apply a text content change directly to HTML file
+     * Apply a text change: shown in the page at once, then written to the one
+     * place in the page's source the text came from (see [SourceTextEdit]).
+     * If it can't be written, the page is put back so it never shows an
+     * edit that isn't in the file.
      */
     fun applyTextChange(
         request: TextChangeRequest,
         webView: WebView?,
         onComplete: () -> Unit
     ) {
-        // Apply live preview immediately
         scope.launch {
-            if (!ensureSingleTarget(webView, request.selector)) {
-                onComplete()
-                return@launch
-            }
-            webView?.let { wv ->
-                applyLiveTextUpdate(wv, request.selector, request.newText)
+            if (webView != null && countMatches(webView, request.selector) == 1) {
+                LivePreviewEditor.applyOwnText(webView, request.selector, request.newText)
             }
         }
 
-        // Write to file
         val key = "${request.selector}|#text"
         debouncedJobs.remove(key)?.cancel()
         debouncedJobs[key] = scope.launch {
@@ -145,11 +158,15 @@ class DirectEditService(
                 if (result.isSuccess) {
                     _status.value = DirectEditStatus.Success("Text updated")
                 } else {
+                    if (webView != null && countMatches(webView, request.selector) == 1) {
+                        LivePreviewEditor.applyOwnText(webView, request.selector, request.oldText)
+                    }
                     _status.value = DirectEditStatus.Error(result.exceptionOrNull()?.message ?: "Unknown error")
                 }
             } catch (e: Exception) {
                 _status.value = DirectEditStatus.Error(e.message ?: "Failed to update text")
             } finally {
+                if (debouncedJobs[key] === coroutineContext[Job]) debouncedJobs.remove(key)
                 onComplete()
             }
         }
@@ -261,7 +278,7 @@ class DirectEditService(
             content + newRule
         }
 
-        cssFile.writeText(newContent)
+        commit(cssFile, content, newContent)
         return Result.success(Unit)
     }
 
@@ -309,7 +326,7 @@ class DirectEditService(
         }
 
         val newHtmlContent = styleMatcher.replaceFirst("$styleOpenTag$newStyleContent\n    $styleCloseTag")
-        htmlFile.writeText(newHtmlContent)
+        commit(htmlFile, htmlContent, newHtmlContent)
         return Result.success(Unit)
     }
 
@@ -356,7 +373,7 @@ class DirectEditService(
             }
         }
 
-        htmlFile.writeText(newHtmlContent)
+        commit(htmlFile, htmlContent, newHtmlContent)
         return Result.success(Unit)
     }
 
@@ -388,196 +405,27 @@ class DirectEditService(
     }
 
     /**
-     * Update HTML file with text content change
-     * Uses multiple strategies to find and replace text robustly
+     * Write the text change to the exact place it came from. Fails, with a
+     * reason the user can act on, rather than guess: the old version replaced
+     * every copy of the text in index.html and fell back to a fuzzy match.
      */
     private fun updateHtmlText(request: TextChangeRequest): Result<Unit> {
-        val htmlFile = findHtmlFile() ?: return Result.failure(Exception("No HTML file found"))
-
-        val content = htmlFile.readText()
-        val oldText = request.oldText
-        val newText = request.newText
-
-        // Strategy 1: Direct text match (fastest)
-        if (content.contains(oldText)) {
-            val newContent = content.replace(oldText, newText)
-            htmlFile.writeText(newContent)
-            return Result.success(Unit)
+        val target = request.target
+            ?: return Result.failure(Exception("Select the text again, then edit it."))
+        val htmlFile = if (request.pagePath != null) {
+            SourceTextEdit.pageFile(File(projectPath), request.pagePath)
+                ?: return Result.failure(Exception("This page isn't a file in the project, so its text can't be edited here."))
+        } else {
+            findHtmlFile() ?: return Result.failure(Exception("No HTML file found"))
         }
-
-        // Strategy 2: Normalize whitespace and try again
-        // DOM innerHTML often collapses whitespace differently than the source file
-        val normalizedOldText = oldText.trim().replace(Regex("\\s+"), " ")
-        val normalizedSearchPattern = buildNormalizedPattern(normalizedOldText)
-
-        val matcher = normalizedSearchPattern.matcher(content)
-        if (matcher.find()) {
-            val foundText = matcher.group()
-            val newContent = content.replace(foundText, newText)
-            htmlFile.writeText(newContent)
-            return Result.success(Unit)
-        }
-
-        // Strategy 3: Try to find text within HTML tags using a flexible pattern
-        // This handles cases where the text is inside tags with varying whitespace
-        val escapedOldText = Pattern.quote(normalizedOldText)
-        val flexiblePattern = Pattern.compile(
-            ">\\s*${escapedOldText}\\s*<",
-            Pattern.CASE_INSENSITIVE or Pattern.DOTALL
-        )
-        val flexibleMatcher = flexiblePattern.matcher(content)
-        if (flexibleMatcher.find()) {
-            val match = flexibleMatcher.group()
-            // Preserve the surrounding > and <
-            val replacement = match.replaceFirst(Pattern.quote(normalizedOldText).toRegex(), newText)
-            val newContent = content.replace(match, replacement)
-            htmlFile.writeText(newContent)
-            return Result.success(Unit)
-        }
-
-        // Strategy 4: Try HTML entity decoded matching
-        val decodedOldText = decodeHtmlEntities(oldText)
-        if (decodedOldText != oldText && content.contains(decodedOldText)) {
-            val newContent = content.replace(decodedOldText, newText)
-            htmlFile.writeText(newContent)
-            return Result.success(Unit)
-        }
-
-        // Strategy 5: Fuzzy match - find similar text in the file
-        val fuzzyMatch = findFuzzyMatch(content, oldText)
-        if (fuzzyMatch != null) {
-            val newContent = content.replace(fuzzyMatch, newText)
-            htmlFile.writeText(newContent)
-            return Result.success(Unit)
-        }
-
-        return Result.failure(Exception("Could not find text to replace. The text may have been modified or contains special formatting."))
-    }
-
-    /**
-     * Build a regex pattern that allows flexible whitespace matching
-     */
-    private fun buildNormalizedPattern(text: String): Pattern {
-        // Escape regex special chars and allow flexible whitespace
-        val escaped = text.split(" ").joinToString("\\s+") { part ->
-            Pattern.quote(part)
-        }
-        return Pattern.compile(escaped, Pattern.CASE_INSENSITIVE)
-    }
-
-    /**
-     * Decode common HTML entities
-     */
-    private fun decodeHtmlEntities(text: String): String {
-        return text
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&apos;", "'")
-            .replace("&nbsp;", " ")
-    }
-
-    /**
-     * Find a fuzzy match for the text in the content
-     * Returns the actual text found in content that closely matches oldText
-     */
-    private fun findFuzzyMatch(content: String, oldText: String): String? {
-        val trimmedOld = oldText.trim()
-        if (trimmedOld.length < 3) return null // Too short for fuzzy matching
-
-        // Try to find the text with different whitespace combinations
-        val words = trimmedOld.split(Regex("\\s+"))
-        if (words.isEmpty()) return null
-
-        // Look for sequences of words in the content
-        val searchWindow = trimmedOld.length * 2 // Allow some extra space for whitespace
-        var bestMatch: String? = null
-        var bestScore = 0.0
-
-        // Find all occurrences of the first word
-        val firstWord = words.first()
-        var startIndex = 0
-
-        while (startIndex < content.length) {
-            val wordIndex = content.indexOf(firstWord, startIndex, ignoreCase = true)
-            if (wordIndex == -1) break
-
-            // Extract a window of text to check
-            val windowEnd = minOf(wordIndex + searchWindow, content.length)
-            val windowText = content.substring(wordIndex, windowEnd)
-
-            // Check if all words are present in order
-            var allWordsFound = true
-            var lastIndex = 0
-            for (word in words) {
-                val idx = windowText.indexOf(word, lastIndex, ignoreCase = true)
-                if (idx == -1) {
-                    allWordsFound = false
-                    break
-                }
-                lastIndex = idx + word.length
+        val before = htmlFile.readText()
+        return when (val outcome = SourceTextEdit.replace(before, target, request.newText, htmlFile.name)) {
+            is SourceTextEdit.Outcome.Edited -> {
+                commit(htmlFile, before, outcome.html)
+                Result.success(Unit)
             }
-
-            if (allWordsFound) {
-                // Find the actual end of the matched text
-                val matchEnd = wordIndex + lastIndex
-                val candidateMatch = content.substring(wordIndex, matchEnd)
-                val score = calculateSimilarity(trimmedOld, candidateMatch)
-
-                if (score > bestScore && score > 0.7) { // 70% similarity threshold
-                    bestScore = score
-                    bestMatch = candidateMatch
-                }
-            }
-
-            startIndex = wordIndex + 1
+            is SourceTextEdit.Outcome.Failed -> Result.failure(Exception(outcome.reason))
         }
-
-        return bestMatch
-    }
-
-    /**
-     * Calculate similarity between two strings (0.0 to 1.0)
-     */
-    private fun calculateSimilarity(s1: String, s2: String): Double {
-        val normalized1 = s1.lowercase().replace(Regex("\\s+"), " ").trim()
-        val normalized2 = s2.lowercase().replace(Regex("\\s+"), " ").trim()
-
-        if (normalized1 == normalized2) return 1.0
-        if (normalized1.isEmpty() || normalized2.isEmpty()) return 0.0
-
-        val longer = if (normalized1.length >= normalized2.length) normalized1 else normalized2
-        val shorter = if (normalized1.length < normalized2.length) normalized1 else normalized2
-
-        val longerLength = longer.length
-        if (longerLength == 0) return 1.0
-
-        return (longerLength - levenshteinDistance(longer, shorter)) / longerLength.toDouble()
-    }
-
-    /**
-     * Calculate Levenshtein distance between two strings
-     */
-    private fun levenshteinDistance(s1: String, s2: String): Int {
-        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
-
-        for (i in 0..s1.length) dp[i][0] = i
-        for (j in 0..s2.length) dp[0][j] = j
-
-        for (i in 1..s1.length) {
-            for (j in 1..s2.length) {
-                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,      // deletion
-                    dp[i][j - 1] + 1,      // insertion
-                    dp[i - 1][j - 1] + cost // substitution
-                )
-            }
-        }
-
-        return dp[s1.length][s2.length]
     }
 
     /**
@@ -602,15 +450,29 @@ class DirectEditService(
         }
 
         val newContent = matcher.replaceFirst("src=\"$newSrc\"")
-        htmlFile.writeText(newContent)
+        commit(htmlFile, content, newContent)
         return Result.success(Unit)
     }
 
     /**
-     * Find the CSS file in the project
+     * Find the CSS file in the project: the last stylesheet the page being
+     * edited links (its rules win the cascade), else a conventional name.
+     * Never the UI kit in oro-ui/, which a theme change rewrites.
      */
     private fun findCssFile(): File? {
         val projectDir = File(projectPath)
+
+        currentPage()?.let { page ->
+            val root = runCatching { projectDir.canonicalFile }.getOrNull()
+            linkedStylesheets(page.readText()).asReversed().forEach { href ->
+                val path = href.substringBefore('?').substringBefore('#')
+                val file = if (path.startsWith("/")) File(projectDir, path.trimStart('/')) else File(page.parentFile, path)
+                val canonical = runCatching { file.canonicalFile }.getOrNull()
+                if (root != null && canonical != null && canonical.isFile && !isKitFile(canonical) &&
+                    canonical.path.startsWith(root.path + File.separator)
+                ) return canonical
+            }
+        }
 
         // First, look in standard locations
         for (fileName in cssFileNames) {
@@ -627,13 +489,19 @@ class DirectEditService(
         }
 
         // If not found, search recursively (up to 2 levels)
-        return findFileRecursively(projectDir, ".css", maxDepth = 2)
+        return findFileRecursively(projectDir, ".css", maxDepth = 2)?.takeUnless { isKitFile(it) }
     }
+
+    /** The HTML file of the page being edited, if it is one in the project. */
+    private fun currentPage(): File? = pagePath?.let { SourceTextEdit.pageFile(File(projectPath), it) }
+
+    private fun isKitFile(file: File): Boolean = file.parentFile?.name == "oro-ui"
 
     /**
      * Find the HTML file in the project
      */
     private fun findHtmlFile(): File? {
+        currentPage()?.let { return it }
         val projectDir = File(projectPath)
 
         for (fileName in htmlFileNames) {
@@ -657,9 +525,9 @@ class DirectEditService(
         files.filter { it.isFile && it.name.endsWith(extension) }
             .firstOrNull()?.let { return it }
 
-        // Then, recurse into subdirectories
+        // Then, recurse into subdirectories (not the UI kit's, nor hidden ones)
         if (currentDepth < maxDepth) {
-            for (subDir in files.filter { it.isDirectory }) {
+            for (subDir in files.filter { it.isDirectory && it.name != "oro-ui" && !it.name.startsWith(".") }) {
                 findFileRecursively(subDir, extension, maxDepth, currentDepth + 1)?.let { return it }
             }
         }
@@ -736,6 +604,46 @@ class DirectEditService(
         LivePreviewEditor.applyImageSrc(webView, selector, newSrc)
     }
 
+    /** Writes [after] over [before] in [file] and remembers it for [undo]. */
+    private fun commit(file: File, before: String, after: String) {
+        if (before == after) return
+        file.writeText(after)
+        synchronized(history) {
+            history.addLast(Snapshot(file, before, after))
+            while (history.size > MAX_UNDO) history.removeFirstOrNull()
+            _canUndo.value = true
+        }
+    }
+
+    /**
+     * Put back the file the last edit wrote, once pending edits have landed.
+     * Refuses if the file changed since (Orobi or the code editor wrote it),
+     * rather than throw that newer work away. [onUndone] runs after a
+     * successful undo, to reload the page.
+     */
+    fun undo(onUndone: () -> Unit = {}) {
+        scope.launch {
+            debouncedJobs.values.toList().joinAll()
+            val snapshot = synchronized(history) {
+                history.removeLastOrNull().also { _canUndo.value = history.isNotEmpty() }
+            } ?: return@launch
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    check(snapshot.file.readText() == snapshot.after) {
+                        "${snapshot.file.name} changed since that edit, so it can't be undone here."
+                    }
+                    snapshot.file.writeText(snapshot.before)
+                }
+            }
+            result.onSuccess {
+                _status.value = DirectEditStatus.Success("Undone")
+                onUndone()
+            }.onFailure {
+                _status.value = DirectEditStatus.Error(it.message ?: "Couldn't undo")
+            }
+        }
+    }
+
     /**
      * Cancel any pending edit operation
      */
@@ -750,5 +658,27 @@ class DirectEditService(
      */
     fun resetStatus() {
         _status.value = DirectEditStatus.Idle
+    }
+
+    internal companion object {
+        /** Undo steps kept; each holds two copies of one file. */
+        private const val MAX_UNDO = 20
+
+        private val LINK_TAG = Regex("""<link\b[^>]*>""", RegexOption.IGNORE_CASE)
+        private val REL_STYLESHEET = Regex("""\brel\s*=\s*["']?[^"'>]*\bstylesheet\b""", RegexOption.IGNORE_CASE)
+        private val HREF = Regex("""\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOption.IGNORE_CASE)
+        private val REL_ALTERNATE = Regex("""\brel\s*=\s*["']?[^"'>]*\balternate\b""", RegexOption.IGNORE_CASE)
+        private val PRINT_ONLY = Regex("""\bmedia\s*=\s*["']?\s*print\b""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Local hrefs of the stylesheets the page applies on screen, in
+         * cascade order: `<link rel="stylesheet">`, not alternate or print-only.
+         */
+        fun linkedStylesheets(html: String): List<String> = LINK_TAG.findAll(html)
+            .map { it.value }
+            .filter { REL_STYLESHEET.containsMatchIn(it) && !REL_ALTERNATE.containsMatchIn(it) && !PRINT_ONLY.containsMatchIn(it) }
+            .mapNotNull { tag -> HREF.find(tag)?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() } }
+            .filter { !it.contains("://") && !it.startsWith("//") && !it.startsWith("data:") }
+            .toList()
     }
 }

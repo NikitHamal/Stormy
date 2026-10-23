@@ -61,8 +61,12 @@ class ChatStreamParser {
         (root["usage"] as? JsonObject)?.let { usage ->
             val prompt = (usage["prompt_tokens"] as? JsonPrimitive)?.intOrNull
             val completion = (usage["completion_tokens"] as? JsonPrimitive)?.intOrNull
+            // OpenAI-style `prompt_tokens_details.cached_tokens`; DeepSeek's
+            // `prompt_cache_hit_tokens`.
+            val cached = ((usage["prompt_tokens_details"] as? JsonObject)?.get("cached_tokens") as? JsonPrimitive)?.intOrNull
+                ?: (usage["prompt_cache_hit_tokens"] as? JsonPrimitive)?.intOrNull ?: 0
             if (prompt != null || completion != null) {
-                out += StreamEvent.Usage(prompt ?: 0, completion ?: 0)
+                out += StreamEvent.Usage(prompt ?: 0, completion ?: 0, cached)
             }
         }
 

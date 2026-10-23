@@ -307,6 +307,9 @@ private fun DiffLineView(line: DiffLine) {
     }
 }
 
+/** Compiled once rather than once per hunk header. */
+private val HunkHeaderRegex = Regex("@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@(.*)")
+
 /**
  * Utility function to parse a unified diff string into DiffLine objects
  */
@@ -318,7 +321,7 @@ fun parseDiff(diffText: String): List<DiffLine> {
         when {
             line.startsWith("@@") -> {
                 // Parse hunk header to get line numbers
-                val match = Regex("@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@(.*)").find(line)
+                val match = HunkHeaderRegex.find(line)
                 if (match != null) {
                     currentLineNumber = match.groupValues[2].toIntOrNull() ?: 1
                     lines.add(DiffLine.Header(line))

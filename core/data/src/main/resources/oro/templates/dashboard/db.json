@@ -1,0 +1,3937 @@
+{
+ "orders": [
+  {
+   "id": 1436,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1435,
+   "customer": "Tomás Silva",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1434,
+   "customer": "Omar Haddad",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1433,
+   "customer": "Omar Haddad",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1432,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1431,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1430,
+   "customer": "Ines Duarte",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1429,
+   "customer": "Ravi Iyer",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-29"
+  },
+  {
+   "id": 1428,
+   "customer": "Tomás Silva",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1427,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1426,
+   "customer": "Ravi Iyer",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1425,
+   "customer": "Maja Nowak",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1424,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Pending",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1423,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1422,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Pending",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1421,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Refunded",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1420,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-28"
+  },
+  {
+   "id": 1419,
+   "customer": "Omar Haddad",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Pending",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1418,
+   "customer": "Ravi Iyer",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Pending",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1417,
+   "customer": "Felix Wagner",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1416,
+   "customer": "Riya Kapoor",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1415,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1414,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1413,
+   "customer": "Maja Nowak",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1412,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-03-27"
+  },
+  {
+   "id": 1411,
+   "customer": "Leo Martins",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Pending",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1410,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1409,
+   "customer": "Sofia Rossi",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 3,
+   "total": 45,
+   "status": "Paid",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1408,
+   "customer": "Nia Brooks",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1407,
+   "customer": "Maja Nowak",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1406,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1405,
+   "customer": "Jonas Thiel",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-26"
+  },
+  {
+   "id": 1404,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1403,
+   "customer": "Maja Nowak",
+   "product": "Gift Box",
+   "qty": 3,
+   "total": 114,
+   "status": "Paid",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1402,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1401,
+   "customer": "Ravi Iyer",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1400,
+   "customer": "Lucy Chen",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1399,
+   "customer": "Kenji Sato",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Pending",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1398,
+   "customer": "Elena Ortiz",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1397,
+   "customer": "Ade Okafor",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Pending",
+   "date": "2026-03-25"
+  },
+  {
+   "id": 1396,
+   "customer": "Leo Martins",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1395,
+   "customer": "Amara Mensah",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1394,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1393,
+   "customer": "Amara Mensah",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1392,
+   "customer": "Leo Martins",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1391,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1390,
+   "customer": "Elena Ortiz",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-24"
+  },
+  {
+   "id": 1389,
+   "customer": "Ravi Iyer",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1388,
+   "customer": "Elena Ortiz",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1387,
+   "customer": "Sofia Rossi",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1386,
+   "customer": "Yusuf Demir",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1385,
+   "customer": "Leo Martins",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1384,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Pending",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1383,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-23"
+  },
+  {
+   "id": 1382,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1381,
+   "customer": "Elena Ortiz",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1380,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1379,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1378,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1377,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1376,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Refunded",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1375,
+   "customer": "Ade Okafor",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-22"
+  },
+  {
+   "id": 1374,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1373,
+   "customer": "Ravi Iyer",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1372,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1371,
+   "customer": "Amara Mensah",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1370,
+   "customer": "Elena Ortiz",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1369,
+   "customer": "Sofia Rossi",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1368,
+   "customer": "Lucy Chen",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-21"
+  },
+  {
+   "id": 1367,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1366,
+   "customer": "Ade Okafor",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1365,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1364,
+   "customer": "Tomás Silva",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1363,
+   "customer": "Kenji Sato",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1362,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1361,
+   "customer": "Sofia Rossi",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-20"
+  },
+  {
+   "id": 1360,
+   "customer": "Tomás Silva",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1359,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1358,
+   "customer": "Yusuf Demir",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1357,
+   "customer": "Nia Brooks",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1356,
+   "customer": "Elena Ortiz",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1355,
+   "customer": "Ines Duarte",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1354,
+   "customer": "Yusuf Demir",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1353,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-19"
+  },
+  {
+   "id": 1352,
+   "customer": "Riya Kapoor",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1351,
+   "customer": "Kenji Sato",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1350,
+   "customer": "Felix Wagner",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1349,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1348,
+   "customer": "Kenji Sato",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Refunded",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1347,
+   "customer": "Nia Brooks",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1346,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Refunded",
+   "date": "2026-03-18"
+  },
+  {
+   "id": 1345,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1344,
+   "customer": "Omar Haddad",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1343,
+   "customer": "Ines Duarte",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1342,
+   "customer": "Nia Brooks",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1341,
+   "customer": "Ade Okafor",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1340,
+   "customer": "Jonas Thiel",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Pending",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1339,
+   "customer": "Maja Nowak",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-17"
+  },
+  {
+   "id": 1338,
+   "customer": "Jonas Thiel",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1337,
+   "customer": "Amara Mensah",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Pending",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1336,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1335,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1334,
+   "customer": "Amara Mensah",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1333,
+   "customer": "Tomás Silva",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1332,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-16"
+  },
+  {
+   "id": 1331,
+   "customer": "Tomás Silva",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1330,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Pending",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1329,
+   "customer": "Omar Haddad",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1328,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1327,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1326,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1325,
+   "customer": "Ravi Iyer",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1324,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-15"
+  },
+  {
+   "id": 1323,
+   "customer": "Amara Mensah",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-14"
+  },
+  {
+   "id": 1322,
+   "customer": "Sofia Rossi",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-14"
+  },
+  {
+   "id": 1321,
+   "customer": "Omar Haddad",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-14"
+  },
+  {
+   "id": 1320,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-14"
+  },
+  {
+   "id": 1319,
+   "customer": "Lucy Chen",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-14"
+  },
+  {
+   "id": 1318,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-14"
+  },
+  {
+   "id": 1317,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-13"
+  },
+  {
+   "id": 1316,
+   "customer": "Ade Okafor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-13"
+  },
+  {
+   "id": 1315,
+   "customer": "Ines Duarte",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-13"
+  },
+  {
+   "id": 1314,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-13"
+  },
+  {
+   "id": 1313,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-13"
+  },
+  {
+   "id": 1312,
+   "customer": "Ravi Iyer",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Pending",
+   "date": "2026-03-13"
+  },
+  {
+   "id": 1311,
+   "customer": "Nia Brooks",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-12"
+  },
+  {
+   "id": 1310,
+   "customer": "Kenji Sato",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-12"
+  },
+  {
+   "id": 1309,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-12"
+  },
+  {
+   "id": 1308,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-03-12"
+  },
+  {
+   "id": 1307,
+   "customer": "Ade Okafor",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-12"
+  },
+  {
+   "id": 1306,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-12"
+  },
+  {
+   "id": 1305,
+   "customer": "Omar Haddad",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1304,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1303,
+   "customer": "Kenji Sato",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Pending",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1302,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1301,
+   "customer": "Kenji Sato",
+   "product": "Gift Box",
+   "qty": 3,
+   "total": 114,
+   "status": "Paid",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1300,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1299,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1298,
+   "customer": "Omar Haddad",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Refunded",
+   "date": "2026-03-11"
+  },
+  {
+   "id": 1297,
+   "customer": "Riya Kapoor",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-10"
+  },
+  {
+   "id": 1296,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-10"
+  },
+  {
+   "id": 1295,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-10"
+  },
+  {
+   "id": 1294,
+   "customer": "Sofia Rossi",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-03-10"
+  },
+  {
+   "id": 1293,
+   "customer": "Nia Brooks",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-10"
+  },
+  {
+   "id": 1292,
+   "customer": "Maja Nowak",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-10"
+  },
+  {
+   "id": 1291,
+   "customer": "Elena Ortiz",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1290,
+   "customer": "Ade Okafor",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1289,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1288,
+   "customer": "Omar Haddad",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1287,
+   "customer": "Kenji Sato",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1286,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1285,
+   "customer": "Amara Mensah",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-09"
+  },
+  {
+   "id": 1284,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Refunded",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1283,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1282,
+   "customer": "Omar Haddad",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1281,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1280,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1279,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1278,
+   "customer": "Jonas Thiel",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-08"
+  },
+  {
+   "id": 1277,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1276,
+   "customer": "Lucy Chen",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1275,
+   "customer": "Sofia Rossi",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1274,
+   "customer": "Elena Ortiz",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1273,
+   "customer": "Kenji Sato",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1272,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1271,
+   "customer": "Ines Duarte",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-03-07"
+  },
+  {
+   "id": 1270,
+   "customer": "Sofia Rossi",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1269,
+   "customer": "Tomás Silva",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1268,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1267,
+   "customer": "Omar Haddad",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1266,
+   "customer": "Leo Martins",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1265,
+   "customer": "Maja Nowak",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Paid",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1264,
+   "customer": "Elena Ortiz",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Refunded",
+   "date": "2026-03-06"
+  },
+  {
+   "id": 1263,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1262,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1261,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1260,
+   "customer": "Jonas Thiel",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1259,
+   "customer": "Ade Okafor",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Refunded",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1258,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1257,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-05"
+  },
+  {
+   "id": 1256,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1255,
+   "customer": "Tomás Silva",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1254,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1253,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1252,
+   "customer": "Omar Haddad",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1251,
+   "customer": "Ravi Iyer",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Refunded",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1250,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-04"
+  },
+  {
+   "id": 1249,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Refunded",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1248,
+   "customer": "Maja Nowak",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1247,
+   "customer": "Tomás Silva",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1246,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1245,
+   "customer": "Amara Mensah",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1244,
+   "customer": "Ines Duarte",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1243,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-03-03"
+  },
+  {
+   "id": 1242,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-02"
+  },
+  {
+   "id": 1241,
+   "customer": "Ravi Iyer",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-02"
+  },
+  {
+   "id": 1240,
+   "customer": "Sofia Rossi",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-03-02"
+  },
+  {
+   "id": 1239,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-03-02"
+  },
+  {
+   "id": 1238,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-02"
+  },
+  {
+   "id": 1237,
+   "customer": "Kenji Sato",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1236,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1235,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1234,
+   "customer": "Riya Kapoor",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1233,
+   "customer": "Ravi Iyer",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1232,
+   "customer": "Tomás Silva",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1231,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Pending",
+   "date": "2026-03-01"
+  },
+  {
+   "id": 1230,
+   "customer": "Felix Wagner",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-28"
+  },
+  {
+   "id": 1229,
+   "customer": "Omar Haddad",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-28"
+  },
+  {
+   "id": 1228,
+   "customer": "Maja Nowak",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-02-28"
+  },
+  {
+   "id": 1227,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-28"
+  },
+  {
+   "id": 1226,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-28"
+  },
+  {
+   "id": 1225,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Pending",
+   "date": "2026-02-28"
+  },
+  {
+   "id": 1224,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-27"
+  },
+  {
+   "id": 1223,
+   "customer": "Felix Wagner",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Paid",
+   "date": "2026-02-27"
+  },
+  {
+   "id": 1222,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-27"
+  },
+  {
+   "id": 1221,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-27"
+  },
+  {
+   "id": 1220,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-27"
+  },
+  {
+   "id": 1219,
+   "customer": "Hana Kim",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-27"
+  },
+  {
+   "id": 1218,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-26"
+  },
+  {
+   "id": 1217,
+   "customer": "Ines Duarte",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-26"
+  },
+  {
+   "id": 1216,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-26"
+  },
+  {
+   "id": 1215,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-26"
+  },
+  {
+   "id": 1214,
+   "customer": "Lucy Chen",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-26"
+  },
+  {
+   "id": 1213,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-26"
+  },
+  {
+   "id": 1212,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-02-25"
+  },
+  {
+   "id": 1211,
+   "customer": "Leo Martins",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-25"
+  },
+  {
+   "id": 1210,
+   "customer": "Felix Wagner",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 3,
+   "total": 45,
+   "status": "Paid",
+   "date": "2026-02-25"
+  },
+  {
+   "id": 1209,
+   "customer": "Felix Wagner",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-25"
+  },
+  {
+   "id": 1208,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-25"
+  },
+  {
+   "id": 1207,
+   "customer": "Ade Okafor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1206,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1205,
+   "customer": "Sofia Rossi",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1204,
+   "customer": "Maja Nowak",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1203,
+   "customer": "Tomás Silva",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1202,
+   "customer": "Yusuf Demir",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1201,
+   "customer": "Riya Kapoor",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-24"
+  },
+  {
+   "id": 1200,
+   "customer": "Felix Wagner",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-23"
+  },
+  {
+   "id": 1199,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-23"
+  },
+  {
+   "id": 1198,
+   "customer": "Sofia Rossi",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-23"
+  },
+  {
+   "id": 1197,
+   "customer": "Kenji Sato",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-23"
+  },
+  {
+   "id": 1196,
+   "customer": "Elena Ortiz",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-23"
+  },
+  {
+   "id": 1195,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-22"
+  },
+  {
+   "id": 1194,
+   "customer": "Yusuf Demir",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-22"
+  },
+  {
+   "id": 1193,
+   "customer": "Ade Okafor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-22"
+  },
+  {
+   "id": 1192,
+   "customer": "Jonas Thiel",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-02-22"
+  },
+  {
+   "id": 1191,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-22"
+  },
+  {
+   "id": 1190,
+   "customer": "Nia Brooks",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-22"
+  },
+  {
+   "id": 1189,
+   "customer": "Felix Wagner",
+   "product": "Gift Box",
+   "qty": 3,
+   "total": 114,
+   "status": "Paid",
+   "date": "2026-02-21"
+  },
+  {
+   "id": 1188,
+   "customer": "Ade Okafor",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-21"
+  },
+  {
+   "id": 1187,
+   "customer": "Felix Wagner",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Pending",
+   "date": "2026-02-21"
+  },
+  {
+   "id": 1186,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-21"
+  },
+  {
+   "id": 1185,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-21"
+  },
+  {
+   "id": 1184,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-20"
+  },
+  {
+   "id": 1183,
+   "customer": "Maja Nowak",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-20"
+  },
+  {
+   "id": 1182,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-20"
+  },
+  {
+   "id": 1181,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-20"
+  },
+  {
+   "id": 1180,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-20"
+  },
+  {
+   "id": 1179,
+   "customer": "Kenji Sato",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-20"
+  },
+  {
+   "id": 1178,
+   "customer": "Amara Mensah",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-19"
+  },
+  {
+   "id": 1177,
+   "customer": "Maja Nowak",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Paid",
+   "date": "2026-02-19"
+  },
+  {
+   "id": 1176,
+   "customer": "Ravi Iyer",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 3,
+   "total": 45,
+   "status": "Paid",
+   "date": "2026-02-19"
+  },
+  {
+   "id": 1175,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-19"
+  },
+  {
+   "id": 1174,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-19"
+  },
+  {
+   "id": 1173,
+   "customer": "Ines Duarte",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-18"
+  },
+  {
+   "id": 1172,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-18"
+  },
+  {
+   "id": 1171,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Pending",
+   "date": "2026-02-18"
+  },
+  {
+   "id": 1170,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-18"
+  },
+  {
+   "id": 1169,
+   "customer": "Riya Kapoor",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-18"
+  },
+  {
+   "id": 1168,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-18"
+  },
+  {
+   "id": 1167,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Pending",
+   "date": "2026-02-17"
+  },
+  {
+   "id": 1166,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-17"
+  },
+  {
+   "id": 1165,
+   "customer": "Ravi Iyer",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-17"
+  },
+  {
+   "id": 1164,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-17"
+  },
+  {
+   "id": 1163,
+   "customer": "Riya Kapoor",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-17"
+  },
+  {
+   "id": 1162,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-16"
+  },
+  {
+   "id": 1161,
+   "customer": "Elena Ortiz",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-16"
+  },
+  {
+   "id": 1160,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-16"
+  },
+  {
+   "id": 1159,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-16"
+  },
+  {
+   "id": 1158,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-16"
+  },
+  {
+   "id": 1157,
+   "customer": "Tomás Silva",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-16"
+  },
+  {
+   "id": 1156,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-15"
+  },
+  {
+   "id": 1155,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-15"
+  },
+  {
+   "id": 1154,
+   "customer": "Kenji Sato",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-15"
+  },
+  {
+   "id": 1153,
+   "customer": "Hana Kim",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Refunded",
+   "date": "2026-02-15"
+  },
+  {
+   "id": 1152,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-15"
+  },
+  {
+   "id": 1151,
+   "customer": "Nia Brooks",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-02-15"
+  },
+  {
+   "id": 1150,
+   "customer": "Ade Okafor",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-14"
+  },
+  {
+   "id": 1149,
+   "customer": "Ravi Iyer",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-14"
+  },
+  {
+   "id": 1148,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-14"
+  },
+  {
+   "id": 1147,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-14"
+  },
+  {
+   "id": 1146,
+   "customer": "Jonas Thiel",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-14"
+  },
+  {
+   "id": 1145,
+   "customer": "Omar Haddad",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-13"
+  },
+  {
+   "id": 1144,
+   "customer": "Nia Brooks",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-13"
+  },
+  {
+   "id": 1143,
+   "customer": "Ravi Iyer",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-13"
+  },
+  {
+   "id": 1142,
+   "customer": "Leo Martins",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-13"
+  },
+  {
+   "id": 1141,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-13"
+  },
+  {
+   "id": 1140,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-13"
+  },
+  {
+   "id": 1139,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-12"
+  },
+  {
+   "id": 1138,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-12"
+  },
+  {
+   "id": 1137,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-02-12"
+  },
+  {
+   "id": 1136,
+   "customer": "Maja Nowak",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-12"
+  },
+  {
+   "id": 1135,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-02-11"
+  },
+  {
+   "id": 1134,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-11"
+  },
+  {
+   "id": 1133,
+   "customer": "Lucy Chen",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-11"
+  },
+  {
+   "id": 1132,
+   "customer": "Omar Haddad",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-11"
+  },
+  {
+   "id": 1131,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-11"
+  },
+  {
+   "id": 1130,
+   "customer": "Tomás Silva",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-10"
+  },
+  {
+   "id": 1129,
+   "customer": "Yusuf Demir",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-02-10"
+  },
+  {
+   "id": 1128,
+   "customer": "Kenji Sato",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-10"
+  },
+  {
+   "id": 1127,
+   "customer": "Lucy Chen",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Pending",
+   "date": "2026-02-10"
+  },
+  {
+   "id": 1126,
+   "customer": "Riya Kapoor",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-10"
+  },
+  {
+   "id": 1125,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-09"
+  },
+  {
+   "id": 1124,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-09"
+  },
+  {
+   "id": 1123,
+   "customer": "Nia Brooks",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-09"
+  },
+  {
+   "id": 1122,
+   "customer": "Omar Haddad",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-09"
+  },
+  {
+   "id": 1121,
+   "customer": "Lucy Chen",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-09"
+  },
+  {
+   "id": 1120,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-08"
+  },
+  {
+   "id": 1119,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-02-08"
+  },
+  {
+   "id": 1118,
+   "customer": "Jonas Thiel",
+   "product": "Gift Box",
+   "qty": 3,
+   "total": 114,
+   "status": "Pending",
+   "date": "2026-02-08"
+  },
+  {
+   "id": 1117,
+   "customer": "Amara Mensah",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-08"
+  },
+  {
+   "id": 1116,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-02-08"
+  },
+  {
+   "id": 1115,
+   "customer": "Felix Wagner",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Pending",
+   "date": "2026-02-07"
+  },
+  {
+   "id": 1114,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Pending",
+   "date": "2026-02-07"
+  },
+  {
+   "id": 1113,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-07"
+  },
+  {
+   "id": 1112,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-07"
+  },
+  {
+   "id": 1111,
+   "customer": "Amara Mensah",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-02-07"
+  },
+  {
+   "id": 1110,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-07"
+  },
+  {
+   "id": 1109,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-06"
+  },
+  {
+   "id": 1108,
+   "customer": "Ines Duarte",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-06"
+  },
+  {
+   "id": 1107,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-06"
+  },
+  {
+   "id": 1106,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Refunded",
+   "date": "2026-02-06"
+  },
+  {
+   "id": 1105,
+   "customer": "Leo Martins",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-06"
+  },
+  {
+   "id": 1104,
+   "customer": "Felix Wagner",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-05"
+  },
+  {
+   "id": 1103,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Refunded",
+   "date": "2026-02-05"
+  },
+  {
+   "id": 1102,
+   "customer": "Ines Duarte",
+   "product": "Gift Box",
+   "qty": 3,
+   "total": 114,
+   "status": "Paid",
+   "date": "2026-02-05"
+  },
+  {
+   "id": 1101,
+   "customer": "Ravi Iyer",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-05"
+  },
+  {
+   "id": 1100,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-05"
+  },
+  {
+   "id": 1099,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-04"
+  },
+  {
+   "id": 1098,
+   "customer": "Omar Haddad",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-04"
+  },
+  {
+   "id": 1097,
+   "customer": "Nia Brooks",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Pending",
+   "date": "2026-02-04"
+  },
+  {
+   "id": 1096,
+   "customer": "Kenji Sato",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-02-04"
+  },
+  {
+   "id": 1095,
+   "customer": "Sofia Rossi",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-02-04"
+  },
+  {
+   "id": 1094,
+   "customer": "Felix Wagner",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-03"
+  },
+  {
+   "id": 1093,
+   "customer": "Ines Duarte",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-02-03"
+  },
+  {
+   "id": 1092,
+   "customer": "Ines Duarte",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Paid",
+   "date": "2026-02-03"
+  },
+  {
+   "id": 1091,
+   "customer": "Leo Martins",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-02-03"
+  },
+  {
+   "id": 1090,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-02"
+  },
+  {
+   "id": 1089,
+   "customer": "Amara Mensah",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-02-02"
+  },
+  {
+   "id": 1088,
+   "customer": "Amara Mensah",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-02"
+  },
+  {
+   "id": 1087,
+   "customer": "Ade Okafor",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-02-02"
+  },
+  {
+   "id": 1086,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-02-01"
+  },
+  {
+   "id": 1085,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-02-01"
+  },
+  {
+   "id": 1084,
+   "customer": "Felix Wagner",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Pending",
+   "date": "2026-02-01"
+  },
+  {
+   "id": 1083,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-02-01"
+  },
+  {
+   "id": 1082,
+   "customer": "Ade Okafor",
+   "product": "Pour-over Kit",
+   "qty": 3,
+   "total": 192,
+   "status": "Paid",
+   "date": "2026-01-31"
+  },
+  {
+   "id": 1081,
+   "customer": "Tomás Silva",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-01-31"
+  },
+  {
+   "id": 1080,
+   "customer": "Lucy Chen",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-01-31"
+  },
+  {
+   "id": 1079,
+   "customer": "Ines Duarte",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-01-31"
+  },
+  {
+   "id": 1078,
+   "customer": "Felix Wagner",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-31"
+  },
+  {
+   "id": 1077,
+   "customer": "Ade Okafor",
+   "product": "Pour-over Kit",
+   "qty": 2,
+   "total": 128,
+   "status": "Pending",
+   "date": "2026-01-30"
+  },
+  {
+   "id": 1076,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Pending",
+   "date": "2026-01-30"
+  },
+  {
+   "id": 1075,
+   "customer": "Sofia Rossi",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-30"
+  },
+  {
+   "id": 1074,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-01-30"
+  },
+  {
+   "id": 1073,
+   "customer": "Felix Wagner",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-29"
+  },
+  {
+   "id": 1072,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-29"
+  },
+  {
+   "id": 1071,
+   "customer": "Tomás Silva",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Refunded",
+   "date": "2026-01-29"
+  },
+  {
+   "id": 1070,
+   "customer": "Leo Martins",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-29"
+  },
+  {
+   "id": 1069,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-28"
+  },
+  {
+   "id": 1068,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-01-28"
+  },
+  {
+   "id": 1067,
+   "customer": "Maja Nowak",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-01-28"
+  },
+  {
+   "id": 1066,
+   "customer": "Omar Haddad",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-01-27"
+  },
+  {
+   "id": 1065,
+   "customer": "Ines Duarte",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-27"
+  },
+  {
+   "id": 1064,
+   "customer": "Jonas Thiel",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 2,
+   "total": 30,
+   "status": "Paid",
+   "date": "2026-01-27"
+  },
+  {
+   "id": 1063,
+   "customer": "Ade Okafor",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-01-26"
+  },
+  {
+   "id": 1062,
+   "customer": "Ravi Iyer",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-26"
+  },
+  {
+   "id": 1061,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-26"
+  },
+  {
+   "id": 1060,
+   "customer": "Elena Ortiz",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-25"
+  },
+  {
+   "id": 1059,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-25"
+  },
+  {
+   "id": 1058,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-01-25"
+  },
+  {
+   "id": 1057,
+   "customer": "Maja Nowak",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-01-25"
+  },
+  {
+   "id": 1056,
+   "customer": "Yusuf Demir",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Pending",
+   "date": "2026-01-24"
+  },
+  {
+   "id": 1055,
+   "customer": "Kenji Sato",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 3,
+   "total": 45,
+   "status": "Paid",
+   "date": "2026-01-24"
+  },
+  {
+   "id": 1054,
+   "customer": "Jonas Thiel",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Pending",
+   "date": "2026-01-24"
+  },
+  {
+   "id": 1053,
+   "customer": "Hana Kim",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-01-23"
+  },
+  {
+   "id": 1052,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-23"
+  },
+  {
+   "id": 1051,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-01-23"
+  },
+  {
+   "id": 1050,
+   "customer": "Ade Okafor",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Pending",
+   "date": "2026-01-23"
+  },
+  {
+   "id": 1049,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-01-22"
+  },
+  {
+   "id": 1048,
+   "customer": "Elena Ortiz",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Pending",
+   "date": "2026-01-22"
+  },
+  {
+   "id": 1047,
+   "customer": "Leo Martins",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-22"
+  },
+  {
+   "id": 1046,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-21"
+  },
+  {
+   "id": 1045,
+   "customer": "Maja Nowak",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-01-21"
+  },
+  {
+   "id": 1044,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-01-21"
+  },
+  {
+   "id": 1043,
+   "customer": "Riya Kapoor",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-20"
+  },
+  {
+   "id": 1042,
+   "customer": "Amara Mensah",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-01-20"
+  },
+  {
+   "id": 1041,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Pending",
+   "date": "2026-01-20"
+  },
+  {
+   "id": 1040,
+   "customer": "Hana Kim",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-01-20"
+  },
+  {
+   "id": 1039,
+   "customer": "Ravi Iyer",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-19"
+  },
+  {
+   "id": 1038,
+   "customer": "Hana Kim",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-19"
+  },
+  {
+   "id": 1037,
+   "customer": "Jonas Thiel",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-18"
+  },
+  {
+   "id": 1036,
+   "customer": "Amara Mensah",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-18"
+  },
+  {
+   "id": 1035,
+   "customer": "Ines Duarte",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-18"
+  },
+  {
+   "id": 1034,
+   "customer": "Ravi Iyer",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-17"
+  },
+  {
+   "id": 1033,
+   "customer": "Tomás Silva",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-17"
+  },
+  {
+   "id": 1032,
+   "customer": "Amara Mensah",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-01-16"
+  },
+  {
+   "id": 1031,
+   "customer": "Riya Kapoor",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-01-16"
+  },
+  {
+   "id": 1030,
+   "customer": "Omar Haddad",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-01-16"
+  },
+  {
+   "id": 1029,
+   "customer": "Ade Okafor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-01-15"
+  },
+  {
+   "id": 1028,
+   "customer": "Elena Ortiz",
+   "product": "Colombia Huila · 250g",
+   "qty": 1,
+   "total": 16,
+   "status": "Paid",
+   "date": "2026-01-15"
+  },
+  {
+   "id": 1027,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Pending",
+   "date": "2026-01-15"
+  },
+  {
+   "id": 1026,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-15"
+  },
+  {
+   "id": 1025,
+   "customer": "Omar Haddad",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-01-14"
+  },
+  {
+   "id": 1024,
+   "customer": "Sofia Rossi",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-14"
+  },
+  {
+   "id": 1023,
+   "customer": "Maja Nowak",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 2,
+   "total": 36,
+   "status": "Paid",
+   "date": "2026-01-14"
+  },
+  {
+   "id": 1022,
+   "customer": "Nia Brooks",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-01-13"
+  },
+  {
+   "id": 1021,
+   "customer": "Hana Kim",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-13"
+  },
+  {
+   "id": 1020,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-12"
+  },
+  {
+   "id": 1019,
+   "customer": "Amara Mensah",
+   "product": "Pour-over Kit",
+   "qty": 3,
+   "total": 192,
+   "status": "Paid",
+   "date": "2026-01-12"
+  },
+  {
+   "id": 1018,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 1,
+   "total": 42,
+   "status": "Paid",
+   "date": "2026-01-11"
+  },
+  {
+   "id": 1017,
+   "customer": "Yusuf Demir",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-01-11"
+  },
+  {
+   "id": 1016,
+   "customer": "Felix Wagner",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-10"
+  },
+  {
+   "id": 1015,
+   "customer": "Leo Martins",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-01-10"
+  },
+  {
+   "id": 1014,
+   "customer": "Hana Kim",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-01-09"
+  },
+  {
+   "id": 1013,
+   "customer": "Nia Brooks",
+   "product": "Gift Box",
+   "qty": 1,
+   "total": 38,
+   "status": "Paid",
+   "date": "2026-01-09"
+  },
+  {
+   "id": 1012,
+   "customer": "Lucy Chen",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Paid",
+   "date": "2026-01-09"
+  },
+  {
+   "id": 1011,
+   "customer": "Amara Mensah",
+   "product": "Colombia Huila · 250g",
+   "qty": 3,
+   "total": 48,
+   "status": "Paid",
+   "date": "2026-01-09"
+  },
+  {
+   "id": 1010,
+   "customer": "Leo Martins",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 1,
+   "total": 18,
+   "status": "Paid",
+   "date": "2026-01-08"
+  },
+  {
+   "id": 1009,
+   "customer": "Tomás Silva",
+   "product": "Decaf Swiss Water · 250g",
+   "qty": 1,
+   "total": 15,
+   "status": "Paid",
+   "date": "2026-01-08"
+  },
+  {
+   "id": 1008,
+   "customer": "Riya Kapoor",
+   "product": "Ethiopia Guji · 250g",
+   "qty": 3,
+   "total": 54,
+   "status": "Refunded",
+   "date": "2026-01-08"
+  },
+  {
+   "id": 1007,
+   "customer": "Riya Kapoor",
+   "product": "Colombia Huila · 250g",
+   "qty": 2,
+   "total": 32,
+   "status": "Paid",
+   "date": "2026-01-07"
+  },
+  {
+   "id": 1006,
+   "customer": "Nia Brooks",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-07"
+  },
+  {
+   "id": 1005,
+   "customer": "Omar Haddad",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-01-07"
+  },
+  {
+   "id": 1004,
+   "customer": "Kenji Sato",
+   "product": "Gift Box",
+   "qty": 2,
+   "total": 76,
+   "status": "Paid",
+   "date": "2026-01-06"
+  },
+  {
+   "id": 1003,
+   "customer": "Lucy Chen",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-06"
+  },
+  {
+   "id": 1002,
+   "customer": "Tomás Silva",
+   "product": "House Espresso · 1kg",
+   "qty": 2,
+   "total": 84,
+   "status": "Paid",
+   "date": "2026-01-05"
+  },
+  {
+   "id": 1001,
+   "customer": "Ade Okafor",
+   "product": "Pour-over Kit",
+   "qty": 1,
+   "total": 64,
+   "status": "Paid",
+   "date": "2026-01-05"
+  },
+  {
+   "id": 1000,
+   "customer": "Ines Duarte",
+   "product": "House Espresso · 1kg",
+   "qty": 3,
+   "total": 126,
+   "status": "Paid",
+   "date": "2026-01-05"
+  }
+ ]
+}

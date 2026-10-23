@@ -15,6 +15,7 @@ import android.app.ActivityManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.oro.app.ui.theme.LocalLiteMode
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -202,30 +203,43 @@ object OrobiMotion {
  * running animation invalidates only the draw pass and never recomposes.
  * When [restartKey] changes the clock starts again from zero.
  *
- * Two economies, neither visible:
+ * Three economies, none visible:
  *  - It only ticks while the screen is at least STARTED. A mascot on a screen
  *    under another one, or in a backgrounded app, costs nothing.
- *  - On low-RAM devices it ticks at most 30 times a second. The brand motion
- *    is all slow easing, where 30fps and 60fps are indistinguishable, and it
- *    halves the draw work on exactly the phones that need it.
+ *  - [maxFps] caps how often it advances. Below 60 the clock sleeps between
+ *    ticks instead of waking on every vsync, so an idle mascot that changes
+ *    a few pixels a second no longer keeps the UI thread and the GPU awake on
+ *    every frame. Brand motion is slow easing, where 30fps and 60fps look the
+ *    same.
+ *  - On low-RAM devices and in Lite mode it advances at most 30 times a
+ *    second whatever [maxFps] asks for, halving the draw work on exactly the
+ *    phones that need it.
  */
 @Composable
-fun rememberAnimationClock(running: Boolean = true, restartKey: Any? = Unit): State<Float> {
+fun rememberAnimationClock(
+    running: Boolean = true,
+    restartKey: Any? = Unit,
+    maxFps: Int = 60,
+): State<Float> {
     val time = remember(restartKey) { mutableFloatStateOf(0f) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val minFrameNanos = if (rememberLowEndDevice()) 33_000_000L else 0L
-    LaunchedEffect(running, restartKey, lifecycle, minFrameNanos) {
+    val fps = if (rememberLowEndDevice()) minOf(maxFps, LowEndFps) else maxFps
+    LaunchedEffect(running, restartKey, lifecycle, fps) {
         if (!running) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             val base = time.floatValue
             val start = withFrameNanos { it }
-            var last = start
-            while (true) {
-                withFrameNanos { now ->
-                    if (now - last >= minFrameNanos) {
-                        last = now
-                        time.floatValue = base + (now - start) / 1_000_000_000f
-                    }
+            if (fps >= 60) {
+                while (true) {
+                    withFrameNanos { now -> time.floatValue = base + (now - start) / 1_000_000_000f }
+                }
+            } else {
+                // Sleep, then align the tick with the next frame. The frame
+                // clock idles in between because nothing is waiting on it.
+                val intervalMs = (1_000L / fps.coerceAtLeast(1)).coerceAtLeast(1L)
+                while (true) {
+                    withFrameNanos { now -> time.floatValue = base + (now - start) / 1_000_000_000f }
+                    kotlinx.coroutines.delay(intervalMs - FrameSlackMs)
                 }
             }
         }
@@ -233,14 +247,26 @@ fun rememberAnimationClock(running: Boolean = true, restartKey: Any? = Unit): St
     return time
 }
 
-/** True on devices Android itself classes as low-RAM. */
+/** Most ticks per second on low-RAM devices and in Lite mode. */
+private const val LowEndFps = 30
+
+/** Wake a little before the next tick so withFrameNanos lands on the frame it was meant for. */
+private const val FrameSlackMs = 4L
+
+/**
+ * True when brand motion should economise: on devices Android classes as
+ * low-RAM, and whenever Lite mode is on (which covers budget phones the
+ * low-RAM flag misses, and users who simply want a lighter UI).
+ */
 @Composable
 fun rememberLowEndDevice(): Boolean {
     val context = LocalContext.current
-    return remember(context) {
+    val liteMode = LocalLiteMode.current
+    val lowRam = remember(context) {
         (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as? ActivityManager)
             ?.isLowRamDevice == true
     }
+    return liteMode || lowRam
 }
 
 /**

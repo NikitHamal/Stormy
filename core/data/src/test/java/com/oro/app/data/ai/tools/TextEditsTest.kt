@@ -115,3 +115,36 @@ class ToolAliasesTest {
         assertThat(args.containsKey("line_end")).isFalse()
     }
 }
+
+class TextEditsFuzzyTest {
+    @org.junit.Test
+    fun `whitespace drift inside a line still applies uniquely`() {
+        val content = "<div class=\"card\"   id=\"x\">\n  <p>Hello</p>\n</div>\n"
+        val r = TextEdits.apply(content, "<div class=\"card\" id=\"x\">", "<section id=\"x\">")
+        com.google.common.truth.Truth.assertThat(r).isInstanceOf(TextEdits.Result.Applied::class.java)
+        com.google.common.truth.Truth.assertThat((r as TextEdits.Result.Applied).content).startsWith("<section id=\"x\">\n  <p>")
+    }
+
+    @org.junit.Test
+    fun `block anchors tolerate a misquoted middle line`() {
+        val content = "function greet(name) {\n  const msg = 'Hello, ' + name;\n  console.log(msg);\n  return msg;\n}\nother();\n"
+        val old = "function greet(name) {\n  const msg = 'Hello ' + name;\n  console.log(msg);\n  return msg;\n}"
+        val r = TextEdits.apply(content, old, "function greet(n) { return n; }")
+        com.google.common.truth.Truth.assertThat(r).isInstanceOf(TextEdits.Result.Applied::class.java)
+        com.google.common.truth.Truth.assertThat((r as TextEdits.Result.Applied).content).isEqualTo("function greet(n) { return n; }\nother();\n")
+    }
+
+    @org.junit.Test
+    fun `ambiguous fuzzy matches still fail`() {
+        val content = "a {\n  color: red;\n}\nb {\n  color: red;\n}\n"
+        val r = TextEdits.apply(content, "color:  red;", "color: blue;")
+        com.google.common.truth.Truth.assertThat(r).isInstanceOf(TextEdits.Result.Failed::class.java)
+    }
+
+    @org.junit.Test
+    fun `very different blocks are not matched`() {
+        val content = "if (a) {\n  doOne();\n  doTwo();\n}\n"
+        val r = TextEdits.apply(content, "if (a) {\n  somethingElseEntirely(42, 'x');\n}", "x")
+        com.google.common.truth.Truth.assertThat(r).isInstanceOf(TextEdits.Result.Failed::class.java)
+    }
+}

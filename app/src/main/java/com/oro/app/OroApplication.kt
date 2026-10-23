@@ -1,9 +1,11 @@
 package com.oro.app
 
 import android.app.Application
+import android.os.Build
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.PlatformContext
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.oro.app.crash.CrashHandler
@@ -33,6 +35,23 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Activities currently started; > 0 means the user can see the app. */
+    @Volatile
+    private var startedActivities = 0
+    val isInForeground: Boolean get() = startedActivities > 0
+
+    private fun trackForeground() {
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) { startedActivities++ }
+            override fun onActivityStopped(activity: android.app.Activity) { startedActivities = (startedActivities - 1).coerceAtLeast(0) }
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
+            override fun onActivityResumed(activity: android.app.Activity) = Unit
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) = Unit
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
+    }
+
     val database: OroDatabase by lazy {
         OroDatabase.getInstance(this)
     }
@@ -50,7 +69,7 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
     }
 
     val chatRepository: ChatRepository by lazy {
-        ChatRepository(database.chatMessageDao(), this)
+        ChatRepository(database.chatMessageDao(), database.chatSessionDao(), this)
     }
 
     val geminiModelService: GeminiModelService by lazy {
@@ -112,20 +131,78 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         instance = this
         CrashHandler.initialize(this)
 
+        // CrashActivity runs in its own ":crash_handler" process, which also
+        // creates an OroApplication. It only shows a stack trace, so it must
+        // not open the database or seed models -- that is wasted work and
+        // extra memory pressure at exactly the moment the device just crashed.
+        if (isCrashProcess()) return
+        trackForeground()
+        prewarmFonts()
+        // Off-screen page renderer for the agent's screenshot / audit tools.
+        com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
+        // The preview's mock accounts keep hashes and sessions here, never in a project folder.
+        com.oro.app.data.preview.MockApi.authDir = java.io.File(noBackupFilesDir, "mock-auth")
+        // Browser-grade transport for the Qwen community provider (see QwenWebClient).
+        com.oro.app.data.ai.community.QwenBrowser.bridge = com.oro.app.community.QwenWebBridge(this)
+        // Same for Mercury: passes Vercel's browser check the guest chat sits behind (see MercuryWebClient).
+        com.oro.app.data.ai.community.MercuryBrowser.bridge = com.oro.app.community.MercuryWebBridge(this)
+        // Refreshed MCP sign-in tokens are written back to settings.
+        com.oro.app.data.ai.mcp.McpRegistry.tokenSink = { serverId, tokens ->
+            applicationScope.launch {
+                preferencesRepository.updateMcpSettings { s ->
+                    s.copy(servers = s.servers.map { if (it.id == serverId) it.copy(oauth = tokens) else it })
+                }
+            }
+        }
+
         // Initialize AI models on startup to ensure models are available
         applicationScope.launch {
             aiModelRepository.initializeModelsIfEmpty()
+            runCatching { com.oro.app.data.repository.ModelMigrations.run(preferencesRepository, projectRepository, aiModelRepository) }
         }
     }
 
     /**
-     * Coil 3 singleton loader. SVG decoding is registered explicitly; network
-     * fetching comes from coil-network-okhttp, which reuses the shared OkHttp
-     * client instead of standing up a second connection pool.
+     * Decodes the Poppins faces off the main thread while the splash screen is
+     * up. Compose loads resource fonts synchronously the first time text is
+     * drawn, so otherwise the first frame waits for four font files to be
+     * parsed on the UI thread. Same calls Compose makes, so it lands in the
+     * same cache: Resources.getFont on API 26+, ResourcesCompat below.
+     */
+    private fun prewarmFonts() {
+        applicationScope.launch(Dispatchers.IO) {
+            val fonts = intArrayOf(
+                com.oro.app.designsystem.R.font.poppins_regular_static,
+                com.oro.app.designsystem.R.font.poppins_medium_static,
+                com.oro.app.designsystem.R.font.poppins_semibold_static,
+                com.oro.app.designsystem.R.font.poppins_bold_static,
+            )
+            for (id in fonts) {
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        resources.getFont(id)
+                    } else {
+                        androidx.core.content.res.ResourcesCompat.getFont(this@OroApplication, id)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun isCrashProcess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            Application.getProcessName().endsWith(":crash_handler")
+
+    /**
+     * Coil 3 singleton loader. SVG decoding is registered explicitly. Network
+     * fetching goes through the app's shared OkHttp client: left to itself,
+     * coil-network-okhttp builds a second client, with its own connection
+     * pool and dispatcher threads, for the same hosts.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {
+                add(OkHttpNetworkFetcherFactory({ com.oro.app.data.ai.AiHttp.client }))
                 add(SvgDecoder.Factory())
             }
             .crossfade(true)

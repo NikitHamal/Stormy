@@ -123,7 +123,8 @@ configuration rather than code -- each is one entry in the `AiProvider` enum.
 
 | Provider | Key needed | Notes |
 |---|---|---|
-| Pollinations | No | Default. Anonymous tier, supports tool calling. |
+| Mercury 3 (community) | No | Default. Unofficial bridge to Inception's guest chat: a very fast diffusion model, text tool calls. |
+| Hy3, Laguna, K2 Horizon, Cloudflare Gemma, UniKey, Ptero, Qwen (community) | No | Unofficial bridges to public demos; limits in `docs/research/keyless-providers.md`. |
 | Google Gemini | Yes | Free tier, no billing details. |
 | NVIDIA NIM | Yes | Free credits. Nemotron, Qwen, DeepSeek, gpt-oss. |
 | Groq | Yes | Free tier. Fastest tokens/sec of the set. |
@@ -132,13 +133,15 @@ configuration rather than code -- each is one entry in the `AiProvider` enum.
 | Agnes AI | Yes | Free tier, ~20 RPM. |
 | OpenRouter | Yes | Has a catalogue of `:free` models. |
 | OpenCode Zen | Yes | Its `*-free` models are restricted to the OpenCode client. |
-| Kilo Code | Yes | Routes to OpenRouter behind a Kilo key. |
+| Kilo Code | Optional | Free models with no key (about 200 requests an hour); a key unlocks the full catalogue. |
+| OVHcloud AI Endpoints | Yes | Free with an OVHcloud account. The anonymous tier (2 requests a minute) is too slow for agent runs. |
+| LLM7 | Yes | Free token at token.llm7.io. The anonymous tier (about 100k tokens a day) is too small for agent runs. |
 | DeepInfra | Yes | Its keyless endpoint was retired in 2026. |
 | Custom | Optional | Any OpenAI-compatible server, e.g. a local Ollama. |
 
-"Key needed" means the provider will not answer without one. Every key-based
-provider above is free to sign up for without billing details -- that is a
-different thing from keyless, and the app labels it as such.
+"Key needed" means Oro will not call the provider without one. Every key-based
+provider above has a free tier -- that is a different thing from keyless, and
+the app labels it as such.
 
 ## Roadmap
 

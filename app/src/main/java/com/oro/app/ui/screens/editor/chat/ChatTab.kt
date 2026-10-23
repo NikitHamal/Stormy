@@ -1,5 +1,7 @@
 package com.oro.app.ui.screens.editor.chat
 
+import com.oro.app.ui.screens.editor.agent.RunTranscript
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,7 +16,6 @@ import com.oro.app.ui.components.chat.ChatSettingsSheet
 import com.oro.app.data.ai.context.ContextUsageLevel
 import com.oro.app.data.ai.context.ContextBreakdown
 import com.oro.app.ui.theme.OroCorners
-import com.oro.app.data.ai.ReasoningEffort
 import com.oro.app.ui.components.agent.AgentActivityCard
 import com.oro.app.ui.components.agent.AskUserCard
 import com.oro.app.ui.components.agent.PendingQuestion
@@ -71,6 +72,7 @@ import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -116,12 +118,32 @@ import com.oro.app.ui.components.message.AiMessageContent
 import com.oro.app.domain.model.FileTreeNode
 import com.oro.app.ui.components.toUiCodeChange
 import com.oro.app.ui.theme.OroTheme
+import com.oro.app.ui.screens.editor.sessions.ChatSessionActions
+import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
+import com.oro.app.ui.screens.editor.sessions.SessionUndoBar
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatTab(
     messages: List<ChatMessage>,
+    sessionsState: ChatSessionsUiState = ChatSessionsUiState(isLoadingSession = false),
+    sessionActions: ChatSessionActions = ChatSessionActions.None,
+    agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
+    sessionUsage: com.oro.app.data.ai.usage.SessionUsage = com.oro.app.data.ai.usage.SessionUsage(),
+    /** User messages whose run left a checkpoint, i.e. can be rewound. */
+    checkpointMessageIds: Set<String> = emptySet(),
+    onRestoreCheckpoint: (String) -> Unit = {},
+    autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
+    onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
+    richUi: Boolean = true,
+    onRichUiChange: (Boolean) -> Unit = {},
+    askBeforeBuilding: Boolean = true,
+    onAskBeforeBuildingChange: (Boolean) -> Unit = {},
+    attachedPhotos: Int = 0,
+    onAttachPhoto: (android.net.Uri) -> Unit = {},
+    onClearPhotos: () -> Unit = {},
+    projectName: String? = null,
     inputText: String,
     isLoading: Boolean,
     agentMode: Boolean,
@@ -130,8 +152,8 @@ fun ChatTab(
     availableModels: List<AiModel> = emptyList(),
     fileTree: List<FileTreeNode> = emptyList(),
     agentSessions: List<AgentSession> = emptyList(),
-    reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
-    onReasoningEffortChange: (ReasoningEffort) -> Unit = {},
+    reasoningLevels: Map<String, String> = emptyMap(),
+    onReasoningLevelChange: (modelId: String, level: String) -> Unit = { _, _ -> },
     contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
     compactableMessageCount: Int = 0,
     isCompacting: Boolean = false,
@@ -150,7 +172,7 @@ fun ChatTab(
     /** What the running turn is doing; drives the working indicator's label. */
     workingLabel: String? = null,
     pendingQuestion: PendingQuestion? = null,
-    onAnswerQuestion: (String) -> Unit = {},
+    onAnswerQuestion: (List<String?>) -> Unit = {},
     onSkipQuestion: () -> Unit = {},
     runError: RunError? = null,
     onRetryRun: () -> Unit = {},
@@ -161,15 +183,41 @@ fun ChatTab(
     var showModelSelector by remember { mutableStateOf(false) }
     var showChatSettings by remember { mutableStateOf(false) }
     var showContextSheet by remember { mutableStateOf(false) }
+    var restoreTarget by remember { mutableStateOf<ChatMessage?>(null) }
 
+    restoreTarget?.let { target ->
+        com.oro.app.ui.components.expressive.FormSheet(
+            title = "Restore files?",
+            icon = androidx.compose.material.icons.Icons.Outlined.History,
+            onDismiss = { restoreTarget = null },
+            confirmLabel = "Restore",
+            destructive = true,
+            onConfirm = {
+                onRestoreCheckpoint(target.id)
+                restoreTarget = null
+            }
+        ) {
+            Text(
+                "Every file Orobi created, changed or deleted from this message on goes back to how it was " +
+                    "before it. The conversation itself is kept.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
     if (showChatSettings) {
         ChatSettingsSheet(
             agentMode = agentMode,
             onAgentModeChange = { onToggleAgentMode() },
-            reasoningEffort = reasoningEffort,
-            onReasoningEffortChange = onReasoningEffortChange,
+            reasoningLevels = reasoningLevels,
+            onReasoningLevelChange = onReasoningLevelChange,
             currentModel = currentModel,
-            onDismiss = { showChatSettings = false }
+            onDismiss = { showChatSettings = false },
+            autonomy = autonomy,
+            onAutonomyChange = onAutonomyChange,
+            richUi = richUi,
+            onRichUiChange = onRichUiChange,
+            askBeforeBuilding = askBeforeBuilding,
+            onAskBeforeBuildingChange = onAskBeforeBuildingChange
         )
     }
 
@@ -180,7 +228,8 @@ fun ChatTab(
             isCompacting = isCompacting,
             lastSavedPercent = lastCompactionSavedPercent,
             onCompact = onCompactContext,
-            onDismiss = { showContextSheet = false }
+            onDismiss = { showContextSheet = false },
+            usage = sessionUsage
         )
     }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -188,10 +237,20 @@ fun ChatTab(
     // Trailing items after messages and agent cards: the working indicator /
     // question while a run is live, or the error card after one failed.
     val trailingItems = (if (isLoading) 1 else 0) + (if (!isLoading && runError != null) 1 else 0)
+    // The session whose transcript the list was last scrolled for. Opening
+    // another session jumps straight to its end; animating would scroll
+    // visibly through a conversation the user did not ask to read.
+    var scrolledSession by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(messages.size, agentSessions.size, pendingQuestion?.id, runError, isLoading) {
         val lastIndex = messages.size + agentSessions.size + trailingItems - 1
         if (lastIndex >= 0) {
-            listState.animateScrollToItem(lastIndex)
+            val session = sessionsState.currentSessionId
+            if (messages.isNotEmpty() && session != scrolledSession) {
+                scrolledSession = session
+                listState.scrollToItem(lastIndex)
+            } else {
+                listState.animateScrollToItem(lastIndex)
+            }
         }
     }
 
@@ -200,16 +259,17 @@ fun ChatTab(
             .fillMaxSize()
             .imePadding()
     ) {
-        // Task planning panel - show when there are active tasks
-        AnimatedVisibility(
-            visible = taskList.isNotEmpty(),
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            TaskPlanningPanel(tasks = taskList)
-        }
 
-        if (messages.isEmpty()) {
+        if (messages.isEmpty() && sessionsState.isLoadingSession) {
+            // Between choosing a session and its rows arriving (a few ms):
+            // blank, rather than flashing the welcome for a chat that has
+            // history.
+            Spacer(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            )
+        } else if (messages.isEmpty()) {
             WelcomeMessage(
                 agentMode = agentMode,
                 onToggleAgentMode = onToggleAgentMode,
@@ -219,6 +279,25 @@ fun ChatTab(
                     .fillMaxWidth()
             )
         } else {
+            // Open a chat at its newest message in the very first layout pass.
+            // Composing from the top and scrolling afterwards built the oldest
+            // messages first -- on a long chat, the most expensive way in.
+            val openedKey = sessionsState.currentSessionId ?: "draft"
+            val jumpedFor = remember { arrayOfNulls<String>(1) }
+            if (jumpedFor[0] != openedKey) {
+                jumpedFor[0] = openedKey
+                val lastIndex = messages.size + agentSessions.size + trailingItems - 1
+                if (lastIndex > 0) listState.requestScrollToItem(lastIndex)
+            }
+            // When a tool's row is already running with its own loader and the
+            // working indicator would only repeat it ("Writing index.html"
+            // twice), the row is the working state; a label that adds
+            // something (the phone's current step) still shows.
+            val lastMessage = messages.lastOrNull()
+            val runningSubject = remember(lastMessage?.id, lastMessage?.content) {
+                lastMessage?.takeIf { !it.isUser }?.content?.let(RunTranscript::runningSubject)
+            }
+            val repeatsRow = runningSubject != null && workingLabel?.contains(runningSubject) == true
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -227,13 +306,19 @@ fun ChatTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Compared by id: `message == last` was a full content compare
+                // of every bubble on every streamed frame.
+                val lastId = messages.lastOrNull()?.id
                 items(
                     items = messages,
-                    key = { it.id }
+                    key = { it.id },
+                    contentType = { if (it.isUser) "user" else "ai" }
                 ) { message ->
                     ChatBubble(
                         message = message,
-                        isStreaming = isLoading && message == messages.lastOrNull() && !message.isUser,
+                        canRestore = !isLoading && message.isUser && message.id in checkpointMessageIds,
+                        onRestore = { restoreTarget = message },
+                        isStreaming = isLoading && message.id == lastId && !message.isUser,
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -245,7 +330,8 @@ fun ChatTab(
                 if (agentSessions.isNotEmpty()) {
                     items(
                         items = agentSessions,
-                        key = { it.id }
+                        key = { it.id },
+                        contentType = { "agent" }
                     ) { session ->
                         AgentActivityCard(
                             session = session,
@@ -260,23 +346,24 @@ fun ChatTab(
 
                 // While a turn is live there is always exactly one visible
                 // working state at the end of the list: the question the agent
-                // is waiting on, or Orobi's indicator with what it is doing.
+                // is waiting on, or Orobi's indicator with what it is doing
+                // (unless the running tool's row already says it; see above).
                 // It used to show only until the (empty) assistant message was
                 // added, then vanish for the rest of the run.
-                if (isLoading) {
+                if (isLoading && (pendingQuestion != null || !repeatsRow)) {
                     item(key = "run-status") {
                         if (pendingQuestion != null) {
                             AskUserCard(
                                 question = pendingQuestion,
-                                onAnswer = onAnswerQuestion,
-                                onSkip = onSkipQuestion,
+                                onSubmit = onAnswerQuestion,
+                                onDismiss = onSkipQuestion,
                                 modifier = Modifier.animateItem()
                             )
                         } else {
                             TypingIndicator(label = workingLabel ?: "Thinking")
                         }
                     }
-                } else if (runError != null) {
+                } else if (!isLoading && runError != null) {
                     item(key = "run-error") {
                         RunErrorCard(
                             error = runError,
@@ -289,7 +376,52 @@ fun ChatTab(
             }
         }
 
+        SessionUndoBar(
+            title = sessionsState.undoTitle,
+            onUndo = sessionActions.onUndoDelete,
+            onDismiss = sessionActions.onDismissUndo,
+            modifier = Modifier.padding(start = Space.lg, end = Space.lg, top = Space.sm)
+        )
+
+        // The plan docks on the composer, like the run it describes: it is
+        // about what Orobi is doing *now*, so it sits where the user is
+        // looking, not at the top of a transcript that scrolls away.
+        AnimatedVisibility(
+            visible = agentPlan != null && !agentPlan.isEmpty,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            agentPlan?.let {
+                com.oro.app.ui.components.agent.PlanTimeline(
+                    plan = it,
+                    modifier = Modifier.padding(start = Space.lg, end = Space.lg, top = Space.sm)
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = taskList.isNotEmpty(),
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            TaskPlanningPanel(
+                tasks = taskList,
+                outerPadding = PaddingValues(start = Space.lg, end = Space.lg, top = Space.sm)
+            )
+        }
+
+        val photoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+        ) { uri -> if (uri != null) onAttachPhoto(uri) }
         ModernChatInput(
+            onAttachPhoto = {
+                photoPicker.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            },
+            attachedPhotos = attachedPhotos,
+            onClearPhotos = onClearPhotos,
             value = inputText,
             onValueChange = onInputChange,
             onSend = onSendMessage,
@@ -306,7 +438,10 @@ fun ChatTab(
             fileTree = fileTree,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Space.lg)
+                .padding(
+                    start = Space.lg, end = Space.lg, bottom = Space.lg,
+                    top = if (taskList.isNotEmpty() || (agentPlan != null && !agentPlan.isEmpty)) Space.xs + Space.xxs else Space.lg
+                )
         )
     }
 
@@ -327,6 +462,8 @@ fun ChatTab(
             },
             onRefresh = onRefreshModels,
             isRefreshing = isRefreshingModels,
+            reasoningLevels = reasoningLevels,
+            onReasoningLevelChange = onReasoningLevelChange,
             sheetState = sheetState
         )
     }
@@ -355,29 +492,17 @@ private fun WelcomeMessage(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // One question, no tagline: the starters below say what Orobi does.
         Text(
             text = context.getString(R.string.chat_welcome_title),
             style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = context.getString(R.string.chat_welcome_message),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
 
-        // Agent mode toggle
-        AgentModeToggle(
-            agentMode = agentMode,
-            onToggle = onToggleAgentMode
-        )
-
+        // Chat / Agent lives in the composer's settings sheet; a second
+        // switch here only duplicated it.
         Spacer(modifier = Modifier.height(28.dp))
 
         // Starters. They fill the input rather than sending, so the user can
@@ -398,7 +523,9 @@ private fun WelcomeMessage(
 private val StarterPrompts = listOf(
     "Build a landing page for a coffee shop",
     "Add a responsive navbar with a mobile menu",
-    "Review this project and suggest improvements"
+    "Review this project and suggest improvements",
+    "Audit my site and fix what it finds",
+    "Check my site on phone, tablet and desktop"
 )
 
 @Composable
@@ -603,6 +730,8 @@ private fun UserMessageBubble(
 @Composable
 private fun ChatBubble(
     message: ChatMessage,
+    canRestore: Boolean = false,
+    onRestore: () -> Unit = {},
     isStreaming: Boolean = false,
     modifier: Modifier = Modifier,
     onApplyChange: ((String) -> Unit)? = null
@@ -623,6 +752,22 @@ private fun ChatBubble(
                     bubbleColor = extendedColors.chatUserBubble,
                     textColor = extendedColors.chatUserText
                 )
+                if (canRestore) {
+                    // A checkpoint was taken before this message's run.
+                    androidx.compose.material3.TextButton(
+                        onClick = onRestore,
+                        contentPadding = PaddingValues(horizontal = Space.sm, vertical = 0.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Outlined.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(Space.xs))
+                        Text("Restore files", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         } else {
             // AI message - professional IDE-style with structured content
@@ -633,7 +778,8 @@ private fun ChatBubble(
                     isStreaming = isStreaming,
                     modifier = Modifier.fillMaxWidth(),
                     // The list's trailing indicator carries the label.
-                    showWorkingIndicator = false
+                    showWorkingIndicator = false,
+                    cacheKey = message.id
                 )
             }
         }

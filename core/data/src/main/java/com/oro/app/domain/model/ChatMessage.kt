@@ -9,6 +9,13 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
+/**
+ * Shared, thread-safe formatter: [ChatMessage.formattedTime] runs for every
+ * visible bubble on every recomposition of the chat (i.e. per streamed chunk),
+ * and DateTimeFormatter.ofPattern re-parses the pattern on each call.
+ */
+private val MessageTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
 data class ChatMessage(
     val id: String,
     val projectId: String,
@@ -16,7 +23,14 @@ data class ChatMessage(
     val content: String,
     val timestamp: Long,
     val status: MessageStatus,
-    val codeChanges: List<CodeChange>?
+    val codeChanges: List<CodeChange>?,
+    /**
+     * The chat session this message belongs to. Last and defaulted so the
+     * many call sites that build messages for prompts and tests (never
+     * persisted) need not invent one; anything saved through ChatRepository
+     * must set it, which the repository checks.
+     */
+    val sessionId: String = ""
 ) {
     val formattedTime: String
         get() {
@@ -24,7 +38,7 @@ data class ChatMessage(
                 Instant.ofEpochMilli(timestamp),
                 ZoneId.systemDefault()
             )
-            return dateTime.format(DateTimeFormatter.ofPattern("HH:mm"))
+            return dateTime.format(MessageTimeFormatter)
         }
 
     val isUser: Boolean get() = role == MessageRole.USER
@@ -33,6 +47,7 @@ data class ChatMessage(
     fun toEntity(): ChatMessageEntity = ChatMessageEntity(
         id = id,
         projectId = projectId,
+        sessionId = sessionId,
         role = role.name,
         content = content,
         timestamp = timestamp,
@@ -49,6 +64,7 @@ data class ChatMessage(
         fun fromEntity(entity: ChatMessageEntity): ChatMessage = ChatMessage(
             id = entity.id,
             projectId = entity.projectId,
+            sessionId = entity.sessionId,
             role = try {
                 MessageRole.valueOf(entity.role)
             } catch (e: IllegalArgumentException) {
@@ -73,21 +89,27 @@ data class ChatMessage(
             }
         )
 
-        fun createUserMessage(projectId: String, content: String): ChatMessage = ChatMessage(
+        fun createUserMessage(
+            projectId: String,
+            content: String,
+            sessionId: String = ""
+        ): ChatMessage = ChatMessage(
             id = UUID.randomUUID().toString(),
             projectId = projectId,
             role = MessageRole.USER,
             content = content,
             timestamp = System.currentTimeMillis(),
             status = MessageStatus.SENT,
-            codeChanges = null
+            codeChanges = null,
+            sessionId = sessionId
         )
 
         fun createAssistantMessage(
             projectId: String,
             content: String,
             status: MessageStatus = MessageStatus.RECEIVED,
-            codeChanges: List<CodeChange>? = null
+            codeChanges: List<CodeChange>? = null,
+            sessionId: String = ""
         ): ChatMessage = ChatMessage(
             id = UUID.randomUUID().toString(),
             projectId = projectId,
@@ -95,7 +117,8 @@ data class ChatMessage(
             content = content,
             timestamp = System.currentTimeMillis(),
             status = status,
-            codeChanges = codeChanges
+            codeChanges = codeChanges,
+            sessionId = sessionId
         )
     }
 }

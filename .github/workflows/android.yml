@@ -59,7 +59,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # oro-dev is where the work happens: let it keep the cache warm too.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/oro-dev' }}
           # A cache miss or a GitHub cache outage must not fail the build.
           cache-overwrite-existing: true
           validate-wrappers: true
@@ -76,6 +77,21 @@ jobs:
       - name: Set short SHA
         id: set_sha
         run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # "[shots]" in the head commit's message renders the UI screenshots
+      # (Robolectric + Roborazzi, test-only) and uploads them, so a pass on
+      # oro-dev can be looked at without a phone or an extra branch.
+      - name: UI screenshots
+        if: contains(github.event.head_commit.message, '[shots]')
+        run: ./gradlew --stacktrace --build-cache :app:testDebugUnitTest -Poro.screenshots=true
+
+      - name: Upload UI screenshots
+        if: contains(github.event.head_commit.message, '[shots]')
+        uses: actions/upload-artifact@v7
+        with:
+          name: shots-${{ steps.set_sha.outputs.short_sha }}
+          path: app/build/outputs/roborazzi/*.png
+          if-no-files-found: warn
 
       - name: Rename APK with commit hash
         run: |

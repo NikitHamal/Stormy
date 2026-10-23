@@ -70,14 +70,18 @@ fun FileMentionPopup(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val filteredItems = remember(query, fileTree) {
-        flattenFileTree(fileTree)
+    // The tree is flattened once per tree, not once per keystroke, and the
+    // filter stops at the eighth hit instead of scanning every file.
+    val flatItems = remember(fileTree) { flattenFileTree(fileTree) }
+    val filteredItems = remember(query, flatItems) {
+        flatItems.asSequence()
             .filter { item ->
                 if (query.isEmpty()) true
                 else item.name.contains(query, ignoreCase = true) ||
                         item.path.contains(query, ignoreCase = true)
             }
             .take(8)
+            .toList()
     }
 
     val listState = rememberLazyListState()

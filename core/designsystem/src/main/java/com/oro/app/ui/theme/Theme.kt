@@ -187,6 +187,12 @@ fun OroTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
 
     motionStyle: MotionStyle = MotionStyle.Expressive,
+    /**
+     * Lite mode (see [LocalLiteMode]). Also selects the standard motion
+     * scheme: the expressive springs overshoot and settle over more frames,
+     * which is exactly the work a slow GPU drops frames on.
+     */
+    liteMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
     // Dynamic colour is deliberately not offered.
@@ -206,10 +212,15 @@ fun OroTheme(
     // window.statusBarColor here was both deprecated (no-op from API 35) and the
     // wrong layer -- it fired a SideEffect on every theme recomposition.
 
-    CompositionLocalProvider(LocalExtendedColors provides extendedColors) {
+    val effectiveMotion = if (liteMode) MotionStyle.Standard else motionStyle
+
+    CompositionLocalProvider(
+        LocalExtendedColors provides extendedColors,
+        LocalLiteMode provides liteMode
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            motionScheme = when (motionStyle) {
+            motionScheme = when (effectiveMotion) {
                 MotionStyle.Expressive -> MotionScheme.expressive()
                 MotionStyle.Standard -> MotionScheme.standard()
             },
@@ -224,4 +235,9 @@ object OroTheme {
     val extendedColors: ExtendedColors
         @Composable
         get() = LocalExtendedColors.current
+
+    /** Whether Lite mode is on; see [LocalLiteMode]. */
+    val liteMode: Boolean
+        @Composable
+        get() = LocalLiteMode.current
 }

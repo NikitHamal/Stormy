@@ -44,6 +44,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
@@ -63,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,6 +89,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oro.app.data.ai.AiModel
+import com.oro.app.data.ai.displayName
 import com.oro.app.domain.model.FileTreeNode
 
 /**
@@ -115,22 +119,73 @@ fun ModernChatInput(
     contextIsCritical: Boolean = false,
     fileTree: List<FileTreeNode> = emptyList(),
     placeholder: String = "Ask anything, or describe what to build",
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Design from a photo: opens the picker; [attachedPhotos] shows how many are attached. */
+    onAttachPhoto: (() -> Unit)? = null,
+    attachedPhotos: Int = 0,
+    onClearPhotos: () -> Unit = {},
+    /** What the settings button is called for assistive tech (it opens a different sheet per screen). */
+    settingsDescription: String = "Chat settings",
+    /** @-mentions of project files; off where there is no project (the device agent). */
+    mentions: Boolean = true
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     var showContextActions by remember { mutableStateOf(false) }
+    // Live words while dictating, and the last dictation problem.
+    var dictationPartial by remember { mutableStateOf<String?>(null) }
+    var dictationError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(dictationError) {
+        if (dictationError != null) { kotlinx.coroutines.delay(4_000); dictationError = null }
+    }
 
     // @ mention state
-    var textFieldValue by remember(value) {
+    // Keyed on nothing: remember(value) rebuilt the state on every keystroke
+    // (the parent echoes each edit back as `value`, a frame or more later)
+    // with the caret forced to the end, so typing in the middle of a prompt
+    // jumped the caret to the last letter. Echoes of what was typed here are
+    // recognised and ignored; only an outside change (field cleared after
+    // send, a restored draft, a session switch) replaces the text.
+    var textFieldValue by remember {
         mutableStateOf(TextFieldValue(text = value, selection = TextRange(value.length)))
     }
+    val typed = remember { ArrayDeque<String>() }
+    fun noteTyped(text: String) {
+        typed.addLast(text)
+        while (typed.size > 48) typed.removeFirst()
+    }
+    LaunchedEffect(value) {
+        if (value != textFieldValue.text && (value.isEmpty() || value !in typed)) {
+            textFieldValue = TextFieldValue(text = value, selection = TextRange(value.length))
+            typed.clear()
+        }
+    }
+
     val mentionQuery = remember(textFieldValue) {
         extractMentionQuery(textFieldValue.text, textFieldValue.selection.start)
     }
-    val showMentionPopup = mentionQuery != null
+    val showMentionPopup = mentions && mentionQuery != null
 
     Column(modifier = modifier) {
+        if (attachedPhotos > 0) {
+            androidx.compose.material3.InputChip(
+                selected = true,
+                onClick = onClearPhotos,
+                label = { Text(if (attachedPhotos == 1) "1 photo attached" else "$attachedPhotos photos attached", maxLines = 1) },
+                leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null, Modifier.size(18.dp)) },
+                trailingIcon = { Icon(Icons.Outlined.Close, "Remove photos", Modifier.size(16.dp)) },
+                modifier = Modifier.padding(start = Space.sm, bottom = Space.xs)
+            )
+        }
+        (dictationPartial ?: dictationError)?.let { line ->
+            Text(
+                text = line,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (dictationPartial != null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                maxLines = 2,
+                modifier = Modifier.padding(start = Space.md, end = Space.md, bottom = Space.xs)
+            )
+        }
         // @ mention popup (above the input)
         FileMentionPopup(
             isVisible = showMentionPopup,
@@ -146,6 +201,7 @@ fun ModernChatInput(
                     text = newText,
                     selection = TextRange(newCursor)
                 )
+                noteTyped(newText)
                 onValueChange(newText)
             },
             onDismiss = { },
@@ -179,6 +235,7 @@ fun ModernChatInput(
                 BasicTextField(
                     value = textFieldValue,
                     onValueChange = { newValue ->
+                        if (newValue.text != textFieldValue.text) noteTyped(newValue.text)
                         textFieldValue = newValue
                         onValueChange(newValue.text)
                     },
@@ -231,9 +288,17 @@ fun ModernChatInput(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Space.xs)
                 ) {
+                    if (onAttachPhoto != null) {
+                        InputActionButton(
+                            icon = Icons.Outlined.AddPhotoAlternate,
+                            contentDescription = "Design from a photo",
+                            onClick = onAttachPhoto,
+                            tint = if (attachedPhotos > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     InputActionButton(
                         icon = Icons.Outlined.Tune,
-                        contentDescription = "Chat settings",
+                        contentDescription = settingsDescription,
                         onClick = onSettingsClick,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -270,8 +335,22 @@ fun ModernChatInput(
                         )
                     }
 
+                    if (!isProcessing) {
+                        com.oro.app.voice.DictationButton(
+                            onText = { spoken ->
+                                val current = textFieldValue.text
+                                val joined = if (current.isBlank()) spoken else current.trimEnd() + " " + spoken
+                                textFieldValue = TextFieldValue(joined, selection = TextRange(joined.length))
+                                noteTyped(joined)
+                                onValueChange(joined)
+                            },
+                            onPartial = { dictationPartial = it },
+                            onError = { dictationError = it }
+                        )
+                    }
+
                     SendButton(
-                        canSend = textFieldValue.text.isNotBlank() && isEnabled,
+                        canSend = (textFieldValue.text.isNotBlank() || attachedPhotos > 0) && isEnabled,
                         isProcessing = isProcessing,
                         onSend = {
                             onSend()
@@ -451,7 +530,7 @@ private fun ModelChip(
             // Model name. Weighted so it is the part that gives way: the
             // chevron stays visible however long the name is.
             Text(
-                text = model.shortName(),
+                text = model.displayName(),
                 modifier = Modifier.weight(1f, fill = false),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
@@ -567,9 +646,3 @@ private fun InputActionButton(
     }
 }
 
-/**
- * The name to show in the compact chip. Model ids from routers carry an
- * owner prefix ("meta-llama/") that tells the user nothing at this size.
- */
-private fun AiModel.shortName(): String =
-    name.substringAfterLast('/').ifBlank { name }

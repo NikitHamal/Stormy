@@ -40,6 +40,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudUpload
 import com.oro.app.ui.theme.Sizes
 import com.oro.app.ui.components.expressive.SheetAction
 import com.oro.app.ui.components.expressive.ActionSheet
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Timer
@@ -75,6 +77,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -94,6 +101,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.R
 import com.oro.app.ui.screens.editor.assets.AssetManagerDrawer
 import com.oro.app.ui.screens.editor.chat.ChatTab
+import com.oro.app.ui.screens.editor.sessions.ChatSessionActions
+import com.oro.app.ui.screens.editor.sessions.SessionsSheet
 import com.oro.app.ui.screens.editor.code.AiCodeEditRequest
 import com.oro.app.ui.screens.editor.code.CodeTab
 import com.oro.app.ui.screens.editor.filetree.FileTreeDrawer
@@ -113,13 +122,51 @@ fun EditorScreen(
     onBackClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onGitSettingsClick: () -> Unit = {},
+    onTimelineClick: () -> Unit = {},
     viewModel: EditorViewModel = viewModel(
         factory = EditorViewModel.Factory,
         key = projectId
     )
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val sessionsState by viewModel.sessionsState.collectAsStateWithLifecycle()
+    val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
+    val checkpointIds by viewModel.checkpointMessageIds.collectAsStateWithLifecycle()
+    val autonomy by viewModel.autonomyMode.collectAsStateWithLifecycle()
+    val attachedImages by viewModel.attachedImages.collectAsStateWithLifecycle()
+    val richUi by viewModel.richUi.collectAsStateWithLifecycle()
+    val askBeforeBuilding by viewModel.askBeforeBuilding.collectAsStateWithLifecycle()
+
+    // Ask for notifications the first time a run starts, the moment the
+    // reason is obvious: so Orobi can say when it is done while you are away.
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { }
+    var askedNotifications by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val notifyContext = LocalContext.current
+    LaunchedEffect(uiState.isAiProcessing) {
+        if (uiState.isAiProcessing && !askedNotifications &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            !com.oro.app.agent.AgentNotifications.canPost(notifyContext)
+        ) {
+            askedNotifications = true
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    val sessionActions = remember(viewModel) {
+        ChatSessionActions(
+            onOpen = viewModel::openSession,
+            onNewChat = viewModel::startNewChat,
+            onRename = viewModel::renameSession,
+            onSetPinned = viewModel::setSessionPinned,
+            onDelete = viewModel::deleteSession,
+            onUndoDelete = viewModel::undoDeleteSession,
+            onDismissUndo = viewModel::dismissSessionUndo
+        )
+    }
     val context = LocalContext.current
+    var showSessions by remember { mutableStateOf(false) }
+    var showDeploy by remember { mutableStateOf(false) }
     // Read once in composable scope: AnimatedContent's transitionSpec lambda
     // is not @Composable, so MaterialTheme cannot be read inside it.
     val tabEnterSpec = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
@@ -331,7 +378,8 @@ fun EditorScreen(
                                     context.startActivity(intent)
                                 }
                             },
-                            onSettingsClick = onSettingsClick
+                            onSettingsClick = onSettingsClick,
+                            onDeployClick = { showDeploy = true }
                         )
                     }
                 ) { innerPadding ->
@@ -342,18 +390,35 @@ fun EditorScreen(
                     ) {
                         EditorTabs(
                             selectedTab = uiState.selectedTab,
-                            onTabSelected = viewModel::selectTab
+                            onTabSelected = viewModel::selectTab,
+                            sessionsOpen = showSessions,
+                            runActive = uiState.isAiProcessing,
+                            onOpenSessions = {
+                                if (uiState.selectedTab != EditorTab.CHAT) viewModel.selectTab(EditorTab.CHAT)
+                                showSessions = true
+                            }
                         )
-
-                        uiState.agentPlan?.let { plan ->
-                            PlanTimeline(
-                                plan = plan,
-                                modifier = Modifier.padding(
-                                    horizontal = Space.lg,
-                                    vertical = Space.xs
-                                )
+                        val deployRoot = uiState.project?.rootPath
+                        if (showDeploy && deployRoot != null) {
+                            com.oro.app.ui.screens.editor.deploy.DeploySheet(
+                                projectRoot = deployRoot,
+                                projectName = uiState.project?.name ?: "site",
+                                onDeployed = viewModel::onDeployed,
+                                onDismiss = { showDeploy = false }
                             )
                         }
+                        if (showSessions) {
+                            SessionsSheet(
+                                onTimeline = { showSessions = false; onTimelineClick() },
+                                state = sessionsState,
+                                projectName = uiState.project?.name,
+                                isRunActive = uiState.isAiProcessing,
+                                onStopRun = viewModel::stopGeneration,
+                                actions = sessionActions,
+                                onDismiss = { showSessions = false }
+                            )
+                        }
+
 
                         AnimatedContent(
                             targetState = uiState.selectedTab,
@@ -368,10 +433,28 @@ fun EditorScreen(
                             label = "editor_tab_content"
                         ) { tab ->
                             when (tab) {
-                                EditorTab.CHAT -> ChatTab(
+                                EditorTab.CHAT -> androidx.compose.runtime.CompositionLocalProvider(
+                                    com.oro.app.ui.genui.LocalGenUiActions provides viewModel::sendText
+                                ) { ChatTab(
+                                    sessionsState = sessionsState,
+                                    sessionActions = sessionActions,
+                                    agentPlan = uiState.agentPlan,
+                                    sessionUsage = sessionUsage,
+                                    checkpointMessageIds = checkpointIds,
+                                    onRestoreCheckpoint = viewModel::restoreCheckpoint,
+                                    autonomy = autonomy,
+                                    onAutonomyChange = viewModel::setAutonomyMode,
+                                    richUi = richUi,
+                                    onRichUiChange = viewModel::setRichUi,
+                                    askBeforeBuilding = askBeforeBuilding,
+                                    onAskBeforeBuildingChange = viewModel::setAskBeforeBuilding,
+                                    attachedPhotos = attachedImages.size,
+                                    onAttachPhoto = viewModel::attachImage,
+                                    onClearPhotos = viewModel::clearAttachedImages,
+                                    projectName = uiState.project?.name,
                                     agentSessions = uiState.agentSessions,
-                                    reasoningEffort = uiState.reasoningEffort,
-                                    onReasoningEffortChange = viewModel::setReasoningEffort,
+                                    reasoningLevels = uiState.reasoningLevels,
+                                    onReasoningLevelChange = viewModel::setReasoningLevel,
                                     contextBreakdown = uiState.contextBreakdown,
                                     compactableMessageCount = uiState.compactableMessageCount,
                                     isCompacting = uiState.isCompacting,
@@ -401,7 +484,7 @@ fun EditorScreen(
                                     runError = uiState.runError,
                                     onRetryRun = viewModel::retryRun,
                                     onDismissRunError = viewModel::dismissRunError
-                                )
+                                ) }
                                 EditorTab.CODE -> Column(modifier = Modifier.fillMaxSize()) {
                                     // File tabs row
                                     if (uiState.openFiles.isNotEmpty()) {
@@ -478,17 +561,20 @@ private suspend fun closeAllDrawers(
 }
 
 @Composable
-private fun EditorTopBar(
+internal fun EditorTopBar(
     projectName: String,
     onBackClick: () -> Unit,
     onMenuClick: () -> Unit,
     onAssetsClick: () -> Unit,
     onGitClick: () -> Unit,
     onPreviewClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onDeployClick: () -> Unit = {}
 ) {
-    val iconSize = 20.dp // Reduced from 24dp (default) by 4dp
-
+    // Files, source control and preview are what a session reaches for; assets,
+    // publishing and settings sit one tap deeper, so the project name keeps its
+    // room and every target stays at the full 48dp.
+    var overflow by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
             Text(
@@ -499,63 +585,48 @@ private fun EditorTopBar(
         },
         navigationIcon = {
             IconButton(onClick = onBackClick) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "Back",
-                    modifier = Modifier.size(iconSize)
-                )
+                Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
             }
         },
         actions = {
-            IconButton(
-                onClick = onMenuClick,
-                modifier = Modifier.size(40.dp) // Reduced from 48dp by 8dp for tighter spacing
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Menu,
-                    contentDescription = "Files",
-                    modifier = Modifier.size(iconSize)
-                )
+            IconButton(onClick = onMenuClick) {
+                Icon(imageVector = Icons.Outlined.Menu, contentDescription = "Files")
             }
-            IconButton(
-                onClick = onAssetsClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Image,
-                    contentDescription = "Assets",
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-            IconButton(
-                onClick = onGitClick,
-                modifier = Modifier.size(40.dp)
-            ) {
+            IconButton(onClick = onGitClick) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_github),
-                    contentDescription = "Source Control",
-                    modifier = Modifier.size(iconSize)
+                    contentDescription = "Source control",
+                    modifier = Modifier.size(Sizes.icon)
                 )
             }
-            IconButton(
-                onClick = onPreviewClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.PlayArrow,
-                    contentDescription = "Preview",
-                    modifier = Modifier.size(iconSize)
-                )
+            IconButton(onClick = onPreviewClick) {
+                Icon(imageVector = Icons.Outlined.PlayArrow, contentDescription = "Preview")
             }
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings",
-                    modifier = Modifier.size(iconSize)
-                )
+            Box {
+                IconButton(onClick = { overflow = true }) {
+                    Icon(imageVector = Icons.Outlined.MoreVert, contentDescription = "More")
+                }
+                DropdownMenu(
+                    expanded = overflow,
+                    onDismissRequest = { overflow = false },
+                    shape = OroCorners.large
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Assets", maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
+                        onClick = { overflow = false; onAssetsClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Publish", maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Outlined.CloudUpload, contentDescription = null) },
+                        onClick = { overflow = false; onDeployClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings", maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        onClick = { overflow = false; onSettingsClick() }
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -579,56 +650,116 @@ private fun EditorTopBar(
  * phone rather than at the screen edge.
  */
 @Composable
-private fun EditorTabs(
+internal fun EditorTabs(
     selectedTab: EditorTab,
-    onTabSelected: (EditorTab) -> Unit
+    onTabSelected: (EditorTab) -> Unit,
+    sessionsOpen: Boolean,
+    runActive: Boolean,
+    onOpenSessions: () -> Unit
 ) {
     val context = LocalContext.current
-
-    val options = remember(context) {
-        listOf(
-            ToggleOption(
-                id = EditorTab.CHAT.name,
-                label = context.getString(R.string.editor_tab_chat),
-                // The chat is Orobi, so its tab is Orobi -- in colour, at rest.
-                iconContent = {
-                    // The selected segment inverts its container, so pick the
-                    // variant from the content colour: dark content means a
-                    // light container, which wants the ink-bodied Orobi.
-                    val onLight = LocalContentColor.current.luminance() < 0.5f
-                    OrobiMascot(
-                        pose = { OrobiPose.Rest },
-                        colors = if (onLight) OrobiColors.OnLight else OrobiColors.OnDark,
-                        showShadow = false,
-                        contentDescription = null,
-                        modifier = Modifier.width(22.dp)
-                    )
-                }
-            ),
-            ToggleOption(
-                id = EditorTab.CODE.name,
-                label = context.getString(R.string.editor_tab_code),
-                icon = Icons.Outlined.Code
-            )
-        )
-    }
-
+    val chatSelected = selectedTab == EditorTab.CHAT
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Space.lg, vertical = Space.sm),
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        ExpressiveToggleGroup(
-            options = options,
-            selectedId = selectedTab.name,
-            onSelect = { id -> onTabSelected(EditorTab.valueOf(id)) }
-        )
+        // Chat is an Expressive split button: the label opens the chat, the
+        // chevron opens the chats sheet. It replaces the session bar that
+        // used to sit under the tabs, so the transcript gets that row back.
+        TabSegment(
+            selected = chatSelected,
+            shape = RoundedCornerShape(topStart = 50.dp, bottomStart = 50.dp, topEnd = 6.dp, bottomEnd = 6.dp),
+            onClick = { onTabSelected(EditorTab.CHAT) },
+            contentDescription = context.getString(R.string.editor_tab_chat)
+        ) { container ->
+            OrobiMascot(
+                pose = { OrobiPose.Rest },
+                // Chosen from the segment's own background, not the content
+                // colour: the unselected segment is dark in dark mode, and the
+                // ink-bodied variant all but vanished on it.
+                colors = OrobiColors.forBackground(container),
+                showShadow = false,
+                contentDescription = null,
+                modifier = Modifier.width(22.dp)
+            )
+            Spacer(Modifier.width(Space.sm))
+            Text(context.getString(R.string.editor_tab_chat), style = MaterialTheme.typography.labelLarge)
+        }
+        Spacer(Modifier.width(2.dp))
+        val chevron by androidx.compose.animation.core.animateFloatAsState(if (sessionsOpen) 180f else 0f, label = "chevron")
+        TabSegment(
+            selected = chatSelected,
+            shape = RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp, topEnd = 50.dp, bottomEnd = 50.dp),
+            onClick = onOpenSessions,
+            horizontalPadding = Space.md,
+            contentDescription = "Chats"
+        ) { _ ->
+            Box(contentAlignment = Alignment.TopEnd) {
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = chevron }
+                )
+                if (runActive) {
+                    Box(
+                        Modifier
+                            .size(6.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(Space.sm))
+        TabSegment(
+            selected = !chatSelected,
+            shape = RoundedCornerShape(50),
+            onClick = { onTabSelected(EditorTab.CODE) },
+            contentDescription = context.getString(R.string.editor_tab_code)
+        ) { _ ->
+            Icon(Icons.Outlined.Code, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(Space.sm))
+            Text(context.getString(R.string.editor_tab_code), style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** One segment of the editor tab bar; selected segments invert, like the old toggle group. */
+@Composable
+private fun TabSegment(
+    selected: Boolean,
+    shape: androidx.compose.ui.graphics.Shape,
+    onClick: () -> Unit,
+    contentDescription: String,
+    horizontalPadding: androidx.compose.ui.unit.Dp = Space.lg,
+    content: @Composable androidx.compose.foundation.layout.RowScope.(container: androidx.compose.ui.graphics.Color) -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val container by androidx.compose.animation.animateColorAsState(
+        if (selected) scheme.inverseSurface else scheme.surfaceContainerHigh, label = "segment"
+    )
+    val contentColor = if (selected) scheme.inverseOnSurface else scheme.onSurfaceVariant
+    Surface(
+        onClick = onClick,
+        shape = shape,
+        color = container,
+        contentColor = contentColor,
+        modifier = Modifier
+            .height(48.dp)
+            .semantics { this.contentDescription = contentDescription; this.selected = selected }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = horizontalPadding),
+            verticalAlignment = Alignment.CenterVertically
+        ) { content(container) }
     }
 }
 
 @Composable
-private fun FileTabsRow(
+internal fun FileTabsRow(
     openFiles: List<OpenFileTab>,
     currentIndex: Int,
     onTabClick: (Int) -> Unit,

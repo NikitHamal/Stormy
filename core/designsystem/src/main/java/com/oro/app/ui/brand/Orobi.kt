@@ -171,7 +171,10 @@ fun OrobiIdle(
     contentDescription: String? = OroBrand.AssistantName,
 ) {
     val reduced = rememberReducedMotion()
-    val clock = rememberAnimationClock(running = playing && !reduced)
+    // Idle motion is a slow breath, a blink and the odd glance: at 30 ticks a
+    // second it looks the same and the screen it sits on can idle between
+    // frames (the Home bar shows it for as long as Home is open).
+    val clock = rememberAnimationClock(running = playing && !reduced, maxFps = IdleFps)
     OrobiMascot(
         pose = { OrobiMotion.idle(clock.value, look) },
         modifier = modifier,
@@ -180,6 +183,9 @@ fun OrobiIdle(
         contentDescription = contentDescription,
     )
 }
+
+/** Ticks per second for [OrobiIdle]: enough for a breath and a blink. */
+private const val IdleFps = 30
 
 /**
  * The infinity loader: Orobi's body line with a segment running around it.
