@@ -14,9 +14,12 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 Local worktrees, compiled and tested on molab (20 CPUs, JDK 21 + Android SDK in `/home/marimo/oro`), squash-merged onto oro-dev.
 - **Edge glow:** `overlay/EdgeGlowView` + `GlowMask`: Orobi's colours light the display's edge (its real rounded corners) while a run is Working, fade out on pause/question/approval/end, swell on each action; Lite mode = one still frame; "Edge glow" switch in the device settings (`Settings.edgeGlow`). `AgentOverlay.drawingLayer()` is the shared untouchable full-screen layer (cutout included).
 - **Touch accuracy:** ScreenReader clipped bounds to `displayMetrics`, which can leave out the navigation bar, so bottom controls' centres moved up; bounds, gestures and the island now share `DisplaySize` (the whole display). ACTION_CLICK taps mark the live node's bounds; marks are kept in screen pixels and mapped into the window when drawn (`TouchGeometry`). A tap frames its element, typing frames its field; marks are cleared before a vision screenshot.
+- **Coding agent tool calls:** `ToolBatch` schedules a turn's calls by the paths they touch (at most 4 at once, results in call order): reads together, writes to different files together, same-file calls in order; ask_user, request_approval, run_command, open_pull_request, use_phone, MCP and unknown tools run alone. Read-only subagents (explore, plan, review) run side by side; `DelegationHandler.startSubagent` returns the session id so each spawn waits on its own. The editor makes file-changing calls take turns (the approval sheet and undo group hold one call).
 - **molab:** paired through marimo (`uvx marimo pair prompt --url … --with-token`, token via `MARIMO_TOKEN`). The notebook shows auto-refreshing cards: `/home/marimo/oro/status/*.json` (builds, tests) and `/home/marimo/oro/previews/**.png` (+ a `.json` sidecar for title/note). MockK needs ByteBuddy's agent at JVM start under gVisor: `/root/.gradle/init.d/molab-mockk.gradle` (molab only, not in the repo).
 
 **Next:** device agent: stop a turn's remaining actions after a failed one, `fill_form`, captcha hand-off. Then the phone checks from the entry below.
+
+---
 
 ## 2026-10-23 — overnight: crash fix, models, providers, harness, device, preview, evals
 Parallel local worktrees squash-merged into oro-dev; every merge green on CI (last: 9fca5c4). Builds ran on molab (20 CPUs) until its sandbox was terminated (HTTP 410), then on GitHub CI only.

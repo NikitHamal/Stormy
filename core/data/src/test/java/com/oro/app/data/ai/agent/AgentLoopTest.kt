@@ -242,6 +242,34 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `calls on different files start together and the indicator counts them`() = runTest {
+        val model = ScriptedModel(
+            {
+                tools(
+                    call("a", "write_file", """{"path":"a.html","content":"x"}"""),
+                    call("b", "write_file", """{"path":"b.css","content":"y"}"""),
+                    call("q", "ask_user", """{"question":"Ship it?"}""")
+                )
+            },
+            { text("ok") }
+        )
+        val events = mutableListOf<String>()
+        val listener = object : AgentLoopListener {
+            override fun onStatus(status: AgentStatus) {
+                if (status.kind == AgentStatus.Kind.RUNNING_TOOL || status.kind == AgentStatus.Kind.WAITING_FOR_USER) events += status.label
+            }
+            override fun onToolStarted(call: ToolCallResponse) { events += "start ${call.id}" }
+            override fun onToolFinished(call: ToolCallResponse, result: ToolResult) { events += "finish ${call.id}" }
+        }
+        loop(model) { c -> events += "run ${c.id}"; ToolResult(true, "") }.go(mutableListOf(), listener)
+
+        assertThat(events).containsExactly(
+            "start a", "start b", "Running 2 tools", "run a", "run b", "finish a", "finish b",
+            "start q", "Waiting for your answer", "run q", "finish q"
+        ).inOrder()
+    }
+
+    @Test
     fun `think blocks are not sent back as history`() {
         assertThat(AgentLoop.stripThinking("<think>secret plan</think>Answer")).isEqualTo("Answer")
     }

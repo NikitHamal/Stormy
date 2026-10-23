@@ -78,6 +78,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.oro.app.data.ai.agent.AgentLoop
 import com.oro.app.data.ai.agent.AgentLoopConfig
 import com.oro.app.data.ai.agent.AgentLoopListener
@@ -246,6 +248,15 @@ class EditorViewModel(
     val pendingApproval: StateFlow<PendingApproval?> = _pendingApproval.asStateFlow()
 
     private var approvalAnswer: CompletableDeferred<Boolean>? = null
+
+    /**
+     * Calls that change something take turns, from approval to undo entry.
+     * AgentLoop runs calls on different files side by side, but the approval
+     * sheet and the undo group each hold one call at a time: a second
+     * approval would be declined unasked, and a second group would swallow
+     * the first one's changes.
+     */
+    private val changeTurn = Mutex()
 
     private val delegationHandler = DelegationHandler(
         orchestrator = subagentOrchestrator,
@@ -2028,7 +2039,11 @@ class EditorViewModel(
     }
 
     /** Execute one tool call for the main agent. */
-    private suspend fun runTool(call: ToolCallResponse): ToolResult {
+    private suspend fun runTool(call: ToolCallResponse): ToolResult =
+        if (com.oro.app.data.ai.agent.AutonomyPolicy.isChange(call.function.name)) changeTurn.withLock { runToolInTurn(call) }
+        else runToolInTurn(call)
+
+    private suspend fun runToolInTurn(call: ToolCallResponse): ToolResult {
         val name = ToolAliases.canonicalName(call.function.name)
         // The leash: Leashed asks before every change; Unleashed only before
         // the risky ones. Declining is an answer the model can work with.
@@ -2074,11 +2089,11 @@ class EditorViewModel(
                 // The handler used to answer "it will report back" and nothing
                 // ever did: the summary landed on a card the model never saw,
                 // and the run often finished before the subagent did.
-                val before = subagentOrchestrator.sessions.value.map { it.id }.toSet()
-                val started = delegationHandler.execute(name, args)
+                // The spawn names its own session: with read-only subagents
+                // running side by side, "the new one" could be another call's.
+                val (started, spawned) = delegationHandler.startSubagent(args)
                 if (!started.success) return started
-                val sessionId = subagentOrchestrator.sessions.value.firstOrNull { it.id !in before }?.id
-                    ?: return started
+                val sessionId = spawned ?: return started
                 val done = subagentOrchestrator.sessions
                     .first { list -> list.none { it.id == sessionId } || list.first { it.id == sessionId }.let { !it.isLive } }
                     .firstOrNull { it.id == sessionId }
@@ -2098,6 +2113,8 @@ class EditorViewModel(
                     ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
                 delegationHandler.execute(name, args)
             }
+            // Reads change nothing and may run beside a write: they keep out of its undo group.
+            name in AgentTools.readOnly -> toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
             else -> {
                 undoRedoManager.beginChangeGroup("AI: ${RunTranscript.titleFor(name)}")
                 try {

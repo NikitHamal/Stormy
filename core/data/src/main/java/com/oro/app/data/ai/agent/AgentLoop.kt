@@ -9,8 +9,6 @@ import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.ToolAliases
 import com.oro.app.data.ai.tools.ToolResult
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -181,8 +179,10 @@ data class AgentLoopConfig(
  *  - Native tool calls are used when present; otherwise tool calls written as
  *    text are recovered ([TextToolCallParser]) and their results fed back as a
  *    user message, which every provider accepts.
- *  - Consecutive read-only calls run concurrently; anything that writes, and
- *    anything interactive, runs alone and in order.
+ *  - Tool calls run by what they touch ([ToolBatch]): calls on different
+ *    files run concurrently (up to four at once), calls on the same file keep
+ *    their order, and anything interactive or unknown runs alone, in place.
+ *    Results always come back in the order the model asked.
  *  - Cancellation propagates: cancelling the calling coroutine stops the
  *    stream, any running tool, and any pending question.
  */
@@ -691,46 +691,33 @@ class AgentLoop(
 
     // ----------------------------------------------------------------- tools
 
+    /**
+     * Runs one round of calls in dependency order ([ToolBatch]). Each call is
+     * announced as it starts; the indicator shows "Running N tools" while
+     * several run together, otherwise what the one call is doing.
+     */
     private suspend fun executeCalls(
         calls: List<ToolCallResponse>,
         listener: AgentLoopListener
-    ): List<ToolResult> {
-        val results = arrayOfNulls<ToolResult>(calls.size)
-        var i = 0
-        while (i < calls.size) {
-            // Gather a run of consecutive read-only calls.
-            var j = i
-            while (j < calls.size && isReadOnly(calls[j])) j++
-            if (j - i >= 2) {
-                val group = (i until j).toList()
-                group.forEach { listener.onToolStarted(calls[it]) }
-                listener.onStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Running ${group.size} tools"))
-                coroutineScope {
-                    group.map { idx ->
-                        async {
-                            val r = runOne(calls[idx])
-                            results[idx] = r
-                            listener.onToolFinished(calls[idx], r)
-                        }
-                    }.awaitAll()
-                }
-                i = j
-            } else {
-                val call = calls[i]
-                listener.onToolStarted(call)
-                val name = ToolAliases.canonicalName(call.function.name)
-                val kind = when (name) {
-                    "ask_user", "request_approval" -> AgentStatus.Kind.WAITING_FOR_USER
-                    else -> AgentStatus.Kind.RUNNING_TOOL
-                }
-                listener.onStatus(AgentStatus(kind, AgentTools.activityLabel(name, subjectOf(call))))
-                val r = runOne(call)
-                results[i] = r
-                listener.onToolFinished(call, r)
-                i++
-            }
+    ): List<ToolResult> = ToolBatch(calls).run(
+        onStarted = { started, running ->
+            started.forEach { listener.onToolStarted(calls[it]) }
+            listener.onStatus(
+                if (running > 1) AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Running $running tools")
+                else activityStatus(calls[started.first()])
+            )
+        },
+        onFinished = { index, result -> listener.onToolFinished(calls[index], result) }
+    ) { runOne(it) }
+
+    /** The working indicator while [call] runs on its own. */
+    private fun activityStatus(call: ToolCallResponse): AgentStatus {
+        val name = ToolAliases.canonicalName(call.function.name)
+        val kind = when (name) {
+            "ask_user", "request_approval" -> AgentStatus.Kind.WAITING_FOR_USER
+            else -> AgentStatus.Kind.RUNNING_TOOL
         }
-        return results.map { it ?: ToolResult(false, "", "Tool did not run") }
+        return AgentStatus(kind, AgentTools.activityLabel(name, subjectOf(call)))
     }
 
     private suspend fun runOne(call: ToolCallResponse): ToolResult = try {
