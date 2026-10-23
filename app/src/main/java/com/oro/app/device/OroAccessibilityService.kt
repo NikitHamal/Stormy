@@ -1,11 +1,15 @@
 package com.oro.app.device
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.InputMethod
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Rect
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
+import android.view.inputmethod.EditorInfo
+import androidx.annotation.RequiresApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +36,13 @@ class OroAccessibilityService : AccessibilityService() {
     @Volatile var foregroundPackage: String = ""
         private set
 
+    /** The last click an app reported during a task, so a tap by coordinates can say what it hit. */
+    internal val lastClick = MutableStateFlow<TapHit?>(null)
+
+    /** Uptime when a text field last started input with the service's keyboard connection (Android 13+). */
+    @Volatile var inputStartedAt: Long = 0L
+        private set
+
     lateinit var overlay: AgentOverlay
         private set
 
@@ -40,10 +51,14 @@ class OroAccessibilityService : AccessibilityService() {
     private val adScanQueued = AtomicBoolean(false)
     @Volatile private var lastAdScanAt = 0L
 
+    /** Clicked views are read off the main thread too: the island draws there, and each read is a call into the app. */
+    private var clickExecutor: ExecutorService? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         overlay = AgentOverlay(this)
         adExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "oro-ad-skip").apply { isDaemon = true } }
+        clickExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "oro-clicks").apply { isDaemon = true } }
         _instance.value = this
         DeviceAgent.onServiceAvailable(this)
     }
@@ -59,6 +74,7 @@ class OroAccessibilityService : AccessibilityService() {
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let { if (it != packageName || DeviceAgent.state.value.running.not()) foregroundPackage = it }
         }
+        if (type == AccessibilityEvent.TYPE_VIEW_CLICKED && !fromOro && DeviceAgent.state.value.running) recordClick(event)
         if (DeviceAgent.adSkipEnabled &&
             (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
         ) {
@@ -92,6 +108,47 @@ class OroAccessibilityService : AccessibilityService() {
         }.onFailure { adScanQueued.set(false) }
     }
 
+    /**
+     * Notes a click an app reported during a task, for a tap by coordinates to
+     * say what it hit. The event is copied (the platform reuses it once this
+     * returns) and its view read on [clickExecutor].
+     */
+    private fun recordClick(event: AccessibilityEvent) {
+        val at = SystemClock.uptimeMillis()
+        val executor = clickExecutor ?: return
+        @Suppress("DEPRECATION") val copy = AccessibilityEvent.obtain(event)
+        runCatching {
+            executor.execute {
+                val source = runCatching { copy.source }.getOrNull()
+                val r = Rect()
+                source?.getBoundsInScreen(r)
+                lastClick.value = TapHit(
+                    at = at,
+                    role = TapFeedback.roleOf((copy.className ?: source?.className)?.toString()),
+                    label = TapFeedback.label(
+                        copy.contentDescription?.toString(), copy.text.joinToString(" "),
+                        source?.contentDescription?.toString(), source?.text?.toString(),
+                        source?.viewIdResourceName?.substringAfter(":id/")?.replace('_', ' '),
+                    ),
+                    bounds = if (r.width() > 0 && r.height() > 0) Bounds(r.left, r.top, r.right, r.bottom) else null,
+                )
+            }
+        }
+    }
+
+    /**
+     * The service's keyboard connection (with flagInputMethodEditor): it types
+     * through the field's own input connection, as a keyboard does, where
+     * ACTION_SET_TEXT does not take. It only notes when a field starts input.
+     */
+    @RequiresApi(33)
+    override fun onCreateInputMethod(): InputMethod = object : InputMethod(this) {
+        override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
+            super.onStartInput(attribute, restarting)
+            inputStartedAt = SystemClock.uptimeMillis()
+        }
+    }
+
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
@@ -109,6 +166,8 @@ class OroAccessibilityService : AccessibilityService() {
         if (::overlay.isInitialized) overlay.hideAll()
         adExecutor?.shutdownNow()
         adExecutor = null
+        clickExecutor?.shutdownNow()
+        clickExecutor = null
         DeviceAgent.onServiceLost()
     }
 

@@ -316,7 +316,7 @@ internal class World(var current: String) {
             is Act.Url -> show(urlHandler(a.url))
             is Act.Quick -> { val (msg, to) = quickHandler(a.args); quickMessage = msg; show(to) }
             is Act.Scroll -> scrollHandler(a.direction)
-            is Act.Media -> Unit
+            is Act.Media, is Act.SetValue, is Act.Seek, Act.ShowControls -> Unit
         }
         return render()
     }

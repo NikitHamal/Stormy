@@ -10,6 +10,7 @@ import com.oro.app.data.ai.SeedModels
 import com.oro.app.device.DeviceAgent
 import com.oro.app.device.DeviceSettingsStore
 import com.oro.app.device.OroAccessibilityService
+import com.oro.app.device.OroNotificationListener
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +23,8 @@ class DeviceAgentViewModel(private val app: OroApplication) : ViewModel() {
 
     data class UiState(
         val serviceEnabled: Boolean = false,
+        /** Notification access, which media control (exact seeking, status) needs. */
+        val mediaControl: Boolean = false,
         val task: String = "",
         val models: List<AiModel> = emptyList(),
         val model: AiModel? = null,
@@ -57,7 +60,12 @@ class DeviceAgentViewModel(private val app: OroApplication) : ViewModel() {
 
     fun refreshService() {
         DeviceAgent.refreshServiceState(app)
-        _ui.update { it.copy(serviceEnabled = OroAccessibilityService.isEnabled(app) && OroAccessibilityService.instance.value != null) }
+        _ui.update {
+            it.copy(
+                serviceEnabled = OroAccessibilityService.isEnabled(app) && OroAccessibilityService.instance.value != null,
+                mediaControl = OroNotificationListener.isEnabled(app),
+            )
+        }
     }
 
     fun setTask(text: String) = _ui.update { it.copy(task = text) }

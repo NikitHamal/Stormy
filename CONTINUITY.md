@@ -10,6 +10,15 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-24 — round 5: act through Android's APIs, island glow, speed
+Built in local worktrees, compiled and tested on molab (`/tmp/tools/molab_test.sh <worktree> <name>` ships the diff and runs Gradle there), pushed one commit per green CI run.
+- **Direct control (`ci/direct`):** `media` seeks exactly through the playing app's media session (`MediaControl`, needs Notification access via `OroNotificationListener`; a "Media control" row in device settings), plus `media("status")`. Sliders are listed with their range (`slider "Volume" 35/100`) and `set_value(index, value)` sets them: ACTION_SET_PROGRESS, else scroll steps, else one press-hold-move steered by the value read back; a hidden YouTube bar is brought back with one tap inside the same call. Typing reads the field back and, on Android 13+, falls back to the service's own keyboard connection (`flagInputMethodEditor`: commitText, the field's editor action). A tap by coordinates reports what the app says it hit (`TapFeedback`).
+- **Research (2026-10-24):** the "system-level" agent the owner remembered is most likely Eta (github.com/Mangi-11/Eta: Android APIs first, accessibility as fallback, root/LSPosed for more; PolyForm Noncommercial). Others: DroidRun/Mobilerun, Minitap, Operit, Ruto-GLM and Roubao (Shizuku), AutoDroid-V2 (scripts), AppAgentX (learned shortcuts). AppFunctions is allowlisted (not usable by Oro); Computer Control is OEM-only. Play policy: Accessibility API use that lets an app "autonomously initiate, plan, and execute actions" is prohibited unless the app is a verified accessibility tool -- a release risk for the device agent that the owner has to weigh before the Play Store step.
+
+**Next:** see the latest round-5 commit for what landed after this one.
+
+---
+
 ## 2026-10-23 — round 4: edge glow, exact touches, parallel tool calls, forms, human checks
 Local worktrees, compiled and tested on molab (20 CPUs, JDK 21 + Android SDK in `/home/marimo/oro`), squash-merged onto oro-dev.
 - **Edge glow:** `overlay/EdgeGlowView` + `GlowMask`: Orobi's colours light the display's edge (its real rounded corners) while a run is Working, fade out on pause/question/approval/end, swell on each action; Lite mode = one still frame; "Edge glow" switch in the device settings (`Settings.edgeGlow`). `AgentOverlay.drawingLayer()` is the shared untouchable full-screen layer (cutout included).

@@ -101,6 +101,20 @@ class DeviceAgentLogicTest {
     fun `media steps name their action`() {
         assertThat(listOf("play", "pause", "next", "previous", "forward", "rewind").map { DeviceAgent.mediaTitle(it) })
             .containsExactly("Play", "Pause", "Next", "Previous", "Forward 10 s", "Rewind 10 s").inOrder()
+        assertThat(listOf("+30", "-10", "1:30", "50%", "soon").map { DeviceAgent.mediaTitle("seek", it) })
+            .containsExactly("Forward 30 s", "Rewind 10 s", "Jump to 1:30", "Jump to 50%", "Seek").inOrder()
+        assertThat(DeviceAgent.mediaTitle("status")).isEqualTo("Check what is playing")
+    }
+
+    @Test
+    fun `set_value is offered with its index and value, and media can seek`() {
+        assertThat(DeviceTools.names).contains("set_value")
+        assertThat(DevicePrompt.signature(DeviceTools.SET_VALUE)).isEqualTo("set_value(index: int, value: string)")
+        assertThat(DevicePrompt.signature(DeviceTools.MEDIA)).endsWith("\"seek\"|\"status\", position?: string)")
+        val prompt = DevicePrompt.system(
+            textTools = false, settings = DeviceAgent.Settings(), tools = DeviceTools.forRun(false), vision = false, fromChat = false,
+        )
+        assertThat(prompt).contains("set_value(index, \"40%\")")
     }
 
     @Test

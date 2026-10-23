@@ -94,7 +94,7 @@ object ScreenshotTaker {
                 typeface = Typeface.DEFAULT_BOLD
             }
             screen.elements.asSequence()
-                .filter { it.actionable || it.role == "image" || it.role == "icon" }
+                .filter { it.actionable || it.role == "image" || it.role == "icon" || it.role == ScreenElement.ROLE_SLIDER }
                 .take(MAX_MARKS)
                 .forEach { e ->
                     val r = RectF(e.bounds.left * sx, e.bounds.top * sy, e.bounds.right * sx, e.bounds.bottom * sy)

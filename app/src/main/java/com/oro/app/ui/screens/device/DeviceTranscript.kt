@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.Swipe
 import androidx.compose.material.icons.outlined.SwipeVertical
 import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.AnnotatedString
@@ -161,6 +162,7 @@ object DeviceStepVisuals {
         "scroll", "scroll_to" -> Icons.Outlined.SwipeVertical
         "swipe" -> Icons.Outlined.Swipe
         "drag" -> Icons.Outlined.Gesture
+        "set_value" -> Icons.Outlined.Tune
         "pinch" -> Icons.Outlined.Pinch
         "open_app", "list_apps" -> Icons.Outlined.Apps
         "open_url", "web_search" -> Icons.Outlined.Language

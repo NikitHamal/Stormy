@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Oro's device agent. Reads the screen and performs gestures only while the
-     user runs a device task from Oro; idle otherwise. -->
+     user runs a device task from Oro; idle otherwise. flagInputMethodEditor
+     (Android 13+) gives it a keyboard connection for fields that ignore
+     SET_TEXT (web, Flutter). -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/device_agent_service_description"
     android:summary="@string/device_agent_service_summary"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled|typeViewClicked|typeViewFocused|typeViewTextChanged|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagIncludeNotImportantViews|flagInputMethodEditor"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:canTakeScreenshot="true"

@@ -75,6 +75,13 @@ object Targets {
         return Target.Focused(now.elements.firstOrNull { it.editable && it.focused })
     }
 
+    /** set_value: the slider at `index` (no coordinates: a value needs the slider's own range). */
+    fun slider(args: JsonObject, seen: ScreenState?, now: ScreenState): Target {
+        appChange(seen, now)?.let { return it }
+        if (!DeviceArgs.has(args, "index")) return Target.Missing("Give the slider's element number from the screen listing.")
+        return byIndex(args, "index", seen, now, long = false)
+    }
+
     /** An optional element (scroll's list, drag's ends): null when the key is absent. */
     fun optional(args: JsonObject, key: String, seen: ScreenState?, now: ScreenState): Target? {
         if (!DeviceArgs.has(args, key)) return null

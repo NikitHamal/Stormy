@@ -125,4 +125,42 @@ class ScreenModelTest {
     fun `an empty screen says how to proceed`() {
         assertThat(screen().render()).contains("No readable elements")
     }
+
+    @Test
+    fun `sliders show their value compactly`() {
+        fun slider(label: String, range: ValueRange) = el(4, ScreenElement.ROLE_SLIDER, label, clickable = false).copy(range = range)
+        assertThat(slider("Volume", ValueRange(0f, 100f, 35f)).render()).isEqualTo("[4] slider \"Volume\" 35/100")
+        assertThat(slider("Brightness", ValueRange(0f, 100f, 60f, percent = true)).render()).isEqualTo("[4] slider \"Brightness\" 60%")
+        assertThat(slider("Balance", ValueRange(-10f, 10f, 3f)).render()).isEqualTo("[4] slider \"Balance\" 3 of -10..10")
+        assertThat(slider("Speed", ValueRange(0.25f, 2f, 1.5f)).render()).isEqualTo("[4] slider \"Speed\" 1.5 of 0.25..2")
+        val progress = el(8, ScreenElement.ROLE_PROGRESS, "", clickable = false).copy(range = ValueRange(0f, 1f, 0.333f))
+        assertThat(progress.render()).isEqualTo("[8] progress 0.33/1")
+    }
+
+    @Test
+    fun `a slider that moved is a changed screen, and an unnamed one says where it is`() {
+        fun volume(at: Float) = screen(el(0, ScreenElement.ROLE_SLIDER, "Volume", clickable = false).copy(range = ValueRange(0f, 100f, at)))
+        assertThat(volume(35f).signature).isNotEqualTo(volume(40f).signature)
+        val unnamed = screen(el(0, ScreenElement.ROLE_SLIDER, "", top = 2200, clickable = false).copy(range = ValueRange(0f, 100f, 35f)))
+        assertThat(unnamed.render()).contains("[0] slider (bottom) 35/100")
+    }
+
+    @Test
+    fun `a playing video's seek bar moving by itself is no change`() {
+        fun video(at: Float, label: String) = screen(
+            el(0, ScreenElement.ROLE_SLIDER, label, clickable = false, viewId = "com.google.android.youtube:id/time_bar")
+                .copy(range = ValueRange(0f, 296f, at)),
+        )
+        assertThat(video(83f, "1:23 of 4:56").signature).isEqualTo(video(84f, "1:24 of 4:56").signature)
+    }
+
+    @Test
+    fun `a slider named like a text beside it is never tapped by words alone`() {
+        val s = screen(
+            el(0, ScreenElement.ROLE_TEXT, "Media volume", top = 300),
+            el(1, ScreenElement.ROLE_SLIDER, "Media volume", top = 400, clickable = false).copy(range = ValueRange(0f, 15f, 5f)),
+        )
+        // A tap at a slider's middle would set it to half: tap_text asks which one is meant.
+        assertThat(TextMatch.find("Media volume", s)).isInstanceOf(TextMatch.Result.Ambiguous::class.java)
+    }
 }

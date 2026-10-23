@@ -118,9 +118,10 @@ object DeviceTools {
 
     val MEDIA = tool(
         "media",
-        "Control what is playing (YouTube, Spotify, any player): play, pause, play_pause, next, previous, forward (+10 s), rewind (-10 s), stop.",
+        "Control what is playing (YouTube, Spotify, any player): play, pause, play_pause, next, previous, forward (+10 s), rewind (-10 s), stop, seek (to `position`), status (what is playing and how far in).",
         """{"type":"object","properties":{
-          "action":{"type":"string","enum":["play","pause","play_pause","next","previous","forward","rewind","stop"]}
+          "action":{"type":"string","enum":["play","pause","play_pause","next","previous","forward","rewind","stop","seek","status"]},
+          "position":{"type":"string","description":"For seek: a time from the start (\"1:30\" or \"90\" seconds), a jump (\"+30\", \"-10\") or a share of the length (\"50%\")."}
         },"required":["action"]}"""
     )
 
@@ -132,7 +133,7 @@ object DeviceTools {
 
     val SWIPE = tool(
         "swipe",
-        "Swipe from (x1,y1) to (x2,y2) in pixels: carousels, stories, short videos (swipe up for the next), dismissing, sliders.",
+        "Swipe from (x1,y1) to (x2,y2) in pixels: carousels, stories, short videos (swipe up for the next), dismissing.",
         """{"type":"object","properties":{
           "x1":{"type":"integer"},"y1":{"type":"integer"},"x2":{"type":"integer"},"y2":{"type":"integer"},
           "duration_ms":{"type":"integer","description":"Default 350. Longer is slower."}
@@ -141,11 +142,20 @@ object DeviceTools {
 
     val DRAG = tool(
         "drag",
-        "Press, hold and drag from one element/point to another (reorder, move icons, sliders).",
+        "Press, hold and drag from one element/point to another (reorder, move icons).",
         """{"type":"object","properties":{
           "from_index":{"type":"integer"},"to_index":{"type":"integer"},
           "x1":{"type":"integer"},"y1":{"type":"integer"},"x2":{"type":"integer"},"y2":{"type":"integer"}
         },"required":[]}"""
+    )
+
+    val SET_VALUE = tool(
+        "set_value",
+        "Set a slider or seek bar (volume, brightness, a video's position) to a value and read it back: a number in its range, a percentage, or a time on a media seek bar.",
+        """{"type":"object","properties":{
+          "index":{"type":"integer","description":"The slider's element number from the screen listing."},
+          "value":{"type":"string","description":"35, \"40%\", or \"1:30\" on a video or song's seek bar."}
+        },"required":["index","value"]}"""
     )
 
     val PINCH = tool(
@@ -226,7 +236,7 @@ object DeviceTools {
     /** Offered to every model. find_text still runs if called, but tap_text and scroll_to cover it. */
     private val core: List<Tool> = listOf(
         TAP, TAP_TEXT, TYPE_TEXT, FILL_FORM, SCROLL, SCROLL_TO, PRESS_KEY, OPEN_APP, OPEN_URL, QUICK_ACTION, MEDIA,
-        LONG_PRESS, DOUBLE_TAP, SWIPE, DRAG, PINCH,
+        LONG_PRESS, DOUBLE_TAP, SWIPE, DRAG, SET_VALUE, PINCH,
         READ_SCREEN, READ_PAGE, WAIT, WAIT_FOR, DEVICE_STATUS, LIST_APPS, TAKE_NOTE, ASK_USER, FINISH
     )
 

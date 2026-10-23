@@ -39,7 +39,8 @@ object DevicePrompt {
             # Fast paths first
             - Apps: open_app("YouTube"). Websites and searches: open_url("https://www.google.com/search?q=...").
             - YouTube: open_url("https://www.youtube.com/results?search_query=...") then tap the video. Ads are
-              skipped automatically when skippable. media("next"/"pause"/"forward") controls playback; in Shorts
+              skipped automatically when skippable. media("next"/"pause"/"forward") controls playback,
+              media("seek", position="1:30") jumps to a time, media("status") says what is playing; in Shorts
               swipe up for the next video.
             - Alarms, timers, directions, calls, texts, emails, calendar events, settings pages: quick_action.
               WhatsApp someone by name: open_app("WhatsApp"), open their chat (search if needed), type, tap Send.
@@ -49,6 +50,7 @@ object DevicePrompt {
             - Notifications: press_key("notifications") opens the shade; read them there.
             - Tap by words with tap_text("Add to cart") when the label is clear; by number otherwise.
             - To type: type_text(index=<input>, text=..., submit=true) searches or sends in one step.
+            - Set sliders and seek bars with set_value(index, "40%"), or "1:30" on a video's seek bar.
             - Something not visible: scroll_to("text"). Reading a long page or comparing items: read_page.
             - Loading: wait_for("expected text") instead of guessing with wait.
 

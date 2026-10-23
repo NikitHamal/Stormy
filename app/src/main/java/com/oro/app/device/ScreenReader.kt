@@ -23,6 +23,9 @@ import android.view.accessibility.AccessibilityWindowInfo
  *  - The keyboard is NOT listed key by key: forty key nodes per screen were
  *    the largest single cost in every observation while typing, and the
  *    agent types with type_text anyway. It is reported as "keyboard open".
+ *  - Sliders are listed even though most are not clickable, with their value
+ *    from RangeInfo (`slider "Volume" 35/100`) and named by their label, not
+ *    their value, so the element is still found again after it moves.
  *
  * ### Cost on low-end phones
  * One pass over each window's tree; child labels are gathered only for
@@ -99,7 +102,7 @@ object ScreenReader {
         var omitted = 0
         val scratch = Rect()
 
-        fun add(node: AccessibilityNodeInfo, bounds: Bounds, label: String, role: String, window: String?) {
+        fun add(node: AccessibilityNodeInfo, bounds: Bounds, label: String, role: String, window: String?, range: ValueRange?) {
             if (out.size >= MAX_ELEMENTS) { omitted++; return }
             out += ScreenElement(
                 index = out.size,
@@ -120,6 +123,7 @@ object ScreenReader {
                 viewId = node.viewIdResourceName,
                 window = window,
                 secretLength = if (node.isPassword && !showsHint(node)) node.text?.length ?: 0 else 0,
+                range = range,
             ).let { e -> if (node.isScrollable) withScrollCapacity(e, node) else e }
             nodes += node
         }
@@ -132,24 +136,29 @@ object ScreenReader {
             val b = Bounds(scratch.left, scratch.top, scratch.right, scratch.bottom)
 
             val cls = node.className?.toString().orEmpty()
-            val actionable = node.isClickable || node.isLongClickable || node.isEditable || node.isCheckable ||
+            val range = rangeOf(node)
+            val slider = isSlider(node, cls, range)
+            val actionable = node.isClickable || node.isLongClickable || node.isEditable || node.isCheckable || slider ||
                 (node.isScrollable && b.height > 120)
-            val own = ownText(node)
+            // A slider or progress bar shows its value as numbers; a label that
+            // also carried it ("35%") would change with every move.
+            val own = ownText(node, withState = range == null || !(actionable || cls.contains("ProgressBar")))
             var consumesChildren = false
             if (actionable) {
                 // A field is named by its hint or description, never by what is
                 // typed in it: that is its value, shown separately.
                 var label = if (node.isEditable) fieldName(node) else own
-                if (label.isBlank() && !node.isEditable && !node.isScrollable) {
+                if (label.isBlank() && slider) label = runCatching { node.labeledBy }.getOrNull()?.text?.toString()?.trim().orEmpty()
+                if (label.isBlank() && !node.isEditable && !node.isScrollable && !slider) {
                     label = descendantText(node)
                     consumesChildren = label.isNotBlank()
                 }
                 if (label.isBlank() && !node.isScrollable) label = idHint(node) ?: ""
-                add(node, b, label, roleOf(node, cls), window)
+                add(node, b, label, roleOf(node, cls, slider), window, range)
             } else if (cls.contains("ProgressBar") && !insideLabelled) {
-                add(node, b, own, ScreenElement.ROLE_PROGRESS, window)
+                add(node, b, own, ScreenElement.ROLE_PROGRESS, window, range)
             } else if (!insideLabelled && own.isNotBlank()) {
-                add(node, b, own, if (cls.contains("Image")) "image" else ScreenElement.ROLE_TEXT, window)
+                add(node, b, own, if (cls.contains("Image")) "image" else ScreenElement.ROLE_TEXT, window, null)
             }
             val children = node.childCount
             for (i in 0 until children) {
@@ -211,10 +220,10 @@ object ScreenReader {
         return if (flat.length <= maxLabel) flat else flat.take(maxLabel - 1).trimEnd() + "…"
     }
 
-    private fun ownText(node: AccessibilityNodeInfo): String {
+    private fun ownText(node: AccessibilityNodeInfo, withState: Boolean = true): String {
         val text = if (node.isPassword) "" else node.text?.toString()?.trim().orEmpty()
         val desc = node.contentDescription?.toString()?.trim().orEmpty()
-        val state = if (Build.VERSION.SDK_INT >= 30) node.stateDescription?.toString()?.trim().orEmpty() else ""
+        val state = if (withState && Build.VERSION.SDK_INT >= 30) node.stateDescription?.toString()?.trim().orEmpty() else ""
         return when {
             text.isEmpty() && desc.isEmpty() -> state
             text.isEmpty() -> if (state.isEmpty() || state == desc) desc else "$desc · $state"
@@ -270,16 +279,37 @@ object ScreenReader {
     private fun isDialogLike(root: AccessibilityNodeInfo): Boolean =
         root.className?.contains("Dialog") == true || root.packageName?.contains("permissioncontroller") == true
 
-    private fun roleOf(node: AccessibilityNodeInfo, cls: String): String = when {
+    private fun roleOf(node: AccessibilityNodeInfo, cls: String, slider: Boolean): String = when {
         node.isEditable -> "input"
         node.isCheckable && cls.contains("Switch") -> "switch"
         node.isCheckable && cls.contains("Radio") -> "radio"
         node.isCheckable -> "checkbox"
-        cls.contains("SeekBar") -> "slider"
+        slider -> ScreenElement.ROLE_SLIDER
         cls.contains("Tab") -> "tab"
         cls.contains("Image") && node.isClickable -> "icon"
         node.isScrollable && !node.isClickable -> ScreenElement.ROLE_LIST
         node.isClickable || node.isLongClickable -> "button"
         else -> "view"
+    }
+
+    /** [node]'s value (RangeInfo), unless it has none or it is indeterminate. */
+    fun rangeOf(node: AccessibilityNodeInfo): ValueRange? {
+        val r = runCatching { node.rangeInfo }.getOrNull() ?: return null
+        if (!r.min.isFinite() || !r.max.isFinite() || !r.current.isFinite() || r.max <= r.min) return null
+        return ValueRange(r.min, r.max, r.current, percent = r.type == AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_PERCENT)
+    }
+
+    /**
+     * A slider, seek bar or rating bar: something whose value can be set.
+     * Most are not clickable, so without this they were never listed.
+     */
+    private fun isSlider(node: AccessibilityNodeInfo, cls: String, range: ValueRange?): Boolean {
+        // By the class's end: an image carousel called "SliderView" is not one.
+        if (cls.endsWith("SeekBar") || cls.endsWith(".Slider")) return true
+        // A list that reports how far it has scrolled still scrolls: it stays a list.
+        if (range == null || node.isScrollable) return false
+        val ids = runCatching { node.actionList.map { it.id } }.getOrNull() ?: return false
+        return AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id in ids ||
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD in ids || AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD in ids
     }
 }

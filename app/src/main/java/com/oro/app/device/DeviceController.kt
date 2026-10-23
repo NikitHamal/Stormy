@@ -14,12 +14,18 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PersistableBundle
 import android.os.SystemClock
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.EditorInfo
+import androidx.annotation.RequiresApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
+import kotlin.math.abs
 
 /**
  * Every physical action Orobi can take on the device, each returning a short,
@@ -30,6 +36,9 @@ import kotlin.coroutines.resume
  *    SCROLL_FORWARD...) when it exists -- it works even when something
  *    overlaps the view -- and fall back to a real gesture at the element's
  *    centre, which works for Compose, WebViews, games and custom views.
+ *  - The same for everything else that has an API: the media session for
+ *    playback, SET_PROGRESS for sliders, the keyboard connection for text a
+ *    field would not take. A tap by coordinates reports what took it.
  *  - After every action wait for the UI to settle (no accessibility events
  *    for a short quiet period, capped), so the next observation shows the
  *    result rather than a half-drawn transition.
@@ -204,7 +213,8 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         }
         if (screen.underKeyboard(e)) return underKeyboard(e)
         val (x, y) = centreOf(node, e)
-        return if (tapAt(x, y, live)) "Tapped [${e.index}] ${e.describe()} at ($x,$y)."
+        val at = SystemClock.uptimeMillis()
+        return if (tapAt(x, y, live)) "Tapped [${e.index}] ${e.describe()} at ($x,$y) ${TapFeedback.line(clickAfter(at, x, y))}."
         else "The tap on [${e.index}] could not be performed."
     }
 
@@ -233,11 +243,15 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
     /**
      * Types into [e] (an element of [screen]) or, without one, the focused
-     * field. Replaces the content unless [append]. Fields that refuse
-     * ACTION_SET_TEXT get the text pasted -- never a password field, and the
-     * clip is marked sensitive and removed again right after.
+     * field. Replaces the content unless [append]. ACTION_SET_TEXT first, then
+     * the field is read back: a web or Flutter field can take it and put its
+     * own state back. Where it did not take, Android 13+ types through the
+     * service's keyboard connection, as a keyboard does; else the text is
+     * pasted -- never into a password field, and the clip is marked sensitive
+     * and removed again right after.
      */
     override suspend fun type(e: ScreenElement?, screen: ScreenState, text: String, append: Boolean): String {
+        typedThroughIme = false
         var node: AccessibilityNodeInfo? = null
         if (e != null) {
             node = liveNode(e, screen) ?: return "Skipped: that field is no longer on screen."
@@ -247,7 +261,9 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         if (node == null) {
             return "No text field is focused. Tap the input first (or pass its index), then type."
         }
+        var focusedAt = 0L
         if (!node.isFocused) {
+            focusedAt = SystemClock.uptimeMillis()
             node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             delay(150)
@@ -256,8 +272,14 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         val existing = node.text?.toString().takeUnless { showsHint(node) || node.isPassword }.orEmpty()
         val newText = if (append) existing + text else text
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText) }
-        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
-            return if (node.isPassword) "Typed the password." else "Typed \"${text.take(60)}\"${if (append) " (appended)" else ""}."
+        val set = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        // A password cannot be read back: one that took SET_TEXT is trusted, as before.
+        if (set && (node.isPassword || readBack(node, newText) != TypedText.Readback.LOST)) return typed(node, text, append)
+        // The keyboard connection reaches a password field only when it refused SET_TEXT outright.
+        if (Build.VERSION.SDK_INT >= 33 && (!node.isPassword || !set) && imeType(node, text, append, focusedAt)) {
+            typedThroughIme = true
+            if (node.isPassword || readBack(node, newText) != TypedText.Readback.LOST) return typed(node, text, append)
+            return "The text could not be typed: the field shows \"${shown(node).take(60)}\"."
         }
         if (node.isPassword) {
             return "The password field refused the text. Tap it and try again, or ask the user to type it themselves."
@@ -270,12 +292,14 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         if (Build.VERSION.SDK_INT >= 33) {
             clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
         }
+        // What the field holds now: a SET_TEXT that did not stick may still have changed it.
+        val current = if (set) shown(node) else existing
         cm.setPrimaryClip(clip)
         try {
             if (!append) {
                 val sel = Bundle().apply {
                     putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
-                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, existing.length)
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, current.length)
                 }
                 node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
             }
@@ -320,17 +344,108 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         return r.takeIf { it.width() > 1 && it.height() > 1 }
     }
 
+    // ------------------------------------------------------------- typing
+
+    /** The last type() went through the keyboard connection, so submit() goes that way too. */
+    @Volatile private var typedThroughIme = false
+
+    private fun typed(node: AccessibilityNodeInfo, text: String, append: Boolean): String =
+        if (node.isPassword) "Typed the password." else "Typed \"${text.take(60)}\"${if (append) " (appended)" else ""}."
+
+    /** What [node] shows now, its hint and a password's dots aside. */
+    private fun shown(node: AccessibilityNodeInfo): String {
+        runCatching { node.refresh() }
+        return if (showsHint(node) || node.isPassword) "" else node.text?.toString().orEmpty()
+    }
+
+    /**
+     * Whether [node] kept [expected], read after a beat: a web page puts its
+     * own state back on its next frame. Read twice before calling it lost: a
+     * keyboard commit is applied, and a web page's tree updated, a moment later.
+     */
+    private suspend fun readBack(node: AccessibilityNodeInfo, expected: String): TypedText.Readback {
+        var result = TypedText.Readback.UNKNOWN
+        for (wait in READ_BACK_MS) {
+            delay(wait)
+            if (!runCatching { node.refresh() }.getOrDefault(false)) return TypedText.Readback.UNKNOWN
+            result = TypedText.check(expected, if (showsHint(node)) "" else node.text?.toString())
+            if (result != TypedText.Readback.LOST) return result
+        }
+        return result
+    }
+
+    /**
+     * Types through the service's keyboard connection: select all (or go to
+     * the end), then commit the text as a keyboard does, so a web or Flutter
+     * field sees real input. False when no connection is open on [node]'s
+     * app -- or, for a field focused at [focusedAt], not yet on that field:
+     * text committed then would go into the field before it.
+     */
+    @RequiresApi(33)
+    private suspend fun imeType(node: AccessibilityNodeInfo, text: String, append: Boolean, focusedAt: Long): Boolean {
+        val ime = service.inputMethod ?: return false
+        val pkg = node.packageName?.toString()
+        val start = SystemClock.uptimeMillis()
+        while (!(ime.currentInputStarted && ime.currentInputEditorInfo?.packageName == pkg && service.inputStartedAt >= focusedAt)) {
+            if (SystemClock.uptimeMillis() - start > IME_WAIT_MS) return false
+            delay(50)
+        }
+        val ic = ime.currentInputConnection ?: return false
+        if (append) {
+            val around = runCatching { ic.getSurroundingText(MAX_FIELD_CHARS, MAX_FIELD_CHARS, 0) }.getOrNull()
+            val end = around?.let { it.offset + it.text.length } ?: shown(node).length
+            ic.setSelection(end, end)
+        } else {
+            ic.performContextMenuAction(android.R.id.selectAll)
+        }
+        ic.commitText(text, 1, null)
+        return true
+    }
+
+    /** Enter through the keyboard connection: the field's own action (Search, Send, Go), else Enter on a one-line field. */
+    @RequiresApi(33)
+    private fun imeEnter(): String? {
+        val ime = service.inputMethod ?: return null
+        if (!ime.currentInputStarted) return null
+        val ic = ime.currentInputConnection ?: return null
+        val info = ime.currentInputEditorInfo ?: return null
+        val action = info.imeOptions and EditorInfo.IME_MASK_ACTION
+        val name = when (action) {
+            EditorInfo.IME_ACTION_GO -> "Go"
+            EditorInfo.IME_ACTION_SEARCH -> "Search"
+            EditorInfo.IME_ACTION_SEND -> "Send"
+            EditorInfo.IME_ACTION_NEXT -> "Next"
+            EditorInfo.IME_ACTION_DONE -> "Done"
+            EditorInfo.IME_ACTION_PREVIOUS -> "Previous"
+            else -> null
+        }
+        if (name != null) {
+            ic.performEditorAction(action)
+            return "Pressed the keyboard's $name key."
+        }
+        // No action of its own: Enter, unless Enter starts a new line here.
+        if (info.inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE != 0) return null
+        val now = SystemClock.uptimeMillis()
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        ic.sendKeyEvent(KeyEvent(now, now + 40, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
+        return "Pressed Enter on the keyboard."
+    }
+
     /**
      * Presses the keyboard's action key (search/send/go/enter): the IME
-     * action on Android 11+, else the keyboard's own action key, found by
-     * its label in the keyboard window.
+     * action on Android 11+, the field's editor action through the keyboard
+     * connection on 13+ (first, for a field that was typed that way: such
+     * fields often ignore the IME action), else the keyboard's own action
+     * key, found by its label in the keyboard window.
      */
     override suspend fun submit(): String {
+        if (Build.VERSION.SDK_INT >= 33 && typedThroughIme) imeEnter()?.let { return it }
         val node = focusedInput()
         if (node != null && Build.VERSION.SDK_INT >= 30) {
             val ime = AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
             if (node.performAction(ime)) return "Pressed Enter on the keyboard."
         }
+        if (Build.VERSION.SDK_INT >= 33 && !typedThroughIme) imeEnter()?.let { return it }
         val key = keyboardActionKey()
         if (key != null) {
             val r = Rect().also { key.getBoundsInScreen(it) }
@@ -358,21 +473,34 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
     // ------------------------------------------------------------- media
 
     /**
-     * Media control for whatever is playing: system media keys, which every
-     * player honours, except seeking in YouTube-style players, which ignore
-     * fast-forward keys but seek 10 s on a double tap at the player's side.
+     * Media control for whatever is playing. With Notification access it goes
+     * to the playing app's own media session: its transport controls, and
+     * exact 10 s seeks for forward and rewind. Without it, system media keys,
+     * which every player honours, except seeking in YouTube-style players,
+     * which ignore fast-forward keys but seek 10 s on a double tap at the
+     * player's side; the result then says how to turn access on.
      */
     override suspend fun media(action: String): String {
         val a = action.lowercase().replace(' ', '_')
+        val front = frontPackage()
+        if (a == "status") return MediaControl.status(service, front)
+        val sessions = MediaControl.sessions(service)
+        if (sessions != null) {
+            if (a == "forward" || a == "fast_forward" || a == "rewind") {
+                val jump = MediaControl.Seek.By(if (a == "rewind") -SEEK_STEP_MS else SEEK_STEP_MS)
+                (MediaControl.seek(service, jump, front, null) as? MediaControl.SeekResult.Done)?.let { return it.text }
+            }
+            MediaControl.pick(sessions, front)?.let { c -> MediaControl.transport(service, c, a)?.let { return it } }
+        }
+        val hint = if (sessions == null) " " + MediaControl.ACCESS_HINT else ""
         // Double-tap seeking is YouTube's gesture only: in Instagram, X or any
         // reels feed a double tap means Like.
-        val pkg = service.rootInActiveWindow?.packageName?.toString().orEmpty()
-        if ((a == "forward" || a == "rewind") && AdSkipper.isYouTube(pkg)) {
+        if ((a == "forward" || a == "rewind") && AdSkipper.isYouTube(front)) {
             val player = playerBounds()
             if (player != null) {
                 val x = if (a == "forward") player.left + player.width * 4 / 5 else player.left + player.width / 5
                 val ok = doubleTap(x, player.centerY)
-                return if (ok) (if (a == "forward") "Skipped forward 10 s in the player." else "Went back 10 s in the player.")
+                return if (ok) (if (a == "forward") "Skipped forward 10 s in the player." else "Went back 10 s in the player.") + hint
                 else "The seek gesture failed."
             }
         }
@@ -385,13 +513,29 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
             "forward", "fast_forward" -> KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
             "rewind" -> KeyEvent.KEYCODE_MEDIA_REWIND
             "stop" -> KeyEvent.KEYCODE_MEDIA_STOP
-            else -> return "Unknown media action \"$action\". Use play, pause, play_pause, next, previous, forward, rewind or stop."
+            else -> return "Unknown media action \"$action\". Use play, pause, play_pause, next, previous, forward, rewind, stop, seek or status."
         }
         val am = service.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "No audio service."
         val now = SystemClock.uptimeMillis()
         am.dispatchMediaKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
         am.dispatchMediaKeyEvent(KeyEvent(now, now + 40, KeyEvent.ACTION_UP, code, 0))
-        return "Sent media ${a.replace('_', ' ')} to the current player."
+        return "Sent media ${a.replace('_', ' ')} to the current player.$hint"
+    }
+
+    override suspend fun seekMedia(position: String, pkg: String?): MediaControl.SeekResult {
+        val seek = MediaControl.parsePosition(position)
+            ?: return MediaControl.SeekResult.Unavailable("\"$position\" is not a position")
+        return MediaControl.seek(service, seek, frontPackage(), pkg)
+    }
+
+    /**
+     * A quarter of the way down the player, mid-width: clear of play/pause in
+     * the middle and of the bar at the bottom, should the controls be up
+     * after all (a tap there then only hides them).
+     */
+    override suspend fun showPlayerControls(): Boolean {
+        val player = playerBounds() ?: return false
+        return tap(player.centerX, player.top + player.height / 4)
     }
 
     /** The video player's area on screen, found by its view id (YouTube and most native players name it so). */
@@ -402,7 +546,10 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         fun walk(n: AccessibilityNodeInfo, depth: Int) {
             if (depth > 30 || !n.isVisibleToUser) return
             val id = n.viewIdResourceName?.lowercase()
-            if (id != null && ("player" in id || "video" in id) && "button" !in id && "control" !in id) {
+            // Not a Shorts or reels player: there a tap pauses and a double tap likes.
+            if (id != null && ("player" in id || "video" in id) && "button" !in id && "control" !in id &&
+                "reel" !in id && "short" !in id
+            ) {
                 n.getBoundsInScreen(r)
                 val b = Bounds(r.left, r.top, r.right, r.bottom)
                 if (b.width >= width * 0.6 && b.height >= 120 && (best == null || b.area > best!!.area)) best = b
@@ -412,6 +559,165 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         walk(root, 0)
         return best
     }
+
+    // ----------------------------------------------------------- sliders
+
+    /**
+     * set_value: the slider's own ACTION_SET_PROGRESS (exact), else its
+     * scroll steps toward the value, read back after each, else one
+     * press-hold-move from the thumb ([slide]). Each way is checked by reading
+     * the value back; one that falls short hands over to the next.
+     */
+    override suspend fun setValue(e: ScreenElement, screen: ScreenState, value: String, durationMs: Long?): String {
+        val node = liveNode(e, screen) ?: return gone(e)
+        val asked = Sliders.parse(value)
+            ?: return "Could not read \"$value\" as a value: give a number (35), a percentage (\"40%\") or a time (\"1:30\")."
+        val length = durationMs ?: if (asked is Sliders.Value.Time) sessionLength(screen.packageName) else null
+        val range = ScreenReader.rangeOf(node)
+        val box = liveBounds(node)?.let { Bounds(it.left, it.top, it.right, it.bottom) } ?: e.bounds
+        val fraction = Sliders.fraction(asked, range, length) ?: return "Could not place \"$value\" on [${e.index}] ${e.describe()}: " +
+            (if (asked is Sliders.Value.Time) "its length is unknown." else "it does not report its range.") + " Give a percentage like \"40%\"."
+        val whole = runCatching { node.rangeInfo?.type }.getOrNull() == AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT
+        val target = range?.let { Sliders.target(asked, it, length, whole) }
+        val ids = runCatching { node.actionList.map { it.id } }.getOrNull().orEmpty()
+        val plan = Sliders.plan(
+            setProgress = AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id in ids,
+            scroll = AccessibilityNodeInfo.ACTION_SCROLL_FORWARD in ids || AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD in ids,
+            readable = target != null,
+            // A press under the keyboard would type instead.
+            draggable = box.width >= MIN_SLIDER_DP * service.resources.displayMetrics.density && !screen.underKeyboard(e),
+        )
+        if (plan.isEmpty()) {
+            return if (screen.underKeyboard(e)) underKeyboard(e) else "Could not set [${e.index}] ${e.describe()}: it is not a slider that can be moved."
+        }
+        var step: Float? = null
+        var used: Sliders.Method? = null
+        for (method in plan) {
+            if (method != Sliders.Method.DRAG) {
+                val at = Rect(box.left, box.top, box.right, box.bottom)
+                service.overlay.showTouch(Sliders.xFor(fraction, box), box.centerY, bounds = at)
+            }
+            val moved = when (method) {
+                Sliders.Method.SET_PROGRESS -> node.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id,
+                    Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, target ?: 0f) },
+                )
+                Sliders.Method.SCROLL_STEPS -> stepTo(node, target ?: 0f, range ?: break).also { step = it } != null
+                Sliders.Method.DRAG -> slide(node, box, fraction, range)
+            }
+            if (!moved) continue
+            used = method
+            delay(SLIDER_SETTLE_MS)
+            val now = readRange(node) ?: break
+            if (target == null || Sliders.reached(now.current, target, now, tolerance(now, step, whole))) break
+        }
+        if (used == null) return "Could not move [${e.index}] ${e.describe()}: it took none of its own actions or a drag."
+        val now = readRange(node)
+        return when {
+            now == null || target == null ->
+                "Moved [${e.index}] ${e.describe()} to \"$value\" (${Math.round(fraction * 100)}% along it); it does not report its value."
+            Sliders.reached(now.current, target, now, SLIDER_TOLERANCE) -> "Set [${e.index}] ${e.describe()} to ${now.render()}."
+            Sliders.reached(now.current, target, now, tolerance(now, step, whole)) ->
+                "Set [${e.index}] ${e.describe()} to ${now.render()}, the nearest step to \"$value\"."
+            else -> "[${e.index}] ${e.describe()} is at ${now.render()}: it could not be set to \"$value\"."
+        }
+    }
+
+    /** How close counts as there: 1% of the range, half a step when it moves in steps, a whole unit when it counts in them. */
+    private fun tolerance(range: ValueRange, step: Float?, whole: Boolean): Float {
+        val span = (range.max - range.min).coerceAtLeast(1e-6f)
+        return maxOf(SLIDER_TOLERANCE, (step ?: 0f) / 2 / span + 1e-4f, if (whole) 0.5f / span else 0f)
+    }
+
+    /** [node]'s value now, or null when it is gone or reports none. */
+    private fun readRange(node: AccessibilityNodeInfo): ValueRange? =
+        if (runCatching { node.refresh() }.getOrDefault(false)) ScreenReader.rangeOf(node) else null
+
+    /** The length the app in front reports for what it plays, for a time on its seek bar. */
+    private fun sessionLength(pkg: String): Long? =
+        MediaControl.sessions(service)?.filter { it.packageName == pkg }?.let { MediaControl.pick(it, pkg) }?.let(MediaControl::durationOf)
+
+    /**
+     * Scroll steps toward [target], reading the value after each. The last
+     * step's size (how near steps can get), or null when they never moved it.
+     */
+    private suspend fun stepTo(node: AccessibilityNodeInfo, target: Float, start: ValueRange): Float? {
+        var cur = start
+        var step: Float? = null
+        var last: Boolean? = null
+        var turns = 0
+        repeat(MAX_STEPS) {
+            val forward = Sliders.nextStep(cur.current, target, step, start.max - start.min) ?: return step ?: 0f
+            // Uneven steps can straddle the value: back and forth twice is as near as they get.
+            if (last != null && forward != last && ++turns > 1) return step
+            last = forward
+            val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            if (!node.performAction(action)) return step
+            delay(STEP_SETTLE_MS)
+            val next = readRange(node) ?: return step
+            if (next.current == cur.current) return step
+            step = abs(next.current - cur.current)
+            cur = next
+        }
+        return step
+    }
+
+    /**
+     * One press-hold-move: press on the thumb, hold, move to [fraction] of the
+     * track, and -- where the slider reports its value while the finger is
+     * down -- steer onto it from two readings ([Sliders.steer]), then let go.
+     * It stays one touch throughout (continueStroke), so the app sees one
+     * drag. Without a value to start from it presses where the value goes.
+     */
+    private suspend fun slide(node: AccessibilityNodeInfo, b: Bounds, fraction: Float, start: ValueRange?): Boolean {
+        val y = b.centerY
+        val x0 = Sliders.xFor(start?.fraction ?: fraction, b)
+        val x1 = Sliders.xFor(fraction, b)
+        service.overlay.showSwipe(c(x0, width), c(y, height), c(x1, width), c(y, height))
+        return gestures(region(b.left.toFloat(), cy(y), b.right.toFloat(), cy(y))) {
+            if (Build.VERSION.SDK_INT >= 26) steeredDrag(node, b, y, x0, x1, fraction)
+            else dispatch(stroke(Path().apply { moveTo(cx(x0), cy(y)); lineTo(cx(x1), cy(y)) }, 0, SLIDE_HOLD_MS + SLIDE_MOVE_MS))
+        }
+    }
+
+    @RequiresApi(26)
+    private suspend fun steeredDrag(node: AccessibilityNodeInfo, b: Bounds, y: Int, x0: Int, x1: Int, fraction: Float): Boolean {
+        var stroke = GestureDescription.StrokeDescription(path(x0, y), 0, SLIDE_HOLD_MS, true)
+        if (!dispatch(GestureDescription.Builder().addStroke(stroke).build())) return false
+        var x = x0
+        // Each part starts where the last one ended, as continueStroke requires.
+        suspend fun glide(to: Int, ms: Long, lift: Boolean): Boolean {
+            val p = Path().apply { moveTo(cx(x), cy(y)); if (to != x) lineTo(cx(to), cy(y)) }
+            stroke = stroke.continueStroke(p, 0, ms, !lift)
+            x = to
+            return dispatch(GestureDescription.Builder().addStroke(stroke).build())
+        }
+        var before = readRange(node)?.fraction
+        var from = x0
+        if (!glide(x1, SLIDE_MOVE_MS, lift = false)) return false
+        var steers = 0
+        while (steers++ < MAX_STEERS) {
+            val f = readRange(node)?.fraction ?: break
+            val f0 = before
+            val next = if (f0 != null) Sliders.steer(from, f0, x, f, fraction, b) else null
+            before = f
+            from = x
+            if (next == null || abs(next - x) < 2) break
+            if (!glide(next, SLIDE_STEER_MS, lift = false)) return false
+        }
+        return glide(x, SLIDE_RELEASE_MS, lift = true)
+    }
+
+    override suspend fun clickAfter(since: Long, x: Int, y: Int, waitMs: Long): TapHit? {
+        val slop = (FINGER_DP * service.resources.displayMetrics.density).toInt()
+        return withTimeoutOrNull(waitMs) {
+            service.lastClick.first { it != null && it.at >= since && TapFeedback.near(it, x, y, slop) }
+        }
+    }
+
+    /** The app in front: the active window's, else the last one that came to the front. */
+    private fun frontPackage(): String =
+        runCatching { service.rootInActiveWindow?.packageName?.toString() }.getOrNull() ?: service.foregroundPackage
 
     override suspend fun scroll(direction: String, e: ScreenElement?, screen: ScreenState?, amount: Float): String {
         val dir = direction.lowercase()
@@ -612,6 +918,28 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         const val LONG_PRESS_MS = 700L
 
         const val DISPLAY_TTL_MS = 500L
+
+        /** media forward/rewind through the session: the player's own double-tap step. */
+        const val SEEK_STEP_MS = 10_000L
+
+        /** When a typed field is read back: a web page restores its own state a frame later. */
+        val READ_BACK_MS = longArrayOf(150L, 250L)
+        /** How long a field just focused gets to start input on the keyboard connection. */
+        const val IME_WAIT_MS = 600L
+        const val MAX_FIELD_CHARS = 10_000
+
+        const val MAX_STEPS = 40
+        const val STEP_SETTLE_MS = 40L
+        const val SLIDER_SETTLE_MS = 120L
+        /** A slider within 1% of its range is where it was asked to be. */
+        const val SLIDER_TOLERANCE = 0.01f
+        /** Narrower than this, a drag along it has no room to be accurate. */
+        const val MIN_SLIDER_DP = 24f
+        const val SLIDE_HOLD_MS = 150L
+        const val SLIDE_MOVE_MS = 350L
+        const val SLIDE_STEER_MS = 150L
+        const val SLIDE_RELEASE_MS = 40L
+        const val MAX_STEERS = 2
     }
 
     private fun c(v: Int, max: Int) = v.coerceIn(1, max - 1)

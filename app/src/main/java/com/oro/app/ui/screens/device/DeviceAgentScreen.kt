@@ -81,6 +81,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.device.DeviceAgent
 import com.oro.app.device.DeviceAgent.StepKind
 import com.oro.app.device.DeviceAgent.StepStatus
+import com.oro.app.device.OroNotificationListener
 import com.oro.app.device.overlay.DeviceAgentUi
 import com.oro.app.device.overlay.IslandModel
 import com.oro.app.device.overlay.IslandPhase
@@ -254,7 +255,9 @@ fun DeviceAgentScreen(
         DeviceSettingsSheet(
             settings = ui.settings,
             onChange = viewModel::updateSettings,
-            onDismiss = { showSettings = false }
+            onDismiss = { showSettings = false },
+            mediaControl = ui.mediaControl,
+            onMediaControl = { OroNotificationListener.openSettings(context) },
         )
     }
     if (showModels) {

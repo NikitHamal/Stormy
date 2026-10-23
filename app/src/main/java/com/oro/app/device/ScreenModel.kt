@@ -19,6 +19,32 @@ data class Bounds(val left: Int, val top: Int, val right: Int, val bottom: Int) 
     fun contains(x: Int, y: Int): Boolean = x in left until right && y in top until bottom
 }
 
+/**
+ * A slider's or progress bar's value as the app reports it (RangeInfo), in
+ * the app's own units: 35 on 0..100, 0.5 on 0..1, or a percentage.
+ */
+data class ValueRange(val min: Float, val max: Float, val current: Float, val percent: Boolean = false) {
+
+    /** Where [current] sits between [min] and [max], 0..1. */
+    val fraction: Float get() = if (max > min) ((current - min) / (max - min)).coerceIn(0f, 1f) else 0f
+
+    /** `35/100`, `35%`, or `3 of -10..10` when the range does not start at 0. */
+    fun render(): String = when {
+        percent -> num(current) + "%"
+        min == 0f -> num(current) + "/" + num(max)
+        else -> num(current) + " of " + num(min) + ".." + num(max)
+    }
+
+    companion object {
+        /** 35, 0.5, 33.33: no trailing zeros, so a whole number reads as one. */
+        fun num(v: Float): String {
+            val rounded = Math.round(v)
+            if (kotlin.math.abs(v - rounded) < 0.005f) return rounded.toString()
+            return String.format(java.util.Locale.ROOT, "%.2f", v).trimEnd('0').trimEnd('.')
+        }
+    }
+}
+
 /** One thing on screen the agent can see and refer to by [index]. */
 data class ScreenElement(
     val index: Int,
@@ -50,6 +76,8 @@ data class ScreenElement(
     val canScrollForward: Boolean = false,
     /** Scrolls sideways (carousel, tab strip, pager) rather than up and down. */
     val horizontal: Boolean = false,
+    /** A slider's or progress bar's value, when the app reports one. */
+    val range: ValueRange? = null,
 ) {
     val centerX: Int get() = bounds.centerX
     val centerY: Int get() = bounds.centerY
@@ -85,6 +113,7 @@ data class ScreenElement(
             }
         }
         if (checkable) append(if (checked) " on" else " off")
+        range?.let { append(' ').append(it.render()) }
         // Whether there is more to see, so "the end of the list" is read off
         // the screen instead of found by a wasted scroll.
         val more = scrollWords()
@@ -132,6 +161,7 @@ data class ScreenElement(
         const val ROLE_TEXT = "text"
         const val ROLE_LIST = "list"
         const val ROLE_PROGRESS = "progress"
+        const val ROLE_SLIDER = "slider"
     }
 }
 
@@ -162,12 +192,15 @@ data class ScreenState(
     val signature: Int by lazy {
         var h = packageName.hashCode()
         for (e in elements) {
+            // A playing video's seek bar moves by itself every second: that is not a change.
+            val ticking = Sliders.isSeekBar(e)
             h = 31 * h + e.role.hashCode()
-            h = 31 * h + e.label.hashCode()
+            h = 31 * h + (if (ticking) 0 else e.label.hashCode())
             h = 31 * h + (e.value?.hashCode() ?: 0)
             h = 31 * h + (if (e.checked) 1 else 0) + (if (e.selected) 2 else 0)
             h = 31 * h + e.secretLength
             h = 31 * h + (if (e.canScrollBack) 4 else 0) + (if (e.canScrollForward) 8 else 0)
+            h = 31 * h + (if (ticking) 0 else e.range?.current?.toBits() ?: 0)
             h = 31 * h + e.bounds.top / 40
         }
         31 * h + (if (keyboardVisible) 1 else 0)
@@ -362,7 +395,7 @@ data class ScreenState(
         for (i in elements.indices) {
             val e = elements[i]
             val line = e.render(
-                where = if (e.label.isBlank() && e.takesTaps && e.role != ScreenElement.ROLE_LIST) whereIs(e) else null,
+                where = if (e.label.isBlank() && (e.takesTaps || e.role == ScreenElement.ROLE_SLIDER) && e.role != ScreenElement.ROLE_LIST) whereIs(e) else null,
                 underKeyboard = underKeyboard(e),
             )
             if (length + line.length > maxChars) {
@@ -388,9 +421,11 @@ data class ScreenState(
         private val PERMISSION = Regex(
             "^(allow|don.t allow|deny|while using the app|only this time|allow all the time|allow only while using the app)$"
         )
+        // Slider puzzles too: set_value could move them, and they are the user's to pass.
         private val HUMAN_CHECK = Regex(
             "\\b(i.m not a robot|i am human|verify (that )?you are (a )?human|are you a robot|captcha|human verification|" +
-                "unusual traffic|enter the characters you see|type the characters|select all (images|squares))\\b"
+                "unusual traffic|enter the characters you see|type the characters|select all (images|squares)|" +
+                "slide to verify|swipe to verify|slide to complete the puzzle|drag the puzzle piece)\\b"
         )
         private val CAPTCHA_BADGE = Regex("protected by recaptcha|recaptcha.{0,3}(privacy|terms)|privacy\\s*-\\s*terms")
         /** Longest label read as a widget's own (a checkbox's, a button's) rather than content. */

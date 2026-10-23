@@ -46,6 +46,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 
 /**
  * Orobi operating the phone: an observe → think → act loop over the
@@ -770,6 +771,9 @@ object DeviceAgent {
 
             readOnly(name, args)?.let { return it }
             if (name == "scroll" || name == "scroll_to" || name == "read_page") browsed = true
+            if (name == "set_value" && DeviceArgs.str(args, "value")?.let(Sliders::parse) == null) {
+                return ToolResult(false, "", "set_value needs value: a number in the slider's range (35), a percentage (\"40%\"), or a time on a media seek bar (\"1:30\").")
+            }
 
             var screen = freshScreen()
             val seen = turnScreen
@@ -786,7 +790,10 @@ object DeviceAgent {
             if (name == "fill_form") return fillForm(args, seen, screen)
 
             var target = resolve(name, args, seen, screen)
-            problem(target, screen)?.let { return it }
+            // A video's seek bar hides with the player's controls a few seconds
+            // after the model saw it: set_value still reaches it (seekBarValue).
+            val seekBar = if (name == "set_value") meantSeekBar(args, seen, target) else null
+            if (seekBar == null) problem(target, screen)?.let { return it }
             unseenChoice(name, target, screen)?.let { return it }
             var dragTo = if (name == "drag") resolveDragEnd(args, seen, screen) else null
             if (name == "drag") problem(dragTo, screen)?.let { return it }
@@ -852,8 +859,12 @@ object DeviceAgent {
             return when (name) {
                 "tap", "tap_text" -> when (val t = target) {
                     is Target.OnElement -> act { c.tapElement(t.element, actScreen) }
-                    is Target.AtPoint -> underKeyboard(t.x, t.y)
-                        ?: act { if (c.tap(t.x, t.y)) "Tapped (${t.x},${t.y})." else "The tap could not be performed." }
+                    // A finger lands wherever it lands: the app's own click event says what took it.
+                    is Target.AtPoint -> underKeyboard(t.x, t.y) ?: act {
+                        val at = c.uptime()
+                        if (c.tap(t.x, t.y)) "Tapped (${t.x},${t.y}) ${TapFeedback.line(c.clickAfter(at, t.x, t.y))}."
+                        else "The tap could not be performed."
+                    }
                     else -> noTarget()
                 }
                 "long_press" -> when (val t = target) {
@@ -915,6 +926,17 @@ object DeviceAgent {
                     else underKeyboard(from.first, from.second)
                         ?: act { if (c.drag(from.first, from.second, to.first, to.second)) "Dragged from $from to $to." else "The drag failed." }
                 }
+                "set_value" -> {
+                    val raw = DeviceArgs.str(args, "value").orEmpty().trim()
+                    val value = Sliders.parse(raw) ?: return ToolResult(false, "", "Missing value.")
+                    val bar = seekBar
+                    // A seek through the media session changes nothing on screen by design.
+                    if (bar != null) act(expectChange = false) { seekBarValue(bar, target, value, actScreen) }
+                    else when (val t = target) {
+                        is Target.OnElement -> act { c.setValue(t.element, actScreen, raw) }
+                        else -> ToolResult(false, "", "Give the slider's element number from the screen listing.")
+                    }
+                }
                 "pinch" -> {
                     val x = DeviceArgs.int(args, "x") ?: screen.width / 2
                     val y = DeviceArgs.int(args, "y") ?: screen.height / 2
@@ -940,7 +962,14 @@ object DeviceAgent {
                 }
                 "media" -> {
                     val action = DeviceArgs.str(args, "action") ?: return ToolResult(false, "", "Missing action.")
-                    act(expectChange = false) { c.media(action) }
+                    if (action.trim().equals("seek", ignoreCase = true)) {
+                        val position = (DeviceArgs.str(args, "position") ?: DeviceArgs.str(args, "value")).orEmpty().trim()
+                        val seek = MediaControl.parsePosition(position) ?: return ToolResult(
+                            false, "",
+                            "seek needs position: \"1:30\" or \"90\" (from the start), \"+30\" or \"-10\" (a jump), or \"50%\" (of the length)."
+                        )
+                        act(expectChange = false) { seekPlayer(position, seek, actScreen) }
+                    } else act(expectChange = false) { c.media(action) }
                 }
                 "read_page" -> readPage((DeviceArgs.int(args, "pages") ?: 3).coerceIn(1, 8), before)
                 "wait" -> {
@@ -1217,6 +1246,7 @@ object DeviceAgent {
             "scroll", "scroll_to" -> Targets.optional(args, "index", seen, now)
             "swipe" -> Targets.start(args, "x1", "y1", seen, now)
             "drag" -> Targets.optional(args, "from_index", seen, now) ?: Targets.start(args, "x1", "y1", seen, now)
+            "set_value" -> Targets.slider(args, seen, now)
             else -> null
         }
 
@@ -1238,7 +1268,8 @@ object DeviceAgent {
             }
             "press_key" -> SensitiveGuard.key(DeviceArgs.str(args, "key"), screen)
             "open_url" -> SensitiveGuard.url(DeviceArgs.str(args, "url"))
-            "swipe", "drag" -> SensitiveGuard.slide(target, screen)
+            // "Slide to pay" moved by its value is still a slide.
+            "swipe", "drag", "set_value" -> SensitiveGuard.slide(target, screen)
             else -> null
         }
 
@@ -1307,6 +1338,71 @@ object DeviceAgent {
             is Target.OnElement -> t.element.centerX to t.element.centerY
             is Target.AtPoint -> t.x to t.y
             else -> null
+        }
+
+        /**
+         * The media seek bar a set_value names, if it names one: the element
+         * it resolved to, or -- gone stale because the player's controls hid
+         * -- the one the model saw. A slider given a time ("1:30") is one.
+         * Null for any other slider.
+         */
+        private fun meantSeekBar(args: JsonObject, seen: ScreenState?, target: Target?): ScreenElement? {
+            val e = (target as? Target.OnElement)?.element
+                ?: if (target is Target.Stale && !target.appChanged) DeviceArgs.int(args, "index")?.let { seen?.element(it) } else null
+            val time = DeviceArgs.str(args, "value")?.let(Sliders::parse) is Sliders.Value.Time
+            return e?.takeIf { Sliders.isSeekBar(it) || (time && it.role == ScreenElement.ROLE_SLIDER) }
+        }
+
+        /**
+         * set_value on a media seek bar. The app's media session seeks exactly
+         * and needs no bar, so it goes first. Else the bar itself: the one named
+         * if it is still there, else found again after one tap on the player
+         * -- all in this one call, with no turn in between.
+         */
+        private suspend fun seekBarValue(meant: ScreenElement, target: Target?, value: Sliders.Value, screen: ScreenState): String {
+            val exact = phone.seekMedia(Sliders.mediaPosition(value, meant.range), screen.packageName)
+            if (exact is MediaControl.SeekResult.Done) return exact.text
+            val hint = if (exact is MediaControl.SeekResult.NoAccess) " " + MediaControl.ACCESS_HINT else ""
+            val named = (target as? Target.OnElement)?.element
+            val (bar, shown) = (if (named != null) named to screen else revealSeekBar(screen))
+                ?: return "Skipped: the seek bar is hidden, and one tap on the player did not bring it back.$hint"
+            return phone.setValue(bar, shown, Sliders.barValue(value, bar.range), Sliders.clock(shown, bar).second) + hint
+        }
+
+        /**
+         * media(seek): the session's own seekTo where Notification access
+         * allows (exact, nothing on screen needed); else the player's seek bar,
+         * shown again first if its controls hid; else, for a jump of about ten
+         * seconds, the player's own double tap.
+         */
+        private suspend fun seekPlayer(position: String, seek: MediaControl.Seek, screen: ScreenState): String {
+            val exact = phone.seekMedia(position, null)
+            if (exact is MediaControl.SeekResult.Done) return exact.text
+            val hint = if (exact is MediaControl.SeekResult.NoAccess) " " + MediaControl.ACCESS_HINT else ""
+            revealSeekBar(screen)?.let { (bar, shown) ->
+                val (now, length) = Sliders.clock(shown, bar)
+                Sliders.barValue(seek, now)?.let { value -> return phone.setValue(bar, shown, value, length) + hint }
+            }
+            if (seek is MediaControl.Seek.By && abs(seek.ms) in 5_000L..15_000L) {
+                return phone.media(if (seek.ms > 0) "forward" else "rewind")
+            }
+            val why = (exact as? MediaControl.SeekResult.Unavailable)?.why ?: "Media control is off"
+            return "Could not seek: $why, and no seek bar on screen shows where it is.$hint"
+        }
+
+        /**
+         * The player's seek bar, its controls shown: a player hides them a few
+         * seconds after the last touch, so when the bar is not on [screen] one
+         * tap on the player brings them back, and after a moment to fade in the
+         * bar is found on a new capture. The pause still holds in between.
+         */
+        private suspend fun revealSeekBar(screen: ScreenState): Pair<ScreenElement, ScreenState>? {
+            Sliders.seekBar(screen)?.let { return it to screen }
+            if (!phone.showPlayerControls()) return null
+            phone.settle(quietMs = 150, maxMs = 1_000, minMs = 300)
+            gate()
+            val shown = observe()
+            return Sliders.seekBar(shown)?.let { it to shown }
         }
 
         private suspend fun scrollTo(text: String, direction: String, list: ScreenElement?, start: ScreenState): ToolResult {
@@ -1593,7 +1689,8 @@ object DeviceAgent {
     private const val CLEARED = "\u0000cleared"
     /** Actions on the screen's content: they wait while a human check is up (navigation does not). */
     private val HANDS_ON = setOf(
-        "tap", "tap_text", "type_text", "fill_form", "long_press", "double_tap", "swipe", "drag", "pinch", "scroll", "scroll_to"
+        "tap", "tap_text", "type_text", "fill_form", "long_press", "double_tap", "swipe", "drag", "pinch", "scroll", "scroll_to",
+        "set_value",
     )
 
     private fun failed(outcome: String): Boolean = FAILED.containsMatchIn(outcome.replace(QUOTED, ""))
@@ -1654,6 +1751,7 @@ object DeviceAgent {
             "scroll_to" -> "Scroll to ${quoted("text")}" to StepKind.ACTION
             "swipe" -> "Swipe" to StepKind.ACTION
             "drag" -> "Drag ${target("from_index", "x1", "y1")} → ${target("to_index", "x2", "y2")}" to StepKind.ACTION
+            "set_value" -> "Set ${target()} to ${quoted("value")}" to StepKind.ACTION
             "pinch" -> "Zoom ${if (DeviceArgs.str(a, "direction") == "out") "in" else "out"}" to StepKind.ACTION
             "open_app" -> "Open ${DeviceArgs.str(a, "name") ?: DeviceArgs.str(a, "app").orEmpty()}" to StepKind.ACTION
             "open_url" -> "Open ${DeviceArgs.str(a, "url").orEmpty().removePrefix("https://").removePrefix("www.").take(48)}" to StepKind.ACTION
@@ -1661,7 +1759,7 @@ object DeviceAgent {
                 DeviceArgs.str(a, "action"), DeviceArgs.str(a, "text") ?: DeviceArgs.str(a, "query"), DeviceArgs.str(a, "time"),
                 DeviceArgs.num(a, "minutes"), DeviceArgs.str(a, "page"), DeviceArgs.str(a, "to"),
             ) to StepKind.ACTION
-            "media" -> mediaTitle(DeviceArgs.str(a, "action")) to StepKind.ACTION
+            "media" -> mediaTitle(DeviceArgs.str(a, "action"), DeviceArgs.str(a, "position")) to StepKind.ACTION
             "read_page" -> "Read the page" to StepKind.ACTION
             "list_apps" -> "Check installed apps" to StepKind.SYSTEM
             "find_text" -> "Look for ${quoted("text")}" to StepKind.SYSTEM
@@ -1677,7 +1775,7 @@ object DeviceAgent {
     }
 
     /** Step titles that name the action, so screens can pick its icon (play, pause, next...). */
-    internal fun mediaTitle(action: String?): String = when (action?.lowercase()?.replace(' ', '_')) {
+    internal fun mediaTitle(action: String?, position: String? = null): String = when (action?.lowercase()?.replace(' ', '_')) {
         "play" -> "Play"
         "pause" -> "Pause"
         "play_pause", "toggle" -> "Play or pause"
@@ -1686,6 +1784,13 @@ object DeviceAgent {
         "forward", "fast_forward" -> "Forward 10 s"
         "rewind" -> "Rewind 10 s"
         "stop" -> "Stop playback"
+        "seek" -> when (val s = position?.let(MediaControl::parsePosition)) {
+            is MediaControl.Seek.By -> if (s.ms >= 0) "Forward ${s.ms / 1000} s" else "Rewind ${-s.ms / 1000} s"
+            is MediaControl.Seek.To -> "Jump to ${MediaControl.formatTime(s.ms)}"
+            is MediaControl.Seek.Fraction -> "Jump to ${Math.round(s.f * 100)}%"
+            null -> "Seek"
+        }
+        "status" -> "Check what is playing"
         else -> "Media control"
     }
 

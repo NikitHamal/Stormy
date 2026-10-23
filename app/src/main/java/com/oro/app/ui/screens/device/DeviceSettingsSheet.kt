@@ -13,6 +13,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
 import androidx.compose.material.icons.outlined.BorderOuter
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Screenshot
 import androidx.compose.material.icons.outlined.SkipNext
@@ -45,13 +46,17 @@ internal data class DeviceToggle(
 
 /**
  * The device agent's settings, opened from the composer's tune button: the
- * same sheet, rows and picker as the editor's chat settings.
+ * same sheet, rows and picker as the editor's chat settings. Media control is
+ * a system permission (Notification access): its switch shows whether it is
+ * on, and the row opens the system screen that changes it.
  */
 @Composable
 internal fun DeviceSettingsSheet(
     settings: DeviceAgent.Settings,
     onChange: ((DeviceAgent.Settings) -> DeviceAgent.Settings) -> Unit,
     onDismiss: () -> Unit,
+    mediaControl: Boolean = false,
+    onMediaControl: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val toggles = listOf(
@@ -78,6 +83,12 @@ internal fun DeviceSettingsSheet(
             title = "Skip ads",
             checked = settings.skipAds,
             onChange = { v -> onChange { it.copy(skipAds = v) } },
+        ),
+        DeviceToggle(
+            icon = Icons.Outlined.PlayCircle,
+            title = "Media control",
+            checked = mediaControl,
+            onChange = { onMediaControl() },
         ),
         DeviceToggle(
             icon = Icons.Outlined.Screenshot,

@@ -112,6 +112,18 @@
                 android:resource="@xml/oro_accessibility_service" />
         </service>
 
+        <!-- Device agent: Notification access lets it reach media sessions (exact
+             seeking, play/pause, what is playing). It never reads notifications. -->
+        <service
+            android:name=".device.OroNotificationListener"
+            android:exported="true"
+            android:label="Oro Device Agent"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- FileProvider for sharing files securely -->
         <provider
             android:name="androidx.core.content.FileProvider"

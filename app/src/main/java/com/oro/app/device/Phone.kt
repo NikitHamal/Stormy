@@ -44,6 +44,21 @@ internal interface Phone {
     suspend fun media(action: String): String
     suspend fun scroll(direction: String, e: ScreenElement?, screen: ScreenState?, amount: Float = 0.6f): String
 
+    /**
+     * Sets slider [e] to [value] ("35", "40%", "1:30") and reads it back. A
+     * time needs the length: [durationMs], else the playing app's session.
+     */
+    suspend fun setValue(e: ScreenElement, screen: ScreenState, value: String, durationMs: Long? = null): String
+
+    /** Seeks what is playing through its media session (only [pkg]'s when given): exact, or why not. */
+    suspend fun seekMedia(position: String, pkg: String? = null): MediaControl.SeekResult
+
+    /** One tap on the video player, away from its buttons, to bring back hidden controls. False with no player. */
+    suspend fun showPlayerControls(): Boolean
+
+    /** The click the app reported for a tap at ([x], [y]) that started at [since] (uptime), if one comes within [waitMs]. */
+    suspend fun clickAfter(since: Long, x: Int, y: Int, waitMs: Long = 250): TapHit?
+
     fun global(key: String): String
 
     /** Launches an app by name and returns once it is in front (or after a short timeout). */

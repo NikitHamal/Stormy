@@ -44,6 +44,12 @@ internal class FakePhone(
         data class App(val name: String) : Act
         data class Quick(val args: QuickActions.Args) : Act
         data class Media(val action: String) : Act
+        /** set_value on a slider; [durationMs] is the length the run worked out for a time. */
+        data class SetValue(val label: String, val index: Int, val value: String, val durationMs: Long? = null) : Act
+        /** A seek the media session took (Notification access on). */
+        data class Seek(val position: String, val pkg: String?) : Act
+        /** One tap on the video player to bring back its hidden controls. */
+        data object ShowControls : Act
     }
 
     var screen: ScreenState = start
@@ -57,6 +63,15 @@ internal class FakePhone(
 
     /** What quick_action says back (after [rules] ran for it). */
     var quickResult: (QuickActions.Args) -> String = { "Did ${it.action}." }
+
+    /** What a seek through the media session does; by default Notification access is off. */
+    var seekResult: (position: String, pkg: String?) -> MediaControl.SeekResult = { _, _ -> MediaControl.SeekResult.NoAccess }
+
+    /** What set_value says back (after [rules] ran for it). */
+    var setValueResult: (ScreenElement, String) -> String = { e, v -> "Set [${e.index}] ${e.role} \"${e.label}\" to $v." }
+
+    /** The click the last tap by coordinates registered: whatever takes taps under it. */
+    private var lastHit: TapHit? = null
 
     /** Every action that reached the phone, in order. */
     val log = mutableListOf<Act>()
@@ -85,7 +100,11 @@ internal class FakePhone(
     override fun textVisible(text: String): Boolean = screen.elements.any { it.label.contains(text, ignoreCase = true) }
     override suspend fun settle(quietMs: Long, maxMs: Long, minMs: Long) = delay(minMs)
 
-    override suspend fun tap(x: Int, y: Int): Boolean { act(Act.TapAt(x, y)); return true }
+    override suspend fun tap(x: Int, y: Int): Boolean {
+        lastHit = screen.hitTest(x, y)?.let { TapHit(clock(), it.role, it.label, it.bounds) }
+        act(Act.TapAt(x, y))
+        return true
+    }
     override suspend fun longPress(x: Int, y: Int, durationMs: Long): Boolean { act(Act.TapAt(x, y)); return true }
     override suspend fun doubleTap(x: Int, y: Int): Boolean { act(Act.TapAt(x, y)); return true }
     override suspend fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long): Boolean = true
@@ -119,6 +138,24 @@ internal class FakePhone(
         act(Act.Scroll(direction, e?.index))
         return "Scrolled $direction."
     }
+
+    override suspend fun setValue(e: ScreenElement, screen: ScreenState, value: String, durationMs: Long?): String {
+        act(Act.SetValue(e.label, e.index, value, durationMs))
+        return setValueResult(e, value)
+    }
+
+    override suspend fun seekMedia(position: String, pkg: String?): MediaControl.SeekResult =
+        seekResult(position, pkg).also { if (it is MediaControl.SeekResult.Done) act(Act.Seek(position, pkg)) }
+
+    /** Like the phone: only a screen with a video player has one to tap. */
+    override suspend fun showPlayerControls(): Boolean {
+        if (screen.elements.none { it.viewId.orEmpty().contains("player") }) return false
+        act(Act.ShowControls)
+        return true
+    }
+
+    override suspend fun clickAfter(since: Long, x: Int, y: Int, waitMs: Long): TapHit? =
+        lastHit?.takeIf { it.at >= since && TapFeedback.near(it, x, y, slop = 0) }
 
     override fun global(key: String): String { act(Act.Key(key)); return "Pressed $key." }
     override suspend fun openApp(name: String): String { act(Act.App(name)); return appResult(name) }

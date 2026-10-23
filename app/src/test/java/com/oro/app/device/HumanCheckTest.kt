@@ -23,6 +23,13 @@ class HumanCheckTest {
     }
 
     @Test
+    fun `slider puzzles are human checks too, a slide to unlock is not`() {
+        assertThat(screen(el(0, ROLE_TEXT, "Slide to complete the puzzle")).humanCheck).isTrue()
+        assertThat(screen(el(0, "slider", "Swipe to verify", clickable = false)).humanCheck).isTrue()
+        assertThat(screen(el(0, ROLE_TEXT, "Slide to unlock")).humanCheck).isFalse()
+    }
+
+    @Test
     fun `the reCAPTCHA badge and text about captchas are not`() {
         assertThat(screen(el(0, ROLE_TEXT, "protected by reCAPTCHA")).humanCheck).isFalse()
         assertThat(screen(el(0, ROLE_TEXT, "reCAPTCHA · Privacy - Terms")).humanCheck).isFalse()
