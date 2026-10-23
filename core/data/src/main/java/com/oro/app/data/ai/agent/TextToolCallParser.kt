@@ -88,6 +88,9 @@ object TextToolCallParser {
     private const val TOOL_CALL_OPEN = "<tool_call>"
     private const val TOOL_CALL_CLOSE = "</tool_call>"
     private const val PARAMETER_CLOSE = "</parameter>"
+    private const val UNNAMED_PARAMETER_OPEN = "<parameter>"
+    /** Key prefix for `<parameter>` values the model wrote without a name. */
+    private const val UNNAMED = "\u0000unnamed"
     private const val FUNCTION_CLOSE = "</function>"
     private val FENCE = Regex("""(?s)```(?:json|tool_call|tool|javascript|js)?[ \t]*\r?\n(.*?)\r?\n?```""")
     private const val MISTRAL_MARKER = "[TOOL_CALLS]"
@@ -317,11 +320,13 @@ object TextToolCallParser {
 
         /** One raw-format call: run it, record it as cut off, or (unknown name) leave it alone. */
         fun handle(call: RawCall, wrapperClosed: Boolean): Boolean {
-            val props = schemaOf(call.name)?.get("properties") as? JsonObject
+            val schema = schemaOf(call.name)
+            val props = schema?.get("properties") as? JsonObject
+            val values = nameUnnamed(call.values, schema)
             val args: JsonElement? = when {
                 call.json != null -> parseJson(call.json)
                 else -> JsonObject(LinkedHashMap<String, JsonElement>().also { map ->
-                    call.values.forEach { (k, v) -> map[k] = typed(k, v, props?.get(k) as? JsonObject) }
+                    values.forEach { (k, v) -> map[k] = typed(k, v, props?.get(k) as? JsonObject) }
                 })
             }
             val complete = call.complete || wrapperClosed
@@ -565,6 +570,31 @@ object TextToolCallParser {
                     p = v.next
                     continue
                 }
+                // The value written inside the tag: `<parameter=summary="…">`,
+                // `<parameter=success=true</parameter>`.
+                val attr = if (at(p, "<parameter")) attrParameter(p) else null
+                if (attr != null) {
+                    values.putIfAbsent(attr.first, attr.second)
+                    p = attr.third
+                    continue
+                }
+                // `<parameter>` with no name (weak models drop it): the value is
+                // read the same way; parse() names it from the tool's schema.
+                if (at(p, UNNAMED_PARAMETER_OPEN)) {
+                    val v = value(p + UNNAMED_PARAMETER_OPEN.length, UNNAMED, values.keys, keys)
+                    values[UNNAMED + values.size] = v.text
+                    lastClosed = v.closed
+                    p = v.next
+                    continue
+                }
+                // `<index>3</index>` straight inside the function: a parameter of
+                // this tool written as its own element. Only names the schema has.
+                val child = if (keys != null) childElement(p, keys) else null
+                if (child != null) {
+                    values.putIfAbsent(child.first, child.second)
+                    p = child.third
+                    continue
+                }
                 if (values.isEmpty() && json == null && (t[p] == '{' || t[p] == '[')) {
                     val end = jsonEnd(t, p)
                     if (end < 0) return RawCall(start, t.length, tag.name, values, null, false, false)
@@ -580,6 +610,26 @@ object TextToolCallParser {
                 }
                 return RawCall(start, p, tag.name, values, json, false, lastClosed)
             }
+        }
+
+        /** `<parameter=name="value">` / `<parameter=name=value</parameter>` at [p]: (name, value, end); else null. */
+        private fun attrParameter(p: Int): Triple<String, String, Int>? {
+            val m = ATTR_PARAMETER.matchAt(t, p) ?: return null
+            val value = m.groupValues[2].takeIf { m.groups[2] != null }?.replace("\\\"", "\"")
+                ?: m.groups[3]?.value ?: m.groupValues[4].trim()
+            return Triple(m.groupValues[1], value, m.range.last + 1)
+        }
+
+        /** `<key>value</key>` at [p] for a parameter in [keys]: (key, value, end); else null. */
+        private fun childElement(p: Int, keys: Set<String>): Triple<String, String, Int>? {
+            if (p >= t.length || t[p] != '<') return null
+            val gt = t.indexOf('>', p)
+            if (gt < 0) return null
+            val name = t.substring(p + 1, gt)
+            if (name !in keys) return null
+            val close = t.indexOf("</$name>", gt + 1)
+            if (close < 0) return null
+            return Triple(name, trimOneNewline(t.substring(gt + 1, close)), close + name.length + 3)
         }
 
         /** Where scanning resumes when up to three junk lines are followed by a parameter or `</function>`; else [p]. */
@@ -766,6 +816,66 @@ object TextToolCallParser {
             if (j >= t.length || t[j] != '>') return null
             return Tag(name, j + 1)
         }
+    }
+
+    /**
+     * Names the values a model wrote as `<parameter>` without a name, from the
+     * tool's schema, and only where that is unambiguous:
+     *  - a value made of `<key>value</key>` elements whose keys are the tool's
+     *    parameters (`<parameter><index>3</index></parameter>`) gives those;
+     *  - else the one required parameter not set yet;
+     *  - else, for a tool with no required parameters, a short one-line value
+     *    goes to the first parameter (tap's index, scroll's direction).
+     * Anything else is dropped (the tool then reports what is missing), so a
+     * guess never puts a file body in the wrong field. Pure.
+     */
+    internal fun nameUnnamed(values: Map<String, String>, schema: JsonObject?): Map<String, String> {
+        if (values.keys.none { it.startsWith(UNNAMED) }) return values
+        val named = LinkedHashMap(values.filterKeys { !it.startsWith(UNNAMED) })
+        val props = (schema?.get("properties") as? JsonObject)?.keys?.toList() ?: return named
+        val required = (schema["required"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
+        for ((_, raw) in values.filterKeys { it.startsWith(UNNAMED) }) {
+            val kids = childElements(raw, props.toSet())
+            if (kids.isNotEmpty()) {
+                kids.forEach { (k, v) -> named.putIfAbsent(k, v) }
+                continue
+            }
+            // `<parameter>page=wifi</parameter>`: the name written inside the value.
+            val pair = KEY_VALUE.matchEntire(raw.trim())
+            if (pair != null && pair.groupValues[1] in props) {
+                named.putIfAbsent(pair.groupValues[1], pair.groupValues[2].trim().removeSurrounding("\"").removeSurrounding("'"))
+                continue
+            }
+            val missing = required.filter { it !in named }
+            val target = when {
+                missing.size == 1 -> missing.single()
+                required.isEmpty() && props.isNotEmpty() && props.first() !in named &&
+                    '\n' !in raw.trim() && raw.trim().length <= 200 -> props.first()
+                else -> null
+            }
+            if (target != null) named[target] = raw.trim()
+        }
+        return named
+    }
+
+    /** A value written inside the parameter tag; see RawScanner.attrParameter. */
+    private val ATTR_PARAMETER = Regex(
+        """<parameter\s*=\s*["']?([A-Za-z_][\w.-]*)["']?\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|([^<>\n]*?))\s*(?:/?>[ \t]*(?:</parameter>)?|</parameter>)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val KEY_VALUE = Regex("""([A-Za-z_]\w*)\s*[=:]\s*([^\n]+)""")
+
+    private val CHILD = Regex("""<([A-Za-z_][\w]*)>(.*?)</\1>""", RegexOption.DOT_MATCHES_ALL)
+
+    /** `<a>1</a><b>x</b>` (and nothing else) whose names are all in [keys]: name to value; else empty. */
+    private fun childElements(raw: String, keys: Set<String>): Map<String, String> {
+        val text = raw.trim()
+        if (!text.startsWith("<")) return emptyMap()
+        val found = CHILD.findAll(text).toList()
+        if (found.isEmpty() || found.any { it.groupValues[1] !in keys }) return emptyMap()
+        if (text.replace(CHILD, "").isNotBlank()) return emptyMap()
+        return found.associate { it.groupValues[1] to trimOneNewline(it.groupValues[2]).trim() }
     }
 
     /** One leading and one trailing newline belong to the tags, not the value. */

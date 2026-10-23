@@ -124,7 +124,21 @@ data class AgentLoopConfig(
      * device agent's tools), by name. Text-protocol values are typed by these;
      * the built-in tools' schemas are always known.
      */
-    val toolSchemas: Map<String, JsonObject> = emptyMap()
+    val toolSchemas: Map<String, JsonObject> = emptyMap(),
+    /**
+     * Last line of a text-protocol tool-results message: how the model ends
+     * the run. The coding agent finishes with a plain summary; the device
+     * agent with finish_task, so it says so (a plain reply there ends the run
+     * unconfirmed).
+     */
+    val textResultsFooter: String = "Continue. When the task is done, reply with a short summary and no tool call.",
+    /**
+     * Stop reading a reply that loops on the same passage (see
+     * [AgentLoop.repetitionCut]) and keep its first copy. Off by default: code
+     * and data can repeat legitimately. The device agent's replies are short
+     * prose, where a small model once looped on one paragraph for 220 s.
+     */
+    val cutRepetition: Boolean = false,
 ) {
     companion object {
         /** No iteration cap. */
@@ -388,7 +402,7 @@ class AgentLoop(
                             append(resultText(finalResults[i])).append("\n</tool_result>\n")
                         }
                         if (cutNote != null) append(cutNote).append('\n')
-                        append("Continue. When the task is done, reply with a short summary and no tool call.")
+                        append(config.textResultsFooter)
                     }
                 )
             } else {
@@ -563,6 +577,7 @@ class AgentLoop(
         // results never reach the history.
         val textMode = hideToolMarkup && request.tools.isNullOrEmpty()
         var scanned = 0
+        var repeatChecked = 0
 
         val flow = try {
             client.stream(request)
@@ -599,6 +614,16 @@ class AgentLoop(
                                 scanned = content.length
                                 if (fake >= 0) {
                                     content.setLength(fake)
+                                    if (finishReason == null) finishReason = "stop"
+                                    completed = true
+                                    break
+                                }
+                            }
+                            if (config.cutRepetition && content.length - repeatChecked >= REPEAT_STEP) {
+                                repeatChecked = content.length
+                                val cut = repetitionCut(content)
+                                if (cut >= 0) {
+                                    content.setLength(cut)
                                     if (finishReason == null) finishReason = "stop"
                                     completed = true
                                     break
@@ -735,6 +760,42 @@ class AgentLoop(
     companion object {
         /** Longest fabricated-result marker, so a marker split across deltas is still found. */
         private const val FAKE_MARKER_OVERLAP = 24
+
+        /** New characters between checks for a looping reply. */
+        private const val REPEAT_STEP = 256
+
+        /**
+         * Where to cut a reply that has started looping, or -1. It loops when
+         * its last [window] characters already appeared twice before, at
+         * least [MIN_PERIOD] apart (a paragraph, not "......"). The cut keeps
+         * everything before the repeating stretch and one copy of it, to the
+         * end of its line or sentence.
+         */
+        internal fun repetitionCut(text: CharSequence, window: Int = 200): Int {
+            if (text.length < window + 2 * MIN_PERIOD) return -1
+            val s = text.toString()
+            val end = s.length - window
+            val tail = s.substring(end)
+            val first = s.indexOf(tail)
+            if (first < 0 || first >= end) return -1
+            val second = s.indexOf(tail, first + 1)
+            if (second < 0 || second >= end) return -1
+            val period = second - first
+            if (period < MIN_PERIOD) return -1
+            // Back from the end while the text repeats with that period: the loop's first copy starts there.
+            var start = s.length - period
+            while (start > 0 && s[start - 1] == s[start - 1 + period]) start--
+            // The same quote three times with other words between is not a loop.
+            if (s.length - start < 2 * period) return -1
+            val cut = start + period
+            if (s[cut - 1] == '\n' || s[cut - 1] in ".!?") return cut
+            val line = s.indexOf('\n', cut)
+            if (line in cut until start + 2 * period) return line + 1
+            val sentence = Regex("""[.!?](\s|$)""").find(s, cut)?.range?.first
+            return if (sentence != null && sentence < start + 2 * period) sentence + 1 else cut
+        }
+
+        private const val MIN_PERIOD = 40
 
         /** Calls whose missing tail could lose file content. */
         private val FILE_WRITES = setOf("write_file", "edit_file", "multi_edit")

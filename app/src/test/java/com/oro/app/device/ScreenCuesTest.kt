@@ -80,6 +80,10 @@ class ScreenCuesTest {
         assertThat(emailFirst.hints(false).joinToString()).contains("asks to sign in")
         val sso = screen(el(0, ROLE_TEXT, "Sign in to save your playlist"), el(1, "button", "Continue with Google"))
         assertThat(sso.hints(false).joinToString()).contains("asks to sign in")
+        // The way past it is named only when it is there.
+        assertThat(password.hints(false).joinToString()).contains("Nothing here skips it")
+        val skippable = screen(el(0, "input", "Email"), el(1, "input", "Password", password = true), el(2, "button", "Not now"))
+        assertThat(skippable.hints(false).joinToString()).contains("\"Not now\" skips it")
         val newsletter = screen(el(0, ROLE_TEXT, "Get our weekly news"), el(1, "input", "Your email"), el(2, "button", "Sign up"))
         assertThat(newsletter.hints(false).joinToString()).doesNotContain("sign in")
         // A web page with a "Sign in" link: the address bar is editable, but it is not a login form.

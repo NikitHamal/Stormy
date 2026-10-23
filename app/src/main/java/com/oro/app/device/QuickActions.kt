@@ -314,9 +314,27 @@ object QuickActions {
                 if (tryStart(context, intent)) "Asked the music app to play \"$text\"."
                 else start(context, view("https://music.youtube.com/search?q=" + Uri.encode(text)), "Opened a music search for \"$text\".")
             }
-            else -> "Unknown action \"${a.action}\". Use one of: ${ACTIONS.joinToString()}."
+            else -> unknown(a.action)
         }
     }
+
+    /**
+     * The answer to an action that does not exist, naming the tool that does
+     * it when there is one: a model in the live eval asked quick_action for
+     * "notifications", then gave up on the shade. Pure.
+     */
+    fun unknown(action: String): String {
+        val a = action.trim().lowercase().replace(' ', '_')
+        val instead = when {
+            "notif" in a || a == "shade" -> " Notifications: press_key(\"notifications\") opens the shade."
+            a in KEYS -> " That is a key: press_key(\"$a\")."
+            a == "open" || a == "open_app" || a == "launch" -> " To open an app: open_app(name)."
+            else -> ""
+        }
+        return "Unknown action \"$action\". Use one of: ${ACTIONS.joinToString()}.$instead"
+    }
+
+    private val KEYS = setOf("back", "home", "recents", "quick_settings", "lock", "screenshot")
 
     /** Step title for the live timeline, e.g. "Set an alarm for 07:30". Pure. */
     fun title(action: String?, text: String?, time: String?, minutes: Double?, page: String?, to: String?): String {

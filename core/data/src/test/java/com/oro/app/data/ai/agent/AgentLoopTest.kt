@@ -355,6 +355,35 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a reply looping on one paragraph is cut to its first copy`() {
+        val para = "I've retrieved your latest HDFC Bank notification from Messages. It says Rs.2,450.00 was debited " +
+            "to SWIGGY, leaving Rs.18,320.55. The task is complete.\n"
+        val looped = "Here it is.\n" + para + para + para + para.take(90)
+        val cut = AgentLoop.repetitionCut(looped)
+        assertThat(looped.substring(0, cut)).isEqualTo("Here it is.\n" + para)
+        // A passage quoted three times with other words between is not a loop; neither is a short reply.
+        val quote = "x".repeat(10) + para
+        assertThat(AgentLoop.repetitionCut("A: $quote\nB: other words here.\n$quote\nC: and more.\n$quote")).isEqualTo(-1)
+        assertThat(AgentLoop.repetitionCut(para + para)).isEqualTo(-1)
+        assertThat(AgentLoop.repetitionCut(".".repeat(2_000))).isEqualTo(-1)
+    }
+
+    @Test
+    fun `with cutRepetition the loop stops reading a looping reply`() = runTest {
+        val para = "The notification says Rs.2,450.00 was debited to SWIGGY on 22 October, leaving Rs.18,320.55 in " +
+            "your account. The task is complete and nothing else is needed.\n"
+        val model = ScriptedModel({
+            flow {
+                emit(StreamEvent.Started)
+                repeat(40) { emit(StreamEvent.ContentDelta(para)) }
+                emit(StreamEvent.Completed)
+            }
+        })
+        val result = loop(model, AgentLoopConfig(cutRepetition = true)) { ToolResult(true, "") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed(para.trim()))
+    }
+
+    @Test
     fun `tool calls that stay unreadable end the run honestly`() = runTest {
         val broken = { text("Fixing it.\n<tool_call>{\"name\": \"format_disk\", \"arguments\": {}}</tool_call>") }
         val model = ScriptedModel(broken, broken, broken)

@@ -22,7 +22,14 @@ import kotlinx.coroutines.flow.flowOf
  * test then checks what reached the phone ([FakePhone.log]), what the model
  * was shown ([ScriptedModel.seen]) and how the run ended.
  */
-internal class FakePhone(private val clock: () -> Long, start: ScreenState) : Phone {
+internal class FakePhone(
+    private val clock: () -> Long,
+    start: ScreenState,
+    private val installed: List<AppCatalog.App> = listOf(
+        AppCatalog.App("YouTube", "com.google.android.youtube"),
+        AppCatalog.App("WhatsApp", "com.whatsapp"),
+    ),
+) : Phone {
 
     /** Something the agent did to the phone. */
     sealed interface Act {
@@ -44,6 +51,12 @@ internal class FakePhone(private val clock: () -> Long, start: ScreenState) : Ph
 
     /** What each action turns the screen into; null leaves it as it is. */
     var rules: (Act) -> ScreenState? = { null }
+
+    /** What open_app says back (after [rules] ran for it). */
+    var appResult: (String) -> String = { "Opened $it." }
+
+    /** What quick_action says back (after [rules] ran for it). */
+    var quickResult: (QuickActions.Args) -> String = { "Did ${it.action}." }
 
     /** Every action that reached the phone, in order. */
     val log = mutableListOf<Act>()
@@ -108,15 +121,12 @@ internal class FakePhone(private val clock: () -> Long, start: ScreenState) : Ph
     }
 
     override fun global(key: String): String { act(Act.Key(key)); return "Pressed $key." }
-    override suspend fun openApp(name: String): String { act(Act.App(name)); return "Opened $name." }
+    override suspend fun openApp(name: String): String { act(Act.App(name)); return appResult(name) }
     override fun openUrl(url: String): String { act(Act.Url(url)); return "Opened $url." }
     override fun bringToFront(packageName: String): Boolean = false
     override fun oroInFront(): Boolean = false
-    override fun quickAction(args: QuickActions.Args): String { act(Act.Quick(args)); return "Did ${args.action}." }
-    override fun apps(): List<AppCatalog.App> = listOf(
-        AppCatalog.App("YouTube", "com.google.android.youtube"),
-        AppCatalog.App("WhatsApp", "com.whatsapp"),
-    )
+    override fun quickAction(args: QuickActions.Args): String { act(Act.Quick(args)); return quickResult(args) }
+    override fun apps(): List<AppCatalog.App> = installed
     override fun status(): String = "Thursday 22 October, 21:40 · battery 80% · Wi-Fi"
     override suspend fun screenshot(state: ScreenState): String? = null
 }
@@ -143,6 +153,11 @@ internal class ScriptedModel(private vararg val turns: (AgentRequest) -> Flow<St
                 StreamEvent.FinishReason("tool_calls"),
                 StreamEvent.Completed,
             )
+        }
+
+        /** One turn that answers in plain text, with no tool call. */
+        fun text(reply: String): (AgentRequest) -> Flow<StreamEvent> = {
+            flowOf(StreamEvent.Started, StreamEvent.ContentDelta(reply), StreamEvent.FinishReason("stop"), StreamEvent.Completed)
         }
 
         val model = AiModel(id = "bench", name = "Bench", provider = AiProvider.CUSTOM, supportsToolCalls = true)

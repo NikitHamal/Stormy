@@ -427,6 +427,16 @@ object DeviceAgent {
         /** Uptime when the last call passed [gate]; an answer after it is "since the last action". */
         var lastGateAt = 0L
         val notes = mutableListOf<String>()
+        /** The task picks among items, so a list's unseen part matters. */
+        val comparing = DevicePrompt.comparesItems(task)
+        /** The run has scrolled or read a page, or a pick from the first screenful was held once already. */
+        var browsed = false
+        /** The action being observed submitted a search (or a form). */
+        var submitting = false
+        /** What the last submitted search showed, apart from what was typed. */
+        var lastResults: Int? = null
+        /** Questions put to the user and their answers, in order. */
+        val questions = mutableListOf<Pair<String, String>>()
         var actions = 0
         var unchangedStreak = 0
         val visits = HashMap<Int, Int>()
@@ -532,6 +542,26 @@ object DeviceAgent {
             val seen = if (before != null) ((visits[s.signature] ?: 0) + 1).also { visits[s.signature] = it } else 0
             if (seen == 4 || seen == 8) {
                 append("⚠ You have been on this exact screen ").append(seen).append(" times; you may be going in circles. Take a different route.\n")
+            }
+            for ((name, hits) in DevicePrompt.ambiguousNames(task, s)) {
+                append("Hint: \"").append(name).append("\" matches ").append(hits.size).append(" items here (")
+                    .append(hits.joinToString(", ")).append("). If the task does not say which, ask_user; don't guess.\n")
+            }
+            // A choice among items ("the cheapest", "the best rated") made from the
+            // first screenful missed cheaper items below the fold in the live eval.
+            if (comparing && s.elements.any { it.role == ScreenElement.ROLE_LIST && it.canScrollForward && !it.horizontal }) {
+                append("Hint: this list has more below and your task compares items: read_page (or scroll) before choosing.\n")
+            }
+            // A new search that brought back the same results (only the query
+            // changed): in the live eval a model searched five ways and never
+            // looked below the fold, where the right video was.
+            if (submitting) {
+                submitting = false
+                val results = s.elements.filter { !it.editable }.map { it.role + it.label }.hashCode()
+                if (results == lastResults && s.elements.any { it.role == ScreenElement.ROLE_LIST && it.canScrollForward && !it.horizontal }) {
+                    append("Hint: the same results as your last search. This list has more below: scroll (or read_page) to see the rest before searching again.\n")
+                }
+                lastResults = results
             }
             // Here rather than in the system prompt, which stays the same all run (prompt caching).
             if (limited) append("Actions left: ").append((settings.maxActions - actions).coerceAtLeast(0)).append('\n')
@@ -639,20 +669,54 @@ object DeviceAgent {
                     attachImages = vision,
                     maxToolResultChars = 14_000,
                     idleTimeoutMs = 90_000,
-                    maxQualityPasses = 1,
+                    // A reminder, plus questions asked in prose turned into real ones.
+                    maxQualityPasses = 4,
                     // The device tools' own schemas win over the coding tools' (ask_user differs).
-                    toolSchemas = com.oro.app.data.ai.tools.AgentTools.schemasOf(DeviceTools.all)
+                    toolSchemas = com.oro.app.data.ai.tools.AgentTools.schemasOf(DeviceTools.all),
+                    textResultsFooter = "Continue with the next step. When the task is done (or impossible), call finish_task; " +
+                        "a plain reply does not end it.",
+                    cutRepetition = true,
                 )
             )
-            // A "done" claim without finish_task cannot be checked against the
-            // screen deterministically; instead remind once to call
-            // finish_task, so the user (or the coding agent) gets a summary.
-            var reminded = false
+            // A reply with no tool call. finish_task written as text is a
+            // finish; a question for the user written as text becomes a real
+            // question card (nobody reads a plain reply as one); anything else
+            // gets a reminder to call finish_task, so the user (or the
+            // coding agent) gets a summary. A "done" claim alone is never
+            // taken as done: it cannot be checked against the screen.
+            var reminded = 0
+            var asked = 0
             return loop.run(conversation, DeviceTools.names, listener, finalCheck = {
-                if (reminded) null else {
-                    reminded = true
-                    "If the task is complete, call finish_task with a summary (and the answer, if the task asked for information). " +
-                        "If it is not complete, continue with the next action."
+                val said = AgentLoop.stripThinking(conversation.lastOrNull { it.role == "assistant" }?.content.orEmpty())
+                when (val kind = ProseTurn.read(said)) {
+                    is ProseTurn.Finish -> {
+                        finishSummary = kind.summary.ifBlank { null }
+                        finishCalled = true
+                        finishSuccess = kind.success
+                        null
+                    }
+                    is ProseTurn.Ask -> if (asked >= 2) null else {
+                        asked++
+                        val repeated = repeatedQuestion(kind.question)
+                        if (repeated != null) repeated.error + "\nContinue from the current screen, or call finish_task." else {
+                            val id = nextId()
+                            addStep(Step(id, StepKind.QUESTION, "ask_user", kind.question.take(400), app = lastScreen?.appLabel, status = StepStatus.WAITING))
+                            val answer = askUser(kind.question, emptyList())
+                            questions += kind.question to answer
+                            mustRecapture = true
+                            updateStep(id) { it.copy(detail = "You answered: $answer", status = StepStatus.DONE, endedAt = System.currentTimeMillis()) }
+                            "The user answered: $answer\nContinue the task from the current screen. When it is done (or impossible), call finish_task."
+                        }
+                    }
+                    // The first worked 8 times in 9 in the live eval; a model that
+                    // answers it with another "done" in prose gets one plainer ask.
+                    ProseTurn.Statement -> when (reminded++) {
+                        0 -> "If the task is complete, call finish_task with a summary (and the answer, if the task asked for information). " +
+                            "If it is not complete, continue with the next action."
+                        1 -> "Call the finish_task tool now to end the task: finish_task(summary, success=true), or success=false " +
+                            "if it could not be done. A text reply does not end it."
+                        else -> null
+                    }
                 }
             }, prepare = prepare)
         }
@@ -678,12 +742,14 @@ object DeviceAgent {
             if (name !in DeviceTools.allowedWhilePaused) gate()
 
             readOnly(name, args)?.let { return it }
+            if (name == "scroll" || name == "scroll_to" || name == "read_page") browsed = true
 
             var screen = freshScreen()
             val seen = turnScreen
 
             var target = resolve(name, args, seen, screen)
             problem(target, screen)?.let { return it }
+            unseenChoice(name, target, screen)?.let { return it }
             var dragTo = if (name == "drag") resolveDragEnd(args, seen, screen) else null
             if (name == "drag") problem(dragTo, screen)?.let { return it }
 
@@ -767,6 +833,7 @@ object DeviceAgent {
                 "type_text" -> {
                     val text = DeviceArgs.str(args, "text") ?: return ToolResult(false, "", "Missing text.")
                     val field = (target as? Target.OnElement)?.element
+                    submitting = DeviceArgs.bool(args, "submit")
                     act {
                         val typed = c.type(field, actScreen, text, DeviceArgs.bool(args, "append"))
                         // Enter only after the text really went in: never send an old draft.
@@ -775,6 +842,7 @@ object DeviceAgent {
                 }
                 "press_key" -> {
                     val key = DeviceArgs.str(args, "key") ?: return ToolResult(false, "", "Missing key.")
+                    submitting = key.equals("enter", true)
                     act { if (key.equals("enter", true)) c.submit() else c.global(key) }
                 }
                 "scroll" -> {
@@ -864,9 +932,10 @@ object DeviceAgent {
             }
             "ask_user" -> {
                 val q = DeviceArgs.str(args, "question")
-                if (q == null) ToolResult(false, "", "Missing question.") else {
+                if (q == null) ToolResult(false, "", "Missing question.") else repeatedQuestion(q) ?: run {
                     val options = (args["options"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
                     val answer = askUser(q, options)
+                    questions += q to answer
                     mustRecapture = true
                     updateStep(currentStepId) { it.copy(detail = "You answered: $answer", status = StepStatus.DONE, endedAt = System.currentTimeMillis()) }
                     ToolResult(true, "The user answered: $answer")
@@ -963,12 +1032,50 @@ object DeviceAgent {
             )
             is Target.NotFound -> ToolResult(
                 false, "",
-                "\"${t.query}\" is not on the screen. If it is further down use scroll_to(\"${t.query}\"); otherwise read the listing for the exact label."
+                "\"${t.query}\" is not on the screen. If it is further down use scroll_to(\"${t.query}\"); otherwise read the listing for the exact label." +
+                    (lastScreen?.let { settingsShortcut(it) }?.let { " $it" } ?: "")
             )
             else -> null
         }
 
         private fun skipped(why: String, now: ScreenState) = ToolResult(false, observation(null, now), "Skipped: $why")
+
+        /**
+         * The same question a third time: a weak model asked for a phone
+         * number eight times in the live eval, the user answering each time.
+         * The answers so far come back instead of another card.
+         */
+        fun repeatedQuestion(q: String): ToolResult? {
+            val before = questions.filter { DevicePrompt.sameQuestion(it.first, q) }
+            if (before.size < 2) return null
+            return ToolResult(
+                false, "",
+                "Not asked again: you asked this ${before.size} times and the user answered " +
+                    before.joinToString(", then ") { "\"${it.second}\"" } + ". Work with that: the app may have what you " +
+                    "need (open it and look), or call finish_task(success=false) saying what is missing."
+            )
+        }
+
+        /**
+         * A pick among items ("the cheapest") tapped from the first screenful
+         * of a list that goes on below: held once, so the rest gets read. Two
+         * models in the live eval ignored the hint and added the cheapest
+         * *visible* charger to the cart. Tapping again goes through.
+         */
+        private fun unseenChoice(name: String, target: Target?, screen: ScreenState): ToolResult? {
+            if (!comparing || browsed || (name != "tap" && name != "tap_text")) return null
+            val e = (target as? Target.OnElement)?.element ?: return null
+            if (e.editable || e.role == ScreenElement.ROLE_LIST || CONTROLS.containsMatchIn(e.label)) return null
+            screen.elements.firstOrNull {
+                it.role == ScreenElement.ROLE_LIST && !it.horizontal && it.canScrollForward && it.bounds.contains(e.centerX, e.centerY)
+            } ?: return null
+            browsed = true
+            return ToolResult(
+                false, observation(null, screen),
+                "Not tapped yet: your task compares items and this list goes on below, unseen. read_page (or scroll down) " +
+                    "first, then tap the one you chose."
+            )
+        }
 
         private fun pointOf(t: Target?): Pair<Int, Int>? = when (t) {
             is Target.OnElement -> t.element.centerX to t.element.centerY
@@ -997,7 +1104,8 @@ object DeviceAgent {
             val obs = observation(start.signature, cur)
             return when {
                 hit != null -> ToolResult(true, "Found \"$text\" as [${hit.element.index}] after $scrolls scroll${if (scrolls == 1) "" else "s"}.\n\n$obs")
-                atEnd -> ToolResult(false, obs, "Reached the end after $scrolls scroll${if (scrolls == 1) "" else "s"}; \"$text\" is not in this list. Try another direction, a search box, or another screen.")
+                atEnd -> ToolResult(false, obs, "Reached the end after $scrolls scroll${if (scrolls == 1) "" else "s"}; \"$text\" is not in this list. " +
+                    (settingsShortcut(cur) ?: "Try another direction, a search box, or another screen."))
                 else -> ToolResult(false, obs, "Scrolled 10 times without finding \"$text\". It may be elsewhere; consider searching for it.")
             }
         }
@@ -1227,6 +1335,9 @@ object DeviceAgent {
     /** Oldest capture an action may reuse even when no UI event arrived since (some views never send any). */
     private const val MAX_SNAPSHOT_AGE_MS = 4_000L
 
+    /** Labels of list controls rather than items: tapping these is how a list gets compared. */
+    private val CONTROLS = Regex("""\b(sort|filter|filters|refine|search|show more|see all|view all|load more)\b""", RegexOption.IGNORE_CASE)
+
 
     /**
      * Older observations collapse to their outcome line; only the newest
@@ -1310,6 +1421,17 @@ object DeviceAgent {
         "stop" -> "Stop playback"
         else -> "Media control"
     }
+
+    /**
+     * In the Settings app, the way to any page in one step. The live eval saw
+     * models scroll and back out through Settings for a page quick_action
+     * opens directly.
+     */
+    internal fun settingsShortcut(screen: ScreenState): String? =
+        if (screen.packageName == "com.android.settings" || screen.appLabel.equals("Settings", ignoreCase = true)) {
+            "In Settings, quick_action(settings, page=...) opens a page directly (wifi, bluetooth, display, sound, dnd, " +
+                "notifications, apps, battery, location…), or type in \"Search settings\"."
+        } else null
 
     private fun nextId() = stepSeq.incrementAndGet()
 

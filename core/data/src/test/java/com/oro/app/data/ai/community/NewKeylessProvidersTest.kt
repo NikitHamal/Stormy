@@ -454,4 +454,22 @@ class NewKeylessProvidersTest {
             .containsExactly("off", "on").inOrder()
         assertThat(ReasoningControls.forModel(AiModels.findModelById("cfai:@cf/zai-org/glm-4.7-flash")!!)).isNull()
     }
+
+    @Test
+    fun `a long agent run folds its older turns under the playground's ten-message cap`() {
+        val turns = mutableListOf(Transcript.Turn("system", "Rules"), Transcript.Turn("user", "Task: turn on Wi-Fi"))
+        for (i in 1..9) {
+            turns += Transcript.Turn("assistant", "Step $i")
+            turns += Transcript.Turn("user", "Result $i")
+        }
+        val built = CloudflarePlaygroundClient.Messages.build(turns)!!
+        assertThat(built.size).isAtMost(CloudflarePlaygroundClient.Messages.MAX_MESSAGES)
+        val roles = built.map { it.jsonObject["role"]!!.jsonPrimitive.content }
+        assertThat(roles.first()).isEqualTo("user")
+        roles.zipWithNext().forEach { (a, b) -> assertThat(a).isNotEqualTo(b) }
+        val texts = built.map { it.jsonObject["parts"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content }
+        assertThat(texts.first()).contains("Earlier in this conversation")
+        assertThat(texts.first()).contains("Task: turn on Wi-Fi")
+        assertThat(texts.last()).isEqualTo("Result 9")
+    }
 }

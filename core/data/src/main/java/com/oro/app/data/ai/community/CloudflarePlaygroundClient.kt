@@ -180,6 +180,16 @@ class CloudflarePlaygroundClient(
         private const val BRIDGE = "Noted."
 
         /**
+         * The playground ends a chat at 10 messages ("This demo is limited to
+         * 10 messages per conversation"); an agent run passes that by its
+         * fifth step. Older turns are folded into the first kept user turn.
+         */
+        const val MAX_MESSAGES = 9
+
+        /** The folded history's budget, newest first. */
+        private const val FOLD_LIMIT = 20_000
+
+        /**
          * Alternating UI messages ending with a short user turn: system turns
          * are left out (they travel in the config), consecutive turns of one
          * role merged, and long user turns split into parts joined by brief
@@ -209,7 +219,7 @@ class CloudflarePlaygroundClient(
                 }
             }
             return buildJsonArray {
-                out.forEach { (role, text) ->
+                fold(out).forEach { (role, text) ->
                     addJsonObject {
                         put("id", AiSdkMessages.id())
                         put("role", role)
@@ -222,6 +232,24 @@ class CloudflarePlaygroundClient(
                     }
                 }
             }
+        }
+
+        /**
+         * At most [MAX_MESSAGES] messages, still alternating and ending on the
+         * newest user turn: everything older than the kept tail becomes a
+         * transcript at the top of the tail's first (user) message.
+         */
+        fun fold(out: List<Pair<String, String>>): List<Pair<String, String>> {
+            if (out.size <= MAX_MESSAGES) return out
+            var keep = MAX_MESSAGES
+            if (out[out.size - keep].first != "user") keep--
+            val older = out.subList(0, out.size - keep)
+            val tail = out.subList(out.size - keep, out.size).toMutableList()
+            val history = older.filter { it.second != BRIDGE }
+                .joinToString("\n\n") { (role, text) -> (if (role == "user") "User: " else "You: ") + text }
+            val clipped = if (history.length > FOLD_LIMIT) "…" + history.takeLast(FOLD_LIMIT) else history
+            tail[0] = "user" to ("Earlier in this conversation:\n$clipped\n\n---\n\n" + tail[0].second)
+            return tail
         }
 
         /**

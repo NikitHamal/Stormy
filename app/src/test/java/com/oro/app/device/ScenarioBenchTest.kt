@@ -313,7 +313,213 @@ class ScenarioBenchTest {
 }
 
 /** Shared plumbing for [ScenarioBenchTest]. */
+class ProseTurnBenchTest {
+
+    private val signIn = screen(
+        el(0, ROLE_TEXT, "Instagram"),
+        el(1, "input", "Phone number, username or email"),
+        el(2, "input", "Password", password = true),
+        el(3, "button", "Log in"),
+        pkg = "com.instagram.android", label = "Instagram",
+    )
+
+    @Test
+    fun `finish_task written as text ends the run as done, not unconfirmed`() = runTest {
+        val phone = ScenarioBench.phone(this, signIn)
+        val model = ScriptedModel(ScriptedModel.text("Nothing to do here.\nfinish_task(summary=\"Checked: Instagram needs a sign-in.\", success=false)"))
+
+        val end = ScenarioBench.play(phone, model, "Tell me who messaged me on Instagram")
+
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.FAILED)
+        assertThat(end.summary).isEqualTo("Checked: Instagram needs a sign-in.")
+        assertThat(model.seen).hasSize(1)
+    }
+
+    @Test
+    fun `a question asked in prose reaches the user as a question card, and the run goes on`() = runTest {
+        val phone = ScenarioBench.phone(this, signIn)
+        val asked = ScenarioBench.answerQuestions(this, "Don't sign in, just tell me you couldn't check.")
+        val model = ScriptedModel(
+            ScriptedModel.text("I see the Instagram login screen. Could you give me your username and password?"),
+            calls("finish_task" to """{"summary":"Instagram needs a sign-in, so I couldn't read your DMs.","success":false}"""),
+        )
+
+        val end = ScenarioBench.play(phone, model, "Tell me who messaged me on Instagram")
+
+        assertThat(asked).containsExactly("Could you give me your username and password?")
+        assertThat(model.seen[1]).contains("The user answered: Don't sign in")
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.FAILED)
+        assertThat(end.steps.map { it.kind }).contains(DeviceAgent.StepKind.QUESTION)
+        assertThat(phone.log).isEmpty()
+    }
+
+    @Test
+    fun `a plain done statement gets one concrete reminder to call finish_task`() = runTest {
+        val phone = ScenarioBench.phone(this, signIn)
+        val model = ScriptedModel(
+            ScriptedModel.text("Done! Anything else?"),
+            calls("finish_task" to """{"summary":"Opened Instagram.","success":true}"""),
+        )
+
+        val end = ScenarioBench.play(phone, model, "Open Instagram")
+
+        assertThat(model.seen[1]).contains("If the task is complete, call finish_task")
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.DONE)
+    }
+
+    @Test
+    fun `a second done statement gets a plainer ask, a third ends the run unconfirmed`() = runTest {
+        val phone = ScenarioBench.phone(this, signIn)
+        val model = ScriptedModel(
+            ScriptedModel.text("Do Not Disturb is now on."),
+            ScriptedModel.text("Do Not Disturb is now enabled."),
+            ScriptedModel.text("It is on."),
+        )
+
+        val end = ScenarioBench.play(phone, model, "Turn on Do Not Disturb")
+
+        assertThat(model.seen[2]).contains("Call the finish_task tool now")
+        assertThat(model.seen).hasSize(3)
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.UNCONFIRMED)
+    }
+
+    @Test
+    fun `a missed scroll in Settings points at the one-step way to a page`() = runTest {
+        val font = screen(
+            el(0, "icon", "Navigate up"),
+            el(1, ROLE_TEXT, "Font size and text"),
+            el(2, "button", "Reset settings"),
+            pkg = "com.android.settings", label = "Settings",
+        )
+        val phone = ScenarioBench.phone(this, font)
+        val model = ScriptedModel(
+            calls("scroll_to" to """{"text":"Wi-Fi"}"""),
+            calls("finish_task" to """{"summary":"Not here.","success":false}"""),
+        )
+
+        ScenarioBench.play(phone, model, "Open the Wi-Fi settings")
+
+        assertThat(model.seen[1]).contains("quick_action(settings, page=...)")
+    }
+}
+
+class ComparisonCueBenchTest {
+
+    private fun results() = screen(
+        el(0, ROLE_LIST, "", top = 200, height = 2000).copy(canScrollForward = true),
+        el(1, "button", "Samsung 25W · ₹1,299", top = 300),
+        el(2, "button", "Mi 33W · ₹649", top = 500),
+        pkg = "com.shopkart", label = "ShopKart",
+    )
+
+    @Test
+    fun `a task that compares items is told the list goes on below`() = runTest {
+        val phone = ScenarioBench.phone(this, results())
+        val model = ScriptedModel(calls("finish_task" to """{"summary":"x","success":false}"""))
+        ScenarioBench.play(phone, model, "Add the cheapest charger to the cart")
+        assertThat(model.seen[0]).contains("your task compares items")
+    }
+
+    @Test
+    fun `other tasks are not`() = runTest {
+        val phone = ScenarioBench.phone(this, results())
+        val model = ScriptedModel(calls("finish_task" to """{"summary":"x","success":false}"""))
+        ScenarioBench.play(phone, model, "Open the Mi charger")
+        assertThat(model.seen[0]).doesNotContain("your task compares items")
+    }
+
+    @Test
+    fun `a pick from the first screenful is held once, and goes through when tapped again`() = runTest {
+        val phone = ScenarioBench.phone(this, results())
+        val model = ScriptedModel(
+            calls("tap" to """{"index":2}"""),
+            calls("tap" to """{"index":2}"""),
+            calls("finish_task" to """{"summary":"Added Mi.","success":true}"""),
+        )
+        ScenarioBench.play(phone, model, "Add the cheapest charger to the cart")
+        assertThat(model.seen[1]).contains("Not tapped yet")
+        assertThat(phone.log).containsExactly(Act.Tap("Mi 33W · ₹649", 2))
+    }
+
+    @Test
+    fun `a pick after reading on, or a tap on Sort, is not held`() = runTest {
+        val sorted = screen(
+            el(0, ROLE_LIST, "", top = 200, height = 2000).copy(canScrollForward = true),
+            el(1, "button", "Sort", top = 250),
+            el(2, "button", "Mi 33W · ₹649", top = 500),
+            pkg = "com.shopkart", label = "ShopKart",
+        )
+        val phone = ScenarioBench.phone(this, sorted)
+        val model = ScriptedModel(
+            calls("tap" to """{"index":1}"""),
+            calls("read_page" to """{"pages":2}"""),
+            calls("tap" to """{"index":2}"""),
+            calls("finish_task" to """{"summary":"Added Mi.","success":true}"""),
+        )
+        ScenarioBench.play(phone, model, "Add the cheapest charger to the cart")
+        assertThat(model.seen.joinToString()).doesNotContain("Not tapped yet")
+        assertThat(phone.log.filterIsInstance<Act.Tap>().map { it.index }).containsExactly(1, 2).inOrder()
+    }
+}
+
+class RepeatBenchTest {
+
+    private fun results() = screen(
+        el(0, ROLE_LIST, "", top = 200, height = 2000).copy(canScrollForward = true),
+        el(1, "input", "Search YouTube", top = 100),
+        el(2, "button", "Blinding Lights (Lyrics) · 7clouds", top = 300),
+        el(3, "button", "Blinding Lights | Piano Cover", top = 500),
+        pkg = "com.google.android.youtube", label = "YouTube",
+    )
+
+    @Test
+    fun `searching again for the same results points below the fold`() = runTest {
+        val phone = ScenarioBench.phone(this, results())
+        val model = ScriptedModel(
+            calls("type_text" to """{"index":1,"text":"blinding lights official","submit":true}"""),
+            calls("type_text" to """{"index":1,"text":"the weeknd blinding lights","submit":true}"""),
+            calls("finish_task" to """{"summary":"x","success":false}"""),
+        )
+        ScenarioBench.play(phone, model, "Play the official music video of Blinding Lights by The Weeknd")
+        assertThat(model.seen[1]).doesNotContain("the same results as your last search")
+        assertThat(model.seen[2]).contains("the same results as your last search")
+        // Not a person to ask about: the results share a title.
+        assertThat(model.seen.joinToString()).doesNotContain("ask_user; don't guess")
+    }
+
+    @Test
+    fun `the same question a third time is answered from the answers so far`() = runTest {
+        val phone = ScenarioBench.phone(this, results())
+        val asked = ScenarioBench.answerQuestions(this, "I don't know it")
+        val model = ScriptedModel(
+            calls("ask_user" to """{"question":"What is Priya's phone number?"}"""),
+            calls("ask_user" to """{"question":"Please tell me Priya's phone number with country code."}"""),
+            calls("ask_user" to """{"question":"I need Priya's phone number to continue."}"""),
+            calls("finish_task" to """{"summary":"No number.","success":false}"""),
+        )
+        ScenarioBench.play(phone, model, "WhatsApp Priya that I'm late")
+        assertThat(asked).hasSize(2)
+        assertThat(model.seen[3]).contains("Not asked again: you asked this 2 times")
+        assertThat(model.seen[3]).contains("\"I don't know it\"")
+    }
+}
+
 internal object ScenarioBench {
+
+    /** Answers every question card with [answer]; the questions asked go into the returned list. */
+    fun answerQuestions(scope: TestScope, answer: String): List<String> {
+        val asked = mutableListOf<String>()
+        scope.backgroundScope.launch {
+            DeviceAgent.state.collect { s ->
+                val q = s.question?.text
+                if (q != null) {
+                    if (asked.lastOrNull() != q) asked += q
+                    DeviceAgent.answer(answer)
+                }
+            }
+        }
+        return asked
+    }
 
     fun phone(scope: TestScope, start: ScreenState) = FakePhone({ scope.testScheduler.currentTime }, start)
 

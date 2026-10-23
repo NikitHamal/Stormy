@@ -50,4 +50,11 @@ class QuickActionsTest {
         assertThat(QuickActions.formatSeconds(90)).isEqualTo("1 min 30 s")
         assertThat(QuickActions.formatSeconds(3600)).isEqualTo("1 h")
     }
+
+    @Test
+    fun `an unknown action names the tool that does it`() {
+        assertThat(QuickActions.unknown("notifications")).contains("press_key(\"notifications\")")
+        assertThat(QuickActions.unknown("Home")).contains("press_key(\"home\")")
+        assertThat(QuickActions.unknown("teleport")).endsWith("${QuickActions.ACTIONS.joinToString()}.")
+    }
 }

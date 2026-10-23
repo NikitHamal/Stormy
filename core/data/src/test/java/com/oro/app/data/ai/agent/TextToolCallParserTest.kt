@@ -522,4 +522,91 @@ class TextToolCallParserTest {
         assertThat(parsed.calls[0].function.arguments).contains("<function>list_files> by mistake")
         assertThat(parsed.calls[0].function.arguments).contains("<tool_call:abc>nothing>")
     }
+
+    // ------------------------------------------------ parameters without names (live eval, Gemma 4)
+
+    private val deviceSchemas: Map<String, kotlinx.serialization.json.JsonObject> by lazy {
+        fun schema(json: String) = com.oro.app.data.ai.AiHttp.json.parseToJsonElement(json) as kotlinx.serialization.json.JsonObject
+        mapOf(
+            "open_url" to schema("""{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"""),
+            "tap" to schema("""{"type":"object","properties":{"index":{"type":"integer"},"x":{"type":"integer"},"y":{"type":"integer"}},"required":[]}"""),
+            "quick_action" to schema("""{"type":"object","properties":{"action":{"type":"string"},"text":{"type":"string"},"time":{"type":"string"}},"required":["action"]}"""),
+        )
+    }
+
+    @Test
+    fun `a parameter written without its name goes to the one required parameter`() {
+        val content = "I'll search YouTube.\n<tool_call>\n<function=open_url>\n<parameter>https://www.youtube.com/results?search_query=lofi</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, setOf("open_url"), deviceSchemas).calls.single()
+        assertThat(call.function.arguments).isEqualTo("{\"url\":\"https://www.youtube.com/results?search_query=lofi\"}")
+    }
+
+    @Test
+    fun `a named parameter written as its own element inside an unnamed one is read`() {
+        val content = "<tool_call>\n<function=tap>\n<parameter>\n<index>3</index>\n</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, setOf("tap"), deviceSchemas).calls.single()
+        assertThat(call.function.arguments).isEqualTo("{\"index\":3}")
+    }
+
+    @Test
+    fun `a parameter element straight inside the function is read when the tool has it`() {
+        val content = "<tool_call>\n<function=tap>\n<index>5</index>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, setOf("tap"), deviceSchemas).calls.single()
+        assertThat(call.function.arguments).isEqualTo("{\"index\":5}")
+    }
+
+    @Test
+    fun `an unnamed value with nothing required goes to the first parameter only when short`() {
+        val content = "<tool_call>\n<function=tap>\n<parameter>7</parameter>\n</function>\n</tool_call>"
+        val call = TextToolCallParser.parse(content, setOf("tap"), deviceSchemas).calls.single()
+        assertThat(call.function.arguments).isEqualTo("{\"index\":7}")
+        val named = "<tool_call>\n<function=quick_action>\n<parameter>alarm</parameter>\n<parameter=time>06:30</parameter>\n</function>\n</tool_call>"
+        val qa = TextToolCallParser.parse(named, setOf("quick_action"), deviceSchemas).calls.single()
+        assertThat(qa.function.arguments).isEqualTo("{\"time\":\"06:30\",\"action\":\"alarm\"}")
+    }
+
+    @Test
+    fun `unnamed values are never guessed into a write, and dropped without a schema`() {
+        val content = "<tool_call>\n<function=write_file>\n<parameter>index.html</parameter>\n<parameter>\n<h1>Hi</h1>\n</parameter>\n</function>\n</tool_call>"
+        val write = TextToolCallParser.parse(content, known, com.oro.app.data.ai.tools.AgentTools.parameterSchemas).calls.single()
+        assertThat(write.function.arguments).isEqualTo("{}")
+        val noSchema = TextToolCallParser.parse(
+            "<tool_call>\n<function=read_file>\n<parameter>a.html</parameter>\n</function>\n</tool_call>", known
+        ).calls.single()
+        assertThat(noSchema.function.arguments).isEqualTo("{}")
+    }
+
+    @Test
+    fun `values written inside the parameter tag are read (Gemma 4)`() {
+        val schemas = deviceSchemas + mapOf(
+            "finish_task" to (com.oro.app.data.ai.AiHttp.json.parseToJsonElement(
+                """{"type":"object","properties":{"summary":{"type":"string"},"success":{"type":"boolean"}},"required":["summary","success"]}"""
+            ) as kotlinx.serialization.json.JsonObject),
+            "press_key" to (com.oro.app.data.ai.AiHttp.json.parseToJsonElement(
+                """{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}"""
+            ) as kotlinx.serialization.json.JsonObject),
+        )
+        val finish = "<tool_call>\n<function=finish_task>\n<parameter=summary=\"HDFC: Rs.2,450.00 debited to SWIGGY > budget.\">\n" +
+            "<parameter=success=true</parameter>\n</function>\n</tool_call>"
+        val f = TextToolCallParser.parse(finish, setOf("finish_task"), schemas).calls.single()
+        assertThat(f.function.arguments).isEqualTo("{\"summary\":\"HDFC: Rs.2,450.00 debited to SWIGGY > budget.\",\"success\":true}")
+        val key = "<tool_call>\n<function=press_key>\n<parameter=key=\"notifications\"</parameter>\n</function>\n</tool_call>"
+        assertThat(TextToolCallParser.parse(key, setOf("press_key"), schemas).calls.single().function.arguments)
+            .isEqualTo("{\"key\":\"notifications\"}")
+    }
+
+    @Test
+    fun `key=value lines and several child elements inside unnamed parameters are read`() {
+        val pairs = "<tool_call>\n<function=quick_action>\n<parameter>action=settings</parameter>\n<parameter>page=wifi</parameter>\n</function>\n</tool_call>"
+        val schemas = deviceSchemas + mapOf(
+            "quick_action" to (com.oro.app.data.ai.AiHttp.json.parseToJsonElement(
+                """{"type":"object","properties":{"action":{"type":"string"},"text":{"type":"string"},"time":{"type":"string"},"page":{"type":"string"}},"required":["action"]}"""
+            ) as kotlinx.serialization.json.JsonObject),
+        )
+        assertThat(TextToolCallParser.parse(pairs, setOf("quick_action"), schemas).calls.single().function.arguments)
+            .isEqualTo("{\"action\":\"settings\",\"page\":\"wifi\"}")
+        val kids = "<tool_call>\n<function=quick_action>\n<parameter>\n<action>alarm</action>\n<time>06:30</time>\n</parameter>\n</function>\n</tool_call>"
+        assertThat(TextToolCallParser.parse(kids, setOf("quick_action"), schemas).calls.single().function.arguments)
+            .isEqualTo("{\"action\":\"alarm\",\"time\":\"06:30\"}")
+    }
 }

@@ -304,8 +304,13 @@ data class ScreenState(
         if (elements.any { it.password } || (credentials && labels.any { SIGN_IN.matches(it) }) ||
             (labels.any { SSO.containsMatchIn(it) } && labels.any { SIGN_IN.matches(it) || SIGN_IN_PROMPT.containsMatchIn(it) })
         ) {
-            out += "This screen asks to sign in. Use only credentials the user gave you; otherwise ask_user (never invent them), " +
-                "or look for \"Not now\"/\"Skip\" if the task does not need an account."
+            // Name the way past it only when there is one: told to "look for
+            // Not now/Skip", a model in the live eval hunted for them for eight
+            // turns and then tapped "Create new account".
+            val skip = elements.firstOrNull { it.actionable && DISMISS.matches(it.label.lowercase().trim()) }
+            out += "This screen asks to sign in. Use only credentials the user gave you (never invent them, never create an account). " +
+                if (skip != null) "If the task does not need an account, \"${skip.label.take(30)}\" skips it."
+                else "Nothing here skips it: if the task needs the account, ask_user, or finish_task(success=false) saying so."
         }
         elements.firstOrNull { ERROR_STATE.matches(it.label.lowercase().trim()) }?.let { e ->
             out += "The app shows an error (\"${e.label.take(60)}\"): try its Retry/Try again once; device_status shows whether the phone is online."

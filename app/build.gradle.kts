@@ -270,6 +270,11 @@ val printScreenshots = tasks.register("printScreenshots") {
 }
 
 tasks.withType<Test>().configureEach {
+    // Live device-agent eval (app/src/test/.../LiveDeviceEval.kt): opt-in, real
+    // free models over the network. -Poro.liveDeviceEval=<run id> and its
+    // .models / .scenarios / .maxActions / .timeoutSec options reach the test.
+    project.properties.filterKeys { it.startsWith("oro.liveDeviceEval") }
+        .forEach { (k, v) -> systemProperty(k, v.toString()) }
     if (renderScreenshots) {
         filter { includeTestsMatching("com.oro.app.screenshots.*") }
         systemProperty("roborazzi.test.record", "true")
