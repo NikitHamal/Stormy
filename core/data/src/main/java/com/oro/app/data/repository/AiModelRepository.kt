@@ -398,7 +398,9 @@ class AiModelRepository(
             "ptero:mercury-2.5:free", "ptero:deepseek-v4-flash-0731:free", "ptero:gpt-oss-20b:free",
             "ptero:nemotron-3.5-lightning:free", "fast", "pro",
             // Mercury 3's effort is now its reasoning setting (ModelMigrations moves its users).
-            "mercury:mercury-3-instant"
+            "mercury:mercury-3-instant",
+            // LLM7 answers these with 400 "model currently unavailable" (2026-10-22).
+            "DeepSeek-V4-Flash-0731", "GLM-5.3-Flash"
         )
 
         /** Retired upstream, removed only from the provider that dropped them (the ids live on elsewhere). */

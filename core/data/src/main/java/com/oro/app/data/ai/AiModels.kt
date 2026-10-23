@@ -404,8 +404,6 @@ object SeedModels {
      * native tool call on 2026-10-18. One request at a time per client.
      */
     val llm7 = listOf(
-        model("DeepSeek-V4-Flash-0731", "DeepSeek V4 Flash (LLM7, no key)", AiProvider.LLM7, 400_000),
-        model("GLM-5.3-Flash", "GLM 5.3 Flash (LLM7, no key)", AiProvider.LLM7, 131_072),
         model("codestral-latest", "Codestral (LLM7, no key)", AiProvider.LLM7, 32_000),
         model("gpt-oss:20b", "GPT-OSS 20B (LLM7, no key)", AiProvider.LLM7, 131_072),
         model("default", "LLM7 Auto (no key)", AiProvider.LLM7, 131_072)
