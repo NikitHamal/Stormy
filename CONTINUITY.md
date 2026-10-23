@@ -10,6 +10,16 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-22 — round 2 review and fix pass
+Three read-only reviews (device engine, harness + providers, island + device UI) found ~45 real issues; three parallel fixers (ci/g1, ci/g2, ci/g3) fixed them, each green on CI, squash-merged.
+- **Device engine (Targets, DeviceArgs):** a call's target is resolved once (index remapped from the screen the model saw, tap_text text/label, x,y hit-tested), SensitiveGuard judges that exact target (coordinates included), and the action uses it; stale screens are re-captured after waits; Pause stops observation too; Oro in front mid-run makes actions wait; ElementRemap refuses look-alikes; tap_text never acts on part of a word; State.endReason on every ending (no "done" without finish_task); wrap-up job separate from the run (Send works right after a run); use_phone refuses retries after the user's Stop.
+- **Harness:** TextToolCallParser scans raw values as opaque (a README showing an example call no longer runs it or truncates the file); early stop and truncation guard checked on every call; retry budgets reset after progress; StuckDetector keys reads on a write epoch; raw values typed by each run's tool schemas (`AgentLoopConfig.toolSchemas`).
+- **Providers:** WebView bridges survive renderer death; Mercury bridge origin-restricted, never hangs pending streams; community calls cancel immediately on Stop; AI SDK error frames are errors.
+- **Island:** Stop on the collapsed pill; clearPathFor(region) only clears the island under an injected gesture; focusable only while the user types; re-clamped on rotation/growth; fixed pill width (no per-frame window resizes); TalkBack pane titles.
+- **Screenshots:** push to `shots/<name>` (or ci/shots) and run `/data/workspace/tools/shots.py --branch shots/<name>` (AgentSky sandbox tool; the job log carries base64 PNGs prefixed `ORO|`). Locally: `./gradlew :app:testDebugUnitTest -Poro.screenshots=true`.
+
+---
+
 ## 2026-10-22 — round 2: harness, providers, device engine, island
 Built in four parallel worktrees (ci/harness, ci/providers, ci/device, ci/deviceui), each green on CI, squash-merged into oro-dev.
 - **Harness:** no step cap (StuckDetector nudges, then ends only real loops); text protocol teaches raw `<function=…><parameter=…>` values (no JSON escaping); cut-off calls never run (resend in parts, `write_file append`); text-mode streams stop where a model invents a `<tool_result>`; write/edit results carry a quick file-local check; `read_file paths[]`, `grep context`; system prompt snapshotted per run (prompt caches stay warm).
