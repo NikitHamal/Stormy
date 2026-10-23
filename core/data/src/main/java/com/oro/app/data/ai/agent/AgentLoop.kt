@@ -201,6 +201,7 @@ class AgentLoop(
         var qualityPasses = 0
         var malformedNudges = 0
         var truncatedRetries = 0
+        var reasoningNudged = false
         val stuck = StuckDetector(config)
 
         while (true) {
@@ -209,7 +210,15 @@ class AgentLoop(
 
             val turn = when (val outcome = callModel(conversation, iteration, listener, prepare, knownTools.isNotEmpty())) {
                 is CallOutcome.Failure -> return AgentRunResult.Failed(outcome.message, outcome.retryable)
-                is CallOutcome.Success -> outcome.turn
+                is CallOutcome.OnlyReasoning -> {
+                    // Thinking models sometimes spend the whole reply reasoning. One
+                    // plain instruction usually gets the answer; a second time, stop.
+                    if (reasoningNudged) return AgentRunResult.Failed(outcome.message, retryable = true)
+                    reasoningNudged = true
+                    conversation += ChatRequestMessage(role = "user", content = REASONING_ONLY_NUDGE)
+                    continue
+                }
+                is CallOutcome.Success -> outcome.turn.also { if (!it.isEmpty) reasoningNudged = false }
             }
 
             var calls = turn.toolCalls
@@ -217,6 +226,8 @@ class AgentLoop(
             var fromText = false
             // Calls the output limit cut off: never run, the model resends them.
             var cutOff = emptyList<String>()
+            // The same calls named with their target ("write_file app.js"), for the nudge.
+            var cutLabels = emptyList<String>()
             if (calls.isEmpty() && knownTools.isNotEmpty()) {
                 val parsed = TextToolCallParser.parse(turn.content, knownTools, schemas)
                 var parsedCalls = parsed.calls
@@ -242,6 +253,11 @@ class AgentLoop(
                     }
                 }
                 cutOff = cut
+                val cutCalls = (parsed.incompleteCalls + suspect).toMutableList()
+                cutLabels = cut.map { name ->
+                    val c = cutCalls.firstOrNull { it.function.name == name }?.also { cutCalls.remove(it) }
+                    label(name, c?.function?.arguments)
+                }
                 if (parsedCalls.isNotEmpty() || cutOff.isNotEmpty()) {
                     calls = parsedCalls
                     visible = parsed.visibleText
@@ -253,6 +269,7 @@ class AgentLoop(
                 if (!isCompleteJson(last.function.arguments)) {
                     calls = calls.dropLast(1)
                     cutOff = listOf(last.function.name)
+                    cutLabels = listOf(label(last.function.name, last.function.arguments))
                 }
             }
             // Tool-call markup that did not parse (bad JSON, unknown tool, a
@@ -302,7 +319,7 @@ class AgentLoop(
                 // The cut-off markup is not kept: resending a half file teaches nothing.
                 val prose = if (fromText) stripThinking(visible) else historyText
                 conversation += ChatRequestMessage(role = "assistant", content = prose.ifBlank { "(reply cut off)" })
-                conversation += ChatRequestMessage(role = "user", content = truncatedCallNudge(cutOff, fromText))
+                conversation += ChatRequestMessage(role = "user", content = truncatedCallNudge(cutLabels.ifEmpty { cutOff }, fromText))
                 continue
             }
 
@@ -359,7 +376,7 @@ class AgentLoop(
             val finalResults = if (verdict.note == null) results else results.mapIndexed { i, r ->
                 if (i == results.lastIndex) r.copy(output = r.output + "\n\n" + verdict.note) else r
             }
-            val cutNote = if (cutOff.isEmpty()) null else truncatedCallNudge(cutOff, fromText)
+            val cutNote = if (cutOff.isEmpty()) null else truncatedCallNudge(cutLabels.ifEmpty { cutOff }, fromText)
 
             if (fromText) {
                 conversation += ChatRequestMessage(
@@ -415,6 +432,15 @@ class AgentLoop(
         }
     }
 
+    /**
+     * "write_file app.js": a cut-off call named with the file it targeted, read
+     * from whatever arguments arrived (raw JSON may be unfinished).
+     */
+    private fun label(name: String, arguments: String?): String {
+        val path = arguments?.let { PATH_IN_ARGS.find(it)?.groupValues?.get(1) }?.takeIf { it.isNotBlank() && it.length < 200 }
+        return if (path != null) "$name $path" else name
+    }
+
     /** What to tell the model about calls the output limit cut off. */
     private fun truncatedCallNudge(names: List<String>, textMode: Boolean): String = buildString {
         val what = names.distinct().joinToString(", ")
@@ -449,6 +475,8 @@ class AgentLoop(
     private sealed interface CallOutcome {
         data class Success(val turn: Turn) : CallOutcome
         data class Failure(val message: String, val retryable: Boolean) : CallOutcome
+        /** Retries came back empty but the model did reason: worth one explicit nudge. */
+        data class OnlyReasoning(val message: String) : CallOutcome
     }
 
     private suspend fun callModel(
@@ -500,11 +528,10 @@ class AgentLoop(
                     sleep(backoff(emptyRetries, null) / 2)
                     continue
                 }
-                return CallOutcome.Failure(
-                    "The model returned an empty response" +
-                        if (turn.reasoning.isNotBlank()) " (it reasoned but wrote no answer)." else ".",
-                    retryable = true
-                )
+                if (turn.reasoning.isNotBlank()) {
+                    return CallOutcome.OnlyReasoning("The model returned an empty response (it reasoned but wrote no answer).")
+                }
+                return CallOutcome.Failure("The model returned an empty response.", retryable = true)
             }
             return CallOutcome.Success(turn)
         }
@@ -727,6 +754,14 @@ class AgentLoop(
 
         fun isContextOverflow(error: StreamEvent.Error): Boolean =
             error.httpCode == 413 || (error.httpCode in setOf(400, 422, null) && CONTEXT_OVERFLOW.containsMatchIn(error.message))
+
+        /** Sent once when a model keeps replying with reasoning only. */
+        const val REASONING_ONLY_NUDGE =
+            "[Oro: your last replies contained only reasoning -- no answer and no tool call, so nothing " +
+                "happened. Reply now with the next tool call, or with your final answer if the task is done. " +
+                "Keep any further reasoning short.]"
+
+        private val PATH_IN_ARGS = Regex(""""(?:path|file_path)"\s*:\s*"([^"\n]+)"""")
 
         private val THINK_BLOCK = Regex("(?is)<(think|thinking|reasoning)>.*?</\\1>")
 

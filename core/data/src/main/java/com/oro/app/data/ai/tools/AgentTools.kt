@@ -120,12 +120,16 @@ object AgentTools {
         "list_files",
         """
         List files and folders as a tree. Folders end with "/". Reserved app
-        folders are hidden.
+        folders are hidden. With symbols=true each file also gets a one-line
+        outline (HTML ids and the files it loads, CSS selectors and variables,
+        JS functions, classes, listened events and fetched URLs, JSON keys), so
+        you can find where things live without reading every file.
         """,
         """
         {"type":"object","properties":{
           "path":{"type":"string","description":"Folder relative to the project root. Default \".\" (the root)."},
-          "depth":{"type":"integer","description":"How many levels deep to list. Default 3, max 8."}
+          "depth":{"type":"integer","description":"How many levels deep to list. Default 3, max 8."},
+          "symbols":{"type":"boolean","description":"Add a one-line outline of each file. Default false."}
         },"required":[]}
         """
     )

@@ -182,18 +182,7 @@ class ToolExecutor(
                     return ToolResult(false, "", "No project is open, so there are no files to work with.")
                 }
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    when (toolName) {
-                        "read_file" -> ws.readFile(args)
-                        "write_file" -> ws.writeFile(args)
-                        "edit_file" -> ws.editFile(args)
-                        "multi_edit" -> ws.multiEdit(args)
-                        "list_files" -> ws.listFiles(args)
-                        "glob" -> ws.glob(args)
-                        "grep" -> ws.grep(args)
-                        "delete_file" -> ws.deleteFile(args)
-                        "move_file" -> ws.moveFile(args)
-                        else -> ws.webFetch(args)
-                    }
+                    ProjectTools.dispatch(ws, toolName, args) ?: ws.webFetch(args)
                 }
             }
             "search_project" -> {
@@ -288,17 +277,9 @@ class ToolExecutor(
         }
         // Writes report self-contained defects of the file at once, saving
         // the model a check_syntax round trip.
-        if (toolName in QUICK_CHECKED && outcome.result.success && outcome.changes.isNotEmpty()) {
-            val root = currentProjectPath
-            val note = root?.let { r ->
-                kotlinx.coroutines.withContext(Dispatchers.Default) { runCatching { CraftTools.quickCheckNote(r, outcome.changes) }.getOrNull() }
-            }
-            if (note != null) return outcome.result.copy(output = outcome.result.output + "\n\n" + note)
-        }
-        return outcome.result
+        val root = currentProjectPath ?: return outcome.result
+        return kotlinx.coroutines.withContext(Dispatchers.Default) { ProjectTools.withQuickCheck(root, toolName, outcome) }
     }
-
-    private val QUICK_CHECKED = setOf("write_file", "edit_file", "multi_edit")
 
     // Session-based todo storage
     // Session-based todo storage removed in favor of persistent storage

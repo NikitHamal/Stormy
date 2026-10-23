@@ -320,7 +320,8 @@ class AiRepository(
 
         private val AGENT_RULES = """
             # How you work
-            1. Understand. Look at the project structure and read the files you will touch. Never
+            1. Understand. Look at the project structure (list_files with symbols=true outlines every
+               file: ids, selectors, functions, fetched URLs) and read the files you will touch. Never
                edit a file you have not read in this conversation.
             2. Load expertise. Before building or restyling UI, call use_skill for the playbooks that
                fit (always "design-system" for new UI). A new site or app with no styles yet: call
@@ -379,7 +380,8 @@ class AiRepository(
             - Mobile-first and responsive; no horizontal scroll at 360px. Real, specific copy and real
               images (Unsplash/picsum URLs); one icon set (Lucide or inline SVG).
             - Data that must persist: localStorage, or Oro's built-in REST backend (/api/<collection>
-              backed by db.json -- see the backend skill). Relative paths; never reference missing files.
+              backed by db.json, with accounts at /api/auth and file uploads -- see the backend, auth
+              and dashboard skills). Relative paths; never reference missing files.
         """.trimIndent()
     }
 }

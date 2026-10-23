@@ -38,7 +38,8 @@ object UiKit {
         Installed the Oro UI kit:
           oro-ui/oro.css  tokens (--brand-h re-themes everything), base typography, layout, components, motion
           oro-ui/oro.js   reveal-on-scroll, sticky/blur nav + mobile menu, button ripples, toasts, confirm dialog,
-                          theme toggle, count-up numbers, tilt cards
+                          theme toggle, count-up numbers, tilt cards, tabs, app shell; for real apps Oro.api,
+                          Oro.auth, Oro.table, Oro.chart
         Link them (paths relative to the HTML file):
           <link rel="stylesheet" href="oro-ui/oro.css">   (before your own stylesheet)
           <script src="oro-ui/oro.js" defer></script>
@@ -48,9 +49,20 @@ object UiKit {
           field label input select textarea hint error switch | skeleton empty alert alert-error
           dialog.modal modal-body modal-actions | details.acc + summary + .acc-body | tabs tab[aria-selected]
           bottom-bar | reveal reveal-scale float marquee marquee-track
+          app-shell (.sidebar + .sidebar-link[aria-current=page] + .app-top with a [data-sidebar-toggle] button + .app-main)
+          stats .stat .stat-label .stat-value .stat-delta(.is-down) | table-wrap table (th.num/td.num) pagination
+          chart | auth auth-card password (input + toggle button)
         Attributes: data-theme-toggle (button), data-count="1200" data-suffix="+" (count-up), data-tilt (3D hover)
         JS: Oro.toast(msg, 'success'|'error'), await Oro.confirm({title, body, danger:true}), Oro.setBusy(btn, true),
             Oro.skeleton(n, heightPx), Oro.esc(text), Oro.reveal(rootEl) after rendering new .reveal elements
+            Backend (Oro's /api, see use_skill "backend"): await Oro.api.get('/todos?_sort=createdAt&_order=desc'),
+              Oro.api.post('/todos', {...}), .patch(path, body), .del(path), await Oro.api.upload(file) -> {url};
+              errors throw with the server's message (e.status); lists carry .total from X-Total-Count
+            Accounts: await Oro.auth.register({email, password, name}), Oro.auth.login({email, password}),
+              Oro.auth.logout(), Oro.auth.user, await Oro.auth.require('login.html') at the top of a private page
+            Oro.table(el, {columns:[{key, label, num, format}], rows, pageSize, search: inputEl, onRow}).update(rows)
+            Oro.chart(el, {type:'bar'|'line', labels, values, format}) into a .chart box
+            Tabs: role=tablist > button role=tab aria-controls=panelId (arrow keys work), panels get hidden
         Put project-specific styles in your own CSS using the tokens (var(--brand), var(--s-5), var(--r-lg)...).
     """.trimIndent()
 }

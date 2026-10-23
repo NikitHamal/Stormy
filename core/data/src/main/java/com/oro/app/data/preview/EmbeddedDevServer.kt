@@ -321,7 +321,7 @@ class EmbeddedDevServer(
                         !(method == "GET" && File(projectRoot, path.substringBefore('?').trimStart('/')).isFile) -> {
                         val length = headers["content-length"]?.toIntOrNull() ?: 0
                         val body = if (length > 0) readBody(reader, length) else null
-                        val r = mockApi.handle(method, rawTarget, body)
+                        val r = mockApi.handle(method, rawTarget, body, headers)
                         sendRaw(output, r.status, "application/json; charset=utf-8", r.body.toByteArray(), r.headers)
                     }
                     method == "GET" -> handleGetRequest(path, output)

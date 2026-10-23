@@ -116,11 +116,31 @@ class AgentLoopTest {
     @Test
     fun `empty replies are retried then reported`() = runTest {
         val empty = { flowOf(StreamEvent.Started, StreamEvent.ReasoningDelta("hmm"), StreamEvent.Completed) }
-        val model = ScriptedModel(empty, empty, empty)
+        // Three empty replies earn one nudge; three more after it end the run.
+        val model = ScriptedModel(empty, empty, empty, empty, empty, empty)
         val rec = Recorder()
         val result = loop(model) { ToolResult(true, "") }.go(mutableListOf(), rec)
         assertThat((result as AgentRunResult.Failed).message).contains("empty response")
-        assertThat(rec.discarded).hasSize(2)
+        assertThat(rec.discarded).hasSize(4)
+    }
+
+    @Test
+    fun `a model that only reasons is told once to answer, and then does`() = runTest {
+        val empty = { flowOf(StreamEvent.Started, StreamEvent.ReasoningDelta("thinking..."), StreamEvent.Completed) }
+        val model = ScriptedModel(empty, empty, empty, { text("Here is the answer.") })
+        val history = mutableListOf(ChatRequestMessage(role = "user", content = "explain"))
+        val result = loop(model) { ToolResult(true, "") }.go(history)
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Here is the answer."))
+        assertThat(model.requests.last().messages.last().content).isEqualTo(AgentLoop.REASONING_ONLY_NUDGE)
+    }
+
+    @Test
+    fun `a reply with nothing at all, not even reasoning, is not nudged`() = runTest {
+        val blank = { flowOf(StreamEvent.Started, StreamEvent.ContentDelta("  "), StreamEvent.Completed) }
+        val model = ScriptedModel(blank, blank, blank)
+        val result = loop(model) { ToolResult(true, "") }.go(mutableListOf())
+        assertThat((result as AgentRunResult.Failed).message).isEqualTo("The model returned an empty response.")
+        assertThat(model.requests).hasSize(3)
     }
 
     @Test

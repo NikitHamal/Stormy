@@ -150,6 +150,54 @@ details.acc .acc-body{padding-bottom:var(--s-4);color:var(--text-2);animation:or
 .bottom-bar a{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--text-3);min-width:56px;padding:6px}
 .bottom-bar a[aria-current=page]{color:var(--brand)}
 
+/* app shell: sidebar on wide screens, a top bar with a slide-in drawer on phones */
+.app-shell{display:grid;grid-template-columns:260px 1fr;min-height:100dvh}
+.sidebar{position:sticky;top:0;height:100dvh;overflow:auto;display:flex;flex-direction:column;gap:var(--s-2);padding:var(--s-5) var(--s-4);border-right:1px solid var(--border);background:var(--surface)}
+.sidebar-link{display:flex;align-items:center;gap:var(--s-3);min-height:44px;padding:0 var(--s-3);border-radius:var(--r-md);color:var(--text-2);font-weight:500;transition:background var(--dur-2),color var(--dur-2)}
+.sidebar-link:hover{background:var(--surface-2);color:var(--text)}
+.sidebar-link[aria-current=page]{background:var(--brand-soft);color:var(--brand)}
+.app-main{min-width:0;padding:var(--s-5) clamp(16px,3vw,40px)}
+.app-top{display:none}
+@media (max-width:860px){
+  .app-shell{grid-template-columns:1fr}
+  .sidebar{position:fixed;inset:0 auto 0 0;width:min(280px,84vw);z-index:60;transform:translateX(-100%);transition:transform var(--dur-3) var(--ease-out);box-shadow:var(--shadow-3)}
+  .app-shell.is-open .sidebar{transform:none}
+  .app-top{display:flex;align-items:center;gap:var(--s-3);position:sticky;top:0;z-index:50;padding:10px var(--s-4);background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
+}
+
+/* stats */
+.stats{display:grid;gap:var(--s-4);grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
+.stat{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s-4) var(--s-5);box-shadow:var(--shadow-1)}
+.stat-label{font-size:var(--step--1);color:var(--text-3);font-weight:600}
+.stat-value{font-size:var(--step-3);font-weight:700;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat-delta{font-size:var(--step--1);font-weight:600;color:var(--success)}.stat-delta.is-down{color:var(--danger)}
+
+/* data table */
+.table-wrap{overflow:auto;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--bg)}
+.table{width:100%;border-collapse:collapse;font-size:var(--step--1)}
+.table th,.table td{padding:12px 16px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+.table th{position:sticky;top:0;background:var(--surface);font-weight:600;color:var(--text-2);z-index:1}
+.table tbody tr{transition:background var(--dur-1)}.table tbody tr:hover{background:var(--surface)}
+.table td.num,.table th.num{text-align:right;font-variant-numeric:tabular-nums}
+.table th button{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.table th button:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
+.table th[aria-sort] button::after{content:"↕";opacity:.35;font-size:.9em}
+.table th[aria-sort=ascending] button::after{content:"↑";opacity:1}.table th[aria-sort=descending] button::after{content:"↓";opacity:1}
+.pagination{display:flex;align-items:center;justify-content:space-between;gap:var(--s-3);padding:var(--s-3) 0;font-size:var(--step--1);color:var(--text-3)}
+
+/* chart (Oro.chart draws SVG into it) */
+.chart{position:relative;width:100%;height:240px}.chart svg{width:100%;height:100%;overflow:visible}
+.chart .axis{stroke:var(--border)}.chart .label{fill:var(--text-3);font-size:11px}
+.chart .bar{fill:var(--brand);transition:opacity var(--dur-2)}.chart .bar:hover{opacity:.8}
+.chart .line{fill:none;stroke:var(--brand);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.chart .area{fill:var(--brand-soft)}.chart .dot{fill:var(--bg);stroke:var(--brand);stroke-width:2}
+
+/* auth */
+.auth{min-height:100dvh;display:grid;place-items:center;padding:var(--s-5)}
+.auth-card{width:min(420px,100%);background:var(--bg);border:1px solid var(--border);border-radius:var(--r-xl);padding:clamp(24px,5vw,40px);box-shadow:var(--shadow-2)}
+.password{position:relative}.password .input{padding-right:52px}
+.password button{position:absolute;right:4px;top:50%;transform:translateY(-50%)}
+
 /* motion */
 .reveal{opacity:0;transform:translateY(24px);transition:opacity .8s var(--ease-out),transform .8s var(--ease-out)}
 .reveal.is-in{opacity:1;transform:none}

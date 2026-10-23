@@ -59,7 +59,6 @@ object HistoryPruner {
     fun prune(messages: List<ChatRequestMessage>, budgetTokens: Int): List<ChatRequestMessage> {
         if (TokenEstimator.estimate(messages) <= budgetTokens) return messages
 
-        val lastUser = messages.indexOfLast { it.role == "user" }.coerceAtLeast(0)
         val protectFrom = protectedStart(messages)
 
         // 1 + 2: shrink old tool traffic -- native messages, and the same
@@ -81,17 +80,51 @@ object HistoryPruner {
         }
         if (TokenEstimator.estimate(shrunk) <= budgetTokens) return shrunk
 
-        // 3: drop whole exchanges from the front.
-        val units = splitIntoUnits(shrunk)
-        val keepFromUnit = units.indexOfFirst { unit -> unit.any { it === shrunk.getOrNull(lastUser) } }
-            .let { if (it < 0) units.lastIndex else it }
-        var start = 0
-        fun assembled(from: Int): List<ChatRequestMessage> {
-            val kept = units.drop(from).flatten()
-            return if (from > 0) listOf(ChatRequestMessage(role = "user", content = OMITTED_NOTE)) + kept else kept
+        // Exchanges as index ranges; the same indexes address the originals,
+        // which the run ledger reads (their tool outputs are still whole).
+        val units = unitRanges(shrunk)
+        val task = taskIndex(shrunk)
+        val anchorUnit = units.indexOfFirst { task in it }.let { if (it < 0) units.lastIndex else it }
+        val runUnits = units.size - anchorUnit - 1
+
+        var pre = 0      // exchanges dropped before the task message
+        var collapsed = 0 // oldest exchanges of the current run folded into the ledger
+        fun assemble(): List<ChatRequestMessage> {
+            val out = ArrayList<ChatRequestMessage>(shrunk.size)
+            if (pre > 0) out += ChatRequestMessage(role = "user", content = OMITTED_NOTE)
+            for (u in pre until anchorUnit) units[u].forEach { out += shrunk[it] }
+            units[anchorUnit].forEach { i ->
+                val m = shrunk[i]
+                if (i == task && collapsed > 0) {
+                    val dropped = units.subList(anchorUnit + 1, anchorUnit + 1 + collapsed).flatMap { r -> r.map { messages[it] } }
+                    out += m.copy(content = (m.content ?: "").trimEnd() + "\n\n" + RunLedger.summarize(dropped))
+                } else {
+                    out += m
+                }
+            }
+            for (u in anchorUnit + 1 + collapsed until units.size) units[u].forEach { out += shrunk[it] }
+            return out
         }
-        while (start < keepFromUnit && TokenEstimator.estimate(assembled(start)) > budgetTokens) start++
-        var result = assembled(start)
+
+        // 3: drop whole exchanges from before the task, oldest first.
+        while (pre < anchorUnit && TokenEstimator.estimate(assemble()) > budgetTokens) pre++
+
+        // 4: an unlimited run can outgrow any window on its own. Fold its
+        // oldest exchanges into a ledger appended to the task message --
+        // whole exchanges, so tool calls and results stay paired, and never
+        // the newest one. The fold grows [COLLAPSE_CHUNK] exchanges at a time,
+        // so as the run goes on the boundary (and with it the prompt prefix:
+        // task + ledger) stays put for several turns and providers' prompt
+        // caches keep hitting.
+        if (TokenEstimator.estimate(assemble()) > budgetTokens && runUnits > 1) {
+            while (collapsed < runUnits - 1 && TokenEstimator.estimate(assemble()) > budgetTokens) {
+                collapsed = (collapsed + COLLAPSE_CHUNK).coerceAtMost(runUnits - 1)
+            }
+            // Never leave a results or harness message whose call was folded
+            // away: the run resumes on the model's own turn.
+            while (collapsed < runUnits - 1 && shrunk[units[anchorUnit + 1 + collapsed].first].role != "assistant") collapsed++
+        }
+        var result = assemble()
 
         // Still over with only the current exchange left: shrink its oldest
         // tool outputs too, newest kept intact as long as possible.
@@ -108,6 +141,33 @@ object HistoryPruner {
         }
         return result
     }
+
+    /** Exchanges folded into the run ledger at a time (see step 4). */
+    private const val COLLAPSE_CHUNK = 8
+
+    /**
+     * The message that states the task: the last user turn the user wrote.
+     * Text-protocol results and the harness's own notes are user messages too,
+     * and must not count -- otherwise the task itself is pruned first.
+     */
+    internal fun taskIndex(messages: List<ChatRequestMessage>): Int {
+        val genuine = messages.indexOfLast { it.role == "user" && !isHarnessMessage(it) }
+        if (genuine >= 0) return genuine
+        return messages.indexOfLast { it.role == "user" }.coerceAtLeast(0)
+    }
+
+    internal fun isHarnessMessage(m: ChatRequestMessage): Boolean {
+        val c = m.content?.trimStart() ?: return false
+        return HARNESS_PREFIXES.any { c.startsWith(it) }
+    }
+
+    /** How the agent loop, the quality gate and this pruner open the user messages they add. */
+    private val HARNESS_PREFIXES = listOf(
+        "Tool results:", "Your previous reply was cut off", "Your reply ended in the middle of",
+        "Your last reply contained a tool call", "The screenshots your last tool call captured",
+        "Automatic quality review (by the Oro app", "[Oro:", "[Earlier parts of this conversation",
+        "If the task is complete, call finish_task"
+    )
 
     /**
      * Give every assistant tool call a result.
@@ -166,21 +226,22 @@ object HistoryPruner {
         return i
     }
 
-    /** user | assistant(+ its tool results) | other single messages. */
-    private fun splitIntoUnits(messages: List<ChatRequestMessage>): List<List<ChatRequestMessage>> {
-        val units = mutableListOf<MutableList<ChatRequestMessage>>()
-        for (m in messages) {
-            if (m.role == "tool" && units.isNotEmpty() && units.last().first().role == "assistant") {
-                units.last().add(m)
+    /** Index ranges of: user | assistant(+ its tool results) | other single messages. */
+    private fun unitRanges(messages: List<ChatRequestMessage>): List<IntRange> {
+        val units = mutableListOf<IntRange>()
+        for ((i, m) in messages.withIndex()) {
+            val last = units.lastOrNull()
+            if (m.role == "tool" && last != null && messages[last.first].role == "assistant" && last.last == i - 1) {
+                units[units.lastIndex] = last.first..i
             } else {
-                units.add(mutableListOf(m))
+                units += i..i
             }
         }
         return units
     }
 
     /** How the agent loop opens a text-protocol results message. */
-    private const val TEXT_RESULTS_HEADER = "Tool results:"
+    internal const val TEXT_RESULTS_HEADER = "Tool results:"
     private val TEXT_RESULT = Regex("""(?s)(<tool_result name="[^"]*">\n?)(.*?)(\n?</tool_result>)""")
     private val TEXT_PARAMETER = Regex("""(?s)(<parameter=[\w.\-]+>)(.*?)(</parameter>)""")
 

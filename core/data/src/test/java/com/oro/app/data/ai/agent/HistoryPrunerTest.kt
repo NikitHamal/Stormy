@@ -73,4 +73,86 @@ class HistoryPrunerTest {
         assertThat(pruned[1].content).contains("<parameter=path>a.html</parameter>")
         assertThat(TokenEstimator.estimate(pruned)).isAtMost(30_000)
     }
+
+    private fun writeCall(id: String, path: String, size: Int) = ChatRequestMessage(
+        role = "assistant", content = "Updating $path for step $id.",
+        toolCalls = listOf(ToolCallRequest(id, "function", FunctionCall("write_file", "{\"path\":\"$path\",\"content\":\"${"c".repeat(size)}\"}")))
+    )
+
+    /** Every tool message directly follows its assistant call (or another result of it). */
+    private fun assertPaired(msgs: List<ChatRequestMessage>) {
+        msgs.forEachIndexed { i, m ->
+            if (m.role == "tool") {
+                val owner = msgs.subList(0, i).lastOrNull { it.role != "tool" }
+                assertThat(owner?.toolCalls?.any { it.id == m.toolCallId }).isTrue()
+            }
+        }
+    }
+
+    @Test
+    fun `a long run collapses its oldest steps into a ledger on the task message`() {
+        val task = user("Build a recipe site with search and favourites")
+        val run = (1..200).flatMap { i ->
+            val path = listOf("index.html", "css/app.css", "js/app.js")[i % 3]
+            listOf(writeCall("c$i", path, 2_000), tool("c$i", 600))
+        }
+        val msgs = listOf(task) + run
+        val pruned = HistoryPruner.prune(msgs, 12_000)
+
+        assertThat(TokenEstimator.estimate(pruned)).isAtMost(12_000)
+        // The task survives, with the ledger of what the collapsed steps did.
+        assertThat(pruned.first().role).isEqualTo("user")
+        assertThat(pruned.first().content).startsWith("Build a recipe site")
+        assertThat(pruned.first().content).contains("collapsed to fit the context window")
+        assertThat(pruned.first().content).contains("index.html (write ×")
+        assertThat(pruned.first().content).contains("js/app.js")
+        // The run resumes on the model's own turn, calls stay paired, the newest step is intact.
+        assertThat(pruned[1].role).isEqualTo("assistant")
+        assertPaired(pruned)
+        assertThat(pruned.last()).isEqualTo(msgs.last())
+    }
+
+    @Test
+    fun `the collapse boundary holds for a while so the prompt prefix stays cacheable`() {
+        val task = user("Make the dashboard")
+        fun runOf(n: Int) = listOf(task) + (1..n).flatMap { i -> listOf(writeCall("c$i", "app.js", 1_500), tool("c$i", 400)) }
+        // Over 32 consecutive turns the task + ledger prefix changes only a few times.
+        val prefixes = (100 until 132).map { HistoryPruner.prune(runOf(it), 10_000).first().content }
+        val changes = prefixes.zipWithNext().count { (a, b) -> a != b }
+        assertThat(changes).isAtMost(8)
+        assertThat(prefixes.distinct().size).isAtLeast(2)
+    }
+
+    @Test
+    fun `text-protocol results and harness notes never displace the task`() {
+        val task = user("Add a contact form to index.html")
+        val turns = (1..120).flatMap { i ->
+            listOf(
+                ChatRequestMessage(
+                    role = "assistant",
+                    content = "Step $i.\n<tool_call>\n<function=edit_file>\n<parameter=path>index.html</parameter>\n" +
+                        "<parameter=old_string>${"o".repeat(800)}</parameter>\n<parameter=new_string>${"n".repeat(800)}</parameter>\n</function>\n</tool_call>"
+                ),
+                user("Tool results:\n<tool_result name=\"edit_file\">\n" + (if (i % 10 == 0) "Error: old_string not found in index.html" else "Edited index.html") + "\n</tool_result>\nContinue.")
+            )
+        }
+        val pruned = HistoryPruner.prune(listOf(task) + turns, 9_000)
+        assertThat(TokenEstimator.estimate(pruned)).isAtMost(9_000)
+        assertThat(pruned.first().content).startsWith("Add a contact form")
+        assertThat(pruned.first().content).contains("index.html (edit ×")
+        assertThat(pruned.first().content).contains("Failed (don't repeat as is): edit_file — old_string not found")
+        assertThat(pruned[1].role).isEqualTo("assistant")
+        assertThat(pruned.none { it.content == HistoryPruner.OMITTED_NOTE }).isTrue()
+    }
+
+    @Test
+    fun `harness notes are recognised so the user's last message anchors the run`() {
+        val msgs = listOf(
+            user("first request"), ChatRequestMessage(role = "assistant", content = "ok"),
+            user("second request"),
+            user("Tool results:\n<tool_result name=\"read_file\">\nx\n</tool_result>"),
+            user("Automatic quality review (by the Oro app, not the user) found 2 problems")
+        )
+        assertThat(HistoryPruner.taskIndex(msgs)).isEqualTo(2)
+    }
 }

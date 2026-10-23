@@ -44,6 +44,9 @@ class WorkspaceTools(private val root: File) {
         const val DEFAULT_READ_LIMIT = 2_000
         const val MAX_LINE_CHARS = 2_000
         const val MAX_LIST_ENTRIES = 400
+
+        /** Budget for list_files(symbols=true) outlines, in characters. */
+        const val MAX_OUTLINE_CHARS = 16_000
         const val MAX_GLOB_RESULTS = 200
         const val MAX_GREP_MATCHES = 200
         const val MAX_SEARCH_FILE_BYTES = 1_000_000L
@@ -304,8 +307,11 @@ class WorkspaceTools(private val root: File) {
         if (!dir.exists()) return@guarded fail(notFound(path))
         if (!dir.isDirectory) return@guarded ok("$path is a file (${dir.length()} bytes).")
         val depth = (args.int("depth") ?: 3).coerceIn(1, 8)
+        val symbols = args.bool("symbols")
         var count = 0
         var truncated = false
+        var outlineChars = 0
+        var outlinesCut = false
         val sb = StringBuilder()
         fun walk(d: File, level: Int) {
             val children = d.listFiles()?.filter { AgentPathPolicy.isVisible(it.name) }
@@ -322,14 +328,26 @@ class WorkspaceTools(private val root: File) {
                         if (level + 1 < depth) walk(c, level + 1)
                     }
                 } else {
-                    sb.append(indent).append(c.name).append('\n')
+                    sb.append(indent).append(c.name)
+                    if (symbols && !outlinesCut) {
+                        val outline = ProjectOutline.of(c)
+                        if (outline != null) {
+                            if (outlineChars + outline.length > MAX_OUTLINE_CHARS) outlinesCut = true
+                            else { sb.append(" — ").append(outline); outlineChars += outline.length }
+                        }
+                    }
+                    sb.append('\n')
                 }
             }
         }
         walk(dir, 0)
         if (count == 0) return@guarded ok("$path is empty.")
         val head = if (path == ".") "Project root:\n" else "$path/\n"
-        ok(head + sb.toString().trimEnd() + if (truncated) "\n[Listing truncated at $MAX_LIST_ENTRIES entries; list a subfolder.]" else "")
+        ok(
+            head + sb.toString().trimEnd() +
+                (if (truncated) "\n[Listing truncated at $MAX_LIST_ENTRIES entries; list a subfolder.]" else "") +
+                (if (outlinesCut) "\n[Outlines stop here to keep this short; list a subfolder with symbols=true for the rest.]" else "")
+        )
     }
 
     // ------------------------------------------------------------ glob / grep

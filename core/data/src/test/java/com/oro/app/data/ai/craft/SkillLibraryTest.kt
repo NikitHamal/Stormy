@@ -7,7 +7,7 @@ import java.io.File
 
 class SkillLibraryTest {
 
-    private val craft = listOf("design-system", "motion", "ui-states", "landing-page", "web-app", "backend", "forms", "game", "three-d")
+    private val craft = listOf("design-system", "motion", "ui-states", "landing-page", "web-app", "backend", "auth", "dashboard", "forms", "game", "three-d")
 
     @Test
     fun `every craft playbook ships as a built-in skill with a description and body`() {
@@ -33,6 +33,9 @@ class SkillLibraryTest {
         assertThat(written.map { it.first }).containsExactly("oro-ui/oro.css", "oro-ui/oro.js")
         assertThat(File(dir, "oro-ui/oro.css").readText()).contains("--brand-h:160;")
         assertThat(JsBalance.check(File(dir, "oro-ui/oro.js").readText())).isNull()
+        // The kit passes the same quick check every write gets.
+        assertThat(QualityAuditor(dir).quickCheck("oro-ui/oro.css", File(dir, "oro-ui/oro.css").readText())).isEmpty()
+        assertThat(QualityAuditor(dir).quickCheck("oro-ui/oro.js", File(dir, "oro-ui/oro.js").readText())).isEmpty()
         dir.deleteRecursively()
     }
 }
