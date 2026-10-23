@@ -2,7 +2,6 @@ package com.oro.app.ui.screens.preview
 
 import androidx.activity.SystemBarStyle
 import com.oro.app.ui.theme.OroCorners
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -11,11 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,6 +30,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,7 +62,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInBrowser
@@ -96,6 +91,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.produceState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
@@ -106,7 +102,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -117,6 +112,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.text.AnnotatedString
@@ -126,7 +123,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.oro.app.ui.components.expressive.ExpressiveLoadingIndicator
 import com.oro.app.OroApplication
 import com.oro.app.ui.components.inspector.AgentSelectedElement
@@ -135,8 +131,11 @@ import com.oro.app.ui.components.inspector.DirectEditStatus
 import com.oro.app.ui.components.inspector.ImageChangeRequest
 import com.oro.app.ui.components.inspector.InspectorElementData
 import com.oro.app.ui.components.inspector.InspectorRect
+import com.oro.app.ui.components.inspector.InspectorScripts
+import com.oro.app.ui.components.inspector.LivePreviewEditor
 import com.oro.app.ui.components.inspector.PreviewEditService
 import com.oro.app.ui.components.inspector.PreviewEditStatus
+import com.oro.app.ui.components.inspector.SourceTextEdit
 import com.oro.app.ui.components.inspector.StyleChangeRequest
 import com.oro.app.ui.components.inspector.TextChangeRequest
 import com.oro.app.ui.components.inspector.VisualElementInspector
@@ -151,6 +150,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.roundToInt
 
 class PreviewActivity : ComponentActivity() {
 
@@ -263,7 +263,17 @@ data class InspectedElement(
      */
     val selectorIsUnique: Boolean = false,
     val textContent: String = "",
-    val childElementCount: Int = 0
+    val childElementCount: Int = 0,
+    /** The element's own text, when it holds exactly one run of it. */
+    val ownText: String = "",
+    /** How many separate runs of text the element holds directly. */
+    val ownTextNodes: Int = 0,
+    /** Where [ownText] sits in the page, for writing an edit back to its source. */
+    val textTarget: SourceTextEdit.Target? = null,
+    /** location.pathname of the page the element is on. */
+    val pagePath: String = "",
+    val hasParent: Boolean = false,
+    val hasChild: Boolean = false
 )
 
 data class ElementRect(
@@ -358,6 +368,19 @@ class InspectorJsInterface(
             pageY = rectJson.optDouble("pageY", rectJson.optDouble("y", 0.0)).toFloat()
         )
 
+        val ownText = json.optString("ownText", "")
+        val textTarget = if (ownText.isNotEmpty() && json.has("textPath")) {
+            SourceTextEdit.Target(
+                text = ownText,
+                path = json.optString("textPath", ""),
+                occurrence = json.optInt("textOccurrence", -1),
+                matches = json.optInt("textMatches", 0),
+                total = json.optInt("textTotal", 0)
+            )
+        } else {
+            null
+        }
+
         return InspectedElement(
             tagName = json.optString("tagName", ""),
             id = json.optString("id", ""),
@@ -370,7 +393,13 @@ class InspectorJsInterface(
             selector = json.optString("selector", ""),
             selectorIsUnique = json.optBoolean("selectorIsUnique", false),
             textContent = json.optString("textContent", ""),
-            childElementCount = json.optInt("childElementCount", 0)
+            childElementCount = json.optInt("childElementCount", 0),
+            ownText = ownText,
+            ownTextNodes = json.optInt("ownTextNodes", 0),
+            textTarget = textTarget,
+            pagePath = json.optString("pagePath", ""),
+            hasParent = json.optBoolean("hasParent", false),
+            hasChild = json.optBoolean("hasChild", false)
         )
     }
 }
@@ -389,9 +418,17 @@ private fun PreviewScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageTitle by remember { mutableStateOf("Preview") }
     var showMoreMenu by remember { mutableStateOf(false) }
-    var desktopMode by remember { mutableStateOf(false) }
+    var device by remember { mutableStateOf(PreviewDevice.PHONE) }
+    var landscape by remember { mutableStateOf(false) }
+    val systemDark = isSystemInDarkTheme()
+    var pageDark by remember { mutableStateOf(systemDark) }
+    var previewWidthPx by remember { mutableIntStateOf(0) }
     var showConsole by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<ConsoleLogEntry>() }
+    val errorCount by remember {
+        derivedStateOf { consoleLogs.count { it.level == ConsoleMessage.MessageLevel.ERROR } }
+    }
+    val density = LocalDensity.current
 
     // Embedded dev server for framework projects
     val serverManager = remember { PreviewServerManager.getInstance() }
@@ -456,6 +493,7 @@ private fun PreviewScreen(
         )
     }
     val directEditStatus by directEditService.status.collectAsStateWithLifecycle()
+    val canUndo by directEditService.canUndo.collectAsStateWithLifecycle()
 
     // Show snackbar on AI edit status changes
     LaunchedEffect(editStatus) {
@@ -560,11 +598,6 @@ private fun PreviewScreen(
         }
         pendingImageSelector = null
         pendingImageElementHtml = null
-    }
-
-    // Apply desktop mode settings when changed
-    LaunchedEffect(desktopMode) {
-        webView?.applyViewportMode(desktopMode)
     }
 
     // Apply selection mode changes
@@ -713,25 +746,19 @@ private fun PreviewScreen(
                             onDismissRequest = { showMoreMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text(if (desktopMode) "Mobile mode" else "Desktop mode") },
-                                onClick = {
-                                    desktopMode = !desktopMode
-                                    showMoreMenu = false
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.DesktopWindows,
-                                        contentDescription = null,
-                                        tint = if (desktopMode) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Open in browser") },
                                 onClick = {
+                                    // The page being previewed, served: a browser on this
+                                    // phone reaches the dev server, with its CSS and API.
+                                    val served = webView?.url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
                                     val indexFile = File(projectPath, "index.html")
-                                    if (indexFile.exists()) {
+                                    if (served != null) {
+                                        try {
+                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(served)))
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "No browser app found", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else if (indexFile.exists()) {
                                         try {
                                             val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                                                 FileProvider.getUriForFile(
@@ -799,8 +826,8 @@ private fun PreviewScreen(
                                             webView?.loadUrl("about:blank")
                                         } else {
                                             val url = serverManager.getPreviewUrl(projectPath)
-                                            previewUrl = url
-                                            webView?.loadUrl(url)
+                                            // A new URL loads by itself; the same one needs a nudge.
+                                            if (url == previewUrl) webView?.loadUrl(url) else previewUrl = url
                                         }
                                     }
                                     showMoreMenu = false
@@ -836,19 +863,66 @@ private fun PreviewScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            PreviewDeviceBar(
+                device = device,
+                landscape = landscape,
+                layoutWidth = device.width(landscape)
+                    ?: with(density) { previewWidthPx.toDp().value.roundToInt() }.takeIf { it > 0 },
+                errorCount = errorCount,
+                onDeviceChange = { picked ->
+                    if (picked != device) {
+                        device = picked
+                        landscape = false
+                    }
+                },
+                onRotate = { landscape = !landscape },
+                onFit = { webView?.let { runCatching { it.zoomBy(0.01f) } } },
+                onShowErrors = { showConsole = true },
+                darkPage = pageDark.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q },
+                onToggleDark = { pageDark = !pageDark }
+            )
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .onSizeChanged { previewWidthPx = it.width }
             ) {
-                WebViewPreview(
+                PreviewWebView(
                     projectPath = projectPath,
                     previewUrl = previewUrl,
+                    device = device,
+                    landscape = landscape,
+                    darkPage = pageDark,
                     modifier = Modifier.fillMaxSize(),
                     selectionMode = selectionMode,
                     onWebViewCreated = { wv ->
                         webView = wv
                         onWebViewCreated(wv)
+                    },
+                    onPageStarted = {
+                        // Like a browser's console: each page load starts clean.
+                        consoleLogs.clear()
+                    },
+                    onPageFinished = { wv ->
+                        // A reload (the dev server's, after an edit) drops the inspector;
+                        // put it back, and keep the element being edited picked.
+                        when (selectionMode) {
+                            SelectionMode.DISABLED -> Unit
+                            SelectionMode.AGENT -> wv.injectInspectorScript(multiSelect = true)
+                            SelectionMode.INSPECTOR, SelectionMode.EDITOR -> wv.injectInspectorScript(multiSelect = false)
+                        }
+                        val editing = visualEditorElement
+                        if (selectionMode == SelectionMode.EDITOR && editing != null && editing.selectorIsUnique) {
+                            wv.inspectorReselect(editing.selector)
+                        }
+                    },
+                    onRendererGone = { reopened ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                if (reopened) "The page crashed, so the preview reopened it." else "The page keeps crashing the preview."
+                            )
+                        }
                     },
                     onTitleChanged = { title ->
                         pageTitle = title.ifEmpty { "Preview" }
@@ -892,7 +966,9 @@ private fun PreviewScreen(
                                 }
                             }
                             SelectionMode.EDITOR -> {
-                                // Visual editor mode - convert to InspectorElementData
+                                // Visual editor mode - convert to InspectorElementData,
+                                // keeping the page's verified selector and where the
+                                // element's text sits, so edits land on it alone.
                                 visualEditorElement = InspectorElementData(
                                     tagName = element.tagName,
                                     id = element.id,
@@ -906,8 +982,17 @@ private fun PreviewScreen(
                                         y = element.boundingRect.y,
                                         width = element.boundingRect.width,
                                         height = element.boundingRect.height
-                                    )
+                                    ),
+                                    selector = element.selector,
+                                    selectorIsUnique = element.selectorIsUnique,
+                                    ownText = element.ownText,
+                                    ownTextNodes = element.ownTextNodes,
+                                    textTarget = element.textTarget,
+                                    pagePath = element.pagePath,
+                                    hasParent = element.hasParent,
+                                    hasChild = element.hasChild
                                 )
+                                directEditService.pagePath = element.pagePath.ifBlank { null }
                             }
                             SelectionMode.INSPECTOR -> {
                                 // Single element inspection
@@ -1064,8 +1149,30 @@ private fun PreviewScreen(
                                 }
                             )
                         },
-                        // AI edit is disabled in Edit mode - pass null to hide the AI button
-                        onAiEditRequest = null,
+                        // "Ask Orobi about this element": the same AI edit as Agent mode,
+                        // for the one element on screen.
+                        onAiEditRequest = { prompt ->
+                            val model = currentModel.value
+                            if (model == null) {
+                                scope.launch { snackbarHostState.showSnackbar("Pick a model in AI models first.") }
+                            } else {
+                                scope.launch {
+                                    OroApplication.getInstance().projectRepository.updateLastUsedModelId(projectId, model.id)
+                                }
+                                previewEditService.applyAgentEdit(
+                                    prompt = prompt,
+                                    elements = listOf(
+                                        AgentSelectedElement(
+                                            selector = buildElementSelector(element.toInspectedElement()),
+                                            outerHTML = element.outerHTML
+                                        )
+                                    ),
+                                    model = model,
+                                    webView = webView,
+                                    onComplete = {}
+                                )
+                            }
+                        },
                         onImageChange = { request ->
                             // Use DirectEditService for image changes without AI
                             directEditService.applyImageChange(
@@ -1085,9 +1192,12 @@ private fun PreviewScreen(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        // Disable AI features for Edit mode (manual editing)
-                        enableAiFeatures = false,
+                        enableAiFeatures = true,
                         hasValidModel = currentModel.value != null,
+                        onSelectParent = { webView?.inspectorSelectParent() },
+                        onSelectChild = { webView?.inspectorSelectChild() },
+                        onUndo = { directEditService.undo { webView?.reload() } },
+                        canUndo = canUndo,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -1148,7 +1258,9 @@ private fun InspectorElementData.toInspectedElement(): InspectedElement {
             y = boundingRect.y,
             width = boundingRect.width,
             height = boundingRect.height
-        )
+        ),
+        selector = selector,
+        selectorIsUnique = selectorIsUnique
     )
 }
 
@@ -1922,35 +2034,6 @@ private fun buildElementSelector(element: InspectedElement): String =
     }
 
 /**
- * Extension function to apply viewport mode (mobile or desktop) to WebView
- */
-private fun WebView.applyViewportMode(desktopMode: Boolean) {
-    settings.apply {
-        if (desktopMode) {
-            // Desktop mode settings
-            userAgentString = DESKTOP_USER_AGENT
-            useWideViewPort = true
-            loadWithOverviewMode = true
-            setSupportZoom(true)
-            builtInZoomControls = true
-            displayZoomControls = false
-            // Set initial scale to fit desktop content
-            setInitialScale(50) // 50% to fit more content
-        } else {
-            // Mobile mode settings (default)
-            userAgentString = null // Reset to default mobile UA
-            useWideViewPort = false
-            loadWithOverviewMode = false
-            setSupportZoom(true)
-            builtInZoomControls = true
-            displayZoomControls = false
-            setInitialScale(0) // 0 = default scale
-        }
-    }
-    reload()
-}
-
-/**
  * Inject inspector script into the WebView
  * @param multiSelect Whether to enable multi-selection mode for agent editing
  */
@@ -1963,6 +2046,8 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
             }
 
             ${SelectorBuilder.BUILD_UNIQUE_SELECTOR_JS}
+
+            ${InspectorScripts.TEXT_TARGET_JS}
 
             // Create highlight overlay
             var overlay = document.createElement('div');
@@ -1978,6 +2063,7 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                 enabled: true,
                 multiSelect: $multiSelect,
                 lastElement: null,
+                current: null,
 
                 getElementData: function(el) {
                     // Longhand properties only. getPropertyValue('margin') or
@@ -2045,12 +2131,26 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                         cls = el.getAttribute('class') || '';
                     }
 
+                    // Where the element's own text sits, so an edit to it can be
+                    // written back to that one place in the page's source.
+                    var text = __oroTextTarget(el);
+                    var parent = el.parentElement;
+
                     return {
                         tagName: el.tagName,
                         id: el.id || '',
                         className: cls,
                         selector: selector,
                         selectorIsUnique: selectorIsUnique,
+                        ownText: text.ownText,
+                        ownTextNodes: text.ownTextNodes,
+                        textPath: text.textPath,
+                        textOccurrence: text.textOccurrence,
+                        textMatches: text.textMatches,
+                        textTotal: text.textTotal,
+                        pagePath: location.pathname,
+                        hasParent: !!parent && parent !== document.body && parent !== document.documentElement,
+                        hasChild: !!__oroFirstChild(el),
                         innerHTML: el.innerHTML.substring(0, 500),
                         outerHTML: el.outerHTML.substring(0, 1000),
                         textContent: (el.textContent || '').substring(0, 500),
@@ -2068,6 +2168,45 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                     };
                 },
 
+                // Keeps the outline on the picked element, not under the finger.
+                outline: function(el) {
+                    var overlay = document.getElementById('__oro_inspector_overlay');
+                    if (!overlay || !el) return;
+                    var rect = el.getBoundingClientRect();
+                    overlay.style.display = 'block';
+                    overlay.style.left = rect.left + 'px';
+                    overlay.style.top = rect.top + 'px';
+                    overlay.style.width = rect.width + 'px';
+                    overlay.style.height = rect.height + 'px';
+                },
+
+                select: function(el) {
+                    if (!el) return;
+                    this.current = el;
+                    this.outline(el);
+                    if (window.OroInspector) {
+                        window.OroInspector.onElementSelected(JSON.stringify(this.getElementData(el)));
+                    }
+                },
+
+                // A tap lands on the deepest element; these walk to the one meant.
+                selectParent: function() {
+                    var p = this.current && this.current.parentElement;
+                    if (p && p !== document.body && p !== document.documentElement) this.select(p);
+                },
+
+                selectChild: function() {
+                    var c = this.current && __oroFirstChild(this.current);
+                    if (c) this.select(c);
+                },
+
+                reselect: function(selector) {
+                    try {
+                        var list = document.querySelectorAll(selector);
+                        if (list.length === 1) this.select(list[0]);
+                    } catch (e) { }
+                },
+
                 handleClick: function(e) {
                     if (!window.__oroInspector.enabled) return;
                     e.preventDefault();
@@ -2077,17 +2216,16 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                     if (el.id === '__oro_inspector_overlay' ||
                         el.classList.contains('__oro_selected_marker')) return;
 
-                    var data = this.getElementData(el);
+                    if (!this.multiSelect) {
+                        this.select(el);
+                        return;
+                    }
 
-                    // Send to Android
+                    // Send to Android, and toggle the element's selection marker
                     if (window.OroInspector) {
-                        window.OroInspector.onElementSelected(JSON.stringify(data));
+                        window.OroInspector.onElementSelected(JSON.stringify(this.getElementData(el)));
                     }
-
-                    // In multi-select mode, toggle selection marker
-                    if (this.multiSelect) {
-                        this.toggleSelectionMarker(el);
-                    }
+                    this.toggleSelectionMarker(el);
                 },
 
                 toggleSelectionMarker: function(el) {
@@ -2114,6 +2252,8 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
 
                 handleMove: function(e) {
                     if (!window.__oroInspector.enabled) return;
+                    // Once something is picked, the outline stays on it.
+                    if (!this.multiSelect && this.current) return;
                     var el = e.target;
                     if (el.id === '__oro_inspector_overlay' ||
                         el.classList.contains('__oro_selected_marker')) return;
@@ -2129,8 +2269,13 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                     }
                 },
 
+                handleScroll: function() {
+                    if (!this.multiSelect && this.current) this.outline(this.current);
+                },
+
                 disable: function() {
                     this.enabled = false;
+                    this.current = null;
                     var overlay = document.getElementById('__oro_inspector_overlay');
                     if (overlay) overlay.remove();
 
@@ -2143,12 +2288,15 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                     document.removeEventListener('click', this.boundHandleClick, true);
                     document.removeEventListener('mousemove', this.boundHandleMove, true);
                     document.removeEventListener('touchmove', this.boundHandleTouchMove, true);
+                    document.removeEventListener('scroll', this.boundHandleScroll, true);
+                    window.removeEventListener('resize', this.boundHandleScroll);
                 }
             };
 
             // Bind handlers
             window.__oroInspector.boundHandleClick = window.__oroInspector.handleClick.bind(window.__oroInspector);
             window.__oroInspector.boundHandleMove = window.__oroInspector.handleMove.bind(window.__oroInspector);
+            window.__oroInspector.boundHandleScroll = window.__oroInspector.handleScroll.bind(window.__oroInspector);
             window.__oroInspector.boundHandleTouchMove = function(e) {
                 if (e.touches.length > 0) {
                     var touch = e.touches[0];
@@ -2163,6 +2311,8 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
             document.addEventListener('click', window.__oroInspector.boundHandleClick, true);
             document.addEventListener('mousemove', window.__oroInspector.boundHandleMove, true);
             document.addEventListener('touchmove', window.__oroInspector.boundHandleTouchMove, true);
+            document.addEventListener('scroll', window.__oroInspector.boundHandleScroll, true);
+            window.addEventListener('resize', window.__oroInspector.boundHandleScroll);
         })();
     """.trimIndent()
 
@@ -2176,182 +2326,24 @@ private fun WebView.disableInspector() {
     evaluateJavascript("if(window.__oroInspector) window.__oroInspector.disable();", null)
 }
 
-private const val DESKTOP_USER_AGENT =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+/** Pick the parent of the element being edited (a tap lands on the deepest one). */
+private fun WebView.inspectorSelectParent() {
+    evaluateJavascript("if(window.__oroInspector) window.__oroInspector.selectParent();", null)
+}
 
-@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-@Composable
-private fun WebViewPreview(
-    projectPath: String,
-    previewUrl: String? = null,
-    modifier: Modifier = Modifier,
-    selectionMode: SelectionMode = SelectionMode.DISABLED,
-    onWebViewCreated: (WebView) -> Unit,
-    onTitleChanged: (String) -> Unit,
-    onConsoleMessage: (ConsoleLogEntry) -> Unit,
-    onElementInspected: (InspectedElement, SelectionMode) -> Unit = { _, _ -> }
-) {
-    // Use rememberUpdatedState to always have access to the latest callback
-    val currentOnElementInspected by rememberUpdatedState(onElementInspected)
-    val currentSelectionMode by rememberUpdatedState(selectionMode)
+/** Pick the first child of the element being edited. */
+private fun WebView.inspectorSelectChild() {
+    evaluateJavascript("if(window.__oroInspector) window.__oroInspector.selectChild();", null)
+}
 
-    // Create the JS interface with a callback that reads current state
-    val inspectorInterface = remember {
-        InspectorJsInterface(
-            onElementInspected = { element ->
-                // Call with current selection mode so parent can route correctly
-                currentOnElementInspected(element, currentSelectionMode)
-            },
-            onMultiSelectElement = { element ->
-                currentOnElementInspected(element, currentSelectionMode)
-            }
-        )
-    }
-
-    AndroidView(
-        factory = { context ->
-            WebView(context).apply {
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView?,
-                        request: WebResourceRequest?
-                    ): Boolean {
-                        return false
-                    }
-
-                    // Failed loads (a missing stylesheet, a 404 script) never reach
-                    // the console, so report them as console errors ourselves.
-                    override fun onReceivedError(
-                        view: WebView?,
-                        request: WebResourceRequest?,
-                        error: android.webkit.WebResourceError?
-                    ) {
-                        super.onReceivedError(view, request, error)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && request != null) {
-                            onConsoleMessage(
-                                ConsoleLogEntry(
-                                    message = "Failed to load ${request.url}: ${error?.description ?: "error"}",
-                                    level = ConsoleMessage.MessageLevel.ERROR,
-                                    lineNumber = 0,
-                                    sourceId = request.url?.toString().orEmpty()
-                                )
-                            )
-                        }
-                    }
-
-                    override fun onReceivedHttpError(
-                        view: WebView?,
-                        request: WebResourceRequest?,
-                        errorResponse: android.webkit.WebResourceResponse?
-                    ) {
-                        super.onReceivedHttpError(view, request, errorResponse)
-                        val code = errorResponse?.statusCode ?: return
-                        if (request == null || code < 400) return
-                        onConsoleMessage(
-                            ConsoleLogEntry(
-                                message = "HTTP $code loading ${request.url}",
-                                level = ConsoleMessage.MessageLevel.ERROR,
-                                lineNumber = 0,
-                                sourceId = request.url?.toString().orEmpty()
-                            )
-                        )
-                    }
-
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        // Re-inject inspector script after page load if mode is enabled
-                        // The script will be injected by LaunchedEffect when mode changes
-                    }
-                }
-
-                webChromeClient = object : WebChromeClient() {
-                    override fun onReceivedTitle(view: WebView?, title: String?) {
-                        super.onReceivedTitle(view, title)
-                        onTitleChanged(title ?: "")
-                    }
-
-                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                        consoleMessage?.let {
-                            onConsoleMessage(
-                                ConsoleLogEntry(
-                                    message = it.message(),
-                                    level = it.messageLevel(),
-                                    lineNumber = it.lineNumber(),
-                                    sourceId = it.sourceId()
-                                )
-                            )
-                        }
-                        return true
-                    }
-                }
-
-                // Add JavaScript interface for element inspector
-                addJavascriptInterface(inspectorInterface, "OroInspector")
-
-                // Default mobile mode settings
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    databaseEnabled = true
-                    allowFileAccess = true
-                    allowContentAccess = true
-                    allowFileAccessFromFileURLs = true
-                    allowUniversalAccessFromFileURLs = true
-                    javaScriptCanOpenWindowsAutomatically = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                    
-                    loadWithOverviewMode = false // Mobile mode default
-                    useWideViewPort = false // Mobile mode default
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    setSupportZoom(true)
-                    // Normal HTTP caching. The project's own files are always
-                    // fresh anyway -- the dev server sends no-store on every
-                    // response -- while CDN libraries (Tailwind, fonts, icon
-                    // sets) are no longer re-downloaded on every reload, which
-                    // LOAD_NO_CACHE did over mobile data.
-                    cacheMode = WebSettings.LOAD_DEFAULT
-                    // Enable modern web features
-                    mediaPlaybackRequiresUserGesture = false
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        safeBrowsingEnabled = false
-                    }
-                }
-
-                // Load the appropriate URL
-                when {
-                    // Use provided preview URL (HTTP server for frameworks)
-                    previewUrl != null -> {
-                        loadUrl(previewUrl)
-                    }
-                    // Fallback to file:// for vanilla HTML
-                    else -> {
-                        val indexFile = File(projectPath, "index.html")
-                        if (indexFile.exists()) {
-                            loadUrl("file://${indexFile.absolutePath}")
-                        } else {
-                            loadData(
-                                "<html><body><h2>No index.html found</h2><p>Create an index.html file to preview your website.</p></body></html>",
-                                "text/html",
-                                "UTF-8"
-                            )
-                        }
-                    }
-                }
-
-                onWebViewCreated(this)
-            }
-        },
-        update = { view ->
-            // Update URL when previewUrl changes
-            // This ensures we switch from file:// fallback to http:// once server starts
-            if (previewUrl != null && view.url != previewUrl) {
-                view.loadUrl(previewUrl)
-            }
-        },
-        modifier = modifier
+/** Pick [selector]'s element again after a reload, so the editor shows it as it is now. */
+private fun WebView.inspectorReselect(selector: String) {
+    evaluateJavascript(
+        "if(window.__oroInspector) window.__oroInspector.reselect('${LivePreviewEditor.escapeJsString(selector)}');",
+        null
     )
 }
+
 
 /**
  * Get image file extension from URI by checking MIME type

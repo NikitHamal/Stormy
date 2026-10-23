@@ -46,6 +46,9 @@ class EmbeddedDevServer(
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500
 
+        /** Change batches kept for "what changed since" questions from pages. */
+        private const val CHANGE_LOG_SIZE = 32
+
         // Pre-compiled regex patterns for performance
         // React/JS transformations
         private val REACT_IMPORT_REGEX = Regex("""from\s+['"]react['"]""")
@@ -78,8 +81,6 @@ class EmbeddedDevServer(
 
         // HTML transformations
         private val HEAD_CLOSE_REGEX = Regex("</head>", RegexOption.IGNORE_CASE)
-        private val BODY_CLOSE_REGEX = Regex("</body>", RegexOption.IGNORE_CASE)
-        private val HTML_CLOSE_REGEX = Regex("</html>", RegexOption.IGNORE_CASE)
         private val MODULE_SCRIPT_JSX_REGEX = Regex("""<script\s+type=['"]module['"]\s+src=['"]([^'"]+\.jsx)['"]\s*>""", RegexOption.IGNORE_CASE)
         private val MODULE_SCRIPT_VUE_REGEX = Regex("""<script\s+type=['"]module['"]\s+src=['"]/?src/main\.js['"]\s*>\s*</script>""", RegexOption.IGNORE_CASE)
 
@@ -131,6 +132,14 @@ class EmbeddedDevServer(
     // Track file modification times for hot reload
     private val fileModificationTimes = mutableMapOf<String, Long>()
     private var lastChangeTimestamp = System.currentTimeMillis()
+
+    /**
+     * Recent batches of changed files, newest last, so a page can ask what
+     * changed since it last looked: a stylesheet-only change is swapped in
+     * place instead of reloading. Before [changeLogFloor] nothing is known.
+     */
+    private val changeLog = ArrayDeque<Pair<Long, List<String>>>()
+    private var changeLogFloor = lastChangeTimestamp
 
     // Response cache for static assets (cleared on file changes)
     private val responseCache = mutableMapOf<String, CachedResponse>()
@@ -212,6 +221,7 @@ class EmbeddedDevServer(
      * Check if files have changed since last check
      * Clears the response cache when changes are detected
      */
+    @Synchronized
     fun checkForChanges(): Boolean {
         var hasChanges = false
         val currentTime = System.currentTimeMillis()
@@ -232,6 +242,10 @@ class EmbeddedDevServer(
 
         if (hasChanges) {
             lastChangeTimestamp = currentTime
+            changeLog.addLast(currentTime to changedFiles.toList())
+            while (changeLog.size > CHANGE_LOG_SIZE) {
+                changeLogFloor = changeLog.removeFirstOrNull()?.first ?: changeLogFloor
+            }
             // Clear cache for changed files (or all if many changed)
             if (changedFiles.size > 5) {
                 responseCache.clear()
@@ -320,7 +334,8 @@ class EmbeddedDevServer(
                 val rawTarget = parts[1]
                 val cors = sameOrigin(headers["origin"])
                 when {
-                    path == "/__dev_changes__" -> handleChangesEndpoint(output)
+                    path.substringBefore('?') == "/__dev_changes__" ->
+                        handleChangesEndpoint(output, path.substringAfter("since=", "").substringBefore('&').toLongOrNull())
                     path == "/__dev_reload__" -> handleReloadEndpoint(output)
                     method == "OPTIONS" -> sendRaw(output, 204, "text/plain", ByteArray(0), emptyMap(), cors)
                     MockApi.isApiPath(rawTarget.substringBefore('?')) &&
@@ -514,10 +529,33 @@ class EmbeddedDevServer(
         return result
     }
 
-    private fun handleChangesEndpoint(output: BufferedOutputStream) {
+    private fun handleChangesEndpoint(output: BufferedOutputStream, since: Long?) {
         val hasChanges = checkForChanges()
-        val json = """{"hasChanges":$hasChanges,"timestamp":$lastChangeTimestamp}"""
+        val changed = since?.let { changedSince(it) }
+            ?.joinToString(",", "[", "]") { jsonString(it) }
+            ?: "null"
+        val json = """{"hasChanges":$hasChanges,"timestamp":$lastChangeTimestamp,"changed":$changed}"""
         sendResponse(output, HTTP_OK, "application/json", json.toByteArray())
+    }
+
+    /** Files changed after [since], or null when that's further back than the log goes. */
+    @Synchronized
+    private fun changedSince(since: Long): List<String>? {
+        if (since < changeLogFloor) return null
+        return changeLog.filter { it.first > since }.flatMap { it.second }.distinct()
+    }
+
+    private fun jsonString(value: String): String = buildString(value.length + 2) {
+        append('"')
+        for (c in value) {
+            when {
+                c == '"' -> append("\\\"")
+                c == '\\' -> append("\\\\")
+                c < ' ' -> append(String.format("\\u%04x", c.code))
+                else -> append(c)
+            }
+        }
+        append('"')
     }
 
     private fun handleReloadEndpoint(output: BufferedOutputStream) {
@@ -1106,29 +1144,80 @@ class EmbeddedDevServer(
      * Inject hot reload script into HTML
      */
     private fun injectHotReload(html: String): String {
+        // Polls for changes. A change to stylesheets only is swapped in place
+        // (new <link> loads, then the old one goes: no flash, no lost state);
+        // anything else reloads, and the page comes back scrolled where it was.
         val hotReloadScript = """
             |<script>
             |(function() {
-            |  let lastTimestamp = 0;
-            |  const checkInterval = 1000; // Check every second
+            |  var last = 0;
+            |  var key = 'oro-scroll:' + location.pathname;
+            |
+            |  try {
+            |    var saved = JSON.parse(sessionStorage.getItem(key) || 'null');
+            |    sessionStorage.removeItem(key);
+            |    if (saved && Date.now() - saved.t < 10000) {
+            |      var restore = function() { if (window.scrollY < 4) window.scrollTo(saved.x, saved.y); };
+            |      restore();
+            |      window.addEventListener('load', function() {
+            |        restore();
+            |        setTimeout(restore, 300);
+            |        setTimeout(restore, 1000);
+            |      });
+            |    }
+            |  } catch (e) {}
+            |
+            |  function reload() {
+            |    try {
+            |      sessionStorage.setItem(key, JSON.stringify({ x: window.scrollX, y: window.scrollY, t: Date.now() }));
+            |    } catch (e) {}
+            |    location.reload();
+            |  }
+            |
+            |  function isCss(path) {
+            |    return path.slice(-4).toLowerCase() === '.css';
+            |  }
+            |
+            |  function swapStyles(changed) {
+            |    var links = document.querySelectorAll('link[rel~="stylesheet"]');
+            |    var swapped = 0;
+            |    for (var i = 0; i < links.length; i++) {
+            |      var link = links[i];
+            |      var url = new URL(link.href, location.href);
+            |      if (url.origin !== location.origin) continue;
+            |      var path = decodeURIComponent(url.pathname);
+            |      if (path.charAt(0) === '/') path = path.slice(1);
+            |      if (changed.indexOf(path) < 0) continue;
+            |      url.searchParams.set('v', String(Date.now()));
+            |      var next = link.cloneNode();
+            |      next.href = url.toString();
+            |      next.onload = next.onerror = (function(old) { return function() { old.remove(); }; })(link);
+            |      link.parentNode.insertBefore(next, link.nextSibling);
+            |      swapped++;
+            |    }
+            |    return swapped;
+            |  }
             |
             |  async function checkForChanges() {
             |    try {
-            |      const response = await fetch('/__dev_changes__');
+            |      const response = await fetch('/__dev_changes__?since=' + last, { cache: 'no-store' });
             |      const data = await response.json();
             |
-            |      if (lastTimestamp > 0 && data.timestamp > lastTimestamp) {
+            |      if (last > 0 && data.timestamp > last) {
+            |        last = data.timestamp;
+            |        var changed = data.changed;
+            |        if (changed && changed.length && changed.every(isCss) && swapStyles(changed) > 0) return;
             |        console.log('[DevServer] Changes detected, reloading...');
-            |        location.reload();
+            |        reload();
+            |        return;
             |      }
-            |      lastTimestamp = data.timestamp;
+            |      last = data.timestamp;
             |    } catch (e) {
             |      // Server might be restarting
             |    }
             |  }
             |
-            |  // Start checking for changes
-            |  setInterval(checkForChanges, checkInterval);
+            |  setInterval(checkForChanges, 1000);
             |  checkForChanges();
             |
             |  console.log('[DevServer] Hot reload enabled');
@@ -1136,11 +1225,13 @@ class EmbeddedDevServer(
             |</script>
         """.trimMargin()
 
-        // Insert before closing body tag, or at end (using pre-compiled regex)
-        return if (html.contains("</body>", ignoreCase = true)) {
-            html.replace(BODY_CLOSE_REGEX, "$hotReloadScript\n</body>")
-        } else if (html.contains("</html>", ignoreCase = true)) {
-            html.replace(HTML_CLOSE_REGEX, "$hotReloadScript\n</html>")
+        // Inserted as-is before the last closing body (or html) tag. Not with
+        // Regex.replace, whose replacement text treats $ and \ as syntax, and
+        // which also hit any "</body>" quoted inside the page's own scripts.
+        val at = html.lastIndexOf("</body>", ignoreCase = true).takeIf { it >= 0 }
+            ?: html.lastIndexOf("</html>", ignoreCase = true).takeIf { it >= 0 }
+        return if (at != null) {
+            html.substring(0, at) + hotReloadScript + "\n" + html.substring(at)
         } else {
             "$html\n$hotReloadScript"
         }

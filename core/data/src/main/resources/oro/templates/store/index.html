@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kiln &amp; Co · Handmade ceramics</title>
+  <meta name="description" content="Small-batch stoneware thrown and glazed by hand in Bristol. Bowls, mugs, plates and vases made to be used every day.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="oro-ui/oro.css">
+  <link rel="stylesheet" href="css/site.css">
+  <script src="oro-ui/oro.js" defer></script>
+  <script src="js/site.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <p class="announce">Free UK delivery over £60 · Every piece is one of a kind</p>
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#">Kiln &amp; Co</a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="#shop">Shop</a>
+        <a href="#story">Our studio</a>
+        <a href="#care">Care</a>
+      </nav>
+      <div class="row">
+        <button class="btn btn-ghost btn-icon" data-theme-toggle aria-label="Switch theme">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+        <button class="btn btn-ghost cart-btn" id="open-cart" aria-label="Open basket, 0 items">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          <span class="count" id="cart-count">0</span>
+        </button>
+        <button class="btn btn-ghost btn-icon nav-toggle" aria-label="Open menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero container">
+      <div class="hero-copy reveal">
+        <span class="eyebrow">Spring collection</span>
+        <h1>Made slowly,<br>used every day.</h1>
+        <p class="lead">Small-batch stoneware thrown and glazed by hand in our Bristol studio. No two pieces are the same.</p>
+        <a class="btn btn-primary btn-lg" href="#shop">Shop the collection</a>
+      </div>
+      <div class="hero-art reveal-scale" aria-hidden="true">
+        <span class="piece vase" style="--tone:#c98b9a"></span>
+        <span class="piece bowl" style="--tone:#7aa7a1"></span>
+        <span class="piece mug" style="--tone:#c56a3e"></span>
+      </div>
+    </section>
+
+    <section class="section" id="shop" aria-labelledby="shop-title">
+      <div class="container">
+        <div class="shop-head">
+          <h2 id="shop-title">Shop</h2>
+          <div class="row controls">
+            <div class="filters" role="group" aria-label="Category" id="filters"></div>
+            <label class="sort"><span class="sr">Sort</span>
+              <select class="select" id="sort">
+                <option value="featured">Featured</option>
+                <option value="price-asc">Price: low to high</option>
+                <option value="price-desc">Price: high to low</option>
+                <option value="rating">Top rated</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="alert alert-error" id="shop-error" role="alert" hidden>
+          <span>We couldn’t load the shop.</span><button class="btn btn-sm btn-outline" id="retry">Try again</button>
+        </div>
+        <div class="products" id="products" aria-live="polite"></div>
+        <p class="empty" id="no-products" hidden>Nothing in this category right now.</p>
+      </div>
+    </section>
+
+    <section class="section section-alt" id="story">
+      <div class="container story">
+        <div class="reveal">
+          <span class="eyebrow">Our studio</span>
+          <h2>Two potters, one kiln, no shortcuts.</h2>
+          <p>Every piece is wheel-thrown from local clay, trimmed by hand and fired twice. We make around two hundred pieces a month — when they’re gone, they’re gone.</p>
+        </div>
+        <ul class="perks reveal">
+          <li><strong>Dishwasher safe</strong><span>Fired to 1260°C for everyday life.</span></li>
+          <li><strong>Plastic-free packing</strong><span>Recycled paper and wool, nothing else.</span></li>
+          <li><strong>30-day returns</strong><span>Not right for your table? Send it back.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="care">
+      <div class="container care">
+        <h2 class="reveal">Caring for stoneware</h2>
+        <div class="stack">
+          <details class="acc reveal"><summary>Can it go in the oven?</summary><div class="acc-body"><p>Yes, up to 200°C — just avoid sudden temperature changes, like a cold dish into a hot oven.</p></div></details>
+          <details class="acc reveal"><summary>Why does my piece look different from the photo?</summary><div class="acc-body"><p>Glazes move in the kiln. Your piece will share the colour and feel, never the exact pattern.</p></div></details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <p>© 2026 Kiln &amp; Co · Bristol, UK</p>
+    <nav class="row" aria-label="Footer"><a href="#">Shipping</a><a href="#">Returns</a><a href="#">Contact</a></nav>
+  </footer>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="cart" aria-label="Basket" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Your basket</h2>
+      <button class="btn btn-ghost btn-icon" id="close-cart" aria-label="Close basket">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <ul class="cart-lines" id="cart-lines"></ul>
+    <div class="empty cart-empty" id="cart-empty">
+      <p>Your basket is empty.</p>
+      <a class="btn btn-outline" href="#shop" id="cart-browse">Browse the shop</a>
+    </div>
+    <div class="drawer-foot" id="cart-foot" hidden>
+      <div class="total-row"><span>Subtotal</span><strong id="cart-total">£0</strong></div>
+      <p class="muted" id="shipping-note"></p>
+      <button class="btn btn-primary btn-lg" id="checkout">Checkout</button>
+    </div>
+  </aside>
+</body>
+</html>

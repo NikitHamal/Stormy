@@ -2,6 +2,13 @@ package com.oro.app.ui.screens.home
 
 import com.oro.app.ui.theme.OroCorners
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material.icons.outlined.Storefront
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -91,14 +98,30 @@ private fun getTemplateIcon(template: ProjectTemplate): ImageVector = when (temp
     ProjectTemplate.PORTFOLIO -> Icons.Outlined.Person
     ProjectTemplate.BLOG -> Icons.Outlined.Article
     ProjectTemplate.DASHBOARD -> Icons.Outlined.Dashboard
+    ProjectTemplate.STORE -> Icons.Outlined.Storefront
+    ProjectTemplate.DOCS -> Icons.AutoMirrored.Outlined.MenuBook
+    ProjectTemplate.ARCADE -> Icons.Outlined.SportsEsports
+}
+
+/** A rendered preview of each studio starter (res/drawable-nodpi/template_*.webp). */
+private fun templateThumbnail(template: ProjectTemplate): Int? = when (template) {
+    ProjectTemplate.LANDING_PAGE -> R.drawable.template_landing
+    ProjectTemplate.PORTFOLIO -> R.drawable.template_portfolio
+    ProjectTemplate.BLOG -> R.drawable.template_blog
+    ProjectTemplate.DASHBOARD -> R.drawable.template_dashboard
+    ProjectTemplate.STORE -> R.drawable.template_store
+    ProjectTemplate.DOCS -> R.drawable.template_docs
+    ProjectTemplate.ARCADE -> R.drawable.template_arcade
+    else -> null
 }
 
 /**
  * Get all templates as options
  */
-private val allTemplateOptions = ProjectTemplate.entries.map { template ->
-    TemplateOption(template, getTemplateIcon(template))
-}
+private val allTemplateOptions = ProjectTemplate.entries
+    // The studio starters, with real previews, lead; the rest keep their order.
+    .sortedBy { templateThumbnail(it) == null }
+    .map { template -> TemplateOption(template, getTemplateIcon(template)) }
 
 /**
  * Create Project Dialog with comprehensive template selection.
@@ -211,6 +234,7 @@ fun CreateProjectDialog(
                         TemplateCard(
                             template = option.template,
                             icon = option.icon,
+                            thumbnail = templateThumbnail(option.template),
                             isSelected = selectedTemplate == option.template,
                             onClick = { selectedTemplate = option.template }
                         )
@@ -257,11 +281,12 @@ fun CreateProjectDialog(
  * Individual template card with icon, name, and selection state
  */
 @Composable
-private fun TemplateCard(
+internal fun TemplateCard(
     template: ProjectTemplate,
     icon: ImageVector,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    thumbnail: Int? = null
 ) {
     val backgroundColor = if (isSelected) {
         MaterialTheme.colorScheme.primaryContainer
@@ -279,6 +304,42 @@ private fun TemplateCard(
         MaterialTheme.colorScheme.onPrimaryContainer
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    if (thumbnail != null) {
+        Column(
+            modifier = Modifier
+                .width(156.dp)
+                .clip(OroCorners.large)
+                .background(backgroundColor)
+                .border(
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = borderColor,
+                    shape = OroCorners.large
+                )
+                .clickable(onClick = onClick)
+                .padding(6.dp)
+        ) {
+            Image(
+                painter = painterResource(thumbnail),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 10f)
+                    .clip(OroCorners.medium)
+            )
+            Text(
+                text = template.displayName,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 8.dp, bottom = 4.dp)
+            )
+        }
+        return
     }
 
     Column(

@@ -89,6 +89,32 @@ object LivePreviewEditor {
         evaluate(webView, script)
     }
 
+    /**
+     * Replace only the element's own run of text, keeping the whitespace
+     * around it, so an icon or a nested link inside the element survives.
+     * [applyText] would flatten the element to plain text.
+     */
+    suspend fun applyOwnText(webView: WebView, selector: String, text: String) {
+        val script = """
+            (function() {
+                try {
+                    var el = document.querySelector('${escapeJsString(selector)}');
+                    if (!el) return 0;
+                    for (var n = el.firstChild; n; n = n.nextSibling) {
+                        if (n.nodeType !== 3 || !n.nodeValue.trim()) continue;
+                        var v = n.nodeValue, a = 0, b = v.length;
+                        while (a < b && /\s/.test(v.charAt(a))) a++;
+                        while (b > a && /\s/.test(v.charAt(b - 1))) b--;
+                        n.nodeValue = v.slice(0, a) + '${escapeJsString(text)}' + v.slice(b);
+                        return 1;
+                    }
+                    return 0;
+                } catch (e) { return 0; }
+            })();
+        """.trimIndent()
+        evaluate(webView, script)
+    }
+
     /** Point an `<img>` (or any element with a src) at a new source. */
     suspend fun applyImageSrc(webView: WebView, selector: String, src: String) {
         val script = """
