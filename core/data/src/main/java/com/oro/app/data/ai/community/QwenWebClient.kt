@@ -30,11 +30,19 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Runs chat.qwen.ai requests inside a real browser page (a WebView the app
  * provides). Used when the site's anti-bot layer refuses plain HTTP: the page
- * has a genuine browser's TLS, cookies and risk SDK. Each emitted string is
- * one response line; the first is `HTTP <code> <content-type>`.
+ * has a genuine browser's TLS, cookies and the site's own risk SDK (Baxia),
+ * which signs every request itself.
+ *
+ * [chat] creates a chat from [newChatBody] and posts [completionBody] with the
+ * new chat's id filled in, all from page context. Emitted lines, in order:
+ *  - `CHAT <id>` once the chat exists, or `CHALLENGE <detail>` when the site
+ *    puts up its human check (a slider no one can see in a hidden page), or
+ *    `FAIL <detail>` for anything else;
+ *  - `HTTP <code> <content-type>` for the completion, then the response
+ *    lines (SSE `data:` frames, or a JSON body).
  */
 interface QwenBrowserBridge {
-    fun post(path: String, body: String): Flow<String>
+    fun chat(newChatBody: String, completionBody: String): Flow<String>
 }
 
 object QwenBrowser {
@@ -42,13 +50,21 @@ object QwenBrowser {
 }
 
 /**
- * chat.qwen.ai guest chat (Qwen3.8 Max and friends), ported from NEB's
- * qwen_proxy.
+ * chat.qwen.ai guest chat (Qwen3.8 Max, Qwen3.7 Plus, Qwen3.8 Omni Flash).
+ *
+ * ### What the site wants from a guest (checked 2026-10-23, web 0.3.22)
+ *
+ * No account and no token: a guest is an `x-umid` header (the device id the
+ * page keeps in localStorage, any UUID) plus the site's cookies. Requests also
+ * carry `source`, `version` and the risk SDK's `bx-ua` / `bx-umidtoken` /
+ * `bx-v`. Creating a chat works with just `x-umid`; the completion is where
+ * Alibaba's WAF decides, mostly on the network: from datacenter IPs even a
+ * real browser gets its "punish" captcha, from phone networks guests chat.
  *
  * ### Identities and rotation
  *
- * The site rate-limits each guest identity (about 20 messages), so the client
- * keeps a small pool of identities -- fingerprint, risk cookies, `bx-ua`,
+ * The site rate-limits each guest identity, so the client keeps a small pool
+ * of identities -- device id, fingerprint, risk cookies, `bx-ua`,
  * `bx-umidtoken` -- and uses the least-used one. An identity retires after
  * [IDENTITY_MESSAGES] messages, [IDENTITY_TTL_MS], or as soon as the site
  * reports a quota or challenge, and the request is retried once with a fresh
@@ -56,23 +72,40 @@ object QwenBrowser {
  *
  * ### Transport
  *
- * Plain HTTP first. When the anti-bot layer answers with its "punish" page
- * instead of a stream (it does for datacenter IPs and some networks), the same
- * two calls go through [QwenBrowser.bridge], a WebView on the real site.
+ * Plain HTTP first. When the WAF answers with its punish page instead of a
+ * stream, the same chat goes through [QwenBrowser.bridge], a hidden WebView on
+ * the real site whose own scripts sign the request. When that page is shown
+ * the captcha too, the request fails fast with a "browser check" error, so
+ * [com.oro.app.data.ai.KeylessFallback] parks the site for a while and another
+ * free Qwen (VLM Run, OVHcloud, Ptero) answers instead.
  *
  * Each request starts a fresh server-side chat holding the whole transcript,
  * so the conversation lives in Oro, not on the site.
  */
 class QwenWebClient(private val base: String = "https://chat.qwen.ai") : CommunityChatClient {
 
-    private class Identity(val id: QwenFingerprint.Identity, val http: OkHttpClient, var umid: String?, val createdAt: Long) {
+    private class Identity(
+        val id: QwenFingerprint.Identity,
+        val http: OkHttpClient,
+        /** bx-umidtoken from Alibaba's UMID service, when it answered. */
+        var umidToken: String?,
+        val createdAt: Long,
+        /** The guest: the site keys a guest's quota on this `x-umid` device id. */
+        val deviceId: String = UUID.randomUUID().toString()
+    ) {
         var uses = 0
         var warmed = false
     }
 
     private val pool = ArrayList<Identity>()
-    /** Set once the plain-HTTP route has been refused, so later requests go straight to the browser. */
-    @Volatile private var preferBrowser = false
+    /**
+     * When the plain-HTTP route was last refused: for [PREFER_BROWSER_MS]
+     * after that, requests go straight to the in-app browser. Plain HTTP is
+     * cheaper, so it gets another chance once that has passed (a phone moves
+     * between networks; a refusal on one is not a verdict on the next).
+     */
+    @Volatile private var refusedAt = 0L
+    private val preferBrowser: Boolean get() = System.currentTimeMillis() - refusedAt < PREFER_BROWSER_MS
 
     override fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent> =
         stream(model, messages, null)
@@ -85,17 +118,18 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             if (prompt.isBlank()) { emit(StreamEvent.Error("$SITE: nothing to send")); return@guarded }
 
             val bridge = QwenBrowser.bridge
+            var challenged = false
             if (!preferBrowser || bridge == null) {
                 for (attempt in 1..2) {
                     when (val r = viaHttp(upstream, prompt, thinking)) {
                         Outcome.Done -> return@guarded
-                        Outcome.Refused -> { preferBrowser = true; break }
+                        Outcome.Refused -> { refusedAt = System.currentTimeMillis(); challenged = true; break }
                         is Outcome.Retry -> if (attempt == 2) { emit(StreamEvent.Error("$SITE: ${r.reason}", retryable = true)); return@guarded }
                     }
                 }
             }
             if (bridge == null) {
-                emit(StreamEvent.Error("$SITE asked for a browser check and no in-app browser is available. Try again in a minute.", retryable = true))
+                emit(challengeError(if (challenged) "plain requests were refused" else "no in-app browser"))
                 return@guarded
             }
             viaBrowser(bridge, upstream, prompt, thinking)
@@ -103,6 +137,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
 
     private sealed interface Outcome {
         data object Done : Outcome
+        /** The WAF wants a human check: try the in-app browser, or hand over. */
         data object Refused : Outcome
         data class Retry(val reason: String) : Outcome
     }
@@ -123,10 +158,12 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
         val chatId = CommunityHttp.execute(post(ident, "$base/api/v2/chats/new", newChatBody(model)), ident.http) { r ->
             val text = r.body?.string().orEmpty()
             if (isChallenge(text) || r.code == 403) return@execute null
+            if (text.contains("RateLimited", true) || text.contains("quota", true)) return@execute ""
             runCatching {
                 ((AiHttp.json.parseToJsonElement(text) as JsonObject)["data"] as JsonObject)["id"].let { (it as JsonPrimitive).content }
             }.getOrNull()
         } ?: run { retire(ident); return Outcome.Refused }
+        if (chatId.isEmpty()) { retire(ident); return Outcome.Retry("guest quota reached; switching identity") }
 
         val request = post(ident, "$base/api/v2/chat/completions?chat_id=$chatId", completionBody(chatId, model, prompt, thinking))
             .newBuilder().header("Accept", "text/event-stream").header("x-request-id", UUID.randomUUID().toString()).build()
@@ -134,7 +171,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             val type = r.header("Content-Type").orEmpty()
             if (!r.isSuccessful) {
                 retire(ident)
-                return@execute if (r.code == 403) Outcome.Refused else Outcome.Retry("HTTP ${r.code}")
+                return@execute if (r.code == 403 || r.code == 405) Outcome.Refused else Outcome.Retry("HTTP ${r.code}")
             }
             if (!type.contains("event-stream")) {
                 val text = r.body?.string().orEmpty()
@@ -143,10 +180,12 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             }
             val source = r.body?.source() ?: return@execute Outcome.Retry("empty response")
             val parser = QwenStreamParser()
-            emit(StreamEvent.Started)
+            var started = false
             while (true) {
                 val line = source.readUtf8Line() ?: break
-                parser.onLine(line).forEach { emit(it) }
+                val events = parser.onLine(line)
+                if (!started && events.isNotEmpty()) { started = true; emit(StreamEvent.Started) }
+                events.forEach { emit(it) }
                 if (parser.finished) break
             }
             ident.uses++
@@ -174,8 +213,12 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             .header("sec-fetch-dest", "empty").header("sec-fetch-mode", "cors").header("sec-fetch-site", "same-origin")
             .header("x-requested-with", "XMLHttpRequest")
             .header("source", "web").header("version", WEB_VERSION)
+            .header("x-request-id", UUID.randomUUID().toString())
             .header("bx-ua", i.id.bxUa)
-        i.umid?.let { b.header("bx-umidtoken", it).header("bx-v", "2.5.36") }
+            .header("x-umid", i.deviceId)
+            .header("bx-v", BX_VERSION)
+            .header("Timezone", timezone())
+        i.umidToken?.let { b.header("bx-umidtoken", it) }
         return b
     }
 
@@ -197,50 +240,81 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             seed("chat.qwen.ai", "ssxmod_itna2", id.itna2)
         }
         val http = AiHttp.client.newBuilder().cookieJar(jar).build()
-        val umid = runCatching {
+        val umidToken = runCatching {
             CommunityHttp.execute(Request.Builder().url(UMID_URL).header("User-Agent", id.profile.ua).build(), http) { r ->
                 UMID.find(r.body?.string().orEmpty())?.groupValues?.get(1)
             }
         }.getOrNull()
-        return Identity(id, http, umid, System.currentTimeMillis()).also { synchronized(this) { pool += it } }
+        return Identity(id, http, umidToken, System.currentTimeMillis()).also { synchronized(this) { pool += it } }
     }
 
     // --------------------------------------------------------------- browser
 
     private suspend fun FlowCollector<StreamEvent>.viaBrowser(bridge: QwenBrowserBridge, model: String, prompt: String, thinking: Boolean) {
-        var chatId: String? = null
-        var status = ""
-        val created = StringBuilder()
-        bridge.post("/api/v2/chats/new", newChatBody(model).toString()).collect { line ->
-            if (status.isEmpty()) status = line else created.append(line)
-        }
-        chatId = runCatching {
-            ((AiHttp.json.parseToJsonElement(created.toString()) as JsonObject)["data"] as JsonObject)["id"].let { (it as JsonPrimitive).content }
-        }.getOrNull()
-        if (chatId == null) {
-            emit(StreamEvent.Error("$SITE: could not start a chat (${status.ifBlank { "no response" }}: ${describe(created.toString())})", retryable = true))
-            return
-        }
         val parser = QwenStreamParser()
-        var head = ""
-        val nonStream = StringBuilder()
-        emit(StreamEvent.Started)
-        bridge.post("/api/v2/chat/completions?chat_id=$chatId", completionBody(chatId, model, prompt, thinking).toString()).collect { line ->
-            if (head.isEmpty()) { head = line; return@collect }
-            if (!head.contains("event-stream")) { nonStream.append(line); return@collect }
-            if (!parser.finished) parser.onLine(line).forEach { emit(it) }
+        val reader = BrowserReply(parser)
+        bridge.chat(newChatBody(model).toString(), completionBody("", model, prompt, thinking).toString()).collect { line ->
+            reader.onLine(line).forEach { emit(it) }
         }
-        if (!parser.sawOutput) {
-            val why = parser.error ?: describe(nonStream.toString()).ifBlank { head }
-            emit(StreamEvent.Error("$SITE: $why", retryable = true))
-            return
+        when {
+            reader.challenge != null -> emit(challengeError(reader.challenge!!))
+            !parser.sawOutput -> emit(StreamEvent.Error("$SITE: ${reader.failure()}", retryable = true))
+            else -> parser.finish().forEach { emit(it) }
         }
-        parser.finish().forEach { emit(it) }
+    }
+
+    /**
+     * Folds the bridge's lines (see [QwenBrowserBridge]) into stream events.
+     * Pure, so the browser path's edge cases run in JVM tests.
+     */
+    internal class BrowserReply(private val parser: QwenStreamParser) {
+        var chatId: String? = null; private set
+        var challenge: String? = null; private set
+        private var failure: String? = null
+        private var head = ""
+        private val body = StringBuilder()
+        private var started = false
+
+        fun onLine(line: String): List<StreamEvent> {
+            when {
+                challenge != null || parser.finished -> return emptyList()
+                chatId == null && head.isEmpty() -> when {
+                    line.startsWith("CHAT ") -> chatId = line.removePrefix("CHAT ").trim()
+                    line.startsWith("CHALLENGE") -> challenge = line.removePrefix("CHALLENGE").trim().ifBlank { "the site asked for a human check" }
+                    line.startsWith("FAIL") -> failure = line.removePrefix("FAIL").trim()
+                    else -> failure = line
+                }
+                head.isEmpty() -> when {
+                    line.startsWith("CHALLENGE") -> challenge = line.removePrefix("CHALLENGE").trim().ifBlank { "the site asked for a human check" }
+                    line.startsWith("HTTP ") -> head = line
+                    line.startsWith("FAIL") -> failure = line.removePrefix("FAIL").trim()
+                }
+                line.startsWith("CHALLENGE") -> challenge = line.removePrefix("CHALLENGE").trim().ifBlank { "the site asked for a human check" }
+                !head.contains("event-stream") -> {
+                    body.append(line)
+                    if (isChallenge(body.toString())) challenge = "the site asked for a human check"
+                }
+                else -> {
+                    val events = parser.onLine(line)
+                    if (events.isEmpty()) return emptyList()
+                    if (!started) { started = true; return listOf(StreamEvent.Started) + events }
+                    return events
+                }
+            }
+            return emptyList()
+        }
+
+        fun failure(): String = parser.error ?: failure?.takeIf { it.isNotBlank() } ?: when {
+            chatId == null -> "could not start a chat"
+            body.isNotEmpty() -> describe(body.toString())
+            head.isNotEmpty() -> "no reply ($head)"
+            else -> "no reply"
+        }
     }
 
     // ---------------------------------------------------------------- bodies
 
-    private fun newChatBody(model: String) = buildJsonObject {
+    internal fun newChatBody(model: String) = buildJsonObject {
         put("title", "New Chat")
         putJsonArray("models") { add(JsonPrimitive(model)) }
         put("chat_mode", "normal")
@@ -249,7 +323,8 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
         put("project_id", "")
     }
 
-    private fun completionBody(chatId: String, model: String, prompt: String, thinking: Boolean): JsonObject {
+    /** The completion request; the browser path leaves [chatId] empty and the page fills it in. */
+    internal fun completionBody(chatId: String, model: String, prompt: String, thinking: Boolean): JsonObject {
         val now = System.currentTimeMillis()
         return buildJsonObject {
             put("stream", true)
@@ -289,13 +364,31 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
 
     companion object {
         const val SITE = "Qwen"
-        private const val WEB_VERSION = "0.2.89"
+        /** chat.qwen.ai's web client version (main.js 0.3.22, 2026-10-23); sent as `version`. */
+        internal const val WEB_VERSION = "0.3.22"
+        /** The risk SDK's own version header. */
+        internal const val BX_VERSION = "2.5.37"
         private const val POOL_SIZE = 3
+        private const val PREFER_BROWSER_MS = 30 * 60_000L
         private const val IDENTITY_MESSAGES = 14
         private const val IDENTITY_TTL_MS = 15 * 60_000L
         private const val UMID_URL = "https://sg-wum.alibaba.com/w/wu.json"
         private val UMID = Regex("""(?:umx\.wu|__fycb)\('([^']+)'\)""")
         private val JSON = "application/json".toMediaType()
+
+        /**
+         * The site's human check, worded so KeylessFallback both hands the
+         * request to another free model and parks Qwen Chat for a while
+         * ("browser check"): a captcha nobody can see will not clear in seconds.
+         */
+        internal fun challengeError(detail: String) = StreamEvent.Error(
+            "$SITE Chat asked for a browser check ($detail)",
+            retryable = true
+        )
+
+        /** `Timezone` the way the page sends it: `Thu Oct 23 2026 06:00:00 GMT+0545`. */
+        internal fun timezone(now: java.util.Date = java.util.Date()): String =
+            java.text.SimpleDateFormat("EEE MMM dd yyyy HH:mm:ss 'GMT'Z", java.util.Locale.US).format(now)
 
         fun isChallenge(text: String) =
             listOf("RGV587_ERROR", "_____tmd_____", "x5secdata", "aliyun_waf_aa", "acw_sc__v2").any { text.contains(it) }
@@ -364,8 +457,10 @@ class QwenStreamParser {
         val delta = choice["delta"] as? JsonObject
         val out = mutableListOf<StreamEvent>()
         val phase = (delta?.get("phase") as? JsonPrimitive)?.contentOrNull
+        // Some frames carry the whole message instead of a delta.
         val content = (delta?.get("content") as? JsonPrimitive)?.contentOrNull
-        val reasoning = (delta?.get("reasoning_content") as? JsonPrimitive)?.contentOrNull
+            ?: ((choice["message"] as? JsonObject)?.get("content") as? JsonPrimitive)?.contentOrNull
+        val reasoning = ((delta?.get("reasoning_content") ?: delta?.get("reasoning")) as? JsonPrimitive)?.contentOrNull
         if (!reasoning.isNullOrEmpty()) out += StreamEvent.ReasoningDelta(reasoning)
         if (!content.isNullOrEmpty()) {
             if (phase == "think" || phase == "thinking_summary" || phase == "web_search") {

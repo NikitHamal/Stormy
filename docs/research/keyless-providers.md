@@ -129,3 +129,18 @@ list github.com/mvalentsev/awesome-free-ai-coding (verified 2026-10-22) and live
   "tryit" key plus an anti-abuse flag), geminiweb (relies on anti-detection and proxy rotation), metaai (needs a
   browser session); the rest are TTS.
 - **VLM Run `google/diffusiongemma-26b-a4b-it`**: 500 on every try; 16k context.
+
+## 2026-10-23 — Qwen Chat (chat.qwen.ai) guest mode, re-checked (fork Q)
+
+**What the site needs today** (web client 0.3.22; read from its `main.js` and confirmed in a real Chromium on the live site):
+- Guests have no token. A guest is the `x-umid` header: the device id the page keeps in `localStorage.qwen_chat_device_id` (any UUID). Without it, `POST /api/v2/chats/new` answers `{"success":false,"data":{"code":"Unauthorized"}}`.
+- The site's own requests also carry `source` (`h5` on mobile, `web` on desktop), `version: 0.3.22`, `Timezone`, `x-request-id`, and the risk SDK's (Baxia) `bx-ua` (now format `234!`), `bx-umidtoken` and `bx-v: 2.5.37`. Sign-in lives on `auth.qwen.ai/api/v2/auths/` (`/refresh` fails for guests, which then fall back to `x-umid`).
+- Guest models from `/api/models`: `qwen3.7-plus`, `qwen3.8-max`, `qwen3.8-omni-flash`, each listed with `max_context_length` 1,000,000 (Oro's seeds still use the conservative values chosen earlier).
+- `POST /api/v2/chats/new` with `x-umid` works from any network. `POST /api/v2/chat/completions?chat_id=…` is where Alibaba's WAF decides. From this sandbox and from molab (both datacenter networks) every request, **including from a real browser running the site's own SDK**, got the punish captcha (`{"ret":["FAIL_SYS_USER_VALIDATE","RGV587_ERROR::SM::…被挤爆啦…"]}`, then a `.baxia-dialog` slider whose fetch hook holds the request forever). That is network reputation, not a wrong recipe. NEB's server also only gets through behind a proxy (`QWEN_PROXY_URL`). Phone networks are what guests normally use; that path is **unverified from here**.
+
+**How Oro handles it** (`QwenWebClient`, `QwenWebBridge`, `KeylessFallback`):
+1. **Plain HTTP** with the current protocol: `x-umid` per guest identity, version 0.3.22, `bx-v` 2.5.37, Oro's own `bx-ua`/`ssxmod_itna` fingerprint, pooled and rotated identities as before.
+2. **On a refusal, the in-app browser** takes over for 30 minutes: a hidden WebView on the real site, whose SDK signs Oro's in-page `fetch` (verified on molab: `bx-ua 234!…`, `bx-umidtoken`, `bx-v` present; the streaming relay was tested end to end against a recorded SSE body). The page script watches for the captcha dialog and answers `CHALLENGE` within about a second instead of hanging (verified live: chat created, challenge reported in 0.8 s). It uses origin-restricted messaging, refuses off-site navigation, survives a renderer crash, closes every pending stream, and starts as a new guest (fresh device id and cookies) after a captcha, a quota answer or 12 requests.
+3. **Another free Qwen when the site asks for a human check.** The error says "browser check", so KeylessFallback parks *all* chat.qwen.ai models for 10 minutes. The request goes to Qwen-family stand-ins first: VLM Run Qwen3.8 27B, OVHcloud Qwen3.8 27B, OVHcloud Qwen3.5 397B, then Ptero Qwen 3.7 Flash, before the global order. All four answered keylessly from both networks on 2026-10-23. The reasoning stream says which model answered.
+
+Not done, on purpose: solving the slider automatically (no captcha solving). Showing it to the user to solve in a visible WebView would recover the site route on a distrusted network, but needs UI outside this pass.

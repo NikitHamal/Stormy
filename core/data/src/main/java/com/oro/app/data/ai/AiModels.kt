@@ -226,8 +226,8 @@ enum class AiProvider(
         displayName = "Qwen (community)",
         baseUrl = "https://chat.qwen.ai",
         apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "Unofficial bridge to Qwen Chat's guest mode (Qwen3.8 Max, Qwen3.7 Plus). " +
-            "Rotates guest identities; falls back to an in-app browser when the site asks for one. May break without notice.",
+        keyNote = "Unofficial bridge to Qwen Chat's guest mode (Qwen3.8 Max, Qwen3.7 Plus, Omni Flash). Falls back to " +
+            "an in-app browser when the site asks for one, and to another free Qwen when it asks for a human check. May break without notice.",
         protocol = ProviderProtocol.QWEN_WEB
     ),
     PTERO(

@@ -60,7 +60,16 @@ object KeylessFallback {
     /** Model id -> time until which it is skipped. */
     private val busyUntil = ConcurrentHashMap<String, Long>()
 
-    fun isBusy(id: String, now: Long = System.currentTimeMillis()) = (busyUntil[id] ?: 0L) > now
+    /** Guest site -> time until which all its models are skipped (a browser check is site-wide). */
+    private val siteBusyUntil = ConcurrentHashMap<String, Long>()
+
+    fun isBusy(id: String, now: Long = System.currentTimeMillis()) =
+        (busyUntil[id] ?: 0L) > now || (siteOf(id)?.let { siteBusyUntil[it] } ?: 0L) > now
+
+    /** The guest site behind a namespaced seed id ("qwen:qwen3.8-max" -> "qwen"), for sites behind a browser check. */
+    private fun siteOf(id: String): String? = id.substringBefore(':', "").takeIf { it in BROWSER_CHECK_SITES }
+
+    private val BROWSER_CHECK_SITES = setOf("qwen", "mercury")
 
     fun markBusy(id: String, error: StreamEvent.Error, now: Long = System.currentTimeMillis()) {
         val hint = error.retryAfterMs?.coerceIn(5_000, 30 * 60_000L)
@@ -81,9 +90,15 @@ object KeylessFallback {
             }
         }
         busyUntil[id] = now + ms
+        // A human check is about the site and the network, not one model: the
+        // site's other models would wait on the same check first.
+        if (browserCheck) siteOf(id)?.let { siteBusyUntil[it] = now + ms }
     }
 
-    fun markHealthy(id: String) { busyUntil.remove(id) }
+    fun markHealthy(id: String) {
+        busyUntil.remove(id)
+        siteOf(id)?.let { siteBusyUntil.remove(it) }
+    }
 
     private const val BROWSER_CHECK_MS = 10 * 60_000L
 
@@ -119,13 +134,35 @@ object KeylessFallback {
         RegexOption.IGNORE_CASE
     )
 
-    /** Models to try after [model], in order: free, healthy, and able to take [needsNativeTools]. */
-    fun candidates(model: AiModel, needsNativeTools: Boolean, lookup: (String) -> AiModel?): List<AiModel> =
-        ORDER.asSequence()
+    /**
+     * Models to try after [model], in order: free, healthy, and able to take
+     * [needsNativeTools]. Stand-ins from [model]'s own family come first, so a
+     * Qwen stays a Qwen when its usual host is down; the global order follows.
+     */
+    fun candidates(model: AiModel, needsNativeTools: Boolean, lookup: (String) -> AiModel?): List<AiModel> {
+        val family = sameFamily(model)
+        return (family + ORDER.filter { it !in family }).asSequence()
             .filter { it != model.id && !isBusy(it) }
             .mapNotNull(lookup)
             .filter { !needsNativeTools || (it.supportsToolCalls && !it.provider.isCommunity) }
+            // chat.qwen.ai refused this request: the site's other models would be refused too.
+            .filter { !(model.provider == AiProvider.QWEN_WEB && it.provider == AiProvider.QWEN_WEB) }
             .toList()
+    }
+
+    /**
+     * Keyless hosts of the same model family, best first. Qwen: VLM Run's
+     * Qwen3.8 27B (native tools, under a second to the first token), OVHcloud's
+     * Qwen3.8 27B and Qwen3.5 397B, then Ptero's Qwen 3.7 Flash (text only) --
+     * all verified keyless from two networks on 2026-10-23.
+     */
+    internal fun sameFamily(model: AiModel): List<String> {
+        val qwen = model.provider == AiProvider.QWEN_WEB ||
+            com.oro.app.data.ai.providers.ModelIds.upstream(model.id).contains("qwen", ignoreCase = true)
+        return if (qwen) QWEN_FAMILY else emptyList()
+    }
+
+    private val QWEN_FAMILY = listOf("qwen3.8-27b", "Qwen3.8-27B", "Qwen3.5-397B-A17B", "ptero:qwen3.7-flash:free")
 
     /** Ids in fallback order, for tests and diagnostics. */
     internal val order: List<String> get() = ORDER
