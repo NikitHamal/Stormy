@@ -145,6 +145,7 @@ object RunLedger {
             t.startsWith("User answered:") ->
                 listOf(qa(questionOf(args), t.removePrefix("User answered:").trim().lineSequence().firstOrNull().orEmpty()))
             t.startsWith("The user skipped this question") -> listOf(qa(questionOf(args), "skipped"))
+            t.startsWith(com.oro.app.data.ai.tools.UserQuestions.DECIDE_PREFIX) -> listOf(qa(questionOf(args), "you decide"))
             t.startsWith("The user answered") -> MULTI_ANSWER.findAll(t).map { qa(it.groupValues[1], it.groupValues[2]) }.toList()
             else -> emptyList()
         }

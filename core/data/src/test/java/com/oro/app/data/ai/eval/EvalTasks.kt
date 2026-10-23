@@ -25,9 +25,38 @@ internal enum class EvalTask(val projectName: String, val prompt: String) {
         "Build a Snake mini-game that plays well on a phone: swipe and on-screen arrow controls (keyboard arrows on " +
             "desktop too), score and best score (saved), speed that increases as you grow, pause and restart, a game " +
             "over screen, and a polished neon-arcade look with smooth animations."
+    ),
+
+    /**
+     * What vibe coders actually type. The brief check marks it vague, so a
+     * good run asks one card first (answered by [EvalAnswers]) and then builds
+     * a site that uses the answers.
+     */
+    VAGUE(
+        "My cafe",
+        "make me a website for my cafe"
     );
 
     companion object {
         fun parse(v: String): EvalTask = valueOf(v.trim().uppercase())
+    }
+}
+
+/**
+ * The person on the other side of the eval's ask_user card: picks the
+ * recommended option (else the first), names the cafe, and leaves anything
+ * else open -- what a lazy but real user does.
+ */
+internal object EvalAnswers {
+    const val CAFE_NAME = "Brew Haven"
+
+    fun answer(question: com.oro.app.data.ai.tools.UserQuestion): String? {
+        val text = question.question.lowercase() + " " + question.header.lowercase()
+        if ("name" in text || "called" in text || "brand" in text) return CAFE_NAME
+        val options = question.options.filterNot { o ->
+            val l = o.label.lowercase()
+            "type" in l || "other" in l || "make one up" in l || "decide" in l
+        }
+        return (options.firstOrNull { it.recommended } ?: options.firstOrNull())?.label
     }
 }

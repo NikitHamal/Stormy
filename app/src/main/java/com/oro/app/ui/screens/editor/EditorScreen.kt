@@ -135,6 +135,7 @@ fun EditorScreen(
     val autonomy by viewModel.autonomyMode.collectAsStateWithLifecycle()
     val attachedImages by viewModel.attachedImages.collectAsStateWithLifecycle()
     val richUi by viewModel.richUi.collectAsStateWithLifecycle()
+    val askBeforeBuilding by viewModel.askBeforeBuilding.collectAsStateWithLifecycle()
 
     // Ask for notifications the first time a run starts, the moment the
     // reason is obvious: so Orobi can say when it is done while you are away.
@@ -445,6 +446,8 @@ fun EditorScreen(
                                     onAutonomyChange = viewModel::setAutonomyMode,
                                     richUi = richUi,
                                     onRichUiChange = viewModel::setRichUi,
+                                    askBeforeBuilding = askBeforeBuilding,
+                                    onAskBeforeBuildingChange = viewModel::setAskBeforeBuilding,
                                     attachedPhotos = attachedImages.size,
                                     onAttachPhoto = viewModel::attachImage,
                                     onClearPhotos = viewModel::clearAttachedImages,

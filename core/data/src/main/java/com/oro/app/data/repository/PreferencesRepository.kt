@@ -51,6 +51,7 @@ class PreferencesRepository(private val context: Context) {
         val AUTONOMY = stringPreferencesKey("autonomy_mode")
         val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
         val RICH_UI = booleanPreferencesKey("rich_ui")
+        val ASK_BEFORE_BUILDING = booleanPreferencesKey("ask_before_building")
         /** The old app-wide Low/Balanced/Deep choice; read once into [REASONING_LEVELS]. */
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
         /** JSON map model id -> the provider's own level value (see ReasoningControls). */
@@ -296,6 +297,17 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setRichUi(on: Boolean) {
         context.dataStore.edit { it[PreferenceKeys.RICH_UI] = on }
+    }
+
+    /**
+     * Whether Orobi asks a few one-tap questions before building from a vague
+     * request (on, "Smart") or decides everything itself (off, "Never").
+     */
+    val askBeforeBuilding: Flow<Boolean> =
+        context.dataStore.data.map { it[PreferenceKeys.ASK_BEFORE_BUILDING] ?: true }.distinctUntilChanged()
+
+    suspend fun setAskBeforeBuilding(on: Boolean) {
+        context.dataStore.edit { it[PreferenceKeys.ASK_BEFORE_BUILDING] = on }
     }
 
 

@@ -81,6 +81,12 @@ internal class EvalRun(
     private val errorSamples = mutableListOf<String>()
     private val toolCounts = linkedMapOf<String, Int>()
     private var asked = 0
+    /** Every question the model asked, as the user saw it (ask_user calls and prose turned into a card). */
+    private val questionsAsked = mutableListOf<String>()
+    /** Turn number of the first ask (or 0) and the first write (or 0), to check "ask before building". */
+    private var firstAskTurn = 0
+    private var firstWriteTurn = 0
+    @Volatile private var intakeArmed = false
     private var promptTokens = 0L
     private var completionTokens = 0L
     private val discards = mutableListOf<String>()
@@ -175,6 +181,7 @@ internal class EvalRun(
                     if (errorSamples.size < 12) errorSamples += "$name: ${(result.error ?: result.output).take(200)}"
                 } else if (name !in AgentTools.readOnly) {
                     touched += QualityGate.touchedPaths(call)
+                    if (firstWriteTurn == 0 && name in setOf("write_file", "edit_file", "multi_edit", "add_ui_kit")) firstWriteTurn = turns
                 }
             }
             override fun onUsage(promptTokens: Int, completionTokens: Int) {
@@ -183,17 +190,39 @@ internal class EvalRun(
             }
         }
 
-        val history = mutableListOf(ChatRequestMessage(role = "user", content = spec.task.prompt))
+        // The brief check, as EditorViewModel applies it to the user's first turn.
+        val verdict = com.oro.app.data.ai.agent.BriefCheck.check(spec.task.prompt, projectFresh = true)
+        val note = com.oro.app.data.ai.agent.BriefCheck.note(verdict, ask = true, textProtocol = forceText || !model.supportsToolCalls)
+        intakeArmed = note != null
+        transcript.append("_brief check: ").append(verdict.reason).append("_\n")
+        val history = mutableListOf(
+            ChatRequestMessage(role = "user", content = if (note == null) spec.task.prompt else spec.task.prompt + "\n\n" + note)
+        )
         val loop = AgentLoop(
             client, runner,
             AgentLoopConfig(
                 maxIterations = maxTurns,
+                maxQualityPasses = AgentLoopConfig().maxQualityPasses + (if (intakeArmed) 1 else 0),
                 attachImages = VisionSupport.supports(model),
                 toolSchemas = AgentTools.schemasOf(offered)
             )
         )
+        // As EditorViewModel: questions written as prose before anything was built become the card, once.
+        val finalCheck: suspend () -> String? = {
+            val prose = if (intakeArmed && touched.isEmpty()) {
+                val reply = history.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+                val questions = com.oro.app.data.ai.tools.UserQuestions.fromProse(reply)
+                if (questions.isEmpty()) null else {
+                    record(questions, "prose")
+                    com.oro.app.data.ai.tools.UserQuestions.formatAnswers(questions, questions.map(EvalAnswers::answer)) +
+                        "\nBuild it now with these answers; don't ask again."
+                }
+            } else null
+            intakeArmed = false
+            prose ?: QualityGate.review(project, touched)
+        }
         val result = try {
-            loop.run(history, known, listener, { QualityGate.review(project, touched) }, prepare)
+            loop.run(history, known, listener, finalCheck, prepare)
         } catch (e: Exception) {
             AgentRunResult.Failed("crashed: ${e.javaClass.simpleName}: ${e.message}", retryable = false)
         }
@@ -282,8 +311,16 @@ internal class EvalRun(
             }
             "get_preview_errors" -> ToolResult(true, browser.errors(baseUrl, "index.html"))
             "ask_user" -> {
-                asked++
-                ToolResult(true, "User answered: I'm away for now -- make the sensible choices yourself and keep going.")
+                intakeArmed = false
+                val questions = com.oro.app.data.ai.tools.UserQuestions.parse(args)
+                if (questions.isEmpty()) return ToolResult(false, "", "Missing required argument: questions")
+                record(questions, "card")
+                if (spec.task == EvalTask.VAGUE) {
+                    ToolResult(true, com.oro.app.data.ai.tools.UserQuestions.formatAnswers(questions, questions.map(EvalAnswers::answer)))
+                } else {
+                    // The detailed briefs already say everything; a run that still asks gets "you decide".
+                    ToolResult(true, com.oro.app.data.ai.tools.UserQuestions.DECIDE_RESULT)
+                }
             }
             "request_approval" -> ToolResult(true, "The user approved: ${s("action").orEmpty()}")
             "update_plan" -> ToolResult(true, "Plan updated.")
@@ -291,6 +328,16 @@ internal class EvalRun(
             "spawn_subagent" -> ToolResult(false, "", "Subagents are not available in this run; do the work yourself.")
             else -> ToolResult(false, "", "$name is not available here.")
         }
+    }
+
+    private fun record(questions: List<com.oro.app.data.ai.tools.UserQuestion>, via: String) {
+        asked++
+        if (firstAskTurn == 0) firstAskTurn = turns
+        questions.forEach { q ->
+            val options = q.options.joinToString(" | ") { (if (it.recommended) "*" else "") + it.label }
+            questionsAsked += "[$via] ${q.header.ifBlank { "-" }}: ${q.question}" + if (options.isEmpty()) "" else " ($options)"
+        }
+        transcript.append("  ? asked (").append(via).append("): ").append(questions.joinToString(" / ") { it.question }).append('\n')
     }
 
     // ------------------------------------------------------------- scoring
@@ -313,7 +360,7 @@ internal class EvalRun(
             when (spec.task) {
                 EvalTask.APP -> browser.run("interact", it, "Eval habit 7")
                 EvalTask.GAME -> browser.run("play", it)
-                EvalTask.LANDING -> null
+                EvalTask.LANDING, EvalTask.VAGUE -> null
             }
         }
         val phoneMetrics = phone?.get("metrics") as? JsonObject
@@ -348,6 +395,11 @@ internal class EvalRun(
             put("reasoningOnlyNudges", count("[Oro: your last replies contained only reasoning"))
             put("qualityGatePasses", count("Automatic quality review"))
             put("askedUser", asked)
+            put("questions", buildJsonArray { questionsAsked.take(12).forEach { add(JsonPrimitive(it)) } })
+            put("askedBeforeBuilding", firstAskTurn > 0 && (firstWriteTurn == 0 || firstAskTurn < firstWriteTurn))
+            put("usesAnswers", spec.task != EvalTask.VAGUE || files.any { f ->
+                f.extension in setOf("html", "js") && f.readText().contains(EvalAnswers.CAFE_NAME)
+            })
             put("discards", buildJsonArray { discards.take(10).forEach { add(JsonPrimitive(it)) } })
             put("promptTokens", promptTokens)
             put("completionTokens", completionTokens)

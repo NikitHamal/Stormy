@@ -93,6 +93,7 @@ import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.ToolAliases
 import com.oro.app.data.ai.tools.QuestionOption
 import com.oro.app.data.ai.tools.UserQuestion
+import com.oro.app.data.ai.tools.UserQuestions
 import com.oro.app.data.ai.Tool
 import com.oro.app.ui.components.agent.PendingQuestion
 import com.oro.app.agent.AgentNotifications
@@ -317,6 +318,13 @@ class EditorViewModel(
 
     /** Set when the provider rejected native tools; the run then uses text tool calls. */
     @Volatile private var forceTextTools = false
+
+    /**
+     * Set for a run whose request the brief check found vague (and the user
+     * lets Orobi ask): if the model asks its questions as prose instead of
+     * calling ask_user, the run turns them into the same one-tap card.
+     */
+    @Volatile private var intakeArmed = false
 
     // ---- Chat sessions ------------------------------------------------------
     //
@@ -1505,8 +1513,13 @@ class EditorViewModel(
             }
         }
 
+        // Brief check: a vague request for something new gets a note to ask first.
+        val intakeText = content.takeIf { images.isEmpty() && _agentMode.value }
+        val intakeTextMode = _currentModel.value?.supportsToolCalls == false
+        intakeArmed = false
         startRun(sessionId) {
             persisted.join()
+            intakeText?.let { applyIntake(it, intakeTextMode) }
             if (_agentMode.value) {
                 // Learning is best-effort and must never block or break a run.
                 runCatching {
@@ -1536,6 +1549,65 @@ class EditorViewModel(
 
     fun dismissRunError() {
         _runError.value = null
+    }
+
+    /**
+     * The brief check for the turn just sent (see BriefCheck): on a vague
+     * request for something new in a fresh project, the user's turn gets a
+     * short note telling the model to ask first (or, with "Ask before
+     * building" off, to decide and say so). In the user turn rather than the
+     * system prompt, so provider prompt caches keep the stable prefix.
+     */
+    private suspend fun applyIntake(content: String, textMode: Boolean) {
+        val project = _project.value ?: return
+        val fresh = withContext(Dispatchers.IO) { projectIsFresh(File(project.rootPath), project.createdAt) }
+        val verdict = com.oro.app.data.ai.agent.BriefCheck.check(content, fresh)
+        val ask = preferencesRepository.askBeforeBuilding.first()
+        logDebugToProject("BRIEF", "${verdict.reason} -> ${if (verdict.vague) (if (ask) "ask first" else "decide") else "build"}")
+        val note = com.oro.app.data.ai.agent.BriefCheck.note(verdict, ask, textMode) ?: return
+        val index = _messageHistory.indexOfLast { it.role == "user" && it.content == content }
+        if (index < 0) return
+        _messageHistory[index] = _messageHistory[index].copy(content = content + "\n\n" + note)
+        intakeArmed = ask
+    }
+
+    /**
+     * Nothing of the user's in the project yet: no files, or only the ones it
+     * was created with (a template), untouched since. A big imported tree
+     * counts as work.
+     */
+    private fun projectIsFresh(root: File, createdAt: Long): Boolean {
+        var count = 0
+        var newest = 0L
+        root.walkTopDown()
+            .onEnter { it == root || (!it.name.startsWith(".") && it.name != "node_modules") }
+            .filter { it.isFile && !it.name.startsWith(".") }
+            .forEach { f ->
+                count++
+                newest = maxOf(newest, f.lastModified())
+                if (count > 30) return false
+            }
+        return count == 0 || newest <= createdAt + 120_000
+    }
+
+    /**
+     * When the model asked its intake questions as prose instead of calling
+     * ask_user, show them as the one-tap card and hand the answers back; null
+     * when the last reply holds no questions for a card.
+     */
+    private suspend fun askProseQuestions(run: RunTranscript): String? {
+        val reply = _messageHistory.lastOrNull()?.takeIf { it.role == "assistant" }?.content ?: return null
+        val questions = UserQuestions.fromProse(reply)
+        if (questions.isEmpty()) return null
+        _runStatus.value = AgentStatus(AgentStatus.Kind.WAITING_FOR_USER, "Waiting for your answer")
+        val answers = awaitAnswers(questions)
+        run.note(UserQuestions.quote(questions, answers))
+        pushTranscript(force = true)
+        return if (answers == null) {
+            UserQuestions.DECIDE_RESULT + " Build it now."
+        } else {
+            UserQuestions.formatAnswers(questions, answers) + "\nBuild it now with these answers; don't ask again."
+        }
     }
 
     /** The user answered the agent's ask_user questions (null = skipped). */
@@ -1830,6 +1902,8 @@ class EditorViewModel(
             override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
                 run.toolFinished(call, result)
                 pushTranscript(force = true)
+                // The model asked through the tool: no second round from its prose.
+                if (ToolAliases.canonicalName(call.function.name) == "ask_user") intakeArmed = false
                 if (ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly) {
                     if (result.success) touched += QualityGate.touchedPaths(call)
                     viewModelScope.launch { loadFileTree() }
@@ -1859,7 +1933,9 @@ class EditorViewModel(
             config = AgentLoopConfig(
                 attachImages = com.oro.app.data.ai.VisionSupport.supports(model),
                 // MCP and use_phone schemas, so raw text-protocol values get their real types.
-                toolSchemas = AgentTools.schemasOf(offeredTools)
+                toolSchemas = AgentTools.schemasOf(offeredTools),
+                // A prose intake question uses one final-check pass; the quality gate keeps its own two.
+                maxQualityPasses = AgentLoopConfig().maxQualityPasses + (if (intakeArmed && isAgentMode) 1 else 0)
             )
         )
         toolExecutor.checkpoint = run {
@@ -1869,11 +1945,21 @@ class EditorViewModel(
         }
         val result = try {
             val root = _project.value?.rootPath?.let { File(it) }
-            val finalCheck: (suspend () -> String?)? = if (isAgentMode && root != null) {
+            val gate: (suspend () -> String?)? = if (isAgentMode && root != null) {
                 { withContext(Dispatchers.IO) { QualityGate.review(root, touched.toSet()) } }
             } else null
+            // Intake questions written as prose (before anything was built) become the
+            // card, once; an ask_user call in the run disarms it (see onToolFinished).
+            val finalCheck: (suspend () -> String?)? = if (!(intakeArmed && isAgentMode)) gate else {
+                {
+                    val asked = if (intakeArmed && touched.isEmpty()) askProseQuestions(run) else null
+                    intakeArmed = false
+                    asked ?: gate?.invoke()
+                }
+            }
             loop.run(_messageHistory, knownTools, listener, finalCheck, prepare)
         } finally {
+            intakeArmed = false
             val recorder = toolExecutor.checkpoint
             toolExecutor.checkpoint = null
             if (recorder != null) {
@@ -2848,6 +2934,14 @@ class EditorViewModel(
 
     fun setRichUi(on: Boolean) {
         viewModelScope.launch { preferencesRepository.setRichUi(on) }
+    }
+
+    /** "Ask before building": a few one-tap questions on vague requests (on) or none (off). */
+    val askBeforeBuilding: StateFlow<Boolean> = preferencesRepository.askBeforeBuilding
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setAskBeforeBuilding(on: Boolean) {
+        viewModelScope.launch { preferencesRepository.setAskBeforeBuilding(on) }
     }
 
     fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {

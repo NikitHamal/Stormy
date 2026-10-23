@@ -86,6 +86,18 @@ class RunTranscriptTest {
     }
 
     @Test
+    fun `a card handed back with You decide reads as such`() {
+        val t = RunTranscript()
+        val ask = call(
+            "q", "ask_user",
+            """{"questions":[{"question":"What's the cafe called?"},{"question":"Which look fits?"}]}"""
+        )
+        t.toolStarted(ask)
+        t.toolFinished(ask, ToolResult(true, com.oro.app.data.ai.tools.UserQuestions.DECIDE_RESULT))
+        assertThat(t.render()).isEqualTo("> **You let Orobi decide** · What's the cafe called? (+1 more)")
+    }
+
+    @Test
     fun `edit output keeps the diff without blank lines inside the card`() {
         val t = RunTranscript()
         val edit = call("e", "edit_file", """{"path":"a.css"}""")

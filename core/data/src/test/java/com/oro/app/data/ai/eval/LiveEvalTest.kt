@@ -111,7 +111,7 @@ class LiveEvalTest {
                         when (task) {
                             EvalTask.APP -> browser.run("interact", it, "Eval habit 7")
                             EvalTask.GAME -> browser.run("play", it)
-                            EvalTask.LANDING -> null
+                            EvalTask.LANDING, EvalTask.VAGUE -> null
                         }
                     }
                     val audit = url?.let { browser.run("audit", it) }
@@ -140,8 +140,8 @@ class LiveEvalTest {
     private fun JsonObject.s(k: String): String = (this[k] as? JsonPrimitive)?.contentOrNull ?: ""
 
     private fun summary(lines: List<String>): String = buildString {
-        append("| model | task | outcome | turns | tool calls | tool errors | nudges (malformed/cut/reasoning) | gate passes | audit E/W | page issues | runtime errors | phone overflow | smoke | time |\n")
-        append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+        append("| model | task | outcome | turns | tool calls | tool errors | nudges (malformed/cut/reasoning) | gate passes | audit E/W | page issues | runtime errors | phone overflow | smoke | asked first / uses answers | time |\n")
+        append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
         lines.forEach { line ->
             val o = kotlinx.serialization.json.Json.parseToJsonElement(line) as JsonObject
             val smoke = (o["smoke"] as? JsonObject)?.let { s ->
@@ -154,7 +154,9 @@ class LiveEvalTest {
             append(" | ").append(o.s("malformedNudges")).append('/').append(o.s("truncatedNudges")).append('/').append(o.s("reasoningOnlyNudges"))
             append(" | ").append(o.s("qualityGatePasses")).append(" | ").append(o.s("auditErrors")).append('/').append(o.s("auditWarnings"))
             append(" | ").append(o.s("pageIssues")).append(" | ").append(errors).append(" | ").append(o.s("phoneOverflow"))
-            append(" | ").append(smoke).append(" | ").append(o.s("seconds")).append("s |\n")
+            append(" | ").append(smoke)
+            append(" | ").append(o.s("askedUser")).append("x, ").append(o.s("askedBeforeBuilding")).append('/').append(o.s("usesAnswers"))
+            append(" | ").append(o.s("seconds")).append("s |\n")
         }
     }
 }

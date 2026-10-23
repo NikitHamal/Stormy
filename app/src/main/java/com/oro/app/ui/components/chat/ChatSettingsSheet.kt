@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Handyman
+import androidx.compose.material.icons.outlined.QuestionAnswer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -62,7 +63,9 @@ fun ChatSettingsSheet(
     autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
     onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
     richUi: Boolean = true,
-    onRichUiChange: (Boolean) -> Unit = {}
+    onRichUiChange: (Boolean) -> Unit = {},
+    askBeforeBuilding: Boolean = true,
+    onAskBeforeBuildingChange: (Boolean) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -126,6 +129,15 @@ fun ChatSettingsSheet(
                         )
                     }
                 }
+                Spacer(Modifier.height(Space.md))
+                SettingToggle(
+                    icon = Icons.Outlined.QuestionAnswer,
+                    title = "Ask before building",
+                    subtitle = "Quick questions when a request is vague",
+                    checked = askBeforeBuilding,
+                    enabled = true,
+                    onCheckedChange = onAskBeforeBuildingChange
+                )
             }
 
 

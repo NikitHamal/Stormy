@@ -1352,13 +1352,9 @@ class ToolExecutor(
                     "reasonable assumption, state it in your reply, and continue."
             )
 
+        // Null: the user tapped "You decide" (the card's one-tap way out).
         val answers = callback.askQuestions(questions)
-            ?: return ToolResult(
-                true,
-                "The user dismissed the question without answering. Do not ask it " +
-                    "again; proceed with your best judgement and state any assumption " +
-                    "you make, or stop and explain what you need."
-            )
+            ?: return ToolResult(true, UserQuestions.DECIDE_RESULT)
         return ToolResult(true, UserQuestions.formatAnswers(questions, answers))
     }
 

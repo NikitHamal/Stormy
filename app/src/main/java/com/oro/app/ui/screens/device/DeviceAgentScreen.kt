@@ -447,7 +447,9 @@ internal fun RunTranscriptList(
                             question = pending,
                             onSubmit = { answers -> onAnswer(answers.firstOrNull()?.takeIf { it.isNotBlank() } ?: "(no answer)") },
                             onDismiss = { onAnswer("(skipped)") },
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier.animateItem(),
+                            // The device agent must not guess personal details, so the way out is Skip.
+                            dismissLabel = "Skip"
                         )
                     }
                     run.paused -> PausedRow(Modifier.animateItem())

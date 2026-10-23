@@ -199,24 +199,26 @@ object AgentTools {
     val ASK_USER = tool(
         "ask_user",
         """
-        Ask the user one or more questions and wait for the answers. Only use
-        this when you are genuinely blocked: the request is ambiguous in a way
-        that changes the result, or you need information only the user has
-        (brand name, copy, credentials). Do not ask for permission to proceed
-        with ordinary work, and do not ask what you can find out by reading the
-        project. Batch everything you need into ONE call (up to 6 questions);
-        the user answers them in sequence. Give each question 2-5 short
-        `options` when the answer is a choice (the user can always type their
-        own answer); set multiSelect when several options can apply.
+        Ask the user questions in one card and wait for the answers. Use it
+        before building something new from a vague request, when facts that
+        change the result are missing (what it is for, who it is for, the name,
+        must-have pages or features, the look, data to keep): ONE call with 2-4
+        short questions written for this request. Mid-task, use it only when
+        truly blocked. Never ask what the request, the project or common sense
+        already answer, never ask the same thing twice, and never ask
+        permission for ordinary work. Give each question 2-4 one-tap options
+        and mark the one you recommend (recommended: true, listed first); the
+        user can also type, or tap "You decide" to let you choose.
         """,
         """
         {"type":"object","properties":{
-          "questions":{"type":"array","description":"1-6 questions, asked in order.","items":{"type":"object","properties":{
+          "questions":{"type":"array","description":"1-6 questions, shown together in one card.","items":{"type":"object","properties":{
             "question":{"type":"string","description":"One clear, specific question, ending with '?'."},
-            "header":{"type":"string","description":"A 1-3 word label for the question, e.g. 'Framework'."},
+            "header":{"type":"string","description":"A 1-3 word label for the question, e.g. 'Look'."},
             "options":{"type":"array","items":{"type":"object","properties":{
               "label":{"type":"string","description":"The answer, a few words."},
-              "description":{"type":"string","description":"Optional one-line explanation of this choice."}
+              "description":{"type":"string","description":"Optional one-line explanation of this choice."},
+              "recommended":{"type":"boolean","description":"True on the one option you recommend."}
             },"required":["label"]}},
             "multiSelect":{"type":"boolean","description":"Allow choosing several options. Default false."}
           },"required":["question"]}}

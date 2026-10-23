@@ -275,26 +275,8 @@ class RunTranscript(initial: String = "") {
         val args = JsonParserUtils.parseToJsonObject(call.function.arguments)
         val questions = args?.let { UserQuestions.parse(it) }.orEmpty()
         if (!result.success || questions.isEmpty()) return "> _Question skipped_"
-        val out = result.output
-        if (questions.size == 1) {
-            val answer = out.removePrefix("User answered: ").lineSequence().first().trim()
-            val skipped = !out.startsWith("User answered: ")
-            return "> **You answered** · ${questions[0].question.oneLine()}\n> " +
-                if (skipped) "_Skipped_" else "**${answer.take(200)}**"
-        }
-        val answers = out.lines().filter { it.trimStart().startsWith("→") }
-            .map { it.trimStart().removePrefix("→").trim() }
-        return buildString {
-            append("> **You answered ${questions.size} questions**")
-            questions.forEachIndexed { i, q ->
-                val a = answers.getOrNull(i).orEmpty()
-                append("\n> ").append(i + 1).append(". ").append(q.question.oneLine()).append(" — ")
-                append(if (a.isEmpty() || a.startsWith("(skipped")) "_skipped_" else "**${a.take(160)}**")
-            }
-        }
+        return UserQuestions.quote(questions, UserQuestions.parseAnswers(questions, result.output))
     }
-
-    private fun String.oneLine(): String = lineSequence().first().trim().take(160)
 
     private fun StringBuilder.ensureBreak() {
         if (isEmpty()) return
