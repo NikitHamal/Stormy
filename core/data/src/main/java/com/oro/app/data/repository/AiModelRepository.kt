@@ -26,18 +26,18 @@ class AiModelRepository(
 
     fun observeAllModels(): Flow<List<AiModel>> {
         return aiModelDao.observeAllModels().map { entities ->
-            entities.map { it.toAiModel() }
+            entities.mapNotNull { it.toAiModel() }
         }
     }
 
     fun observeEnabledModels(): Flow<List<AiModel>> {
         return aiModelDao.observeEnabledModels().map { entities ->
-            entities.map { it.toAiModel() }.also(::noteEnabled)
+            entities.mapNotNull { it.toAiModel() }.also(::noteEnabled)
         }
     }
 
     suspend fun getEnabledModels(): List<AiModel> {
-        return aiModelDao.getEnabledModels().map { it.toAiModel() }.also(::noteEnabled)
+        return aiModelDao.getEnabledModels().mapNotNull { it.toAiModel() }.also(::noteEnabled)
     }
 
     /** The keyless fallback never hands a request to a model the user switched off. */
@@ -209,10 +209,9 @@ class AiModelRepository(
         RETIRED_SEEDS.forEach { (provider, id) ->
             if (aiModelDao.getModelById(id)?.provider == provider.name) aiModelDao.deleteModelById(id)
         }
-        val llm7Seeds = AiModels.getModelsForProvider(AiProvider.LLM7).map { it.id }.toSet()
-        aiModelDao.getAllModels()
-            .filter { it.provider == AiProvider.LLM7.name && it.id !in llm7Seeds }
-            .forEach { aiModelDao.deleteModelById(it.id) }
+        // Providers that no longer exist (too limited for agent runs, 2026-10-23):
+        // their rows are dropped by name, since the enum constants are gone.
+        REMOVED_PROVIDERS.forEach { aiModelDao.deleteModelsByProvider(it) }
         val rows = aiModelDao.getAllModels()
         val existing = rows.map { it.id }.toSet()
         val missing = AiModels.getAllModels()
@@ -230,6 +229,15 @@ class AiModelRepository(
                 aiModelDao.updateSeedContext(row.id, documented)
             }
         }
+    }
+
+    /**
+     * Drops [provider]'s catalogue rows (hand-added models stay). Used once
+     * when a provider's anonymous tier stopped being offered: the rows it
+     * seeded and listed without a key would only fail now.
+     */
+    suspend fun retireProviderRows(provider: AiProvider) {
+        aiModelDao.deleteModelsByProvider(provider.name)
     }
 
     /** Enable or disable every model from one provider. */
@@ -291,7 +299,7 @@ class AiModelRepository(
     /** Models of one custom provider, hand-added first. */
     fun observeCustomProviderModels(providerId: String): Flow<List<AiModel>> =
         aiModelDao.observeModelsWithPrefix(ModelIds.prefixFor(providerId))
-            .map { rows -> rows.map { it.toAiModel() } }
+            .map { rows -> rows.mapNotNull { it.toAiModel() } }
 
     /**
      * Replace a custom provider's fetched catalogue, keeping per-model state
@@ -361,11 +369,16 @@ class AiModelRepository(
         return aiModelDao.getEnabledModelCount()
     }
 
-    private fun AiModelEntity.toAiModel(): AiModel {
+    /**
+     * The domain model of a row, or null when its provider no longer exists
+     * (a row from a removed provider must not pass as the default provider's).
+     */
+    private fun AiModelEntity.toAiModel(): AiModel? {
+        val known = AiProvider.entries.firstOrNull { it.name == provider } ?: return null
         return AiModel(
             id = id,
             name = alias ?: name,
-            provider = AiProvider.fromString(provider),
+            provider = known,
             // Resolved on read rather than trusted from the row: a stored
             // figure that came from an older capability table (Agnes 3.0 Flash
             // was metered at 128k this way) would otherwise never be corrected.
@@ -419,7 +432,6 @@ class AiModelRepository(
             "claude-sonnet-5-5" to setOf(200_000),
             "gpt-5.4" to setOf(400_000),
             "qwen3.8-max" to setOf(262_144),
-            "openai-fast" to setOf(32_768),
             "qwen:qwen3.8-max" to setOf(262_144)
         )
 
@@ -437,8 +449,20 @@ class AiModelRepository(
             // Mercury 3's effort is now its reasoning setting (ModelMigrations moves its users).
             "mercury:mercury-3-instant",
             // LLM7 answers these with 400 "model currently unavailable" (2026-10-22).
-            "DeepSeek-V4-Flash-0731", "GLM-5.3-Flash"
+            "DeepSeek-V4-Flash-0731", "GLM-5.3-Flash",
+            // Cloudflare's GLM-4.7 Flash: its text tool calls are unreliable, so it
+            // could not stand in for anything in an agent run (2026-10-23).
+            "cfai:@cf/zai-org/glm-4.7-flash"
         )
+
+        /**
+         * Providers removed because their keyless capacity could not carry an
+         * agent run (~20-60 model calls in 5-15 minutes, 2026-10-23):
+         * Pollinations (about one reply per 30 s), VLM Run (30 requests an
+         * hour, 100 a day), OpenBMB's MiniCPM demo (four requests at a time
+         * across all visitors, and it logs conversations).
+         */
+        internal val REMOVED_PROVIDERS = listOf("POLLINATIONS", "VLM_RUN", "MINICPM")
 
         /** Retired upstream, removed only from the provider that dropped them (the ids live on elsewhere). */
         private val RETIRED_SEEDS = listOf(

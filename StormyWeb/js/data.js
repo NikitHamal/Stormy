@@ -21,15 +21,15 @@ export const state = {
   providers: {
     yours: [{ name: 'My vLLM box', url: 'http://10.0.0.4:8000/v1', status: '12 models · 1 key' }],
     builtIn: [
-      ['K2 Horizon (community)', 'Ready · no key needed', true], ['Kilo Code', 'Ready · key optional', true], ['Pollinations', 'Ready · no key needed', true],
-      ['OVHcloud AI Endpoints', 'Ready · key optional', true], ['DeepSeek', 'Needs a key', false], ['Moonshot (Kimi)', 'Needs a key', false],
+      ['K2 Horizon (community)', 'Ready · no key needed', true], ['Kilo Code', 'Ready · key optional', true], ['Mercury (community)', 'Ready · no key needed', true],
+      ['OVHcloud AI Endpoints', 'Needs a key', false], ['DeepSeek', 'Needs a key', false], ['Moonshot (Kimi)', 'Needs a key', false],
       ['Anthropic', 'Needs a key', false], ['OpenAI', 'Needs a key', false], ['xAI', 'Needs a key', false], ['Z.ai (GLM)', 'Needs a key', false],
       ['Groq', '2 keys', true], ['Google Gemini', 'Needs a key', false], ['OpenRouter', 'Needs a key', false], ['Ollama (local)', 'Ready · fetch models', true],
     ],
   },
   models: [
     ['Recommended', [['K2 Horizon 375B', 'K2 Horizon · 128K ctx · text tool calls'], ['Kilo Auto', 'Kilo Code · 200K ctx']]],
-    ['Free · no key', [['Qwen 3.5 122B', 'OVHcloud · 128K ctx'], ['openai-fast', 'Pollinations · 128K ctx']]],
+    ['Free · no key', [['Hy3', 'Hy3 (Tencent) · 256K ctx'], ['Laguna S 2.1', 'Laguna (Poolside) · 256K ctx']]],
     ['Your providers', [['llama-3.3-70b', 'Groq · 128K ctx'], ['deepseek-chat', 'DeepSeek · 64K ctx']]],
   ],
   files: { 'index.html': [

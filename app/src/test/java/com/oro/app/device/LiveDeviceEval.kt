@@ -123,7 +123,7 @@ class LiveDeviceEvalTest {
             "nvidia/nemotron-3.5-lightning:free",
             "laguna:laguna-s-2.1",
             "cfai:@cf/google/gemma-4-26b-a4b-it",
-            "minicpm:MiniCPM-V-4.7-35B-A3B",
+            "hy3:hy3",
         )
     }
 }

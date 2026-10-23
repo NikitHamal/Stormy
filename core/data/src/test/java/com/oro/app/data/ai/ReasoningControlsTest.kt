@@ -100,7 +100,6 @@ class ReasoningControlsTest {
         assertThat(wires(AiProvider.CEREBRAS, "gpt-oss-120b")).containsExactly("low", "medium", "high").inOrder()
         // Same model, no documented parameter on these hosts.
         assertThat(wires(AiProvider.OVHCLOUD, "gpt-oss-120b")).isNull()
-        assertThat(wires(AiProvider.POLLINATIONS, "openai-fast")).isNull()
         assertThat(wires(AiProvider.LLM7, "GLM-5.3-Flash")).isNull()
         assertThat(wires(AiProvider.NVIDIA, "deepseek-ai/deepseek-v4.1-flash")).isNull()
         assertThat(wires(AiProvider.UNIKEY, "unikey:x-ai/grok-4.3")).isNull()

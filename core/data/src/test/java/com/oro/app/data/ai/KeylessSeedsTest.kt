@@ -24,18 +24,13 @@ class KeylessSeedsTest {
         assertThat(ids).containsNoDuplicates()
         val shipped = SeedModels.all.map { it.id }.toSet()
         assertThat(ids.filter { it in shipped }).isEmpty()
-        // The VLM Run seed is the gateway's alias, not the canonical id Kilo also lists.
-        assertThat(ids).doesNotContain("qwen/qwen3.8-27b")
     }
 
     @Test
     fun `new seeds are found by id and listed under their provider`() {
         assertThat(AiModels.findModelById("nvidia/nemotron-3-ultra-550b-a55b:free")?.provider)
             .isEqualTo(AiProvider.KILOCODE)
-        assertThat(AiModels.getModelsForProvider(AiProvider.VLM_RUN).map { it.id }).containsExactly("qwen3.8-27b")
-        val llm7 = AiModels.getModelsForProvider(AiProvider.LLM7).map { it.id }
-        assertThat(llm7).contains("minimax-m2.7")
-        assertThat(llm7).containsAtLeastElementsIn(SeedModels[AiProvider.LLM7].map { it.id })
+        assertThat(AiModels.findModelById("hy3:hy3")?.provider).isEqualTo(AiProvider.HY3)
         assertThat(AiModels.getAllModels().map { it.id }).containsAtLeastElementsIn(KeylessSeeds.all.map { it.id })
     }
 
@@ -53,23 +48,47 @@ class KeylessSeedsTest {
         val native = KeylessFallback.candidates(from, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id }
         // Hy3 leads on the live eval's evidence; Kilo's Nemotron times out on agent-sized prompts.
         assertThat(native.take(2)).containsExactly("hy3:hy3", "nvidia/nemotron-3-ultra-550b-a55b:free").inOrder()
-        assertThat(native).containsAtLeast("cohere/north-mini-code:free", "qwen3.8-27b", "minimax-m2.7")
-        assertThat(native.none { it.startsWith("unikey:") || it.startsWith("mercury:") }).isTrue()
+        assertThat(native).containsAtLeast("cohere/north-mini-code:free", "dots-studio/dots-3-note-preview:free", "laguna:laguna-s-2.1")
+        assertThat(native.none { it.startsWith("unikey:") || it.startsWith("mercury:") || it.startsWith("cfai:") }).isTrue()
+    }
+
+    // ---------------------------------------- routes too limited for agent runs (2026-10-23)
+
+    @Test
+    fun `removed providers are gone and their stored rows are dropped by name`() {
+        val removed = com.oro.app.data.repository.AiModelRepository.REMOVED_PROVIDERS
+        assertThat(removed).containsExactly("POLLINATIONS", "VLM_RUN", "MINICPM")
+        assertThat(AiProvider.entries.map { it.name }).containsNoneIn(removed)
     }
 
     @Test
-    fun `anonymous vlm run catalogue is the seed whatever the body lists`() {
-        val body = """
-            {"object":"list","data":[
-              {"id":"google/gemini-3.5-flash-lite","object":"model","context_length":1048576},
-              {"id":"qwen/qwen3.8-27b","object":"model","aliases":["Qwen/Qwen3.8-27B","qwen3.8-27b"],"context_length":168000}
-            ]}
-        """
-        val service = OpenAiCompatibleModelService()
-        assertThat(service.parseModels(AiProvider.VLM_RUN, body, hasKey = false).map { it.id })
-            .containsExactly("qwen3.8-27b")
-        // A key unlocks the paid catalogue, listed as the gateway names it.
-        assertThat(service.parseModels(AiProvider.VLM_RUN, body, hasKey = true).map { it.id })
-            .containsAtLeast("google/gemini-3.5-flash-lite", "qwen/qwen3.8-27b")
+    fun `ovhcloud and llm7 are key-only now, with no keyless seeds or stand-ins`() {
+        for (provider in listOf(AiProvider.OVHCLOUD, AiProvider.LLM7)) {
+            assertThat(provider.requiresApiKey).isTrue()
+            assertThat(AiModels.getModelsForProvider(provider)).isEmpty()
+        }
+        val keyOnly = com.oro.app.data.repository.ModelMigrations.KEY_ONLY_NOW.values.flatten()
+        assertThat(KeylessFallback.order).containsNoneIn(keyOnly)
+        assertThat(KeylessFallback.order).containsNoneIn(com.oro.app.data.repository.ModelMigrations.REMOVED_KEYLESS)
+    }
+
+    @Test
+    fun `removed models are no longer shipped`() {
+        val shipped = AiModels.getAllModels().map { it.id }
+        assertThat(shipped).containsNoneIn(com.oro.app.data.repository.ModelMigrations.REMOVED_KEYLESS)
+        assertThat(shipped).containsNoneIn(com.oro.app.data.repository.ModelMigrations.KEY_ONLY_NOW.values.flatten())
+    }
+
+    @Test
+    fun `every keyless provider left takes part in the fallback, and text-mode requests find stand-ins`() {
+        val keylessProviders = AiModels.getAllModels()
+            .filter { it.provider.worksWithoutKey && it.provider != AiProvider.CUSTOM }
+            .map { it.provider }.toSet()
+        val inOrder = KeylessFallback.order.mapNotNull { AiModels.findModelById(it)?.provider }.toSet()
+        assertThat(inOrder).containsAtLeastElementsIn(keylessProviders)
+        KeylessFallback.order.forEach { KeylessFallback.markHealthy(it) }
+        val text = KeylessFallback.candidates(SeedModels.default, needsNativeTools = false, enabled = null) { AiModels.findModelById(it) }
+        assertThat(text.map { it.id }).containsAtLeast("hy3:hy3", "cfai:@cf/google/gemma-4-26b-a4b-it", "k2:IFM/K2-Horizon-375B-A23B")
+        assertThat(text.map { it.id }).doesNotContain(SeedModels.default.id)
     }
 }

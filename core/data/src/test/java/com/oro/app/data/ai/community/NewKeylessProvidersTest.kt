@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
 
-/** Hy3, MiniCPM and Laguna (Hugging Face Spaces) and Cloudflare's AI Playground, with frames recorded 2026-10-23. */
+/** Hy3 and Laguna (Hugging Face Spaces) and Cloudflare's AI Playground, with frames recorded 2026-10-23. */
 class NewKeylessProvidersTest {
 
     private fun json(s: String) = AiHttp.json.parseToJsonElement(s)
@@ -108,9 +108,9 @@ class NewKeylessProvidersTest {
 
     @Test
     fun `a reply cut off by the space's output cap says so`() {
-        val p = HfSpaceClient.QueueParser(HfSpaces.MiniCpm)
+        val p = HfSpaceClient.QueueParser(HfSpaces.Laguna)
         val events = p.onMessage(
-            """{"msg":"process_completed","output":{"data":[{"content":"<!doctype html><html>","reasoning":"","finish_reason":"length"}]},"success":true}"""
+            """{"msg":"process_completed","output":{"data":[{"event":"done","text":"","assistant":{"role":"assistant","content":"<!doctype html><html>"},"finish_reason":"length"}]},"success":true}"""
         )
         assertThat(events.filterIsInstance<StreamEvent.FinishReason>().single().reason).isEqualTo("length")
     }
@@ -170,91 +170,6 @@ class NewKeylessProvidersTest {
         assertThat(history[2].jsonObject["tool_call_id"]!!.jsonPrimitive.content).isEqualTo("t1")
         assertThat(data[3].jsonPrimitive.content).isEqualTo("high")
         assertThat(data[8].jsonPrimitive.content).isEmpty()
-    }
-
-    @Test
-    fun `minicpm gets paired turns with instructions in the first one`() {
-        val data = HfSpaces.MiniCpm.inputs(
-            "MiniCPM-V-4.7-35B-A3B",
-            listOf(
-                ChatRequestMessage("system", "Be brief."),
-                ChatRequestMessage("user", "One"),
-                ChatRequestMessage("assistant", "Uno"),
-                ChatRequestMessage("user", "Two")
-            ),
-            null, "off"
-        )!!
-        assertThat(data).hasSize(18)
-        assertThat(data[0].jsonPrimitive.content).isEqualTo("Two")
-        val turn = data[1].jsonArray.single().jsonArray
-        assertThat(turn[0].jsonPrimitive.content).startsWith("<instructions>\nBe brief.")
-        assertThat(turn[1].jsonPrimitive.content).isEqualTo("Uno")
-        assertThat(turn[3].jsonArray).isEmpty()
-        assertThat(data[3].jsonPrimitive.content).isEqualTo("false")
-        assertThat(data[14]).isEqualTo(JsonNull)
-        assertThat(data[16]).isEqualTo(JsonNull)
-        assertThat(data[17].jsonPrimitive.content).isEqualTo("MiniCPM-V-4.7-35B-A3B")
-    }
-
-    @Test
-    fun `minicpm places tool exchanges where the space expects them`() {
-        val call1 = ToolCallRequest("t1", function = FunctionCall("write_file", "{\"path\":\"a\"}"))
-        val call2 = ToolCallRequest("t2", function = FunctionCall("read_file", "{\"path\":\"a\"}"))
-        val dangling = ToolCallRequest("t9", function = FunctionCall("read_file", "{}"))
-        val data = HfSpaces.MiniCpm.inputs(
-            "MiniCPM-V-4.7-35B-A3B",
-            listOf(
-                ChatRequestMessage("system", "Rules"),
-                ChatRequestMessage("user", "Make a"),
-                ChatRequestMessage("assistant", null, toolCalls = listOf(call1)),
-                ChatRequestMessage("tool", "Wrote a", toolCallId = "t1", name = "write_file"),
-                ChatRequestMessage("assistant", "Done."),
-                ChatRequestMessage("user", "Check it"),
-                ChatRequestMessage("assistant", null, toolCalls = listOf(dangling)),
-                ChatRequestMessage("assistant", "Reading.", toolCalls = listOf(call2)),
-                ChatRequestMessage("tool", "<h1>a</h1>", toolCallId = "t2", name = "read_file")
-            ),
-            listOf(writeFile, Tool(function = FunctionDefinition("bad name!", "x", json("{\"type\":\"object\"}")))), null
-        )!!
-        assertThat(data[0].jsonPrimitive.content).isEqualTo("Check it")
-        val turn = data[1].jsonArray.single().jsonArray
-        assertThat(turn[0].jsonPrimitive.content).startsWith("<instructions>\nRules")
-        assertThat(turn[1].jsonPrimitive.content).isEqualTo("Done.")
-        val past = turn[3].jsonArray
-        assertThat(past.map { it.jsonObject["role"]!!.jsonPrimitive.content }).containsExactly("assistant", "tool").inOrder()
-        // The current exchange: the unanswered call is dropped, the answered one kept with its result.
-        val current = data[16].jsonArray
-        assertThat(current).hasSize(2)
-        assertThat(current[0].jsonObject["tool_calls"]!!.jsonArray.single().jsonObject["id"]!!.jsonPrimitive.content).isEqualTo("t2")
-        assertThat(current[1].jsonObject["tool_call_id"]!!.jsonPrimitive.content).isEqualTo("t2")
-        // Only names the Space accepts are offered.
-        val tools = data[14].jsonArray
-        assertThat(tools.map { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content }).containsExactly("write_file")
-        assertThat(data[3].jsonPrimitive.content).isEqualTo("true")
-    }
-
-    @Test
-    fun `minicpm reads native tool calls from its frames`() {
-        val p = HfSpaceClient.QueueParser(HfSpaces.MiniCpm)
-        val events = p.onMessage(
-            """{"msg":"process_completed","output":{"data":[{"content":"","reasoning":"","finish_reason":"tool_calls","tool_calls":[{"id":"chatcmpl-tool-984a","type":"function","function":{"name":"write_file","arguments":"{\"path\": \"index.html\", \"content\": \"<h1>Hi</h1>\"}"}}]}]},"success":true}"""
-        )
-        val call = events.filterIsInstance<StreamEvent.ToolCalls>().single().toolCalls.single()
-        assertThat(call.id).isEqualTo("chatcmpl-tool-984a")
-        assertThat(call.function.arguments).contains("index.html")
-        assertThat(events.filterIsInstance<StreamEvent.FinishReason>().single().reason).isEqualTo("tool_calls")
-    }
-
-    @Test
-    fun `minicpm frames are cumulative content and reasoning`() {
-        val p = HfSpaceClient.QueueParser(HfSpaces.MiniCpm)
-        val events = listOf(
-            """{"msg":"process_generating","output":{"data":[{"content":"P","reasoning":"","finish_reason":null}]},"success":true}""",
-            """{"msg":"process_generating","output":{"data":[[["append",["content"],"ONG"]]]},"success":true}""",
-            """{"msg":"process_completed","output":{"data":[{"content":"PONG","reasoning":"","finish_reason":"stop"}]},"success":true}"""
-        ).flatMap { p.onMessage(it) }
-        assertThat(events.filterIsInstance<StreamEvent.ContentDelta>().joinToString("") { it.content }).isEqualTo("PONG")
-        assertThat(events.last()).isEqualTo(StreamEvent.Completed)
     }
 
     @Test
@@ -415,9 +330,8 @@ class NewKeylessProvidersTest {
         assertThat(hy3.provider).isEqualTo(AiProvider.HY3)
         assertThat(hy3.supportsToolCalls).isTrue()
         assertThat(hy3.contextLength).isEqualTo(262_144)
-        assertThat(AiModels.findModelById("minicpm:MiniCPM-V-4.7-35B-A3B")!!.supportsToolCalls).isTrue()
         assertThat(AiModels.findModelById("laguna:laguna-s-2.1")!!.supportsToolCalls).isTrue()
-        listOf("cfai:@cf/zai-org/glm-4.7-flash", "cfai:@cf/google/gemma-4-26b-a4b-it").forEach { id ->
+        listOf("cfai:@cf/google/gemma-4-26b-a4b-it").forEach { id ->
             val m = AiModels.findModelById(id)!!
             assertThat(m.supportsToolCalls).isFalse()
             assertThat(m.provider.worksWithoutKey).isTrue()
@@ -429,20 +343,16 @@ class NewKeylessProvidersTest {
     @Test
     fun `tool-taking demos stand in for native tool requests, text-only bridges cannot`() {
         // One Space client, several sites: each adapter says whether its site takes tools.
-        listOf(AiProvider.HY3, AiProvider.MINICPM, AiProvider.LAGUNA).forEach {
+        listOf(AiProvider.HY3, AiProvider.LAGUNA).forEach {
             assertThat(CommunityClients.takesTools(it)).isTrue()
         }
         assertThat(CommunityClients.takesTools(AiProvider.CLOUDFLARE_PLAYGROUND)).isFalse()
-        val anchor = AiModels.findModelById("cfai:@cf/zai-org/glm-4.7-flash")!!
+        val anchor = AiModels.findModelById("k2:IFM/K2-Horizon-375B-A23B")!!
         val native = KeylessFallback.candidates(anchor, needsNativeTools = true, enabled = null) { AiModels.findModelById(it) }.map { it.id }
         assertThat(native).containsAtLeast("hy3:hy3", "laguna:laguna-s-2.1").inOrder()
         assertThat(native).doesNotContain("cfai:@cf/google/gemma-4-26b-a4b-it")
-        // MiniCPM's demo logs every request: only used when the user picks it.
-        assertThat(native).doesNotContain("minicpm:MiniCPM-V-4.7-35B-A3B")
         val text = KeylessFallback.candidates(anchor, needsNativeTools = false, enabled = null) { AiModels.findModelById(it) }.map { it.id }
         assertThat(text).containsAtLeast("laguna:laguna-s-2.1", "cfai:@cf/google/gemma-4-26b-a4b-it")
-        // Unreliable text tool calls: selectable, never a stand-in.
-        assertThat(KeylessFallback.order).doesNotContain("cfai:@cf/zai-org/glm-4.7-flash")
     }
 
     @Test
@@ -452,7 +362,7 @@ class NewKeylessProvidersTest {
         assertThat(hy3.initial).isEqualTo("high")
         assertThat(ReasoningControls.forModel(AiModels.findModelById("laguna:laguna-s-2.1")!!)!!.levels.map { it.wire })
             .containsExactly("off", "on").inOrder()
-        assertThat(ReasoningControls.forModel(AiModels.findModelById("cfai:@cf/zai-org/glm-4.7-flash")!!)).isNull()
+        assertThat(ReasoningControls.forModel(AiModels.findModelById("cfai:@cf/google/gemma-4-26b-a4b-it")!!)).isNull()
     }
 
     @Test

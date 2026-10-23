@@ -194,13 +194,19 @@ class ProviderRateLimiterTest {
     @Test
     fun `an hourly cap counts as a spent budget until the hour frees up`() = runTest {
         val clock = FakeClock()
-        val limiter = ProviderRateLimiter(now = { clock.now }, sleep = clock::sleep)
-        // VLM Run anonymous: 30 an hour per IP (paced at 28).
-        repeat(28) { limiter.acquire(AiProvider.VLM_RUN, 100) }
-        assertThat(limiter.isBudgetSpent(AiProvider.VLM_RUN)).isTrue()
-        assertThat(limiter.isDailyBudgetSpent(AiProvider.VLM_RUN)).isFalse()
+        // No shipped provider has an hourly cap now (VLM Run's 30 an hour was removed as
+        // too small for agent runs), so the limiter gets one for the test.
+        val hourly = RateLimit(requestsPerMinute = 60, tokensPerMinute = 1_000_000, requestsPerHour = 28)
+        val limiter = ProviderRateLimiter(
+            now = { clock.now },
+            sleep = clock::sleep,
+            limits = { if (it == AiProvider.KILOCODE) hourly else null }
+        )
+        repeat(28) { limiter.acquire(AiProvider.KILOCODE, 100) }
+        assertThat(limiter.isBudgetSpent(AiProvider.KILOCODE)).isTrue()
+        assertThat(limiter.isDailyBudgetSpent(AiProvider.KILOCODE)).isFalse()
         clock.now += 61 * 60_000L
-        assertThat(limiter.isBudgetSpent(AiProvider.VLM_RUN)).isFalse()
+        assertThat(limiter.isBudgetSpent(AiProvider.KILOCODE)).isFalse()
         // Providers without hourly or daily caps are never "spent".
         assertThat(limiter.isBudgetSpent(AiProvider.CEREBRAS)).isFalse()
     }

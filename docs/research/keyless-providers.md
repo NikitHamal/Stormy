@@ -207,3 +207,43 @@ GLM's `<arg_key>` tags; with the tools in GLM's own template (`# Tools … <tool
   after 35 s).
 - MiniCPM's demo writes every request and raw model output to log files (its `app.py`); the provider note in the
   app says so.
+
+## 2026-10-23 — routes too limited for agent runs, removed
+
+**The bar.** A typical Oro coding run is ~20–60 model calls in ~5–15 minutes with 10–60k-token prompts
+(live-eval.md: Hy3 built a site in 5–14 minutes over 8–23 turns; one 60-turn run took 31 minutes on a
+2-requests-a-minute route). A keyless route that cannot sustain that for one user — about 2–3 requests a minute or
+less, ~150 requests a day or less, a daily token budget below one run, or per-request caps that break long prompts —
+cannot carry the agent, and as a fallback stand-in it only adds failures. Measured limits below come from this file,
+live-eval.md, device-live-eval.md and the RateLimits table.
+
+| Route | Limit (source) | One agent run needs | Decision |
+|---|---|---|---|
+| **Pollinations** anonymous (`openai-fast`) | about one reply per 30 s per IP, then 402 `FREE_LIMIT` (probed 2026-10-17) | 40 calls ≈ 20 min of waiting alone | **Provider removed** (keyless-only in Oro) |
+| **VLM Run** (`qwen3.8-27b`) | 10/min, **30/hour, 100/day** per IP (docs.vlm.run); the live eval used its quota up within a run (live-eval.md) | a run is 20–60 calls; three runs a day exceed 100 | **Provider removed** |
+| **OpenBMB MiniCPM demo** | **4 requests at a time across all visitors**; logs every request and output (its `app.py`); content filter refused ordinary screens 5 times in a row (device-live-eval.md) | concurrent capacity shared with the world; never a safe stand-in | **Provider removed** (client adapter deleted) |
+| **OVHcloud** anonymous (Qwen3.5 397B, Qwen3.8 27B, Llama 3.3 70B) | **2 requests/min per model** per IP; a 60-turn eval run took 1,890 s (live-eval.md) | 40 calls ≥ 20 min | **Key-only now** (free OVHcloud account); keyless seeds and fallback entries dropped |
+| **LLM7** anonymous (Codestral, GPT-OSS 20B, Auto, MiniMax M2.7) | **~100k tokens a day** per IP: a 40k prompt after a few probes got 429 "Daily token quota exceeded" | one run is 0.5–3M tokens | **Key-only now** (free token at token.llm7.io); keyless seeds and fallback entries dropped |
+| **Cloudflare playground GLM-4.7 Flash** | not a rate problem: its text tool calls are unreliable (unnamed parameters, escaped HTML), so it was never a stand-in | — | **Seed removed** (Gemma 4 26B on the same playground stays) |
+
+**What stays, and why it clears the bar**
+
+- **Mercury 3** (default): >1,000 tokens/s, 8 back-to-back requests with no limit hit, 27 turns for three briefs
+  (model-profiles.md).
+- **Hy3** (Tencent's Space): 64 concurrent, built and self-checked a landing page, an app and a game in 5–10 minutes
+  each (live-eval.md). First stand-in for native-tool requests.
+- **Kilo free pool** (Nemotron 3 Ultra/Super VL/Lightning, North Mini Code, Dots3, Flint, Kilo Auto, OpenRouter free,
+  Laguna, Reflection Beam): ~200 requests/hour per IP — enough for a run; its 429s seen only on molab's IP shared by two
+  evals at once.
+- **Laguna** (Poolside's Space): OpenRouter's free route on Poolside's key; one "temporarily rate-limited" in ~30
+  calls; passed 11/11 device scenarios.
+- **Cloudflare Gemma 4 26B**: per-minute caps shared by all visitors, 6k-character newest message and ~10-message
+  conversations, all handled by the client (split, fold); passed 11/11 device scenarios with 5–13 s turns.
+- **UniKey, K2 Horizon, Ptero, Qwen web**: no observed throughput limit at agent scale (UniKey's per-visitor trial
+  is rotated per request — flagged before; unchanged here). Qwen-family stand-in is now Ptero's Qwen 3.7 Flash only.
+
+**Migrations.** Rows of the removed providers are dropped by name at every launch (`AiModelRepository.REMOVED_PROVIDERS`),
+and rows whose provider no longer exists are never shown as another provider's. Once (`ModelMigrations` v2): OVHcloud's
+and LLM7's rows go unless the user has a key for them, and every saved choice of a removed model (projects' last-used
+model, the selected model, a default the user set) moves to Mercury 3 (High). A pick of a model that still exists is
+never touched.

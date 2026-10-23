@@ -29,7 +29,9 @@ import kotlinx.coroutines.sync.withLock
  */
 class ProviderRateLimiter(
     private val now: () -> Long = System::currentTimeMillis,
-    private val sleep: suspend (Long) -> Unit = { delay(it) }
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
+    /** Budget per provider; [RateLimits] in the app, a fixed table in tests. */
+    private val limits: (AiProvider) -> RateLimit? = { RateLimits[it] }
 ) {
     private data class Spend(val at: Long, val tokens: Int)
 
@@ -46,7 +48,7 @@ class ProviderRateLimiter(
      *   nothing was waited on, which is the overwhelmingly common case.
      */
     suspend fun acquire(provider: AiProvider, estimatedTokens: Int): Long {
-        val limit = RateLimits[provider] ?: return 0L
+        val limit = limits(provider) ?: return 0L
 
         var totalWaited = 0L
         while (true) {
@@ -102,7 +104,7 @@ class ProviderRateLimiter(
     private fun record(provider: AiProvider, estimatedTokens: Int) {
         val current = now()
         history.getOrPut(provider) { mutableListOf() }.add(Spend(current, estimatedTokens))
-        val limit = RateLimits[provider] ?: return
+        val limit = limits(provider) ?: return
         if (limit.requestsPerDay > 0) dayCount.getOrPut(provider) { mutableListOf() }.add(current)
         if (limit.requestsPerHour > 0) hourCount.getOrPut(provider) { mutableListOf() }.add(current)
     }
@@ -123,20 +125,20 @@ class ProviderRateLimiter(
 
     /** Whether the daily budget is spent; the caller should say so, not wait. */
     suspend fun isDailyBudgetSpent(provider: AiProvider): Boolean = mutex.withLock {
-        val limit = RateLimits[provider] ?: return false
+        val limit = limits(provider) ?: return false
         dailySpent(provider, limit, now())
     }
 
     /** Whether the hourly or the daily budget is spent: nothing more until it frees up. */
     suspend fun isBudgetSpent(provider: AiProvider): Boolean = mutex.withLock {
-        val limit = RateLimits[provider] ?: return false
+        val limit = limits(provider) ?: return false
         val current = now()
         hourlySpent(provider, limit, current) || dailySpent(provider, limit, current)
     }
 
     /** Requests still available this minute, for the UI. */
     suspend fun remainingThisMinute(provider: AiProvider): Int? = mutex.withLock {
-        val limit = RateLimits[provider] ?: return null
+        val limit = limits(provider) ?: return null
         val current = now()
         val window = history.getOrPut(provider) { mutableListOf() }
         window.removeAll { current - it.at >= WINDOW_MS }

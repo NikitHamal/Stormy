@@ -110,9 +110,8 @@ object ReasoningControls {
                 "high",
                 ReasoningWire.CLIENT
             )
-            // On/off switches the demos expose (both default to on).
+            // The on/off switch Poolside's demo exposes (default on).
             AiProvider.LAGUNA -> ReasoningControl("Reasoning", levels("off", "on"), "on", ReasoningWire.CLIENT)
-            AiProvider.MINICPM -> ReasoningControl("Thinking", levels("off", "on"), "on", ReasoningWire.CLIENT)
             AiProvider.GROQ -> when {
                 id.startsWith("gpt-oss") -> effort("medium", "low", "medium", "high")
                 id.startsWith("qwen3.8") -> effort("default", "none", "default", "low", "medium", "high")

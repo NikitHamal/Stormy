@@ -9,6 +9,11 @@ package com.oro.app.data.ai
  * and molab) with a streamed native tool call (`write_file` with the right
  * arguments) and a ~50k-token prompt. Windows are the ones the serving
  * gateway reports for these ids.
+ *
+ * Only routes that sustain an agent run are kept (~20-60 model calls in 5-15
+ * minutes with 10-60k-token prompts): LLM7's anonymous budget (about 100k
+ * tokens a day), VLM Run's 30 requests an hour and OpenBMB's MiniCPM demo
+ * (four requests at a time across all visitors) were removed on 2026-10-23.
  */
 object KeylessSeeds {
 
@@ -48,26 +53,6 @@ object KeylessSeeds {
     )
 
     /**
-     * LLM7's anonymous tier (`usage_based_only: false`, tier "turbo").
-     * Its anonymous token budget is small (about 100k tokens a day per IP),
-     * so it sits low in [KeylessFallback]'s order.
-     */
-    val llm7 = listOf(
-        model("minimax-m2.7", "MiniMax M2.7 (LLM7, no key)", AiProvider.LLM7, 204_800)
-    )
-
-    /**
-     * VLM Run's gateway takes anonymous callers (no Authorization header at
-     * all). `qwen3.8-27b` is the gateway's alias of `qwen/qwen3.8-27b`: the
-     * alias is seeded because the canonical id is also a paid model in Kilo's
-     * catalogue, and model ids are the table's primary key. 0.5-0.8 s to the
-     * first token; 10/min, 30/hour, 100/day per IP.
-     */
-    val vlmRun = listOf(
-        model("qwen3.8-27b", "Qwen3.8 27B (VLM Run, no key)", AiProvider.VLM_RUN, 168_000)
-    )
-
-    /**
      * New keyless providers from the 2026-10-23 survey (docs/research/keyless-providers.md),
      * each checked live with a streamed reply and a long prompt.
      *
@@ -81,28 +66,17 @@ object KeylessSeeds {
     /**
      * Cloudflare's AI Playground: Workers AI models over the Agents SDK
      * socket. Windows are the ones its own `getModels` reports. Only models
-     * that stream cleanly and finish long answers are seeded (gpt-oss-120b
-     * stops after a few hundred characters there; Llama 4 Scout and Qwen3
-     * repeat every chunk). The text protocol carries tools.
+     * that stream cleanly, finish long answers and follow the text tool
+     * protocol are seeded: Gemma 4 26B passed every live device scenario
+     * (docs/research/device-live-eval.md). GLM-4.7 Flash was dropped
+     * (2026-10-23): its text tool calls are unreliable, so it could not stand
+     * in for anything in an agent run. gpt-oss-120b stops after a few hundred
+     * characters there, Llama 4 Scout and Qwen3 repeat every chunk, and
+     * GLM-5.3 Flash answered "rate limited" on every try.
      */
     val cloudflare = listOf(
         // Follows Oro's text tool protocol exactly (verified live).
-        model("cfai:@cf/google/gemma-4-26b-a4b-it", "Gemma 4 26B (Cloudflare, no key)", AiProvider.CLOUDFLARE_PLAYGROUND, 256_000, thinking = true, tools = false),
-        // Good for chat; its text tool calls are unreliable (unnamed parameters, escaped HTML), so
-        // it is not a fallback stand-in.
-        model("cfai:@cf/zai-org/glm-4.7-flash", "GLM-4.7 Flash (Cloudflare, no key)", AiProvider.CLOUDFLARE_PLAYGROUND, 131_072, thinking = true, tools = false)
-        // GLM-5.3 Flash is listed too but answered "rate limited" (a cap shared by all the
-        // playground's visitors) on every try over two hours, so it is not seeded.
-    )
-
-    /**
-     * OpenBMB's own demo of MiniCPM-V 4.7 (35B-A3B MoE): native tool calls
-     * (a call, its result and a follow-up turn verified live). The model
-     * reads 262K tokens; the relay's limit is unpublished, so a safe window
-     * is set (a ~32k-token prompt answered correctly).
-     */
-    val minicpm = listOf(
-        model("minicpm:MiniCPM-V-4.7-35B-A3B", "MiniCPM-V 4.7 35B-A3B (OpenBMB, no key)", AiProvider.MINICPM, 131_072, thinking = true)
+        model("cfai:@cf/google/gemma-4-26b-a4b-it", "Gemma 4 26B (Cloudflare, no key)", AiProvider.CLOUDFLARE_PLAYGROUND, 256_000, thinking = true, tools = false)
     )
 
     /**
@@ -116,11 +90,8 @@ object KeylessSeeds {
 
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
         AiProvider.KILOCODE to kilo,
-        AiProvider.LLM7 to llm7,
-        AiProvider.VLM_RUN to vlmRun,
         AiProvider.HY3 to hy3,
         AiProvider.CLOUDFLARE_PLAYGROUND to cloudflare,
-        AiProvider.MINICPM to minicpm,
         AiProvider.LAGUNA to laguna
     )
 

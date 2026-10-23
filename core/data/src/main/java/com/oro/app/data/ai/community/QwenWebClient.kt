@@ -77,7 +77,7 @@ object QwenBrowser {
  * the real site whose own scripts sign the request. When that page is shown
  * the captcha too, the request fails fast with a "browser check" error, so
  * [com.oro.app.data.ai.KeylessFallback] parks the site for a while and another
- * free Qwen (VLM Run, OVHcloud, Ptero) answers instead.
+ * free Qwen (Ptero's) answers instead, then the strongest free stand-ins.
  *
  * Each request starts a fresh server-side chat holding the whole transcript,
  * so the conversation lives in Oro, not on the site.

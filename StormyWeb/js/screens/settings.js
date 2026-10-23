@@ -105,7 +105,7 @@ export const skillsScreen = { render() {
 } };
 
 export const aiModelsScreen = { render() {
-  const el = frame('AI models', `<div class="chips" style="padding:0 16px 8px">${['All', 'K2 Horizon', 'Kilo Code', 'OVHcloud', 'Groq', 'DeepSeek'].map((c, i) => `<span class="chip ${i ? '' : 'on'}">${c}</span>`).join('')}</div>
+  const el = frame('AI models', `<div class="chips" style="padding:0 16px 8px">${['All', 'K2 Horizon', 'Kilo Code', 'Hy3', 'Groq', 'DeepSeek'].map((c, i) => `<span class="chip ${i ? '' : 'on'}">${c}</span>`).join('')}</div>
     ${state.models.map(([g, list]) => `<div class="section-label t-label-s-e muted">${g}</div><div style="padding:0 16px">${list.map(([n, c]) => `<div class="row" style="padding:8px 4px"><span class="grow"><div class="t-body-l-e one">${n}</div><div class="t-body-s muted one">${c}</div></span>${sw(true, n)}</div>`).join('')}</div>`).join('')}`);
   bindSwitches(el);
   return el;

@@ -20,10 +20,13 @@ import java.util.concurrent.ConcurrentHashMap
  * any output switch models, so a reply is never stitched from two models.
  *
  * The order is by measurement (2026-10-22, every keyless model probed from
- * two networks with a streamed tool call and a ~50k-token prompt): strong
- * native-tool models with 1-3 s to the first token first, rate-paced ones
- * last. The community entries (UniKey, Mercury, K2, Ptero, Qwen) take no
- * tools, so they only ever stand in for text-mode requests.
+ * two networks with a streamed tool call and a ~50k-token prompt; the live
+ * evals of 2026-10-23): strong native-tool models with 1-3 s to the first
+ * token first. The community entries (UniKey, Mercury, K2, Ptero, Qwen,
+ * Cloudflare's Gemma) take no native tools, so they only ever stand in for
+ * text-mode requests. Routes too limited to carry an agent run (Pollinations,
+ * VLM Run, the anonymous OVHcloud and LLM7 tiers, MiniCPM's demo) were
+ * removed on 2026-10-23 (docs/research/keyless-providers.md).
  */
 object KeylessFallback {
 
@@ -44,18 +47,11 @@ object KeylessFallback {
         "unikey:claude-opus-4-8",
         // Mercury 3 (the default): over 1,000 tokens/s when its site lets the phone through.
         "mercury:mercury-3",
-        // VLM Run: 0.5-0.8 s to the first token, but 100 requests a day per IP.
-        "qwen3.8-27b",
-        "Qwen3.8-27B",
         "poolside/laguna-s-2.1:free",
         "nvidia/nemotron-3.5-lightning:free",
         // Poolside's own Laguna demo: a second route to Laguna S 2.1, on the demo's key (tools via GLM's template).
         "laguna:laguna-s-2.1",
         "unikey:minimax/minimax-m3",
-        "Qwen3.5-397B-A17B",
-        // LLM7's anonymous budget is ~100k tokens a day per IP.
-        "minimax-m2.7",
-        "codestral-latest",
         "reflection/beam-free",
         "recursive/flint-v1.0:free",
         // Text-mode stand-in found 2026-10-23: Cloudflare's playground (per-minute
@@ -63,8 +59,7 @@ object KeylessFallback {
         "cfai:@cf/google/gemma-4-26b-a4b-it",
         "k2:IFM/K2-Horizon-375B-A23B",
         "ptero:deepseek-v4.1-flash:free",
-        "qwen:qwen3.7-plus",
-        "openai-fast"
+        "qwen:qwen3.7-plus"
     )
 
     /**
@@ -75,19 +70,6 @@ object KeylessFallback {
      */
     @Volatile
     var enabledIds: Set<String>? = null
-
-    /**
-     * Providers that are never stand-ins, only used when the user picks them:
-     * OpenBMB's MiniCPM demo writes every request and reply to its logs, so a
-     * conversation must not land there just because another model was busy.
-     */
-    private val NEVER_STAND_IN = setOf(AiProvider.MINICPM)
-
-    /**
-     * Sites whose upstream swallows text-protocol tool calls: usable with
-     * native tools only, never for a text-mode request.
-     */
-    private val NATIVE_TOOLS_ONLY = setOf(AiProvider.MINICPM)
 
     /** Model id -> time until which it is skipped. */
     private val busyUntil = ConcurrentHashMap<String, Long>()
@@ -187,14 +169,9 @@ object KeylessFallback {
         return (family + ORDER.filter { it !in family }).asSequence()
             .filter { it != model.id && !isBusy(it) && (enabled == null || it in enabled) }
             .mapNotNull(lookup)
-            .filter { it.provider !in NEVER_STAND_IN }
             .filter {
-                if (needsNativeTools) {
-                    it.supportsToolCalls &&
-                        (!it.provider.isCommunity || com.oro.app.data.ai.community.CommunityClients.takesTools(it.provider))
-                } else {
-                    it.provider !in NATIVE_TOOLS_ONLY
-                }
+                !needsNativeTools || (it.supportsToolCalls &&
+                    (!it.provider.isCommunity || com.oro.app.data.ai.community.CommunityClients.takesTools(it.provider)))
             }
             .filter { minContextTokens <= 0 || it.contextLength >= minContextTokens }
             // chat.qwen.ai refused this request: the site's other models would be refused too.
@@ -203,10 +180,11 @@ object KeylessFallback {
     }
 
     /**
-     * Keyless hosts of the same model family, best first. Qwen: VLM Run's
-     * Qwen3.8 27B (native tools, under a second to the first token), OVHcloud's
-     * Qwen3.8 27B and Qwen3.5 397B, then Ptero's Qwen 3.7 Flash (text only) --
-     * all verified keyless from two networks on 2026-10-23.
+     * Keyless hosts of the same model family, best first. Qwen: Ptero's Qwen
+     * 3.7 Flash (text only, verified keyless from two networks on 2026-10-23).
+     * VLM Run's and OVHcloud's anonymous Qwen routes (30 requests an hour, 2 a
+     * minute) were removed as too limited for an agent run; the global order
+     * follows with stronger stand-ins.
      */
     internal fun sameFamily(model: AiModel): List<String> {
         val qwen = model.provider == AiProvider.QWEN_WEB ||
@@ -214,7 +192,7 @@ object KeylessFallback {
         return if (qwen) QWEN_FAMILY else emptyList()
     }
 
-    private val QWEN_FAMILY = listOf("qwen3.8-27b", "Qwen3.8-27B", "Qwen3.5-397B-A17B", "ptero:qwen3.7-flash:free")
+    private val QWEN_FAMILY = listOf("ptero:qwen3.7-flash:free")
 
     /** Ids in fallback order, for tests and diagnostics. */
     internal val order: List<String> get() = ORDER

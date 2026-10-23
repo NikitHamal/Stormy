@@ -283,27 +283,21 @@ object RateLimits {
         AiProvider.MISTRAL to RateLimit(requestsPerMinute = 10, tokensPerMinute = 50_000),
         AiProvider.NVIDIA to RateLimit(requestsPerMinute = 38, tokensPerMinute = 100_000),
         AiProvider.OPENROUTER to RateLimit(requestsPerMinute = 18, tokensPerMinute = 50_000, requestsPerDay = 950),
-        // Anonymous tiers, measured 2026-10-17. Pollinations answers about one
-        // request per 30 s per IP (402 FREE_LIMIT beyond that); OVH allows 2
-        // requests/min per model; Kilo's free pool about 200/hour.
-        AiProvider.POLLINATIONS to RateLimit(requestsPerMinute = 2, tokensPerMinute = 100_000),
-        AiProvider.OVHCLOUD to RateLimit(requestsPerMinute = 2, tokensPerMinute = 200_000),
+        // Kilo's anonymous free pool: about 200 requests an hour per IP (2026-10-17).
+        // OVHcloud and LLM7 are key-only now (their anonymous tiers, 2/min and
+        // ~100k tokens a day, could not carry an agent run); keyed tiers are not paced.
         AiProvider.KILOCODE to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000, requestsPerDay = 4_000),
-        // LLM7 anonymous: 10/min, 60/hour; Ptero 30/min per guest token (rotated).
-        AiProvider.LLM7 to RateLimit(requestsPerMinute = 6, tokensPerMinute = 200_000),
+        // Ptero: 30/min per guest token (rotated).
         AiProvider.PTERO to RateLimit(requestsPerMinute = 20, tokensPerMinute = 300_000),
         // Unpublished guest limits: paced so one phone never looks like a scraper.
         AiProvider.UNIKEY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
         AiProvider.MERCURY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
         // Inception's free tier: 1,000 requests and 1M input tokens a minute.
         AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000),
-        // VLM Run anonymous: 10/min, 30/hour, 100/day per IP (docs.vlm.run, 2026-10-22).
-        AiProvider.VLM_RUN to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000, requestsPerDay = 95, requestsPerHour = 28),
         // Labs' public demos (2026-10-23): shared with every visitor, so paced gently.
-        // Hy3's Space runs 64 requests at a time; MiniCPM's 4; Laguna's rides a free
-        // OpenRouter route; Cloudflare caps each model per minute across its playground.
+        // Hy3's Space runs 64 requests at a time; Laguna's rides a free OpenRouter
+        // route; Cloudflare caps each model per minute across its playground.
         AiProvider.HY3 to RateLimit(requestsPerMinute = 15, tokensPerMinute = 600_000),
-        AiProvider.MINICPM to RateLimit(requestsPerMinute = 6, tokensPerMinute = 300_000),
         AiProvider.LAGUNA to RateLimit(requestsPerMinute = 6, tokensPerMinute = 300_000),
         AiProvider.CLOUDFLARE_PLAYGROUND to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000)
     )
@@ -317,7 +311,7 @@ object VisionSupport {
     private val PATTERNS = listOf(
         "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "claude", "gemini", "gemma-3", "llama-4", "pixtral",
         "mistral-medium", "mistral-small-3", "qwen-vl", "qwen2.5-vl", "qwen3-vl", "vl-", "-vl", "vision",
-        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "nemotron-nano-vl", "openai-fast", "openai-large"
+        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "nemotron-nano-vl"
     )
     fun supports(modelId: String): Boolean {
         val id = modelId.lowercase()

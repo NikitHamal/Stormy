@@ -166,27 +166,6 @@ class LiveKeylessProvidersTest {
 
     @Test fun hy3AgentRoundTrip() = agentRoundTrip("hy3:hy3", 1_300, "low")
 
-    // -------------------------------------------------------------- MiniCPM
-
-    @Test fun minicpmPong() = pong("minicpm:MiniCPM-V-4.7-35B-A3B", "off")
-
-    @Test fun minicpmNativeToolCall() {
-        val events = run(
-            "minicpm:MiniCPM-V-4.7-35B-A3B",
-            listOf(
-                ChatRequestMessage("system", "You are a coding agent. Use tools to change files."),
-                ChatRequestMessage("user", "Create index.html containing just <h1>Hi</h1>. Use the tool.")
-            ),
-            "off", listOf(writeFileTool)
-        )
-        val call = events.filterIsInstance<StreamEvent.ToolCalls>().flatMap { it.toolCalls }.firstOrNull()
-        check(call?.function?.name == "write_file" && call.function.arguments.contains("index.html")) { "MiniCPM made no write_file call" }
-    }
-
-    @Test fun minicpmLongPrompt() = needle("minicpm:MiniCPM-V-4.7-35B-A3B", 1_300, "off")
-
-    @Test fun minicpmAgentRoundTrip() = agentRoundTrip("minicpm:MiniCPM-V-4.7-35B-A3B", 1_300, "off")
-
     // --------------------------------------------------------------- Laguna
 
     @Test fun lagunaPong() = pong("laguna:laguna-s-2.1", "off")
@@ -219,7 +198,7 @@ class LiveKeylessProvidersTest {
 
     // ----------------------------------------------------------- Cloudflare
 
-    @Test fun cloudflarePong() = pong("cfai:@cf/zai-org/glm-4.7-flash")
+    @Test fun cloudflarePong() = pong("cfai:@cf/google/gemma-4-26b-a4b-it")
 
     @Test fun gemmaTextProtocol() = textProtocol("cfai:@cf/google/gemma-4-26b-a4b-it")
 

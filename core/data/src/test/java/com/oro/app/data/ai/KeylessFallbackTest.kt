@@ -81,7 +81,7 @@ class KeylessFallbackTest {
     fun `a model the user switched off is never a stand-in`() {
         val all = KeylessFallback.candidates(anchor, needsNativeTools = false, enabled = null) { AiModels.findModelById(it) }.map { it.id }
         assertThat(all).contains("kilo-auto/free")
-        val only = setOf("kilo-auto/free", "codestral-latest")
+        val only = setOf("kilo-auto/free", "ptero:deepseek-v4.1-flash:free")
         val chosen = KeylessFallback.candidates(anchor, needsNativeTools = false, enabled = only) { AiModels.findModelById(it) }.map { it.id }
         assertThat(chosen).containsExactlyElementsIn(only.filter { it in all })
     }
@@ -92,7 +92,7 @@ class KeylessFallbackTest {
             AiModels.findModelById(it)
         }
         assertThat(big).isNotEmpty()
-        assertThat(big.map { it.id }).doesNotContain("codestral-latest") // 32K
+        assertThat(big.map { it.id }).doesNotContain("ptero:deepseek-v4.1-flash:free") // 131K
         assertThat(big.all { it.contextLength >= 200_000 }).isTrue()
         val none = KeylessFallback.candidates(anchor, needsNativeTools = false, minContextTokens = 5_000_000, enabled = null) {
             AiModels.findModelById(it)
@@ -101,13 +101,15 @@ class KeylessFallbackTest {
     }
 
     @Test
-    fun `minicpm's logging demo stands in for nothing`() {
+    fun `no stand-in rides a route too limited for an agent run`() {
+        val removed = com.oro.app.data.repository.ModelMigrations.REMOVED_KEYLESS +
+            com.oro.app.data.repository.ModelMigrations.KEY_ONLY_NOW.values.flatten()
         listOf(true, false).forEach { tools ->
             val ids = KeylessFallback.candidates(anchor, needsNativeTools = tools, enabled = null) { AiModels.findModelById(it) }
-                .map { it.provider }
-            assertThat(ids).doesNotContain(AiProvider.MINICPM)
+                .map { it.id }
+            assertThat(ids).isNotEmpty()
+            assertThat(ids).containsNoneIn(removed)
         }
-        assertThat(KeylessFallback.order).doesNotContain("minicpm:MiniCPM-V-4.7-35B-A3B")
     }
 
     @Test

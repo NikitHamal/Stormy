@@ -144,7 +144,7 @@ class QwenReliabilityTest {
             // Same site, same check: its other models wait too.
             assertThat(KeylessFallback.isBusy("qwen:qwen3.7-plus")).isTrue()
             // Another host of the same family is unaffected.
-            assertThat(KeylessFallback.isBusy("qwen3.8-27b")).isFalse()
+            assertThat(KeylessFallback.isBusy("ptero:qwen3.7-flash:free")).isFalse()
         } finally {
             KeylessFallback.markHealthy("qwen:qwen3.8-max")
         }
@@ -157,14 +157,15 @@ class QwenReliabilityTest {
         (KeylessFallback.order + KeylessFallback.sameFamily(AiModels.findModelById("qwen:qwen3.8-max")!!)).forEach { KeylessFallback.markHealthy(it) }
         val max = AiModels.findModelById("qwen:qwen3.8-max")!!
         val chain = KeylessFallback.candidates(max, needsNativeTools = false) { AiModels.findModelById(it) }.map { it.id }
-        assertThat(chain.take(4)).containsExactly("qwen3.8-27b", "Qwen3.8-27B", "Qwen3.5-397B-A17B", "ptero:qwen3.7-flash:free").inOrder()
+        // Ptero's Qwen first (VLM Run's and OVHcloud's anonymous Qwen routes were removed as
+        // too limited for agent runs), then the global order.
+        assertThat(chain.take(2)).containsExactly("ptero:qwen3.7-flash:free", "hy3:hy3").inOrder()
         // chat.qwen.ai itself refused: none of its models are retried.
         assertThat(chain.none { AiModels.findModelById(it)?.provider == AiProvider.QWEN_WEB }).isTrue()
 
         // With native tools, only real tool callers stand in (Ptero is text-only).
-        val vlm = AiModels.findModelById("qwen3.8-27b")!!
-        val tools = KeylessFallback.candidates(vlm, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id }
-        assertThat(tools.take(2)).containsExactly("Qwen3.8-27B", "Qwen3.5-397B-A17B").inOrder()
+        val tools = KeylessFallback.candidates(max, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id }
+        assertThat(tools.first()).isEqualTo("hy3:hy3")
         assertThat(tools).doesNotContain("ptero:qwen3.7-flash:free")
     }
 

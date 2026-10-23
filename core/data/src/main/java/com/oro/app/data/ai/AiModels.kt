@@ -89,14 +89,17 @@ enum class ApiKeyRequirement {
  *
  * On key requirements, verified with live chat completions (streaming and
  * native tool calls) from a plain HTTP client on 2026-10-17:
- *  - Pollinations (`text.pollinations.ai/openai`, model `openai-fast`) answers
- *    anonymously; roughly one reply per 30 s per IP, over that it answers
- *    HTTP 402 `FREE_LIMIT` with a retry hint.
- *  - OVHcloud AI Endpoints answers anonymously on its documented free tier;
- *    2 requests/min per model per IP, HTTP 429 when exceeded.
  *  - Kilo's gateway (`api.kilo.ai/api/gateway`) serves its `:free` / `isFree`
  *    models without a key (about 200 requests/hour per IP); a key unlocks the
  *    rest of the catalogue.
+ *
+ * Keyless routes too limited for an agent run (~20-60 model calls in 5-15
+ * minutes with 10-60k-token prompts) were removed on 2026-10-23, see
+ * docs/research/keyless-providers.md: Pollinations (about one reply per 30 s),
+ * VLM Run (30 requests an hour, 100 a day), OpenBMB's MiniCPM demo (four
+ * requests at a time across all visitors, logs conversations), and the
+ * anonymous tiers of OVHcloud (2 requests a minute per model) and LLM7
+ * (about 100k tokens a day). OVHcloud and LLM7 stay for users with a key.
  * OpenCode Zen's free tier is gated to the OpenCode client itself ("can only
  * be used from within OpenCode"); re-tested 2026-10-17 with the
  * `Bearer public` + `User-Agent: opencode/1.0` headers some tools use, every
@@ -130,19 +133,13 @@ enum class AiProvider(
     /** Wire protocol. Anything but OPENAI is a community web-chat bridge. */
     val protocol: ProviderProtocol = ProviderProtocol.OPENAI
 ) {
-    POLLINATIONS(
-        displayName = "Pollinations",
-        baseUrl = "https://text.pollinations.ai/openai",
-        apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "No account needed. Anonymous tier (about one reply every 30 s), tool calling supported."
-    ),
     OVHCLOUD(
         displayName = "OVHcloud AI Endpoints",
         baseUrl = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
-        apiKeyRequirement = ApiKeyRequirement.OPTIONAL,
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
         apiKeyUrl = "https://endpoints.ai.cloud.ovh.net",
-        keyNote = "No account needed. Anonymous tier is 2 requests/min per model; " +
-            "a key raises it. Qwen 3.5/3.8, gpt-oss, Llama 3.3 with tool calling."
+        keyNote = "Free with an OVHcloud account. Qwen 3.5/3.8, gpt-oss, Llama 3.3 with tool calling. " +
+            "The anonymous tier (2 requests a minute per model) is too slow for agent runs."
     ),
     GEMINI(
         displayName = "Google Gemini",
@@ -245,9 +242,10 @@ enum class AiProvider(
     LLM7(
         displayName = "LLM7",
         baseUrl = "https://api.llm7.io/v1",
-        apiKeyRequirement = ApiKeyRequirement.OPTIONAL,
+        apiKeyRequirement = ApiKeyRequirement.REQUIRED,
         apiKeyUrl = "https://token.llm7.io",
-        keyNote = "No account needed: anonymous tier (about 10 requests/min), native tool calling. A free token raises the limits."
+        keyNote = "Free token at token.llm7.io; native tool calling. " +
+            "The anonymous tier (about 100k tokens a day) is too small for agent runs."
     ),
     MERCURY(
         displayName = "Mercury (community)",
@@ -274,13 +272,6 @@ enum class AiProvider(
         keyNote = "Official API for Mercury 3, the diffusion model: very fast, 1M context, native tool calling. " +
             "Has a free tier."
     ),
-    VLM_RUN(
-        displayName = "VLM Run",
-        baseUrl = "https://gateway.vlm.run/v1/openai",
-        apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "No account needed: Qwen3.8 27B with native tool calling, under a second to the first token. " +
-            "Anonymous limit 10 requests/min, 30/hour, 100/day per IP."
-    ),
     HY3(
         displayName = "Hy3 (Tencent, community)",
         baseUrl = "https://tencent-hy3.hf.space",
@@ -296,14 +287,6 @@ enum class AiProvider(
         keyNote = "Workers AI models (Gemma 4 26B, GLM-4.7 Flash) through Cloudflare's public playground: " +
             "no account. Rate limited per minute across all its visitors; no native tools.",
         protocol = ProviderProtocol.CF_PLAYGROUND
-    ),
-    MINICPM(
-        displayName = "MiniCPM (OpenBMB, community)",
-        baseUrl = "https://openbmb-minicpm-v-4-7-demo.hf.space",
-        apiKeyRequirement = ApiKeyRequirement.NONE,
-        keyNote = "OpenBMB's MiniCPM-V 4.7 (35B-A3B) through OpenBMB's own Hugging Face demo: no account. " +
-            "Four requests at a time across all visitors; the demo logs conversations.",
-        protocol = ProviderProtocol.HF_SPACE
     ),
     LAGUNA(
         displayName = "Laguna (Poolside, community)",
@@ -376,27 +359,6 @@ object SeedModels {
     )
 
     /**
-     * Pollinations serves one model on the anonymous tier. Verified October
-     * 2026: `openai-fast` (GPT-OSS 20B) and it does support tool calls, which
-     * is what makes it viable as the no-setup default for an agentic editor.
-     */
-    val pollinations = listOf(
-        model("openai-fast", "GPT-OSS 20B (free, no key)", AiProvider.POLLINATIONS, 131_072)
-    )
-
-    /**
-     * Verified keyless with native tool calls, 2026-10-17. OVH also serves
-     * `gpt-oss-120b`, left out of the seed only because the id collides with
-     * the Cerebras seed (model ids are the table's primary key); a refresh
-     * still discovers it.
-     */
-    val ovhcloud = listOf(
-        model("Qwen3.5-397B-A17B", "Qwen3.5 397B (free, no key)", AiProvider.OVHCLOUD, 262_144),
-        model("Qwen3.8-27B", "Qwen3.8 27B (free, no key)", AiProvider.OVHCLOUD, 262_144),
-        model("Meta-Llama-3_3-70B-Instruct", "Llama 3.3 70B (free, no key)", AiProvider.OVHCLOUD, 131_072)
-    )
-
-    /**
      * Kilo's free pool rotates; these were live and tool-capable without a key
      * on 2026-10-17. `kilo-auto/free` is the router and the most durable id.
      */
@@ -433,16 +395,6 @@ object SeedModels {
     val ptero = listOf(
         model("ptero:deepseek-v4.1-flash:free", "DeepSeek V4.1 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
         model("ptero:qwen3.7-flash:free", "Qwen 3.7 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false)
-    )
-
-    /**
-     * LLM7's anonymous tier ("usage_based_only": false), each verified with a
-     * native tool call on 2026-10-18. One request at a time per client.
-     */
-    val llm7 = listOf(
-        model("codestral-latest", "Codestral (LLM7, no key)", AiProvider.LLM7, 32_000),
-        model("gpt-oss:20b", "GPT-OSS 20B (LLM7, no key)", AiProvider.LLM7, 131_072),
-        model("default", "LLM7 Auto (no key)", AiProvider.LLM7, 131_072)
     )
 
     /**
@@ -527,8 +479,8 @@ object SeedModels {
     private val fetchedOnly = emptyList<AiModel>()
 
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
-        AiProvider.POLLINATIONS to pollinations,
-        AiProvider.OVHCLOUD to ovhcloud,
+        // OVHcloud and LLM7 need a key now; their catalogues come from /models.
+        AiProvider.OVHCLOUD to fetchedOnly,
         AiProvider.GEMINI to fetchedOnly,
         AiProvider.NVIDIA to nvidia,
         AiProvider.OPENROUTER to fetchedOnly,
@@ -541,7 +493,7 @@ object SeedModels {
         AiProvider.K2_HORIZON to k2Horizon,
         AiProvider.QWEN_WEB to qwenWeb,
         AiProvider.PTERO to ptero,
-        AiProvider.LLM7 to llm7,
+        AiProvider.LLM7 to fetchedOnly,
         AiProvider.MERCURY to mercury,
         AiProvider.UNIKEY to unikey,
         AiProvider.INCEPTION to inception,
@@ -587,8 +539,7 @@ object AiModels {
         SeedModels.unikey.first(),
         SeedModels.k2Horizon.first(),
         SeedModels.kilo.first(),
-        SeedModels.ovhcloud.first(),
-        SeedModels.pollinations.first(),
+        KeylessSeeds.hy3.first(),
         SeedModels.cerebras.first(),
         SeedModels.groq.first(),
         SeedModels.nvidia.first()

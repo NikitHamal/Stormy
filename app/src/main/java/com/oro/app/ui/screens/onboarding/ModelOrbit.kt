@@ -35,9 +35,9 @@ import kotlin.math.sin
 
 private data class OrbitNode(val label: String, val angle: Float, val color: Color)
 
-// Same order the providers appear in Settings, starting at twelve o'clock.
+// Mercury (the default) at twelve o'clock, then keyed providers in Settings order.
 private val Nodes = listOf(
-    OrbitNode("P", -90f, OroBrand.GreenDark),   // Pollinations
+    OrbitNode("M", -90f, OroBrand.GreenDark),   // Mercury (the default)
     OrbitNode("G", -30f, OroBrand.Blue),        // Gemini
     OrbitNode("N", 30f, OroBrand.Nvidia),       // NVIDIA NIM
     OrbitNode("Gq", 90f, OroBrand.Coral),       // Groq
@@ -78,7 +78,7 @@ fun ModelOrbit(
         modifier
             .aspectRatio(1f)
             .semantics {
-                contentDescription = "Pollinations, Gemini, NVIDIA, Groq, Cerebras and OpenRouter orbiting Orobi"
+                contentDescription = "Mercury, Gemini, NVIDIA, Groq, Cerebras and OpenRouter orbiting Orobi"
             }
     ) {
         val t = if (reduced) 0f else clock.value
