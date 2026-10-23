@@ -274,6 +274,16 @@ fun ChatTab(
                     .fillMaxWidth()
             )
         } else {
+            // Open a chat at its newest message in the very first layout pass.
+            // Composing from the top and scrolling afterwards built the oldest
+            // messages first -- on a long chat, the most expensive way in.
+            val openedKey = sessionsState.currentSessionId ?: "draft"
+            val jumpedFor = remember { arrayOfNulls<String>(1) }
+            if (jumpedFor[0] != openedKey) {
+                jumpedFor[0] = openedKey
+                val lastIndex = messages.size + agentSessions.size + trailingItems - 1
+                if (lastIndex > 0) listState.requestScrollToItem(lastIndex)
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -757,7 +767,8 @@ private fun ChatBubble(
                     isStreaming = isStreaming,
                     modifier = Modifier.fillMaxWidth(),
                     // The list's trailing indicator carries the label.
-                    showWorkingIndicator = false
+                    showWorkingIndicator = false,
+                    cacheKey = message.id
                 )
             }
         }

@@ -10,8 +10,17 @@ import com.oro.app.domain.model.ChatMessage
 import com.oro.app.domain.model.ChatSession
 import com.oro.app.domain.model.DeletedSessionSnapshot
 import com.oro.app.domain.model.SessionTitles
+import com.oro.app.data.ai.text.TranscriptCompactor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
 import java.time.LocalDateTime
@@ -93,7 +102,7 @@ class ChatRepository(
      */
     suspend fun deleteSession(sessionId: String): DeletedSessionSnapshot? {
         val session = chatSessionDao.getSession(sessionId) ?: return null
-        val messages = chatMessageDao.getAllMessagesForSession(sessionId)
+        val messages = readSafely { chatMessageDao.getAllMessagesForSession(sessionId) }
         chatSessionDao.deleteSession(sessionId) // cascades to its messages
         return DeletedSessionSnapshot(session, messages)
     }
@@ -108,19 +117,84 @@ class ChatRepository(
 
     // ---- Messages ---------------------------------------------------------
 
-    /** All messages of a session, oldest first, as a live Flow. */
-    fun getMessagesForSession(sessionId: String): Flow<List<ChatMessage>> {
-        return chatMessageDao.getMessagesBySessionId(sessionId)
+    /**
+     * All messages of a session, oldest first, as a live Flow.
+     *
+     * Never fails on a row too big for a cursor window: stored rows are
+     * repaired once per process before the first read, and a read that still
+     * hits one repairs and re-subscribes. Mapping runs off the main thread --
+     * a long chat is megabytes of text, and the collector is the UI.
+     */
+    fun getMessagesForSession(sessionId: String): Flow<List<ChatMessage>> =
+        flow {
+            repairOversizedMessages()
+            emitAll(chatMessageDao.getMessagesBySessionId(sessionId))
+        }
+            .retryWhen { cause, attempt ->
+                if (attempt < 2 && ChatRowRepair.isOversizedRow(cause)) {
+                    repairOversizedMessages(force = true)
+                    true
+                } else {
+                    false
+                }
+            }
             .map { entities -> entities.map { ChatMessage.fromEntity(it) } }
-    }
+            .flowOn(Dispatchers.Default)
 
     /**
      * Get recent messages of a session (for context window management)
      */
     suspend fun getRecentMessages(sessionId: String, limit: Int): List<ChatMessage> {
-        return chatMessageDao.getRecentMessagesForSession(sessionId, limit)
+        return readSafely { chatMessageDao.getRecentMessagesForSession(sessionId, limit) }
             .map { ChatMessage.fromEntity(it) }
             .reversed() // Return in chronological order
+    }
+
+    private val repairLock = Mutex()
+    @Volatile private var repairedOnce = false
+
+    /**
+     * Shrinks every stored message too big to read back (see [ChatRowRepair]),
+     * then tidies each repaired row with [TranscriptCompactor] so it still
+     * renders as a transcript. Runs once per process unless [force]d: the scan
+     * is one `length()` pass in SQL, and reads no message content.
+     *
+     * @return how many messages were repaired.
+     */
+    suspend fun repairOversizedMessages(force: Boolean = false): Int = repairLock.withLock {
+        if (repairedOnce && !force) return@withLock 0
+        val repaired = withContext(Dispatchers.IO) {
+            runCatching {
+                val ids = chatMessageDao.findOversizedIds(ChatRowRepair.LIMIT_CHARS)
+                if (ids.isEmpty()) return@runCatching 0
+                chatMessageDao.shrinkOversized(
+                    limit = ChatRowRepair.LIMIT_CHARS,
+                    head = ChatRowRepair.HEAD_CHARS,
+                    negativeTail = -ChatRowRepair.TAIL_CHARS,
+                    marker = ChatRowRepair.MARKER
+                )
+                for (id in ids) {
+                    val row = runCatching { chatMessageDao.getMessageById(id) }.getOrNull() ?: continue
+                    val tidy = TranscriptCompactor.compact(row.content)
+                    if (tidy != row.content) chatMessageDao.updateMessage(row.copy(content = tidy))
+                }
+                ids.size
+            }.getOrDefault(0)
+        }
+        repairedOnce = true
+        repaired
+    }
+
+    /** Runs a read, repairing oversized rows first (once) and again if the read still hits one. */
+    private suspend fun <T> readSafely(read: suspend () -> T): T {
+        repairOversizedMessages()
+        return try {
+            read()
+        } catch (e: Exception) {
+            if (!ChatRowRepair.isOversizedRow(e)) throw e
+            repairOversizedMessages(force = true)
+            read()
+        }
     }
 
     /**
@@ -181,7 +255,7 @@ class ChatRepository(
         sessionTitle: String? = null
     ): Result<File> {
         return try {
-            val messages = chatMessageDao.getAllMessagesForSession(sessionId)
+            val messages = readSafely { chatMessageDao.getAllMessagesForSession(sessionId) }
                 .map { ChatMessage.fromEntity(it) }
 
             if (messages.isEmpty()) {
@@ -271,7 +345,7 @@ class ChatRepository(
      * Get total message count for a session
      */
     suspend fun getMessageCount(sessionId: String): Int {
-        return chatMessageDao.getAllMessagesForSession(sessionId).size
+        return chatMessageDao.countMessagesForSession(sessionId)
     }
 
     /**
@@ -279,9 +353,7 @@ class ChatRepository(
      * Uses a simple heuristic: ~4 characters per token
      */
     suspend fun getEstimatedTokenCount(sessionId: String): Int {
-        val messages = chatMessageDao.getAllMessagesForSession(sessionId)
-        val totalChars = messages.sumOf { it.content.length }
-        return totalChars / 4
+        return (chatMessageDao.totalContentLength(sessionId) / 4).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
     /**
@@ -291,7 +363,7 @@ class ChatRepository(
         sessionId: String,
         maxTokens: Int
     ): List<ChatMessage> {
-        val allMessages = chatMessageDao.getAllMessagesForSession(sessionId)
+        val allMessages = readSafely { chatMessageDao.getAllMessagesForSession(sessionId) }
             .map { ChatMessage.fromEntity(it) }
 
         if (allMessages.isEmpty()) return emptyList()

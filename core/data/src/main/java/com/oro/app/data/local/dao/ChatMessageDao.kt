@@ -51,4 +51,30 @@ interface ChatMessageDao {
 
     @Query("UPDATE chat_messages SET status = :status WHERE id = :messageId")
     suspend fun updateMessageStatus(messageId: String, status: String)
+
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE sessionId = :sessionId")
+    suspend fun countMessagesForSession(sessionId: String): Int
+
+    /** Total characters of a session's messages, computed in SQL (no row is read). */
+    @Query("SELECT COALESCE(SUM(length(content)), 0) FROM chat_messages WHERE sessionId = :sessionId")
+    suspend fun totalContentLength(sessionId: String): Long
+
+    /**
+     * Ids of rows whose content is longer than [limit] characters. Reads only
+     * the ids, so it works even when a row is too big for a cursor window.
+     */
+    @Query("SELECT id FROM chat_messages WHERE length(content) > :limit")
+    suspend fun findOversizedIds(limit: Int): List<String>
+
+    /**
+     * Shrinks every row longer than [limit] to its first [head] and last
+     * characters ([negativeTail] is minus the tail length, SQLite's way of
+     * counting from the end), with [marker] between. Done entirely in SQL, so
+     * a row too big to read through a cursor never has to be read.
+     */
+    @Query(
+        "UPDATE chat_messages SET content = substr(content, 1, :head) || :marker || substr(content, :negativeTail) " +
+            "WHERE length(content) > :limit"
+    )
+    suspend fun shrinkOversized(limit: Int, head: Int, negativeTail: Int, marker: String): Int
 }

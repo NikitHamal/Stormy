@@ -137,8 +137,12 @@ fun ToolCard(
         if (presentation.subjectIsPath) ToolPresentations.shortenPath(raw) else raw
     }
 
-    val diff = remember(entry.oldContent, entry.newContent) {
-        if (entry.oldContent != null && entry.newContent != null) {
+    // The diff is for the sheet. A row only needs it when the transcript gave
+    // no +/- counts; computing it for every row of a long run on composition
+    // was a whole-file diff per written file, on the main thread.
+    val countsKnown = entry.additions > 0 || entry.deletions > 0
+    val diff = remember(entry.oldContent, entry.newContent, sheetOpen || !countsKnown) {
+        if ((sheetOpen || !countsKnown) && entry.oldContent != null && entry.newContent != null) {
             DiffUtils.computeDiff(entry.oldContent, entry.newContent, contextLines = 3)
         } else {
             null

@@ -1,6 +1,7 @@
 package com.oro.app.ui.screens.editor.agent
 
 import com.oro.app.data.ai.ToolCallResponse
+import com.oro.app.data.ai.text.TranscriptCompactor
 import com.oro.app.data.ai.tools.JsonParserUtils
 import com.oro.app.data.ai.tools.ToolAliases
 import com.oro.app.data.ai.tools.ToolResult
@@ -32,7 +33,10 @@ class RunTranscript(initial: String = "") {
         var status: String,
         var summary: String,
         var body: String = ""
-    ) : Segment
+    ) : Segment {
+        /** This card's rendered Markdown, kept until the card changes. */
+        var rendered: String? = null
+    }
     private class Note(val text: String) : Segment
 
     private val segments = mutableListOf<Segment>()
@@ -139,7 +143,9 @@ class RunTranscript(initial: String = "") {
             val rest = (result.error ?: "").lines().drop(1).joinToString("\n").trim()
             card.body = listOf(rest, result.output.take(600)).filter { it.isNotBlank() }.joinToString("\n")
         }
+        card.rendered = null
         version++
+        compactIfNeeded()
     }
 
     @Synchronized
@@ -147,6 +153,7 @@ class RunTranscript(initial: String = "") {
         closeThinking()
         segments += Note(text)
         version++
+        compactIfNeeded()
     }
 
     /** Close any open reasoning block (end of run, or text started). */
@@ -155,34 +162,90 @@ class RunTranscript(initial: String = "") {
         val last = segments.lastOrNull()
         if (last is Think && last.open) {
             last.open = false
+            // A closed block keeps its start and its end: the chat shows
+            // reasoning collapsed, and a run of a hundred turns of a thinking
+            // model was megabytes of it, stored and re-parsed with every push.
+            if (last.sb.length > THINK_KEEP_HEAD + THINK_KEEP_TAIL + 64) {
+                val trimmed = TranscriptCompactor.trimMiddle(last.sb.toString(), THINK_KEEP_HEAD, THINK_KEEP_TAIL)
+                last.sb.setLength(0)
+                last.sb.append(trimmed)
+            }
             version++
+            compactIfNeeded()
         }
     }
 
+    /** Approximate rendered size, in characters. */
     @Synchronized
-    fun render(): String = buildString {
+    fun size(): Int = segments.sumOf { segmentSize(it) }
+
+    private fun segmentSize(segment: Segment): Int = when (segment) {
+        is Text -> segment.sb.length
+        is Think -> minOf(segment.sb.length, LIVE_THINK_CHARS) + 20
+        is ToolCard -> segment.title.length + segment.summary.length + segment.body.length + 12
+        is Note -> segment.text.length + 2
+    }
+
+    /**
+     * Keeps the whole run under [MAX_RUN_CHARS] however long it goes: the
+     * oldest tool cards lose their bodies first (title, status and summary
+     * stay, so the step list reads the same), then the oldest closed reasoning
+     * goes. Unlimited runs stay bounded; what the user reads -- the latest
+     * steps and the reply -- is untouched.
+     */
+    private fun compactIfNeeded() {
+        var total = segments.sumOf { segmentSize(it) }
+        if (total <= MAX_RUN_CHARS) return
+        val target = MAX_RUN_CHARS * 3 / 4
+        val keepFrom = segments.size - KEEP_RECENT_SEGMENTS
+        for ((i, seg) in segments.withIndex()) {
+            if (total <= target || i >= keepFrom) break
+            if (seg is ToolCard && seg.body.isNotEmpty() && seg.status != "⏳") {
+                total -= seg.body.length
+                seg.body = ""
+                seg.rendered = null
+            }
+        }
+        if (total > target) {
+            val it = segments.listIterator()
+            var position = 0
+            var original = 0
+            while (it.hasNext() && total > target) {
+                val seg = it.next()
+                if (original < keepFrom && seg is Think && !seg.open) {
+                    total -= segmentSize(seg)
+                    it.remove()
+                    if (turnStart > position) turnStart--
+                } else {
+                    position++
+                }
+                original++
+            }
+        }
+        version++
+    }
+
+    @Synchronized
+    fun render(): String = buildString(segments.sumOf { segmentSize(it) } + 64) {
         for (segment in segments) {
             when (segment) {
                 is Text -> append(segment.sb)
                 is Think -> {
                     if (segment.sb.isBlank()) continue
                     ensureBreak()
-                    append("<think>").append(segment.sb)
+                    append("<think>")
+                    // Live reasoning shows its newest part; it is trimmed for
+                    // good when the block closes (closeThinking).
+                    if (segment.sb.length > LIVE_THINK_CHARS) {
+                        append("…\n").append(segment.sb, segment.sb.length - LIVE_THINK_CHARS, segment.sb.length)
+                    } else {
+                        append(segment.sb)
+                    }
                     if (!segment.open) append("</think>\n\n")
                 }
                 is ToolCard -> {
                     ensureBreak()
-                    append("🔧 **").append(segment.title).append("**\n")
-                    append(segment.status).append(' ').append(segment.summary.replace('\n', ' ')).append('\n')
-                    if (segment.body.isNotBlank()) {
-                        // No blank lines inside a card: a blank line is what
-                        // ends the card for the renderer, so the reply that
-                        // follows is not swallowed into the tool output.
-                        segment.body.trimEnd().lineSequence().forEach { line ->
-                            append(if (line.isBlank()) " " else line).append('\n')
-                        }
-                    }
-                    append('\n')
+                    append(segment.rendered ?: renderCard(segment).also { segment.rendered = it })
                 }
                 is Note -> {
                     ensureBreak()
@@ -191,6 +254,20 @@ class RunTranscript(initial: String = "") {
             }
         }
     }.trimEnd()
+
+    private fun renderCard(card: ToolCard): String = buildString(card.body.length + card.summary.length + 48) {
+        append("🔧 **").append(card.title).append("**\n")
+        append(card.status).append(' ').append(card.summary.replace('\n', ' ')).append('\n')
+        if (card.body.isNotBlank()) {
+            // No blank lines inside a card: a blank line is what
+            // ends the card for the renderer, so the reply that
+            // follows is not swallowed into the tool output.
+            card.body.trimEnd().lineSequence().forEach { line ->
+                append(if (line.isBlank()) " " else line).append('\n')
+            }
+        }
+        append('\n')
+    }
 
     /** "> **You answered** · Which framework?" + the answer, as a Markdown quote. */
     private fun answeredSummary(call: ToolCallResponse, result: ToolResult): String {
@@ -223,22 +300,31 @@ class RunTranscript(initial: String = "") {
         if (!endsWith("\n\n")) append(if (endsWith("\n")) "\n" else "\n\n")
     }
 
-    /** For a write, the text written, so the card can show it (and count its lines) without re-reading the file. */
+    /**
+     * For a write, the start of the text written, so the card can show it
+     * without re-reading the file, plus its true line count (`written: N
+     * lines`) for the +N on the row. Whole files used to ride along -- up to
+     * 12 000 characters per write, stored and re-parsed with every push.
+     */
     private fun writtenContent(name: String, call: ToolCallResponse): String {
         if (name != "write_file") return ""
         val content = (JsonParserUtils.parseToJsonObject(call.function.arguments)?.get("content") as? JsonPrimitive)?.content
             ?: return ""
-        if (content.contains("```") || content.length > 12_000) return ""
-        return "\nnew_content: ```\n" + content.trimEnd() + "\n```"
+        if (content.contains("```")) return ""
+        val text = content.trimEnd()
+        val lines = if (text.isEmpty()) 0 else text.count { it == '\n' } + 1
+        val shown = capLines(text, WRITTEN_PREVIEW_CHARS)
+        return "\nwritten: $lines lines\nnew_content: ```\n$shown\n```"
     }
 
     private fun bodyFor(name: String, output: String): String {
         val lines = output.lines()
         return when (name) {
-            // Edits carry "File: path" and a diff block; keep them whole so the
-            // card can count additions/deletions and show the change.
+            // Edits carry "File: path" and a diff block; the card counts its
+            // +/- lines and shows the change. Long diffs keep their start, with
+            // the true counts in a `stats:` line so the row stays right.
             "edit_file", "multi_edit", "write_file", "move_file", "delete_file" ->
-                lines.drop(1).joinToString("\n").take(6_000)
+                capDiffBody(lines.drop(1).joinToString("\n"), EDIT_BODY_CHARS)
             "ask_user" -> ""
             // Keep the "File: a.css (124 lines)" header: the row shows the count.
             "read_file" -> output.take(1_600).let { if (output.length > 1_600) "$it\n…" else it }
@@ -250,6 +336,73 @@ class RunTranscript(initial: String = "") {
     }
 
     companion object {
+        /** Whole-run budget, in characters; see [compactIfNeeded]. */
+        const val MAX_RUN_CHARS = 160_000
+
+        /** The newest segments are never compacted. */
+        private const val KEEP_RECENT_SEGMENTS = 24
+
+        /** A closed reasoning block keeps this much of its start and its end. */
+        const val THINK_KEEP_HEAD = TranscriptCompactor.THINK_HEAD
+        const val THINK_KEEP_TAIL = TranscriptCompactor.THINK_TAIL
+
+        /** The live (open) reasoning block shows at most its newest characters. */
+        const val LIVE_THINK_CHARS = 12_000
+
+        /** Diff bodies of edits and writes. */
+        const val EDIT_BODY_CHARS = 4_000
+
+        /** Preview of a written file on its card. */
+        const val WRITTEN_PREVIEW_CHARS = 3_000
+
+        /** The first lines of [text] that fit in [max] characters, and how many lines were left out. */
+        internal fun capLines(text: String, max: Int): String {
+            if (text.length <= max) return text
+            val cut = text.lastIndexOf('\n', max).let { if (it <= 0) max else it }
+            val rest = text.substring(cut).count { it == '\n' }
+            return text.substring(0, cut) + "\n… $rest more lines"
+        }
+
+        /**
+         * An edit's card body cut to [max] characters without breaking its
+         * fenced diff: the fence is closed after the cut, and a `stats: +A -D`
+         * line carries the counts of the whole diff.
+         */
+        internal fun capDiffBody(body: String, max: Int): String {
+            if (body.length <= max) return body
+            var adds = 0
+            var dels = 0
+            var inFence = false
+            body.lineSequence().forEach { line ->
+                val t = line.trimStart()
+                when {
+                    t.startsWith("```") -> inFence = !inFence
+                    !inFence -> Unit
+                    line.startsWith("+++") || line.startsWith("---") -> Unit
+                    line.startsWith("+… ") || line.startsWith("-… ") -> Unit
+                    line.startsWith("+") -> adds++
+                    line.startsWith("-") -> dels++
+                }
+            }
+            val out = StringBuilder("stats: +$adds -$dels\n")
+            var open = false
+            var used = 0
+            var omitted = 0
+            for (line in body.lineSequence()) {
+                if (omitted > 0 || used + line.length + 1 > max) {
+                    // Past the budget: count the rest, keep the fences balanced.
+                    if (!line.trimStart().startsWith("```")) omitted++
+                    continue
+                }
+                if (line.trimStart().startsWith("```")) open = !open
+                out.append(line).append('\n')
+                used += line.length + 1
+            }
+            if (omitted > 0) out.append("… $omitted more lines\n")
+            if (open) out.append("```\n")
+            return out.toString().trimEnd()
+        }
+
         /** "multi_edit" -> "Multi Edit". */
         fun titleFor(name: String): String = name.split('_', '-', ' ').filter { it.isNotEmpty() }
             .joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }

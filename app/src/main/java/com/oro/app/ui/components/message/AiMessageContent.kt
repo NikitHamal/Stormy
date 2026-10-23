@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.rememberScrollState
@@ -130,6 +131,52 @@ enum class ToolStatus { RUNNING, SUCCESS, ERROR }
 /** Inputs of one parse; see AiMessageContent. */
 private data class ParseInput(val content: String, val isStreaming: Boolean)
 
+/** Messages up to this many characters parse synchronously on first composition. */
+private const val SYNC_PARSE_LIMIT = 16_000
+
+/** Grouped blocks composed at first for one message, and how many more each tap shows. */
+internal const val MESSAGE_WINDOW = 40
+internal const val MESSAGE_WINDOW_STEP = 60
+
+/**
+ * Parsed blocks of recently shown messages, shared by every bubble: scrolling
+ * back to a message, reopening a chat or recomposing a list reuses the parse.
+ * Keyed by the message's id and validated against its exact content, so an
+ * edited or still-streaming message never gets stale blocks. Bounded by
+ * total characters, not entries: one long transcript can outweigh a hundred
+ * short replies.
+ */
+internal object ParsedBlocksCache {
+    private const val MAX_CHARS = 1_200_000
+    private class Entry(val length: Int, val hash: Int, val streaming: Boolean, val blocks: List<MessageContentBlock>)
+    private val entries = LinkedHashMap<String, Entry>(64, 0.75f, true)
+    private var chars = 0
+
+    fun get(key: String?, content: String, streaming: Boolean): List<MessageContentBlock>? {
+        if (key == null) return null
+        synchronized(this) {
+            val e = entries[key] ?: return null
+            return if (e.length == content.length && e.streaming == streaming && e.hash == content.hashCode()) e.blocks else null
+        }
+    }
+
+    fun put(key: String?, content: String, streaming: Boolean, blocks: List<MessageContentBlock>) {
+        if (key == null || content.length > MAX_CHARS / 2) return
+        synchronized(this) {
+            entries.remove(key)?.let { chars -= it.length }
+            entries[key] = Entry(content.length, content.hashCode(), streaming, blocks)
+            chars += content.length
+            val it = entries.entries.iterator()
+            while (chars > MAX_CHARS && it.hasNext()) {
+                val eldest = it.next()
+                if (eldest.key == key) continue
+                chars -= eldest.value.length
+                it.remove()
+            }
+        }
+    }
+}
+
 /** The synchronous first parse, reused if the inputs come back unchanged. */
 private class FirstParse(
     val content: String,
@@ -185,13 +232,19 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
             SegmentType.TOOL_CALL -> {
                 val output = segment.toolOutput?.trimEnd()?.ifBlank { null }
                 val filePath = output?.let { extractFilePath(segment.toolName.orEmpty(), it) }
-                var (adds, dels) = computeUnifiedDiffSummary(output)
+                var (adds, dels) = STATS_REGEX.find(output.orEmpty())
+                    ?.let { (it.groupValues[1].toIntOrNull() ?: 0) to (it.groupValues[2].toIntOrNull() ?: 0) }
+                    ?: computeUnifiedDiffSummary(output)
                 var (oldC, newC) = output?.let(::extractOldNewContent) ?: (null to null)
                 val canonical = com.oro.app.data.ai.tools.ToolAliases.canonicalName(segment.toolName.orEmpty().lowercase(Locale.ROOT).replace(' ', '_'))
                 if (canonical == "write_file" && output != null) {
                     // A write's card carries the written text; show it as all-new lines.
                     if (newC != null && oldC == null) oldC = ""
+                    if (adds == 0) WRITTEN_LINES_REGEX.find(output)?.groupValues?.get(1)?.toIntOrNull()?.let { adds = it }
                     if (adds == 0) WROTE_LINES_REGEX.find(output)?.groupValues?.get(1)?.toIntOrNull()?.let { adds = it }
+                    // Count the written lines here, once, so the row never
+                    // has to diff the whole file to show "+N".
+                    if (adds == 0) newC?.let { written -> adds = written.count { c -> c == '\n' } + 1 }
                 } else if (oldC == null && newC == null && output != null) {
                     // Edits print a short "-old / +new" diff; turn it into before/after so the sheet draws a real diff.
                     miniDiffSides(output)?.let { (o, n) -> oldC = o; newC = n }
@@ -245,6 +298,12 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
 
     val segments = mutableListOf<ContentSegment>()
     var cursor = 0
+    // Every reasoning tag's position, found once. Searching from each card
+    // header instead scanned to the end of the message for every card when no
+    // tag followed -- quadratic in a long run, and the main cost of opening
+    // a chat with a big transcript.
+    val tagStarts = OPEN_TAG_REGEX.findAll(content).map { it.range.first }.toList()
+    var tagIdx = 0
 
     matches.forEachIndexed { idx, match ->
         val toolStart = match.range.first
@@ -255,11 +314,12 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
         val nextToolStart = matches.getOrNull(idx + 1)?.range?.first ?: content.length
         
         // Look for thinking/reasoning tags that might appear before the next tool
-        val tagMatch = OPEN_TAG_REGEX.find(content, headerEndExclusive)
-        
+        while (tagIdx < tagStarts.size && tagStarts[tagIdx] < headerEndExclusive) tagIdx++
+        val tagStart = tagStarts.getOrNull(tagIdx)
+
         // If we found a tag, and it's before the next tool, that's our effective end
-        val tagEnd = if (tagMatch != null && tagMatch.range.first < nextToolStart) {
-            tagMatch.range.first
+        val tagEnd = if (tagStart != null && tagStart < nextToolStart) {
+            tagStart
         } else {
             nextToolStart
         }
@@ -587,6 +647,10 @@ private fun computeUnifiedDiffSummary(output: String?): Pair<Int, Int> {
 
 private val WROTE_LINES_REGEX = Regex("""(?:Created|Overwrote) .* \((\d+) lines\)""")
 
+/** RunTranscript's true counts for a diff it shortened, and a write's real line count. */
+private val STATS_REGEX = Regex("""(?m)^stats: \+(\d+) -(\d+)$""")
+private val WRITTEN_LINES_REGEX = Regex("""(?m)^written: (\d+) lines$""")
+
 /** The "-" and "+" sides of a fenced mini diff, without its "… more lines" notes. */
 private fun miniDiffSides(output: String): Pair<String, String>? {
     val diff = FENCED_DIFF_REGEX.find(output)?.groupValues?.getOrNull(1) ?: return null
@@ -646,52 +710,64 @@ fun AiMessageContent(
      * does, so the label can say "Running edit_file" or "Waiting for your
      * answer"); avoids two loaders on screen.
      */
-    showWorkingIndicator: Boolean = true
+    showWorkingIndicator: Boolean = true,
+    /**
+     * Stable identity of the message (its id), for the shared parse cache:
+     * a message scrolled back into view is not parsed again.
+     */
+    cacheKey: String? = null
 ) {
-    // During streaming, use simpler parsing to reduce lag
-    // Full parsing is only done when content length changes significantly or streaming stops
-    // Always parse fully.
-    //
-    // The old guard fell back to a lighter parser once a streaming message
-    // passed 500 characters -- which is most of them -- so tool calls rendered
-    // as raw text for the entire length of any real agent run and only
-    // snapped into cards once streaming stopped. The parse is memoised on
-    // content, so it runs once per emitted chunk rather than per frame.
-    //
-    // The first parse is synchronous, so a message scrolled into view (or
-    // restored from history) appears fully formed with its final height and
-    // the list does not jump. Every later change -- i.e. each streamed chunk
-    // -- is parsed on Dispatchers.Default: the parse is a dozen regex passes
-    // over the *whole* message, so on a long agent reply it grew to many
-    // milliseconds of main-thread work per chunk. conflate() rather than
-    // collectLatest: if chunks arrive faster than a parse completes, the
-    // newest content is parsed next instead of every parse being cancelled
-    // and the message freezing until streaming stops.
+    // Parsing is a dozen regex passes over the whole message. Rules that keep
+    // a long chat smooth:
+    //  - Small messages parse synchronously on first composition, so they
+    //    appear fully formed with their final height and the list does not
+    //    jump.
+    //  - Anything already parsed comes from the shared cache, keyed by the
+    //    message and its exact content.
+    //  - A big message that is not cached is never parsed in composition: a
+    //    light placeholder stands in while Dispatchers.Default parses it.
+    //    (Opening a chat whose last run was a long transcript parsed it on the
+    //    main thread and froze the screen until Android closed the app.)
+    //  - Later changes (each streamed chunk) parse off the main thread with
+    //    conflation: if chunks arrive faster than a parse finishes, the newest
+    //    content is parsed next rather than every parse being cancelled.
     val firstParse = remember {
-        FirstParse(content, isStreaming, parseAiMessageContent(content, isStreaming))
+        val cached = ParsedBlocksCache.get(cacheKey, content, isStreaming)
+        when {
+            cached != null -> FirstParse(content, isStreaming, cached)
+            content.length <= SYNC_PARSE_LIMIT ->
+                FirstParse(content, isStreaming, parseAiMessageContent(content, isStreaming).also {
+                    ParsedBlocksCache.put(cacheKey, content, isStreaming, it)
+                })
+            else -> null
+        }
     }
-    var parsedBlocks by remember { mutableStateOf(firstParse.blocks) }
+    var parsedBlocks by remember { mutableStateOf(firstParse?.blocks) }
     val latestInput = rememberUpdatedState(ParseInput(content, isStreaming))
     LaunchedEffect(Unit) {
         snapshotFlow { latestInput.value }
             .conflate()
             .collect { input ->
                 parsedBlocks = if (
-                    input.content == firstParse.content && input.isStreaming == firstParse.isStreaming
+                    firstParse != null && input.content == firstParse.content && input.isStreaming == firstParse.isStreaming
                 ) {
                     firstParse.blocks
                 } else {
-                    withContext(Dispatchers.Default) {
-                        parseAiMessageContent(input.content, input.isStreaming)
-                    }
+                    ParsedBlocksCache.get(cacheKey, input.content, input.isStreaming)
+                        ?: withContext(Dispatchers.Default) {
+                            parseAiMessageContent(input.content, input.isStreaming).also {
+                                ParsedBlocksCache.put(cacheKey, input.content, input.isStreaming, it)
+                            }
+                        }
                 }
             }
     }
 
-    // Check if content is empty/minimal (only show generating indicator when truly empty)
-    // (Memoised: trim() copies the whole message, and this ran per recomposition.)
-    val hasSubstantialContent = remember(content) { content.trim().length > 10 } ||
-        parsedBlocks.isNotEmpty()
+    val blocks = parsedBlocks
+    // Whether there is anything to show yet. No trim(): that copied the whole
+    // message on every recomposition.
+    val hasSubstantialContent = !blocks.isNullOrEmpty() ||
+        remember(content) { content.length > 10 && content.any { !it.isWhitespace() } }
 
     // Lite mode drops the size animation: while streaming it restarts on
     // every chunk, so the message re-measures on every frame of the reply.
@@ -711,15 +787,38 @@ fun AiMessageContent(
             MinimalGeneratingIndicator()
         }
 
+        if (blocks == null) {
+            // A big message still parsing: a quiet stand-in, never a frozen frame.
+            ParsingPlaceholder()
+        }
+
         // Consecutive tool calls collapse into one group.
         //
         // Rendered individually, a dozen calls from one agent turn dominate the
         // transcript and push the assistant's actual answer off screen. Runs
         // are detected here rather than in the parser so the parser stays a
         // pure text-to-blocks function.
-        val grouped = remember(parsedBlocks) { groupConsecutiveToolCalls(parsedBlocks) }
+        val grouped = remember(blocks) { blocks?.let { groupConsecutiveToolCalls(it) } ?: emptyList() }
 
-        grouped.forEach { block ->
+        // A run of hundreds of steps is not composed all at once: the newest
+        // groups show, and the earlier ones wait behind one control.
+        var shownCount by remember { mutableStateOf(MESSAGE_WINDOW) }
+        val hidden = (grouped.size - shownCount).coerceAtLeast(0)
+        if (hidden > 0) {
+            val hiddenCalls = remember(grouped, hidden) {
+                grouped.subList(0, hidden).sumOf { b ->
+                    when (b) {
+                        is MessageContentBlock.ToolRunBlock -> b.calls.size
+                        is MessageContentBlock.ToolCallBlock -> 1
+                        else -> 0
+                    }
+                }
+            }
+            EarlierStepsButton(hiddenCalls = hiddenCalls, onClick = { shownCount += MESSAGE_WINDOW_STEP })
+        }
+        val visibleBlocks = if (hidden > 0) grouped.subList(hidden, grouped.size) else grouped
+
+        visibleBlocks.forEach { block ->
             when (block) {
                 is MessageContentBlock.ToolRunBlock -> {
                     // Mapped once per block rather than on every recomposition
@@ -798,6 +897,44 @@ fun AiMessageContent(
             text = timestamp,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Stands in for a long message while it is parsed off the main thread. */
+@Composable
+private fun ParsingPlaceholder() {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(3) { i ->
+            Box(
+                Modifier
+                    .fillMaxWidth(if (i == 2) 0.55f else 0.9f)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            )
+        }
+    }
+}
+
+/** "Show 160 earlier tool calls": the hidden start of a very long run. */
+@Composable
+private fun EarlierStepsButton(hiddenCalls: Int, onClick: () -> Unit) {
+    androidx.compose.material3.TextButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Outlined.ExpandLess,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = when (hiddenCalls) {
+                0 -> "Show earlier messages"
+                1 -> "Show 1 earlier tool call"
+                else -> "Show $hiddenCalls earlier tool calls"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1
         )
     }
 }

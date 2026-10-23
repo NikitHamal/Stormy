@@ -104,6 +104,7 @@ import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
 import com.oro.app.domain.model.DeletedSessionSnapshot
 import com.oro.app.domain.model.SessionTitles
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -293,6 +294,14 @@ class EditorViewModel(
     private val _pendingQuestion = MutableStateFlow<PendingQuestion?>(null)
     @Volatile private var questionAnswer: CompletableDeferred<List<String?>?>? = null
     private val _runError = MutableStateFlow<RunError?>(null)
+
+    /**
+     * History text per stored transcript, so a re-emitted or reopened chat
+     * does not run the transcript regexes over every message again.
+     */
+    private val historyTextCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
+    }
 
     /** Transcript of the run in progress, rendered into the last assistant message. */
     @Volatile private var transcript: RunTranscript? = null
@@ -741,6 +750,13 @@ class EditorViewModel(
                         flowOf(emptyList<ChatMessage>())
                     } else {
                         chatRepository.getMessagesForSession(sessionId)
+                            // A chat that cannot be read must never take the
+                            // app down with it; the repository already repairs
+                            // rows too big to read, so this is the last resort.
+                            .catch { e ->
+                                _error.value = "This chat could not be loaded: ${e.message ?: e.javaClass.simpleName}"
+                                emit(emptyList())
+                            }
                     }
                 }
                 .collect { dbMessages ->
@@ -748,15 +764,23 @@ class EditorViewModel(
                     // Only update from database if we're not currently processing AI response
                     // During AI processing, the in-memory state is managed by streaming logic
                     if (!_isAiProcessing.value) {
-                        // Database is the source of truth when not streaming
-                        // Use distinctBy to prevent any duplicate IDs just in case
-                        _messages.value = dbMessages.distinctBy { it.id }
-
-                        // Rebuild message history for AI context
-                        rebuildMessageHistoryFromMessages(_messages.value)
-                        if (breakdownStale) {
-                            breakdownStale = false
-                            refreshContextBreakdown()
+                        // Off the main thread: a long chat is megabytes of
+                        // transcript, and turning each into history text is a
+                        // handful of regex passes. On Main this froze the
+                        // screen every time a long chat opened.
+                        val (unique, history) = withContext(Dispatchers.Default) {
+                            val distinct = dbMessages.distinctBy { it.id }
+                            distinct to buildMessageHistory(distinct)
+                        }
+                        if (!_isAiProcessing.value) {
+                            // Database is the source of truth when not streaming
+                            _messages.value = unique
+                            _messageHistory.clear()
+                            _messageHistory.addAll(history)
+                            if (breakdownStale) {
+                                breakdownStale = false
+                                refreshContextBreakdown()
+                            }
                         }
                     }
                 }
@@ -764,26 +788,37 @@ class EditorViewModel(
     }
 
     /**
-     * Rebuild the AI message history from persisted messages
+     * The model's history for persisted [messages]: user turns as written,
+     * assistant transcripts reduced to their history text. Pure apart from the
+     * cache; safe on any thread.
      */
-    private fun rebuildMessageHistoryFromMessages(messages: List<ChatMessage>) {
-        _messageHistory.clear()
+    private fun buildMessageHistory(messages: List<ChatMessage>): List<ChatRequestMessage> {
+        val history = ArrayList<ChatRequestMessage>(messages.size)
         for (message in messages) {
             when {
                 message.isUser -> {
-                    _messageHistory.add(aiRepository.createUserMessage(message.content))
+                    history.add(aiRepository.createUserMessage(message.content))
                 }
                 message.isAssistant && message.status != MessageStatus.STREAMING -> {
                     // Reasoning and tool-card markup are display-only; sending
                     // them back wastes context and teaches the model to write
                     // fake tool cards.
-                    val text = RunTranscript.toHistoryText(message.content)
+                    val text = historyTextOf(message)
                     if (text.isNotBlank()) {
-                        _messageHistory.add(ChatRequestMessage(role = "assistant", content = text))
+                        history.add(ChatRequestMessage(role = "assistant", content = text))
                     }
                 }
             }
         }
+        return history
+    }
+
+    private fun historyTextOf(message: ChatMessage): String {
+        val key = message.id + ':' + message.content.length + ':' + message.content.hashCode()
+        synchronized(historyTextCache) { historyTextCache[key]?.let { return it } }
+        val text = RunTranscript.toHistoryText(message.content)
+        synchronized(historyTextCache) { historyTextCache[key] = text }
+        return text
     }
 
     private suspend fun loadFileTree() {
@@ -2024,22 +2059,35 @@ class EditorViewModel(
         val run = transcript ?: return
         if (run.revision == lastPushedRevision) return
         val now = System.currentTimeMillis()
-        if (force || now - lastPushAt >= STREAMING_UPDATE_INTERVAL_MS) {
+        val interval = pushIntervalMs()
+        if (force || now - lastPushAt >= interval) {
             pushJob?.cancel()
             lastPushAt = now
             lastPushedRevision = run.revision
-            updateLastAssistantMessageDirect(run.render(), MessageStatus.STREAMING)
+            updateLastAssistantMessageDirect(run.render().also { lastRenderedLength = it.length }, MessageStatus.STREAMING)
         } else if (pushJob?.isActive != true) {
             pushJob = viewModelScope.launch(Dispatchers.Default) {
-                delay(STREAMING_UPDATE_INTERVAL_MS)
+                delay(interval)
                 transcript?.let {
                     lastPushAt = System.currentTimeMillis()
                     lastPushedRevision = it.revision
-                    updateLastAssistantMessageDirect(it.render(), MessageStatus.STREAMING)
+                    updateLastAssistantMessageDirect(it.render().also { r -> lastRenderedLength = r.length }, MessageStatus.STREAMING)
                 }
             }
         }
     }
+
+    /** Length of the last pushed transcript; longer runs push less often. */
+    @Volatile private var lastRenderedLength = 0
+
+    /**
+     * Every push re-renders the run and the chat re-parses it, so the cost of
+     * one push grows with the run. Spacing pushes out as the transcript grows
+     * keeps the work per second flat: 80 ms for a short run, up to half a
+     * second for a very long one -- still live, never a stutter.
+     */
+    private fun pushIntervalMs(): Long =
+        (STREAMING_UPDATE_INTERVAL_MS + lastRenderedLength / 400L).coerceAtMost(MAX_STREAMING_UPDATE_INTERVAL_MS)
 
     /**
      * Build a compact file tree context string for the AI
@@ -2097,7 +2145,9 @@ class EditorViewModel(
             val lastMessage = currentMessages.last()
             if (!lastMessage.isUser) {
                 val finalContent = if (status != MessageStatus.STREAMING) {
-                    sanitizeAiResponseContent(content)
+                    // Bounded before it is stored: a stored message must load
+                    // back fast and always fit in a cursor window.
+                    com.oro.app.data.ai.text.TranscriptCompactor.compact(sanitizeAiResponseContent(content))
                 } else {
                     content
                 }
@@ -2431,6 +2481,8 @@ class EditorViewModel(
         private const val OPEN_FILE_CONTEXT_CHARS = 12_000
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L
+        /** Slowest push cadence, for very long runs; see pushIntervalMs. */
+        private const val MAX_STREAMING_UPDATE_INTERVAL_MS = 500L
         /** How long a deleted session can be restored. */
         private const val UNDO_WINDOW_MS = 6_000L
         /** inputDrafts key for the fresh, unsaved chat. */
