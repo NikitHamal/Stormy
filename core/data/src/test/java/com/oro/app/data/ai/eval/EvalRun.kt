@@ -16,9 +16,13 @@ import com.oro.app.data.ai.agent.AgentRunResult
 import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentToolRunner
 import com.oro.app.data.ai.agent.HistoryPruner
+import com.oro.app.data.ai.agent.ModelProfile
+import com.oro.app.data.ai.agent.ModelProfiles
 import com.oro.app.data.ai.agent.TokenEstimator
 import com.oro.app.data.ai.craft.QualityAuditor
 import com.oro.app.data.ai.craft.QualityGate
+import com.oro.app.data.ai.craft.VisualGate
+import com.oro.app.data.ai.context.ProjectSnapshot
 import com.oro.app.data.ai.genui.GenUi
 import com.oro.app.data.ai.search.ProjectSearch
 import com.oro.app.data.ai.search.WebDocs
@@ -73,6 +77,21 @@ internal class EvalRun(
     private var baseUrl = ""
     @Volatile private var forceText = spec.textMode
 
+    /**
+     * The harness profile, as the editor picks it; ORO_EVAL_PROFILE=off runs
+     * the harness without profiles (DEFAULT), or names one to force it onto a
+     * stand-in model (mercury, fast, frontier, community).
+     */
+    private val profile: ModelProfile = when (System.getenv("ORO_EVAL_PROFILE")?.trim()?.lowercase()) {
+        "off", "default" -> ModelProfiles.DEFAULT
+        "mercury" -> ModelProfiles.MERCURY
+        "fast" -> ModelProfiles.FAST
+        "frontier" -> ModelProfiles.FRONTIER
+        "community" -> ModelProfiles.COMMUNITY
+        else -> ModelProfiles.forModel(model)
+    }
+    private var roundNotes = 0
+
     // Measurements.
     private var turns = 0
     private var retries = 0
@@ -113,14 +132,16 @@ internal class EvalRun(
         val offered = AgentTools.forMainAgent()
         val known = offered.map { it.function.name }.toSet()
         val context = "Project: ${spec.task.projectName}\n\nThe project is empty." + GenUi.PROMPT +
-            Skills.catalogue(Skills.all(skillsDir, project))
+            Skills.catalogue(Skills.all(skillsDir, project)) +
+            ProjectSnapshot.inline(project, profile.inlineProjectChars)
         val total = model.contextLength.takeIf { it > 0 } ?: 128_000
         val window = (total - (total / 8).coerceIn(2_000, 32_000)).coerceAtLeast(2_048)
+            .let { w -> profile.contextBudgetTokens?.let { minOf(w, it) } ?: w }
         val manager = AiProviderManager()
 
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
             val textMode = forceText || !model.supportsToolCalls
-            val system = AiRepository.systemMessage(context, agentMode = true, nativeTools = !textMode, toolList = offered)
+            val system = AiRepository.systemMessage(context, agentMode = true, nativeTools = !textMode, toolList = offered, profile = profile)
             val tools = if (textMode) null else offered
             val fixed = TokenEstimator.estimate(system) + (tools?.sumOf {
                 TokenEstimator.estimate(it.function.name) + TokenEstimator.estimate(it.function.description) +
@@ -133,7 +154,9 @@ internal class EvalRun(
 
         val client = AgentModelClient { request ->
             ProviderRateLimiter.shared.acquire(model.provider, TokenEstimator.estimate(request.messages))
-            val stream = tap(manager.streamChatCompletion(model, request.messages, request.tools, temperature = 0.5f))
+            val stream = tap(
+                manager.streamChatCompletion(model, request.messages, request.tools, temperature = 0.5f, maxTokens = profile.maxOutputTokens)
+            )
             if (request.tools == null) stream else detectToolRejection(stream)
         }
 
@@ -204,7 +227,10 @@ internal class EvalRun(
                 maxIterations = maxTurns,
                 maxQualityPasses = AgentLoopConfig().maxQualityPasses + (if (intakeArmed) 1 else 0),
                 attachImages = VisionSupport.supports(model),
-                toolSchemas = AgentTools.schemasOf(offered)
+                toolSchemas = AgentTools.schemasOf(offered),
+                idleTimeoutMs = profile.idleTimeoutMs,
+                maxQualityPasses = profile.qualityPasses,
+                roundNote = if (profile.previewEachRound) { calls, results -> previewRoundNote(calls, results) } else null
             )
         )
         // As EditorViewModel: questions written as prose before anything was built become the card, once.
@@ -219,7 +245,9 @@ internal class EvalRun(
                 }
             } else null
             intakeArmed = false
-            prose ?: QualityGate.review(project, touched)
+            prose ?: QualityGate.review(project, touched) ?: if (profile.visualFinalCheck) {
+                VisualGate.review(renderPages(VisualGate.pagesFor(touched) { File(project, it).isFile }, listOf(Device.PHONE, Device.DESKTOP)))
+            } else null
         }
         val result = try {
             loop.run(history, known, listener, finalCheck, prepare)
@@ -228,6 +256,28 @@ internal class EvalRun(
         }
         transcript.append("\n## Result\n").append(result.toString().take(2_000)).append('\n')
         return result to history.toList()
+    }
+
+    /** The changed pages at [devices], labelled like the editor's (EditorViewModel.renderPages). */
+    private fun renderPages(pages: List<String>, devices: List<Device> = listOf(Device.PHONE)): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        for (page in pages) for ((i, d) in devices.withIndex()) {
+            out[if (i == 0) page else "$page (${d.label})"] = browser.capture(baseUrl, page, listOf(d)).firstOrNull()?.metrics.orEmpty()
+        }
+        return out
+    }
+
+    /** The editor's per-round preview note (EditorViewModel.previewRoundNote). */
+    private fun previewRoundNote(calls: List<ToolCallResponse>, results: List<ToolResult>): String? {
+        val changed = calls.zip(results)
+            .filter { (call, result) -> result.success && ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly }
+            .flatMap { (call, _) -> QualityGate.touchedPaths(call) }
+        val pages = VisualGate.pagesFor(changed) { File(project, it).isFile }
+        if (pages.isEmpty()) return null
+        return VisualGate.roundNote(renderPages(pages))?.also {
+            roundNotes++
+            transcript.append("  ⓘ ").append(it.take(600).replace('\n', ' ')).append('\n')
+        }
     }
 
     /** Everything the model streamed, markup included (the loop shows only the prose before a call). */
@@ -394,6 +444,9 @@ internal class EvalRun(
             put("lengthContinuations", count("Your previous reply was cut off by the output limit"))
             put("reasoningOnlyNudges", count("[Oro: your last replies contained only reasoning"))
             put("qualityGatePasses", count("Automatic quality review"))
+            put("visualGatePasses", count("Automatic quality review (by the Oro app, not the user) rendered"))
+            put("roundNotes", roundNotes)
+            put("profile", profile.name)
             put("askedUser", asked)
             put("questions", buildJsonArray { questionsAsked.take(12).forEach { add(JsonPrimitive(it)) } })
             put("askedBeforeBuilding", firstAskTurn > 0 && (firstWriteTurn == 0 || firstAskTurn < firstWriteTurn))

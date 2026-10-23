@@ -71,10 +71,11 @@ class MercuryUnikeyTest {
         assertThat(AiSdkStreamParser.finishReason("content-filter")).isEqualTo("content_filter")
         assertThat(AiSdkStreamParser.finishReason(null)).isEqualTo("stop")
 
-        // No finish frame (socket closed): a stop is synthesised.
+        // No finish frame (Mercury never sends one): the end reason stays unknown, so the
+        // agent loop does not take a file write left open at the end for a complete one.
         val r = AiSdkStreamParser()
         r.onData("""{"type":"text-delta","delta":"x"}""")
-        assertThat(r.finish()).containsExactly(StreamEvent.FinishReason("stop"), StreamEvent.Completed).inOrder()
+        assertThat(r.finish()).containsExactly(StreamEvent.Completed)
     }
 
     @Test

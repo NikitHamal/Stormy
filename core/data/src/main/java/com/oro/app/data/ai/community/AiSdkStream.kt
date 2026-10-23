@@ -87,10 +87,14 @@ class AiSdkStreamParser {
         }
     }
 
-    /** Closing events once the stream is over. */
-    fun finish(): List<StreamEvent> =
-        if (sentFinish) listOf(StreamEvent.Completed)
-        else listOf(StreamEvent.FinishReason("stop"), StreamEvent.Completed)
+    /**
+     * Closing events once the stream is over. Without a `finish` frame the
+     * end reason is unknown and none is reported -- Mercury's guest chat never
+     * sends one -- so the agent loop treats a file write left open at the end
+     * as possibly cut off by an output limit and has it resent, instead of a
+     * synthesised "stop" vouching for a half-written file.
+     */
+    fun finish(): List<StreamEvent> = listOf(StreamEvent.Completed)
 
     companion object {
         private fun str(e: JsonElement?): String? = (e as? JsonPrimitive)?.contentOrNull

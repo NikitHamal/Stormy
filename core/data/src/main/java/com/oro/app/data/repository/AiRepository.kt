@@ -193,8 +193,9 @@ class AiRepository(
         projectContext: String = "",
         agentMode: Boolean = true,
         nativeTools: Boolean = true,
-        toolList: List<Tool> = emptyList()
-    ): ChatRequestMessage = systemMessage(projectContext, agentMode, nativeTools, toolList)
+        toolList: List<Tool> = emptyList(),
+        profile: com.oro.app.data.ai.agent.ModelProfile = com.oro.app.data.ai.agent.ModelProfiles.DEFAULT
+    ): ChatRequestMessage = systemMessage(projectContext, agentMode, nativeTools, toolList, profile)
 
     /**
      * Create a user message
@@ -283,7 +284,9 @@ class AiRepository(
             projectContext: String = "",
             agentMode: Boolean = true,
             nativeTools: Boolean = true,
-            toolList: List<Tool> = emptyList()
+            toolList: List<Tool> = emptyList(),
+            /** The model's harness profile: its prompt section and whether long files are written whole. */
+            profile: com.oro.app.data.ai.agent.ModelProfile = com.oro.app.data.ai.agent.ModelProfiles.DEFAULT
         ): ChatRequestMessage {
             val systemPrompt = buildString {
                 append(ORO_IDENTITY)
@@ -292,13 +295,18 @@ class AiRepository(
                     append(AGENT_RULES)
                     if (!nativeTools && toolList.isNotEmpty()) {
                         append("\n\n")
-                        append(textToolProtocol(toolList))
+                        append(com.oro.app.data.ai.agent.TextToolProtocol.render(toolList, wholeFiles = profile.wholeFiles))
                     }
                 } else {
                     append(CHAT_RULES)
                 }
                 append("\n\n")
                 append(WEB_GUIDELINES)
+                // Constant per profile, ahead of the per-run context: the cacheable prefix holds.
+                if (agentMode && profile.promptSection.isNotBlank()) {
+                    append("\n\n")
+                    append(profile.promptSection.trim())
+                }
                 if (projectContext.isNotBlank()) {
                     append("\n\n# Project context\n")
                     append("(As of the start of this task. Files may have changed since: read a file for its current text.)\n")
@@ -307,9 +315,6 @@ class AiRepository(
             }
             return ChatRequestMessage(role = "system", content = systemPrompt)
         }
-
-        private fun textToolProtocol(tools: List<Tool>): String =
-            com.oro.app.data.ai.agent.TextToolProtocol.render(tools)
 
         /**
          * Written for current models, in the style of the open harnesses

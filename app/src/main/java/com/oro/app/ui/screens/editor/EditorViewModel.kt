@@ -1770,6 +1770,9 @@ class EditorViewModel(
     private suspend fun runAgent(model: AiModel, run: RunTranscript): AgentRunResult {
         val isAgentMode = _agentMode.value
         val nativeTools = model.supportsToolCalls
+        // How this model is driven: output style, checks, timeouts (see ModelProfiles).
+        val profile = com.oro.app.data.ai.agent.ModelProfiles.forModel(model)
+        pushBaseMs = profile.streamPushMs
         // MCP servers' tools join the built-ins for this run (listing is cached).
         val mcp = if (isAgentMode) preferencesRepository.mcpSettings.first() else com.oro.app.data.ai.mcp.McpSettings()
         toolExecutor.mcpSettings = mcp
@@ -1825,19 +1828,30 @@ class EditorViewModel(
         // run. Rebuilding it per turn changed the file tree after every
         // write and re-billed the full prompt each time.
         var runContext: String? = null
+        // A small project whole, for models whose profile can take it (no reading turns).
+        val inlinedFiles = if (isAgentMode && profile.inlineProjectChars > 0) {
+            _project.value?.rootPath?.let { root ->
+                withContext(Dispatchers.IO) {
+                    runCatching { com.oro.app.data.ai.context.ProjectSnapshot.inline(File(root), profile.inlineProjectChars) }.getOrDefault("")
+                }
+            }.orEmpty()
+        } else ""
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
             val textMode = !nativeTools || forceTextTools
             val context = runContext
-                ?: (buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext) + instructions)
+                ?: (buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext) + instructions + inlinedFiles)
                     .also { runContext = it }
             val system = aiRepository.createSystemMessage(
                 projectContext = context,
                 agentMode = isAgentMode,
                 nativeTools = !textMode,
-                toolList = offeredTools
+                toolList = offeredTools,
+                profile = profile
             )
             val tools = if (isAgentMode && !textMode) offeredTools else null
-            val window = contextWindowManager.getAvailableTokens(model)
+            val window = contextWindowManager.getAvailableTokens(model).let { w ->
+                profile.contextBudgetTokens?.let { minOf(w, it) } ?: w
+            }
             val fixed = TokenEstimator.estimate(system) + toolTokens(tools)
             val share = when (pressure) { 0 -> 0.9; 1 -> 0.6; else -> 0.35 }
             val budget = ((window * share).toInt() - fixed).coerceAtLeast(2_000)
@@ -1858,6 +1872,7 @@ class EditorViewModel(
                     messages = request.messages,
                     tools = request.tools,
                     temperature = 0.5f,
+                    maxTokens = profile.maxOutputTokens,
                     onRateLimitWait = onRateLimitWait
                 )
                 return if (request.tools == null) stream else detectToolRejection(stream)
@@ -1934,8 +1949,12 @@ class EditorViewModel(
                 attachImages = com.oro.app.data.ai.VisionSupport.supports(model),
                 // MCP and use_phone schemas, so raw text-protocol values get their real types.
                 toolSchemas = AgentTools.schemasOf(offeredTools),
-                // A prose intake question uses one final-check pass; the quality gate keeps its own two.
-                maxQualityPasses = AgentLoopConfig().maxQualityPasses + (if (intakeArmed && isAgentMode) 1 else 0)
+                idleTimeoutMs = profile.idleTimeoutMs,
+                // A prose intake question uses one final-check pass; the quality gate keeps its own.
+                maxQualityPasses = profile.qualityPasses + (if (intakeArmed && isAgentMode) 1 else 0),
+                roundNote = if (isAgentMode && profile.previewEachRound && previewEachRoundAllowed()) {
+                    { calls, results -> previewRoundNote(calls, results) }
+                } else null
             )
         )
         toolExecutor.checkpoint = run {
@@ -1946,7 +1965,20 @@ class EditorViewModel(
         val result = try {
             val root = _project.value?.rootPath?.let { File(it) }
             val gate: (suspend () -> String?)? = if (isAgentMode && root != null) {
-                { withContext(Dispatchers.IO) { QualityGate.review(root, touched.toSet()) } }
+                {
+                    withContext(Dispatchers.IO) { QualityGate.review(root, touched.toSet()) }
+                        ?: if (profile.visualFinalCheck) {
+                            // The visual half: hard layout defects of the changed pages on a phone.
+                            // Phone and desktop: some defects show at one width only (a header
+                            // button folded into the phone menu shows on desktop).
+                            com.oro.app.data.ai.craft.VisualGate.review(
+                                renderPages(
+                                    root, com.oro.app.data.ai.craft.VisualGate.pagesFor(touched) { File(root, it).isFile },
+                                    com.oro.app.data.preview.Device.entries.filter { it != com.oro.app.data.preview.Device.TABLET }
+                                )
+                            )
+                        } else null
+                }
             } else null
             // Intake questions written as prose (before anything was built) become the
             // card, once; an ask_user call in the run disarms it (see onToolFinished).
@@ -2238,7 +2270,57 @@ class EditorViewModel(
      * second for a very long one -- still live, never a stutter.
      */
     private fun pushIntervalMs(): Long =
-        (STREAMING_UPDATE_INTERVAL_MS + lastRenderedLength / 400L).coerceAtMost(MAX_STREAMING_UPDATE_INTERVAL_MS)
+        (pushBaseMs + lastRenderedLength / 400L).coerceAtMost(MAX_STREAMING_UPDATE_INTERVAL_MS)
+
+    /** Base push cadence for the current run (its model profile); fast models stream in big bursts. */
+    @Volatile private var pushBaseMs = STREAMING_UPDATE_INTERVAL_MS
+
+    /**
+     * Renders [pages] with the app's previewer at each of [devices]: a label
+     * ("index.html", or "index.html (desktop)" past the first device) -> the
+     * metrics text screenshot_preview reports. Empty when rendering is
+     * unavailable; a page that does not render in time maps to "".
+     */
+    private suspend fun renderPages(
+        root: File,
+        pages: List<String>,
+        devices: List<com.oro.app.data.preview.Device> = listOf(com.oro.app.data.preview.Device.PHONE)
+    ): Map<String, String> {
+        val previewer = com.oro.app.data.preview.PagePreviewers.instance ?: return emptyMap()
+        val out = LinkedHashMap<String, String>()
+        for (page in pages) for ((i, device) in devices.withIndex()) {
+            val label = if (i == 0) page else "$page (${device.label})"
+            out[label] = try {
+                kotlinx.coroutines.withTimeoutOrNull(PAGE_RENDER_TIMEOUT_MS) {
+                    previewer.capture(root, page, listOf(device)).firstOrNull()?.metrics
+                }.orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ""
+            }
+        }
+        return out
+    }
+
+    /**
+     * After a round that changed pages, styles or scripts: how the changed
+     * pages render on a phone, for the model to read with the tool results.
+     */
+    private suspend fun previewRoundNote(calls: List<ToolCallResponse>, results: List<ToolResult>): String? {
+        val root = _project.value?.rootPath?.let { File(it) } ?: return null
+        val changed = calls.zip(results)
+            .filter { (call, result) -> result.success && ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly }
+            .flatMap { (call, _) -> QualityGate.touchedPaths(call) }
+        val pages = com.oro.app.data.ai.craft.VisualGate.pagesFor(changed) { File(root, it).isFile }
+        if (pages.isEmpty()) return null
+        return com.oro.app.data.ai.craft.VisualGate.roundNote(renderPages(root, pages))
+    }
+
+    /** Rendering after every round costs a low-end phone visible frames; there the final check renders alone. */
+    private fun previewEachRoundAllowed(): Boolean =
+        com.oro.app.data.preview.PagePreviewers.instance != null &&
+            !com.oro.app.ui.theme.DevicePerformance.isLowEndDevice(OroApplication.getInstance())
 
     /**
      * Build a compact file tree context string for the AI
@@ -2637,6 +2719,8 @@ class EditorViewModel(
         private const val TREE_REFRESH_DEBOUNCE_MS = 600L
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L
+        /** Longest wait for one page render in the automatic checks. */
+        private const val PAGE_RENDER_TIMEOUT_MS = 12_000L
         /** Long transcripts parsed while a chat loads, newest first; the rest follow in the background. */
         private const val LOAD_PREFETCH = 2
         /** Slowest push cadence, for very long runs; see pushIntervalMs. */

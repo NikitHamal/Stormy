@@ -38,7 +38,7 @@ import java.io.File
 class LiveEvalTest {
 
     @Test
-    fun live() = runBlocking {
+    fun live(): Unit = runBlocking {
         Assume.assumeTrue("Set ORO_LIVE_EVAL=1 to run the live eval", System.getenv("ORO_LIVE_EVAL") == "1")
         val out = File(System.getenv("ORO_EVAL_OUT") ?: "build/oro-eval").apply { mkdirs() }
         val models = (System.getenv("ORO_EVAL_MODELS") ?: "nvidia/nemotron-3-ultra-550b-a55b:free")
@@ -49,6 +49,13 @@ class LiveEvalTest {
         val browser = EvalBrowser(System.getenv("ORO_EVAL_PYTHON") ?: "python3", out)
         // Only the model under test answers: no keyless stand-ins.
         KeylessFallback.enabledIds = emptySet()
+        // Mercury's site sits behind Vercel's browser check: answer through headless
+        // Chromium the way the app answers through its hidden WebView.
+        val mercuryBridge = if (models.any { it.startsWith("mercury:") }) {
+            EvalMercuryBridge(System.getenv("ORO_EVAL_PYTHON") ?: "python3", out).also {
+                com.oro.app.data.ai.community.MercuryBrowser.bridge = it
+            }
+        } else null
         MockApi.authDir = File(out, ".mock-auth").apply { mkdirs() }
 
         val specs = models.flatMap { m -> tasks.map { t -> EvalSpec(m.removeSuffix("@text"), m.endsWith("@text"), t) } }
@@ -82,6 +89,7 @@ class LiveEvalTest {
             }.awaitAll()
         }
         File(out, "summary.md").writeText(summary(results.readLines().filter { it.isNotBlank() }))
+        mercuryBridge?.close()
     }
 
     /**
@@ -140,8 +148,8 @@ class LiveEvalTest {
     private fun JsonObject.s(k: String): String = (this[k] as? JsonPrimitive)?.contentOrNull ?: ""
 
     private fun summary(lines: List<String>): String = buildString {
-        append("| model | task | outcome | turns | tool calls | tool errors | nudges (malformed/cut/reasoning) | gate passes | audit E/W | page issues | runtime errors | phone overflow | smoke | asked first / uses answers | time |\n")
-        append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+        append("| model | profile | task | outcome | turns | tool calls | tool errors | nudges (malformed/cut/reasoning) | gate passes (visual) | round notes | audit E/W | page issues | runtime errors | phone overflow | smoke | asked first / uses answers | time |\n")
+        append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
         lines.forEach { line ->
             val o = kotlinx.serialization.json.Json.parseToJsonElement(line) as JsonObject
             val smoke = (o["smoke"] as? JsonObject)?.let { s ->
@@ -149,10 +157,12 @@ class LiveEvalTest {
                 else "moves ${s.s("changed")}"
             } ?: ""
             val errors = (o["runtimeErrors"] as? kotlinx.serialization.json.JsonArray)?.size ?: 0
-            append("| ").append(o.s("label")).append(" | ").append(o.s("task")).append(" | ").append(o.s("outcome"))
+            append("| ").append(o.s("label")).append(" | ").append(o.s("profile")).append(" | ").append(o.s("task")).append(" | ").append(o.s("outcome"))
             append(" | ").append(o.s("turns")).append(" | ").append(o.s("toolCalls")).append(" | ").append(o.s("toolErrors"))
             append(" | ").append(o.s("malformedNudges")).append('/').append(o.s("truncatedNudges")).append('/').append(o.s("reasoningOnlyNudges"))
-            append(" | ").append(o.s("qualityGatePasses")).append(" | ").append(o.s("auditErrors")).append('/').append(o.s("auditWarnings"))
+            append(" | ").append(o.s("qualityGatePasses")).append(" (").append(o.s("visualGatePasses")).append(")")
+            append(" | ").append(o.s("roundNotes"))
+            append(" | ").append(o.s("auditErrors")).append('/').append(o.s("auditWarnings"))
             append(" | ").append(o.s("pageIssues")).append(" | ").append(errors).append(" | ").append(o.s("phoneOverflow"))
             append(" | ").append(smoke)
             append(" | ").append(o.s("askedUser")).append("x, ").append(o.s("askedBeforeBuilding")).append('/').append(o.s("usesAnswers"))

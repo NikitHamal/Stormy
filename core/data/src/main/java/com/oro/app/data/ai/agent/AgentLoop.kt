@@ -139,6 +139,15 @@ data class AgentLoopConfig(
      * prose, where a small model once looped on one paragraph for 220 s.
      */
     val cutRepetition: Boolean = false,
+    /**
+     * Called after each round of tool calls with the calls and their results.
+     * A non-null result is what the app adds for the model to read next: with
+     * the tool results in text mode, as a note right after them otherwise. The
+     * editor reports here how the pages a round changed render on a phone
+     * ([ModelProfile.previewEachRound]), saving the model a verification turn.
+     * A failure in the hook is ignored; the round's results stand.
+     */
+    val roundNote: (suspend (List<ToolCallResponse>, List<ToolResult>) -> String?)? = null,
 ) {
     companion object {
         /** No iteration cap. */
@@ -391,6 +400,9 @@ class AgentLoop(
                 if (i == results.lastIndex) r.copy(output = r.output + "\n\n" + verdict.note) else r
             }
             val cutNote = if (cutOff.isEmpty()) null else truncatedCallNudge(cutLabels.ifEmpty { cutOff }, fromText)
+            val roundNote = config.roundNote?.let { hook ->
+                try { hook(calls, finalResults) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+            }?.trim()?.takeIf { it.isNotEmpty() }
 
             if (fromText) {
                 conversation += ChatRequestMessage(
@@ -402,6 +414,7 @@ class AgentLoop(
                             append(resultText(finalResults[i])).append("\n</tool_result>\n")
                         }
                         if (cutNote != null) append(cutNote).append('\n')
+                        if (roundNote != null) append(roundNote).append('\n')
                         append(config.textResultsFooter)
                     }
                 )
@@ -414,7 +427,9 @@ class AgentLoop(
                         name = call.function.name
                     )
                 }
-                if (cutNote != null) conversation += ChatRequestMessage(role = "user", content = cutNote)
+                // One message after the results: the cut-off note first (it decides what to resend).
+                val notes = listOfNotNull(cutNote, roundNote)
+                if (notes.isNotEmpty()) conversation += ChatRequestMessage(role = "user", content = notes.joinToString("\n\n"))
             }
 
             // Screenshots go to the model as an image turn (tool messages cannot

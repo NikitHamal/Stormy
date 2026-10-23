@@ -38,7 +38,11 @@ object TextToolProtocol {
      */
     val TEXT_MODE_HIDDEN: Set<String> = setOf("multi_edit")
 
-    fun render(tools: List<Tool>): String = buildString {
+    /**
+     * @param wholeFiles the model's output limit is large (see ModelProfile.wholeFiles):
+     *   files are written whole in one call instead of first part plus appends.
+     */
+    fun render(tools: List<Tool>, wholeFiles: Boolean = false): String = buildString {
         appendLine("# Calling tools")
         appendLine("You have no built-in tool API here. The Oro app on the user's device runs tools for you:")
         appendLine("write tool calls, stop, and the app replies with their results. Use exactly this format:")
@@ -58,8 +62,12 @@ object TextToolProtocol {
         appendLine("- After your last call, STOP. Never write a <tool_result> yourself and never claim a tool ran")
         appendLine("  before you have its result.")
         appendLine("- Act, don't narrate: if you say you will change a file, the same reply must contain the call.")
-        appendLine("- A very long file: write the first part with write_file, then add the rest with further")
-        appendLine("  write_file calls with append=true. Never stop halfway through a call.")
+        if (wholeFiles) {
+            appendLine("- Write each file whole in one write_file call, however long. Never stop halfway through a call.")
+        } else {
+            appendLine("- A very long file: write the first part with write_file, then add the rest with further")
+            appendLine("  write_file calls with append=true. Never stop halfway through a call.")
+        }
         appendLine("- When the task is done, reply with a short summary and no tool call.")
         appendLine()
         appendLine("Example:")
