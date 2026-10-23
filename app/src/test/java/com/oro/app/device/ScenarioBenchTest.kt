@@ -429,16 +429,20 @@ class ComparisonCueBenchTest {
     }
 
     @Test
-    fun `a pick from the first screenful is held once, and goes through when tapped again`() = runTest {
+    fun `a pick from the first screenful is held once, then the rest of the list is read for it, then it goes through`() = runTest {
         val phone = ScenarioBench.phone(this, results())
         val model = ScriptedModel(
+            calls("tap" to """{"index":2}"""),
             calls("tap" to """{"index":2}"""),
             calls("tap" to """{"index":2}"""),
             calls("finish_task" to """{"summary":"Added Mi.","success":true}"""),
         )
         ScenarioBench.play(phone, model, "Add the cheapest charger to the cart")
         assertThat(model.seen[1]).contains("Not tapped yet")
-        assertThat(phone.log).containsExactly(Act.Tap("Mi 33W · ₹649", 2))
+        assertThat(model.seen[2]).contains("here is all of it")
+        assertThat(model.seen[2]).contains("Samsung 25W · ₹1,299")
+        assertThat(phone.log.filterIsInstance<Act.Scroll>()).isNotEmpty()
+        assertThat(phone.log.filterIsInstance<Act.Tap>()).containsExactly(Act.Tap("Mi 33W · ₹649", 2))
     }
 
     @Test

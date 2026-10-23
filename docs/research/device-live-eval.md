@@ -443,3 +443,24 @@ Output goes to `app/build/live-eval/device/<run id>/`:
 
 The default model list is the six above. The test makes network calls, so it
 never runs unless the property is set.
+
+## Round 5 (2026-10-24): API-first actions, quick steps, busy-screen settle
+
+Same 11 scenarios, same harness, on d8e9146 (run `r5`) and on its follow-up
+(run `r5b`, the three shop/YouTube scenarios for Laguna). Ran on molab.
+
+| model | youtube_play | whatsapp_send | settings_dnd | shop_cheapest | alarm | notification_read | signin_wall | recover_wifi | hard_youtube_popup | hard_whatsapp_ambiguous | hard_shop_scroll | pass |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| North mini code | ✅ 5t | ✅ 5t | ✅ 6t | ✅ 5t | ✅ 6t | ✅ 3t | ✅ 5t | ✅ 6t | ✅ 12t | ✅ 6t | ✅ 10t | 11/11 |
+| Laguna S 2.1 | ✅ 3t | ✅ 4t | ✅ 3t | ✅ 5t | ✅ 8t | ✅ 2t | ✅ 3t | ✅ 2t | ✅ 9t | ✅ 5t | ✅ 8t (r5b) | 11/11 |
+
+- Laguna failed hard_shop_scroll in `r5`: held once ("this list goes on below"),
+  it tapped the same first-screen item again and added Mi (₹649) instead of boAt
+  (₹499, below the fold). A second pick made without looking now gets the rest
+  of the list read for it (`unseenChoice` runs `read_page`); in `r5b` it then chose
+  boAt.
+- Seconds per run are not comparable to earlier rounds (FakePhone settles in
+  virtual time); the settle and loading changes only show on a phone.
+- Mercury 3 still cannot be measured here: its guest route answers 429 with a
+  Vercel challenge from molab's datacenter IP.
+

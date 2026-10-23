@@ -440,6 +440,8 @@ object DeviceAgent {
         val comparing = DevicePrompt.comparesItems(task)
         /** The run has scrolled or read a page, or a pick from the first screenful was held once already. */
         var browsed = false
+        /** A pick from a list's first screenful was held once: the next one gets the list read for it. */
+        var pickHeld = false
         /** The action being observed submitted a search (or a form). */
         var submitting = false
         /** What the last submitted search showed, apart from what was typed. */
@@ -798,7 +800,7 @@ object DeviceAgent {
             // after the model saw it: set_value still reaches it (seekBarValue).
             val seekBar = if (name == "set_value") meantSeekBar(args, seen, target) else null
             if (seekBar == null) problem(target, screen)?.let { return it }
-            unseenChoice(name, target, screen)?.let { return it }
+            unseenChoice(name, target, screen, before = screen.signature)?.let { return it }
             var dragTo = if (name == "drag") resolveDragEnd(args, seen, screen) else null
             if (name == "drag") problem(dragTo, screen)?.let { return it }
 
@@ -1330,18 +1332,34 @@ object DeviceAgent {
          * models in the live eval ignored the hint and added the cheapest
          * *visible* charger to the cart. Tapping again goes through.
          */
-        private fun unseenChoice(name: String, target: Target?, screen: ScreenState): ToolResult? {
+        /**
+         * A pick from the first screenful of a list that goes on below, in a
+         * task that compares items: held once with the reason. Picked again
+         * without looking, the rest of the list is read for the model (live
+         * evals: a model told once still took the first cheap-looking item,
+         * and the cheapest was below), and the pick after that goes through.
+         */
+        private suspend fun unseenChoice(name: String, target: Target?, screen: ScreenState, before: Int): ToolResult? {
             if (!comparing || browsed || (name != "tap" && name != "tap_text")) return null
             val e = (target as? Target.OnElement)?.element ?: return null
             if (e.editable || e.role == ScreenElement.ROLE_LIST || CONTROLS.containsMatchIn(e.label)) return null
             screen.elements.firstOrNull {
                 it.role == ScreenElement.ROLE_LIST && !it.horizontal && it.canScrollForward && it.bounds.contains(e.centerX, e.centerY)
             } ?: return null
+            if (!pickHeld) {
+                pickHeld = true
+                return ToolResult(
+                    false, observation(null, screen),
+                    "Not tapped yet: your task compares items and this list goes on below, unseen. read_page (or scroll down) " +
+                        "first, then tap the one you chose."
+                )
+            }
             browsed = true
+            val page = readPage(LIST_PAGES_FOR_CHOICE, before)
             return ToolResult(
-                false, observation(null, screen),
-                "Not tapped yet: your task compares items and this list goes on below, unseen. read_page (or scroll down) " +
-                    "first, then tap the one you chose."
+                false, page.output,
+                "Not tapped: the list goes on below, so here is all of it. Choose from the whole list, then tap that one " +
+                    "(scroll_to its name if it is not on screen)."
             )
         }
 
@@ -1693,6 +1711,9 @@ object DeviceAgent {
     private val QUOTED = Regex("\"[^\"]*\"|“[^”]*”")
 
     /** Judges an outcome sentence, not the labels quoted in it ("Tapped “Failed orders”" succeeded). */
+    /** Screens read for a pick made without looking at the rest of the list. */
+    private const val LIST_PAGES_FOR_CHOICE = 3
+
     /** fill_form outcomes that count as done. */
     private val FILLED = Regex("^(filled|checked|unchecked|already|chose)")
     private const val MAX_FORM_SCROLLS = 3
