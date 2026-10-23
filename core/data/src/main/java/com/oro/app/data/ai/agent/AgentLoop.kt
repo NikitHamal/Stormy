@@ -449,8 +449,13 @@ class AgentLoop(
 
             if (verdict.stop != null) return AgentRunResult.Failed(verdict.stop, retryable = false)
 
-            // Legacy explicit finish: the summary is the answer.
-            val finish = calls.indexOfFirst { ToolAliases.canonicalName(it.function.name) == "finish_task" }
+            // Legacy explicit finish: the summary is the answer. Only a finish
+            // that went through ends the run: one refused by the tool runner (an
+            // earlier action in the turn failed) was planned for a screen that
+            // never came, and its summary would be invented.
+            val finish = calls.indices.firstOrNull { i ->
+                ToolAliases.canonicalName(calls[i].function.name) == "finish_task" && results.getOrNull(i)?.success != false
+            } ?: -1
             if (finish >= 0) {
                 val summary = runCatching {
                     com.oro.app.data.ai.tools.JsonParserUtils.parseToJsonObject(calls[finish].function.arguments)

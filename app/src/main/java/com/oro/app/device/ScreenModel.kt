@@ -273,6 +273,20 @@ data class ScreenState(
         return CREDENTIAL.containsMatchIn(name) || CREDENTIAL.containsMatchIn(id.substringAfter(":id/").replace('_', ' '))
     }
 
+    /**
+     * A human check (captcha) waiting for the user. It is a widget (a
+     * checkbox, a button, a short label), not any text that mentions one: an
+     * email about a "security check" or an article about captchas is not a
+     * human check. reCAPTCHA's always-on "protected by" badge is not one
+     * either, and a check box already ticked has been passed.
+     */
+    val humanCheck: Boolean
+        get() = elements.any { e ->
+            val label = e.label.lowercase()
+            (e.checkable || e.label.length <= MAX_WIDGET_LABEL) && HUMAN_CHECK.containsMatchIn(label) &&
+                !CAPTCHA_BADGE.containsMatchIn(label) && !(e.checkable && e.checked)
+        }
+
     /** True when something on screen says it is still loading. */
     val loading: Boolean get() = elements.any { it.role == ScreenElement.ROLE_PROGRESS }
 
@@ -292,11 +306,9 @@ data class ScreenState(
         ) {
             out += "A permission dialog is open: allow only what the task needs (prefer \"While using the app\" / \"Only this time\")."
         }
-        // A captcha is a widget (a checkbox, a button, a short label), not any
-        // text that mentions one: an email about a "security check" or an
-        // article about captchas is not a human check.
-        if (elements.any { e -> (e.checkable || e.label.length <= MAX_WIDGET_LABEL) && HUMAN_CHECK.containsMatchIn(e.label.lowercase()) }) {
-            out += "A human check (captcha) is on screen. You cannot solve it: ask_user to complete it on the phone, then continue."
+        if (humanCheck) {
+            out += "A human check (captcha) is on screen. Never try to solve it: it is handed to the user, and the run " +
+                "carries on by itself once they pass it. Do not reload the page for an easier one."
         }
         // A sign-in wall has a field for credentials, not just an editable box
         // (every browser page has the address bar) and a "Sign in" link.
@@ -377,8 +389,10 @@ data class ScreenState(
             "^(allow|don.t allow|deny|while using the app|only this time|allow all the time|allow only while using the app)$"
         )
         private val HUMAN_CHECK = Regex(
-            "\\b(i.m not a robot|verify (that )?you are (a )?human|are you a robot|captcha|human verification|unusual traffic)\\b"
+            "\\b(i.m not a robot|i am human|verify (that )?you are (a )?human|are you a robot|captcha|human verification|" +
+                "unusual traffic|enter the characters you see|type the characters|select all (images|squares))\\b"
         )
+        private val CAPTCHA_BADGE = Regex("protected by recaptcha|recaptcha.{0,3}(privacy|terms)|privacy\\s*-\\s*terms")
         /** Longest label read as a widget's own (a checkbox's, a button's) rather than content. */
         private const val MAX_WIDGET_LABEL = 50
         private val CREDENTIAL = Regex("\\b(e-?mail|user ?name|login|phone|mobile|password|passcode)\\b")

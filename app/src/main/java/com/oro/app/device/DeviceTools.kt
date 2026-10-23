@@ -52,6 +52,19 @@ object DeviceTools {
         },"required":["text"]}"""
     )
 
+    val FILL_FORM = tool(
+        "fill_form",
+        "Fill a whole form in one call: text fields, checkboxes, switches, radio groups and dropdowns, found by their label, hint or the text beside them. Fields further down are scrolled to. submit=true then presses the form's submit button.",
+        """{"type":"object","properties":{
+          "fields":{"type":"array","description":"One entry per field, in form order.","items":{"type":"object","properties":{
+            "field":{"type":"string","description":"The field's label or hint as shown, e.g. Email."},
+            "index":{"type":"integer","description":"Element number instead of field, when the label is unclear."},
+            "value":{"type":"string","description":"Text to type; true/false for a checkbox or switch; the option to pick for a dropdown or radio group."}
+          },"required":["value"]}},
+          "submit":{"type":"boolean","description":"Press the form's submit button after filling. Default false."}
+        },"required":["fields"]}"""
+    )
+
     val SCROLL = tool(
         "scroll",
         "Scroll the screen or a list. direction=down shows content further down (like swiping up with a finger).",
@@ -212,13 +225,14 @@ object DeviceTools {
 
     /** Offered to every model. find_text still runs if called, but tap_text and scroll_to cover it. */
     private val core: List<Tool> = listOf(
-        TAP, TAP_TEXT, TYPE_TEXT, SCROLL, SCROLL_TO, PRESS_KEY, OPEN_APP, OPEN_URL, QUICK_ACTION, MEDIA,
+        TAP, TAP_TEXT, TYPE_TEXT, FILL_FORM, SCROLL, SCROLL_TO, PRESS_KEY, OPEN_APP, OPEN_URL, QUICK_ACTION, MEDIA,
         LONG_PRESS, DOUBLE_TAP, SWIPE, DRAG, PINCH,
         READ_SCREEN, READ_PAGE, WAIT, WAIT_FOR, DEVICE_STATUS, LIST_APPS, TAKE_NOTE, ASK_USER, FINISH
     )
 
     /** The tools for a run: [vision] adds look (screenshots), for models that can see. */
-    fun forRun(vision: Boolean): List<Tool> = if (vision) core.take(16) + LOOK + core.drop(16) else core
+    fun forRun(vision: Boolean): List<Tool> =
+        if (vision) core.indexOf(READ_SCREEN).let { at -> core.take(at + 1) + LOOK + core.drop(at + 1) } else core
 
     val all: List<Tool> = forRun(vision = true)
 

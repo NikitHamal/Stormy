@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -448,6 +450,14 @@ object DeviceAgent {
         @Volatile var limitHit = false
         /** Step id of the tool call in progress, so late updates land on the right card. */
         @Volatile var currentStepId: Long = -1
+        /**
+         * Why an action in this turn did not work, if one did not: the turn's
+         * remaining actions (and a finish_task) were planned for a screen that
+         * never came, so they are not run.
+         */
+        var turnBroken: String? = null
+        /** Said before the next result: the user passed a human check first. */
+        var handOffNote: String? = null
 
         fun observe(maxLabel: Int = ScreenReader.DEFAULT_MAX_LABEL): ScreenState {
             val startedAt = phone.uptime()
@@ -591,10 +601,16 @@ object DeviceAgent {
             )
 
             val runner = AgentToolRunner { call ->
-                execute(call).also { r ->
-                    if (call.function.name !in DeviceTools.passive && r.success) actions++
-                    _state.update { it.copy(actions = actions, notes = notes.toList()) }
+                val name = call.function.name.substringAfterLast('.').lowercase()
+                val done = execute(call)
+                if (name !in DeviceTools.passive && turnBroken == null) {
+                    val text = if (done.success) done.output else (done.error ?: done.output)
+                    if (!done.success || text.startsWith("Blocked")) turnBroken = text.substringBefore('\n').take(120)
                 }
+                val r = handOffNote?.let { note -> handOffNote = null; done.copy(output = note + "\n" + done.output) } ?: done
+                if (name !in DeviceTools.passive && r.success) actions++
+                _state.update { it.copy(actions = actions, notes = notes.toList()) }
+                r
             }
 
             val client = AgentModelClient { request ->
@@ -614,6 +630,7 @@ object DeviceAgent {
 
                 override fun onTurnComplete(visibleText: String, toolCalls: List<ToolCallResponse>) {
                     turnScreen = lastScreen
+                    turnBroken = null
                     val thought = AgentLoop.stripThinking(visibleText).trim()
                     if (thought.isNotEmpty()) addStep(Step(nextId(), StepKind.THOUGHT, null, thought.take(400), status = StepStatus.DONE, endedAt = System.currentTimeMillis()))
                 }
@@ -743,11 +760,30 @@ object DeviceAgent {
 
             if (name !in DeviceTools.allowedWhilePaused) gate()
 
+            // An earlier action in this turn did not work: the rest of the
+            // turn was planned for a screen that never came.
+            turnBroken?.let { why ->
+                if (name !in DeviceTools.passive || name == "finish_task") {
+                    return skipped("an earlier action in this turn did not work ($why), so this was not tried. Decide again from this screen.", freshScreen())
+                }
+            }
+
             readOnly(name, args)?.let { return it }
             if (name == "scroll" || name == "scroll_to" || name == "read_page") browsed = true
 
             var screen = freshScreen()
             val seen = turnScreen
+
+            // A human check is the user's to pass, never the agent's: wait for
+            // them, then act on the screen that follows.
+            if (name in HANDS_ON && screen.humanCheck) {
+                handOff(null)
+                gate()
+                screen = freshScreen()
+                if (screen.humanCheck) return skipped("the human check is still on screen.", screen)
+            }
+
+            if (name == "fill_form") return fillForm(args, seen, screen)
 
             var target = resolve(name, args, seen, screen)
             problem(target, screen)?.let { return it }
@@ -934,7 +970,9 @@ object DeviceAgent {
             }
             "ask_user" -> {
                 val q = DeviceArgs.str(args, "question")
-                if (q == null) ToolResult(false, "", "Missing question.") else repeatedQuestion(q) ?: run {
+                if (q == null) ToolResult(false, "", "Missing question.")
+                else if (lastScreen?.humanCheck == true) handOff(currentStepId)
+                else repeatedQuestion(q) ?: run {
                     val options = (args["options"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
                     val answer = askUser(q, options)
                     questions += q to answer
@@ -982,6 +1020,192 @@ object DeviceAgent {
                 )
             }
             else -> null
+        }
+
+        /**
+         * Hands a human check to the user: the island asks them to pass it and
+         * the run carries on by itself once it is gone (or when they answer).
+         * The step and a note record that the user passed it. [stepId] is the
+         * question card already on screen, if the model asked; else one is added.
+         */
+        private suspend fun handOff(stepId: Long?): ToolResult {
+            val question = "Pass the check on screen. Orobi carries on when it's gone."
+            val id = stepId ?: nextId().also {
+                addStep(Step(it, StepKind.QUESTION, "ask_user", "Human check", app = lastScreen?.appLabel, status = StepStatus.WAITING))
+            }
+            val answer = askUntil(question, listOf("Done")) { !phone.capture().humanCheck }
+            mustRecapture = true
+            updateStep(id) {
+                it.copy(detail = answer?.let { a -> "You answered: $a" } ?: "You passed it", status = StepStatus.DONE, endedAt = System.currentTimeMillis())
+            }
+            questions += question to (answer ?: "(passed the check)")
+            notes += "The user passed a human check."
+            val head = answer?.let { "The user answered: $it" } ?: "The user passed the human check."
+            if (stepId == null) handOffNote = head
+            return ToolResult(true, head + "\n\n" + observation(null, observe()))
+        }
+
+        /**
+         * fill_form: every field from one capture -- typed, checked or picked --
+         * then (submit) the form's own button. One approval covers the whole
+         * form when anything in it is sensitive. Fields not on screen are
+         * looked for further down, a few scrolls at most. A field whose name
+         * fits two boxes is reported, never guessed.
+         */
+        private suspend fun fillForm(args: JsonObject, seen: ScreenState?, start: ScreenState): ToolResult {
+            val entries = FormFill.entries(args["fields"])
+            if (entries.isEmpty()) {
+                return ToolResult(false, "", "fill_form needs fields: [{\"field\": \"Email\", \"value\": \"...\"}, ...] (field = the label or hint; or index).")
+            }
+            val before = start.signature
+            var screen = start
+            val report = arrayOfNulls<String>(entries.size)
+            val done = BooleanArray(entries.size)
+            var approved = false
+            var scrolls = 0
+            /** Filled already: never matched again after the screen is read anew. */
+            val filled = ArrayList<ScreenElement>()
+            fun label(i: Int) = entries[i].field ?: "[${entries[i].index}]"
+
+            while (true) {
+                val used = screen.elements
+                    .filter { e -> filled.any { f -> f.role == e.role && f.label == e.label && f.bounds == e.bounds } }
+                    .mapTo(HashSet()) { it.index }
+                val plan = ArrayList<Pair<Int, ScreenElement>>()
+                for (i in entries.indices) {
+                    if (done[i]) continue
+                    val entry = entries[i]
+                    val element: ScreenElement? = if (entry.index != null) {
+                        val (match, stale) = if (seen != null && screen !== seen) ElementRemap.resolve(seen, screen, entry.index) else screen.element(entry.index) to false
+                        if (stale) { report[i] = "${label(i)}: changed since you saw it, not filled"; done[i] = true }
+                        match
+                    } else when (val m = FormFill.target(entry, screen, used)) {
+                        is FormFill.Match.Found -> m.element
+                        is FormFill.Match.Ambiguous -> {
+                            report[i] = "${label(i)}: fits ${m.candidates.size} fields (" + m.candidates.joinToString { "[${it.index}]" } + "); give its index"
+                            done[i] = true
+                            null
+                        }
+                        FormFill.Match.Missing -> null
+                    }
+                    if (element != null && !done[i]) { used += element.index; plan += i to element }
+                }
+
+                // One OK for the whole form when anything in it is sensitive.
+                if (!approved && settings.confirmSensitive) {
+                    val reasons = plan.mapNotNull { (i, e) ->
+                        if (FormFill.kindOf(e) == FormFill.Kind.TEXT) SensitiveGuard.type(e, entries[i].value, false, screen) else null
+                    }.distinct()
+                    if (reasons.isNotEmpty()) {
+                        if (!requestApproval("Fill the form: " + reasons.joinToString("; "))) {
+                            return ToolResult(true, "Blocked: the user denied filling this form. Do not retry it; choose another path or finish_task explaining what is left.")
+                        }
+                        gate()
+                        mustRecapture = true
+                        approved = true
+                        val now = freshScreen()
+                        if (now.signature != screen.signature) { screen = now; continue }
+                    }
+                    approved = true
+                }
+
+                var moved = false
+                for ((i, e) in plan) {
+                    val entry = entries[i]
+                    val outcome: String = when (FormFill.kindOf(e)) {
+                        FormFill.Kind.TEXT -> {
+                            val typed = phone.type(e, screen, entry.value, append = false)
+                            if (failed(typed)) "not filled ($typed)" else if (e.password) "filled (hidden)" else "filled"
+                        }
+                        FormFill.Kind.TOGGLE -> {
+                            val want = FormFill.wantChecked(entry.value) ?: true
+                            if (e.checked == want) (if (want) "already checked" else "already off")
+                            else {
+                                val tapped = phone.tapElement(e, screen)
+                                if (failed(tapped)) "not changed ($tapped)" else if (want) "checked" else "unchecked"
+                            }
+                        }
+                        FormFill.Kind.CHOICE -> {
+                            // A picker: open it, take the option, and read the screen again.
+                            val opened = phone.tapElement(e, screen)
+                            moved = true
+                            if (failed(opened)) "could not open ($opened)" else {
+                                phone.settle(maxMs = 1_500)
+                                var list = observe()
+                                var pick = TextMatch.hits(entry.value, list).firstOrNull { it.score >= FormFill.OPTION_MIN && it.element.index != e.index }
+                                var tries = 0
+                                while (pick == null && tries < 3) {
+                                    val scroller = list.listFor("down") ?: break
+                                    if (scroller.canScroll("down") == false) break
+                                    phone.scroll("down", scroller, list)
+                                    phone.settle(maxMs = 1_000)
+                                    list = observe()
+                                    pick = TextMatch.hits(entry.value, list).firstOrNull { it.score >= FormFill.OPTION_MIN && it.element.index != e.index }
+                                    tries++
+                                }
+                                val option = pick?.element
+                                if (option == null) {
+                                    phone.global("back")
+                                    "no option \"${entry.value.take(40)}\""
+                                } else {
+                                    val chose = phone.tapElement(option, list)
+                                    if (failed(chose)) "could not choose \"${entry.value.take(40)}\"" else "chose \"${option.label.take(40)}\""
+                                }
+                            }
+                        }
+                    }
+                    report[i] = "${label(i)}: $outcome"
+                    done[i] = true
+                    filled += e
+                    if (moved) break
+                }
+                if (moved) {
+                    // A picker changed the screen: the rest are found again on the new one.
+                    phone.settle(maxMs = 1_500)
+                    screen = observe()
+                    continue
+                }
+                if (done.all { it }) break
+                // Fields not on screen yet: further down the form, a few scrolls at most.
+                val list = screen.listFor("down")
+                if (scrolls >= MAX_FORM_SCROLLS || list == null || list.canScroll("down") == false) break
+                phone.scroll("down", list, screen)
+                scrolls++
+                phone.settle(maxMs = 1_200)
+                screen = observe()
+            }
+            for (i in entries.indices) if (report[i] == null) report[i] = "${label(i)}: not on screen"
+
+            var submitted = ""
+            val allFilled = report.all { r -> r != null && FILLED.containsMatchIn(r.substringAfter(": ")) }
+            if (DeviceArgs.bool(args, "submit")) {
+                phone.settle(maxMs = 1_000)
+                val now = observe()
+                val button = FormFill.submitButton(now)
+                submitted = when {
+                    !allFilled -> "\nNot submitted: some fields were not filled."
+                    button == null -> "\nNot submitted: no submit button on screen; tap it yourself."
+                    else -> {
+                        val target = Target.OnElement(button, button)
+                        val sensitive = SensitiveGuard.tap(target, now)
+                        if (sensitive != null && settings.confirmSensitive && !requestApproval(sensitive)) {
+                            "\nNot submitted: the user denied \"$sensitive\"."
+                        } else {
+                            if (sensitive != null) { gate(); mustRecapture = true }
+                            val pressed = if (sensitive != null) {
+                                val again = freshScreen()
+                                val b = FormFill.submitButton(again)
+                                if (b == null || !Targets.same(target, Target.OnElement(b, b))) null else phone.tapElement(b, again)
+                            } else phone.tapElement(button, now)
+                            if (pressed == null) "\nNot submitted: the screen changed while you decided." else "\nSubmitted: $pressed"
+                        }
+                    }
+                }
+            }
+            phone.settle(maxMs = 2_000)
+            val after = observe()
+            val text = "Form: " + report.joinToString("; ") + submitted + "\n\n" + observation(before, after)
+            return if (allFilled) ToolResult(true, text) else ToolResult(false, text, "Form: " + report.joinToString("; "))
         }
 
         /** The target of a targeted tool, resolved against [now]; null for tools without one. */
@@ -1180,6 +1404,36 @@ object DeviceAgent {
      * and takes the answer in place, so the app the agent is working in
      * stays on screen; Oro is opened only if the user taps through to it.
      */
+    /**
+     * [askUser], except the wait also ends, with null, once [cleared] says the
+     * reason for asking is gone (checked every [everyMs] while not paused):
+     * the user passes a human check and the run carries on by itself.
+     */
+    private suspend fun askUntil(question: String, options: List<String>, everyMs: Long = 900, cleared: suspend () -> Boolean): String? {
+        val d = CompletableDeferred<String>()
+        pendingAnswer = d
+        _state.update { it.copy(question = Question(question, options), status = "Your turn") }
+        return try {
+            coroutineScope {
+                val watcher = launch {
+                    while (isActive) {
+                        delay(everyMs)
+                        if (!paused.value && runCatching { cleared() }.getOrDefault(false)) {
+                            d.complete(CLEARED)
+                            break
+                        }
+                    }
+                }
+                val answer = d.await()
+                watcher.cancel()
+                answer.takeUnless { it == CLEARED }
+            }
+        } finally {
+            pendingAnswer = null
+            _state.update { it.copy(question = null, status = "Continuing") }
+        }
+    }
+
     private suspend fun askUser(question: String, options: List<String>): String {
         val d = CompletableDeferred<String>()
         pendingAnswer = d
@@ -1332,6 +1586,16 @@ object DeviceAgent {
     private val QUOTED = Regex("\"[^\"]*\"|“[^”]*”")
 
     /** Judges an outcome sentence, not the labels quoted in it ("Tapped “Failed orders”" succeeded). */
+    /** fill_form outcomes that count as done. */
+    private val FILLED = Regex("^(filled|checked|unchecked|already|chose)")
+    private const val MAX_FORM_SCROLLS = 3
+    /** The answer [askUntil] gives itself when the reason for asking is gone. */
+    private const val CLEARED = "\u0000cleared"
+    /** Actions on the screen's content: they wait while a human check is up (navigation does not). */
+    private val HANDS_ON = setOf(
+        "tap", "tap_text", "type_text", "fill_form", "long_press", "double_tap", "swipe", "drag", "pinch", "scroll", "scroll_to"
+    )
+
     private fun failed(outcome: String): Boolean = FAILED.containsMatchIn(outcome.replace(QUOTED, ""))
 
     /** Oldest capture an action may reuse even when no UI event arrived since (some views never send any). */
@@ -1384,6 +1648,7 @@ object DeviceAgent {
             "long_press" -> "Press and hold ${target()}" to StepKind.ACTION
             "double_tap" -> "Double-tap ${target()}" to StepKind.ACTION
             "type_text" -> "Type ${quoted("text")}" + (if (DeviceArgs.bool(a, "submit")) " and submit" else "") to StepKind.ACTION
+            "fill_form" -> FormFill.entries(a["fields"]).size.let { n -> "Fill $n field${if (n == 1) "" else "s"}" + (if (DeviceArgs.bool(a, "submit")) " and submit" else "") } to StepKind.ACTION
             "press_key" -> "Press ${DeviceArgs.str(a, "key").orEmpty().replace('_', ' ')}" to StepKind.ACTION
             "scroll" -> "Scroll ${DeviceArgs.str(a, "direction") ?: "down"}" to StepKind.ACTION
             "scroll_to" -> "Scroll to ${quoted("text")}" to StepKind.ACTION

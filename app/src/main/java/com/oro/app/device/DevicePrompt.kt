@@ -32,8 +32,9 @@ object DevicePrompt {
             1. Read the screen: which app, what is on it, did your last action work ("Screen changed" or
                "⚠ The screen did not change")?
             2. Write ONE short sentence: what you see, what you do next and why.
-            3. Call the tool. Several calls in one turn only when they are a fixed sequence on THIS screen
-               (e.g. type_text then tap "Search"); the app skips a call whose target disappeared.
+            3. Call the tool. Several calls in one turn when they are a fixed sequence on THIS screen
+               (type_text then tap "Search"); they run in order, and if one does not work the rest are not run.
+               A form: one fill_form with every field (and submit=true when the task says to send it).
 
             # Fast paths first
             - Apps: open_app("YouTube"). Websites and searches: open_url("https://www.google.com/search?q=...").
