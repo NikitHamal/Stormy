@@ -321,7 +321,10 @@ data class ScreenState(
         }
 
     /** True when something on screen says it is still loading. */
-    val loading: Boolean get() = elements.any { it.role == ScreenElement.ROLE_PROGRESS }
+    val loading: Boolean get() = elements.any { it.role == ScreenElement.ROLE_PROGRESS && it.range == null }
+
+    /** Where the spinners are: one that was there before an action is not that action's loading. */
+    val spinners: Set<Bounds> get() = elements.filter { it.role == ScreenElement.ROLE_PROGRESS && it.range == null }.mapTo(HashSet()) { it.bounds }
 
     /**
      * Short, factual nudges about what is on screen that small models

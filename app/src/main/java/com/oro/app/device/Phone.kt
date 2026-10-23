@@ -15,6 +15,9 @@ internal interface Phone {
     /** Uptime (ms) of the last UI event the service saw. */
     val lastEventAt: Long
 
+    /** Uptime (ms) of the last event that changed what is on screen, not just a value redrawn ([UiActivity]). */
+    val lastChangeAt: Long get() = lastEventAt
+
     /** The clock [lastEventAt] is on. */
     fun uptime(): Long
 

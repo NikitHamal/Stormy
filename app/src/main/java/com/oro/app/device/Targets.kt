@@ -14,7 +14,12 @@ import kotlinx.serialization.json.JsonObject
  */
 sealed interface Target {
     /** An element the model named, by number or by words. [receiver] is what really takes the tap. */
-    data class OnElement(val element: ScreenElement, val receiver: ScreenElement) : Target
+    data class OnElement(
+        val element: ScreenElement,
+        val receiver: ScreenElement,
+        /** The x,y the model gave, when the tap was moved onto this small control ([TapPlan.snap]). */
+        val snappedFrom: Pair<Int, Int>? = null,
+    ) : Target
 
     /** A screen point. [element] is what a finger there would press, [text] what is written there. */
     data class AtPoint(val x: Int, val y: Int, val element: ScreenElement?, val text: ScreenElement?) : Target
@@ -47,12 +52,18 @@ sealed interface Target {
  */
 object Targets {
 
-    /** tap, double_tap, long_press: an index, else x,y. */
+    /**
+     * tap, double_tap, long_press: an index, else x,y. A point on, or a
+     * fingertip from, one small plain control taps that control by its node
+     * ([TapPlan.snap]); anything else keeps the point.
+     */
     fun tap(args: JsonObject, seen: ScreenState?, now: ScreenState, long: Boolean = false): Target {
         appChange(seen, now)?.let { return it }
         if (DeviceArgs.has(args, "index")) return byIndex(args, "index", seen, now, long)
-        return point(args, "x", "y", now)
-            ?: Target.Missing("Give an element index from the screen listing, or x and y.")
+        val at = point(args, "x", "y", now)
+            ?: return Target.Missing("Give an element index from the screen listing, or x and y.")
+        val control = TapPlan.snap(now, at.x, at.y, at.element) ?: return at
+        return Target.OnElement(control, control, snappedFrom = at.x to at.y)
     }
 
     /** tap_text: the element showing these words (`text`, or `label` as models also write it). */

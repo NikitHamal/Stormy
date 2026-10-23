@@ -261,6 +261,22 @@ object ReasoningControls {
         return control.initial
     }
 
+    /**
+     * The level for an agent that takes many small steps (the device agent):
+     * each step is one short decision against a fresh screen, so the time to
+     * the answer matters more than depth -- at High, Mercury 3 thinks for
+     * seconds before every tap. The model's "low" where its scale has one,
+     * else "minimal", else its usual level. Null when the model has no control.
+     */
+    fun quickLevel(model: AiModel): String? = quickLevel(forModel(model))
+
+    fun quickLevel(control: ReasoningControl?): String? {
+        control ?: return null
+        return QUICK.firstOrNull { control.has(it) } ?: control.initial
+    }
+
+    private val QUICK = listOf("low", "minimal")
+
     /** The old global setting (LOW / BALANCED / DEEP) as a wire value; Balanced was the default, so it carries nothing. */
     fun legacyLevel(name: String?): String? = when (name?.uppercase()) {
         "LOW" -> "low"

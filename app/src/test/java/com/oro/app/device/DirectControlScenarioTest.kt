@@ -158,8 +158,8 @@ class DirectControlScenarioTest {
     @Test
     fun `a tap by coordinates says what it hit, or that nothing took it`() = runTest {
         val notes = screen(
-            el(0, ROLE_TEXT, "Delete draft?", top = 900),
-            el(1, "button", "Keep", top = 1100, left = 100, right = 500, height = 120),
+            el(0, ROLE_TEXT, "Delete draft?", top = 300),
+            el(1, "button", "Draft", top = 1100, height = 900),
             pkg = "com.notes", label = "Notes",
         )
         val phone = ScenarioBench.phone(this, notes)
@@ -171,7 +171,26 @@ class DirectControlScenarioTest {
 
         play(phone, model, "Keep the draft")
 
-        assertThat(model.seen[1]).contains("Tapped (300,1160) → hit button \"Keep\".")
+        assertThat(model.seen[1]).contains("Tapped (300,1160) → hit button \"Draft\".")
         assertThat(model.seen[2]).contains("Tapped (900,600) → nothing registered the tap.")
+    }
+
+    @Test
+    fun `a point on or beside a small button taps the button itself`() = runTest {
+        val notes = screen(
+            el(0, ROLE_TEXT, "Delete draft?", top = 900),
+            el(1, "button", "Keep", top = 1100, left = 100, right = 500, height = 120),
+            pkg = "com.notes", label = "Notes",
+        )
+        val phone = ScenarioBench.phone(this, notes)
+        val model = ScriptedModel(
+            calls("tap" to """{"x":300,"y":1235}"""),
+            calls("finish_task" to """{"summary":"Kept the draft.","success":true}"""),
+        )
+
+        play(phone, model, "Keep the draft")
+
+        assertThat(phone.log).containsExactly(FakePhone.Act.Tap("Keep", 1))
+        assertThat(model.seen[1]).contains("Tapped [1] button \"Keep\". (your point (300,1235) was on or beside it)")
     }
 }

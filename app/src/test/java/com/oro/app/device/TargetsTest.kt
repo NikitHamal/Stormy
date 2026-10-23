@@ -40,9 +40,17 @@ class TargetsTest {
     }
 
     @Test
-    fun `a point resolves to the element a finger there would press`() {
-        val t = Targets.tap(args("x" to 300, "y" to 540), seen, seen)
-        assertThat((t as Target.AtPoint).element?.label).isEqualTo("Delete")
+    fun `a point on a small control taps the control itself, and says where the point was`() {
+        val t = Targets.tap(args("x" to 300, "y" to 540), seen, seen) as Target.OnElement
+        assertThat(t.element.label).isEqualTo("Delete")
+        assertThat(t.snappedFrom).isEqualTo(300 to 540)
+    }
+
+    @Test
+    fun `a point on something big keeps the point and resolves to what a finger there would press`() {
+        val map = screen(el(0, "button", "Map", top = 200, height = 1400), pkg = "maps")
+        val t = Targets.tap(args("x" to 300, "y" to 640), map, map)
+        assertThat((t as Target.AtPoint).element?.label).isEqualTo("Map")
     }
 
     @Test

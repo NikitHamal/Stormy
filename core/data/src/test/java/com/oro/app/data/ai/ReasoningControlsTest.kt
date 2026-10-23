@@ -35,6 +35,20 @@ class ReasoningControlsTest {
     }
 
     @Test
+    fun `quick steps take a model's low level, or its usual one where it has none`() {
+        val mercury = SeedModels.default
+        assertThat(ReasoningControls.quickLevel(mercury)).isEqualTo("low")
+        // The quick level reaches the request over the deep default: the saved map gets it per model.
+        assertThat(ReasoningControls.chosen(mercury, mapOf(mercury.id to "low"))).isEqualTo("low")
+        assertThat(ReasoningControls.quickLevel(model(AiProvider.INCEPTION, "mercury-3"))).isEqualTo("low")
+        assertThat(ReasoningControls.quickLevel(model(AiProvider.INCEPTION, "mercury-edit-2"))).isNull()
+        val noLow = ReasoningControl("Reasoning effort", listOf(ReasoningLevel("medium", "Medium"), ReasoningLevel("high", "High")), "medium", ReasoningWire.REASONING_EFFORT)
+        assertThat(ReasoningControls.quickLevel(noLow)).isEqualTo("medium")
+        val minimal = ReasoningControl("Reasoning effort", listOf(ReasoningLevel("minimal", "Minimal"), ReasoningLevel("high", "High")), "high", ReasoningWire.REASONING_EFFORT)
+        assertThat(ReasoningControls.quickLevel(minimal)).isEqualTo("minimal")
+    }
+
+    @Test
     fun `inception official api takes the same scale on every mercury`() {
         assertThat(wires(AiProvider.INCEPTION, "mercury-3")).containsExactly("instant", "low", "medium", "high").inOrder()
         assertThat(initial(AiProvider.INCEPTION, "mercury-3")).isEqualTo("high")

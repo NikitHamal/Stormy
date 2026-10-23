@@ -346,7 +346,13 @@ object DeviceAgent {
         service.overlay.show(settings.showTouches)
         val run = DeviceRun(
             phone = DeviceController(service), task = task.trim(), model = model,
-            modelStream = AgentModelClient { req -> aiRepository.streamChat(model, req.messages, req.tools, temperature = 0.2f) },
+            // Many short decisions: the model's quick level, not the chat's deep one.
+            modelStream = AgentModelClient { req ->
+                aiRepository.streamChat(
+                    model, req.messages, req.tools, temperature = 0.2f,
+                    reasoningLevel = com.oro.app.data.ai.ReasoningControls.quickLevel(model),
+                )
+            },
             settings = settings, origin = origin,
             vision = settings.screenshots && ScreenshotTaker.supported && VisionSupport.supports(model),
         )
@@ -475,15 +481,15 @@ object DeviceAgent {
 
         /**
          * The screen as it is right before an action: the last capture if
-         * nothing has happened on screen since (cheap: the service stamps every
-         * UI event), else a new one. Acting on a snapshot taken before a pause,
+         * nothing on screen has changed since -- values redrawn (a clock, a
+         * playing video's bar) do not count -- else a new one. Acting on a snapshot taken before a pause,
          * an approval or a long think is how taps used to land on the wrong
          * thing.
          */
         fun freshScreen(): ScreenState {
             val s = lastScreen
             val reuse = s != null && !mustRecapture && phone.isLatest(s) &&
-                phone.lastEventAt <= lastCaptureUptime &&
+                phone.lastChangeAt <= lastCaptureUptime &&
                 phone.uptime() - lastCaptureUptime <= MAX_SNAPSHOT_AGE_MS
             if (reuse && s != null) return s
             mustRecapture = false
@@ -832,10 +838,13 @@ object DeviceAgent {
                 val didFail = failed(outcome)
                 c.settle(maxMs = maxSettle)
                 var after = observe()
-                // Content still loading (spinner, empty window): give it a moment
-                // here rather than spend a model turn on "wait".
+                // Content still loading (a new spinner, an empty window): give it a
+                // moment here rather than spend a model turn on "wait". A spinner
+                // that was already there (a live badge, a buffering icon) is not
+                // this action's loading, and waiting on it cost 1.35 s per action.
+                val oldSpinners = actScreen.spinners
                 var extra = 0
-                while ((after.loading || after.elements.isEmpty()) && extra < 3) {
+                while (((after.loading && !oldSpinners.containsAll(after.spinners)) || after.elements.isEmpty()) && extra < 3) {
                     delay(450)
                     after = observe()
                     extra++
@@ -856,7 +865,7 @@ object DeviceAgent {
 
             return when (name) {
                 "tap", "tap_text" -> when (val t = target) {
-                    is Target.OnElement -> act { c.tapElement(t.element, actScreen) }
+                    is Target.OnElement -> act { c.tapElement(t.element, actScreen) + snapped(t) }
                     // A finger lands wherever it lands: the app's own click event says what took it.
                     is Target.AtPoint -> underKeyboard(t.x, t.y) ?: act {
                         val at = c.uptime()
@@ -866,13 +875,13 @@ object DeviceAgent {
                     else -> noTarget()
                 }
                 "long_press" -> when (val t = target) {
-                    is Target.OnElement -> act { c.longPressElement(t.element, actScreen) }
+                    is Target.OnElement -> act { c.longPressElement(t.element, actScreen) + snapped(t) }
                     is Target.AtPoint -> underKeyboard(t.x, t.y)
                         ?: act { if (c.longPress(t.x, t.y)) "Long-pressed (${t.x},${t.y})." else "The long press failed." }
                     else -> noTarget()
                 }
                 "double_tap" -> when (val t = target) {
-                    is Target.OnElement -> act { c.doubleTapElement(t.element, actScreen) }
+                    is Target.OnElement -> act { c.doubleTapElement(t.element, actScreen) + snapped(t) }
                     is Target.AtPoint -> underKeyboard(t.x, t.y)
                         ?: act { if (c.doubleTap(t.x, t.y)) "Double-tapped (${t.x},${t.y})." else "The double tap failed." }
                     else -> noTarget()
@@ -1234,6 +1243,10 @@ object DeviceAgent {
             val text = "Form: " + report.joinToString("; ") + submitted + "\n\n" + observation(before, after)
             return if (allFilled) ToolResult(true, text) else ToolResult(false, text, "Form: " + report.joinToString("; "))
         }
+
+        /** Said after a tap that was moved from the model's point onto a control, so it learns where that is. */
+        private fun snapped(t: Target.OnElement): String =
+            t.snappedFrom?.let { (x, y) -> " (your point ($x,$y) was on or beside it)" }.orEmpty()
 
         /** The target of a targeted tool, resolved against [now]; null for tools without one. */
         private fun resolve(name: String, args: JsonObject, seen: ScreenState?, now: ScreenState): Target? = when (name) {

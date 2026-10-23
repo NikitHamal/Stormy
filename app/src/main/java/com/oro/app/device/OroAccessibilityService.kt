@@ -33,6 +33,9 @@ class OroAccessibilityService : AccessibilityService() {
     @Volatile var lastEventAt: Long = 0L
         private set
 
+    /** What the events say about the screen settling: busy screens, cosmetic redraws ([UiActivity]). */
+    internal val activity = UiActivity()
+
     @Volatile var foregroundPackage: String = ""
         private set
 
@@ -69,7 +72,11 @@ class OroAccessibilityService : AccessibilityService() {
         // status) are not the screen the agent waits on: counting them kept
         // settle() waiting and forced needless recaptures.
         val fromOro = event.packageName?.toString() == packageName
-        if (!fromOro || !DeviceAgent.state.value.running) lastEventAt = SystemClock.uptimeMillis()
+        if (!fromOro || !DeviceAgent.state.value.running) {
+            val at = SystemClock.uptimeMillis()
+            lastEventAt = at
+            activity.record(at, event.eventType, event.contentChangeTypes)
+        }
         val type = event.eventType
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.packageName?.toString()?.let { if (it != packageName || DeviceAgent.state.value.running.not()) foregroundPackage = it }

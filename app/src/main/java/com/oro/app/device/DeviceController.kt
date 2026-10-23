@@ -74,6 +74,8 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
     override val lastEventAt: Long get() = service.lastEventAt
 
+    override val lastChangeAt: Long get() = service.activity.lastChangeAt
+
     override fun uptime(): Long = SystemClock.uptimeMillis()
 
     override fun capture(maxLabel: Int): ScreenState = ScreenReader.capture(service, maxLabel)
@@ -110,13 +112,25 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
      * in ~150 ms, an app launch takes the full budget. The service stamps
      * every event, so polling the stamp costs nothing.
      */
+    /**
+     * Waits for the screen to settle after an action: [quietMs] without
+     * events, at most [maxMs]. A screen that was busy before (a playing
+     * video, an animation) never goes quiet, so there the wait ends once
+     * nothing but values has changed for [quietMs], and within [BUSY_CAP_MS]:
+     * it used to sit out the whole cap after every action.
+     */
     override suspend fun settle(quietMs: Long, maxMs: Long, minMs: Long) {
         val start = SystemClock.uptimeMillis()
+        val activity = service.activity
+        val busy = activity.noisy(start)
+        val cap = if (busy) minOf(maxMs, BUSY_CAP_MS) else maxMs
         delay(minMs)
-        while (SystemClock.uptimeMillis() - start < maxMs) {
-            val idle = SystemClock.uptimeMillis() - service.lastEventAt
-            if (idle >= quietMs) return
-            delay(50)
+        while (true) {
+            val now = SystemClock.uptimeMillis()
+            if (now - start >= cap) return
+            if (now - activity.lastAt >= quietMs) return
+            if (busy && now - activity.lastChangeAt >= quietMs) return
+            delay(30)
         }
     }
 
@@ -206,7 +220,19 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         // Where the node is now, not where the capture saw it: a list that
         // settled after the capture moved it, and the mark has to follow.
         val live = liveBounds(node)
-        if (target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+        // A part inside a bigger clickable (a menu icon in a card) is tapped
+        // where it is, not through the card's own click ([TapPlan.choose]).
+        val way = if (target == null) TapPlan.Way.GESTURE else {
+            val own = live ?: Rect(e.bounds.left, e.bounds.top, e.bounds.right, e.bounds.bottom)
+            val parent = if (target === node) null else liveBounds(target)
+            TapPlan.choose(
+                selfClickable = target === node,
+                element = Bounds(own.left, own.top, own.right, own.bottom),
+                parent = parent?.let { Bounds(it.left, it.top, it.right, it.bottom) } ?: if (target === node) null else e.bounds,
+                covered = TapPlan.covered(screen, e),
+            )
+        }
+        if (target != null && way != TapPlan.Way.GESTURE && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
             val at = live ?: Rect(e.bounds.left, e.bounds.top, e.bounds.right, e.bounds.bottom)
             service.overlay.showTouch(at.centerX(), at.centerY(), bounds = at)
             return "Tapped [${e.index}] ${e.describe()}."
@@ -918,6 +944,9 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         const val LONG_PRESS_MS = 700L
 
         const val DISPLAY_TTL_MS = 500L
+
+        /** The longest a busy screen is waited on after an action. */
+        const val BUSY_CAP_MS = 1_000L
 
         /** media forward/rewind through the session: the player's own double-tap step. */
         const val SEEK_STEP_MS = 10_000L

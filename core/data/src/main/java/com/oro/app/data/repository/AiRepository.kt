@@ -75,7 +75,9 @@ class AiRepository(
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
         /** Told when the local free-tier pacer makes this request wait. */
-        onRateLimitWait: (suspend () -> Unit)? = null
+        onRateLimitWait: (suspend () -> Unit)? = null,
+        /** This call's reasoning level for [model], over the saved one (e.g. the device agent's quick steps). */
+        reasoningLevel: String? = null
     ): Flow<StreamEvent> {
         val providerManager = createProviderManager()
 
@@ -119,7 +121,9 @@ class AiRepository(
             // Read from preferences here rather than threaded through every
             // caller. Per model: the manager resolves each model's own level
             // (and again for a keyless stand-in, whose scale differs).
-            reasoningLevels = preferencesRepository.reasoningLevels.first()
+            reasoningLevels = preferencesRepository.reasoningLevels.first().let { saved ->
+                if (reasoningLevel == null) saved else saved + (model.id to reasoningLevel)
+            }
         )
 
         return stream ?: flow {
