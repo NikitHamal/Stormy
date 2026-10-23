@@ -198,7 +198,11 @@ class AnthropicClient(
             put("max_tokens", maxTokens)
             put("stream", true)
             temperature?.let { put("temperature", it.coerceIn(0f, 1f)) }
-            // Effort without extended thinking: no thinking blocks to send back on tool turns.
+            // No `thinking` field: each model's default applies (adaptive on the
+            // 5.x line and Fable, off on Opus 4.7/4.8). Thinking blocks that come
+            // back stream as reasoning and are never replayed: Oro prunes its
+            // history, and replaying signed blocks into an edited history is a
+            // 400 on newer Anthropic accounts; a history without them is valid.
             effort?.let { level -> putJsonObject("output_config") { put("effort", level) } }
             val system = messages.filter { it.role == "system" }.mapNotNull { it.content }.joinToString("\n\n")
             // Prompt caching: breakpoints after the tools, the system prompt

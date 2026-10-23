@@ -225,10 +225,12 @@ object ReasoningControls {
     private val CLAUDE = Regex("""^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d))?(?:-.*)?$""")
 
     /**
-     * Claude's effort (low…max). Through a gateway: up to XHigh where the
-     * model has it (OpenRouter's reasoning_effort has no Max). Over Anthropic's
-     * own protocol Oro sends effort without extended thinking, which caps it at
-     * High but keeps tool turns free of thinking blocks.
+     * Claude's effort. Over Anthropic's own protocol (`output_config.effort`):
+     * low, medium, high, xhigh and max from Opus 4.7 on (every 5.x, Fable,
+     * Mythos), low/medium/high/max on the 4.6 models (xhigh arrived with 4.7);
+     * Haiku 4.5 and older take no effort. Through a gateway (OpenRouter-style
+     * reasoning_effort, which has no Max): up to XHigh where the model has it.
+     * Defaults follow the API: Medium on Opus 5.5 and Haiku 5.5, High elsewhere.
      */
     private fun claude(id: String, gateway: Boolean): ReasoningControl? {
         val m = CLAUDE.matchEntire(id) ?: return null
@@ -238,8 +240,12 @@ object ReasoningControls {
         val version = major * 10 + minor
         if (version < 46) return null
         val initial = if ((tier == "opus" || tier == "haiku") && version == 55) "medium" else "high"
-        val xhigh = gateway && (version >= 47) && !(tier == "sonnet" && version == 46)
-        return if (xhigh) effort(initial, "low", "medium", "high", "xhigh") else effort(initial, "low", "medium", "high")
+        return when {
+            gateway && version >= 47 -> effort(initial, "low", "medium", "high", "xhigh")
+            gateway -> effort(initial, "low", "medium", "high")
+            version >= 47 -> effort(initial, "low", "medium", "high", "xhigh", "max")
+            else -> effort(initial, "low", "medium", "high", "max")
+        }
     }
 
     /**

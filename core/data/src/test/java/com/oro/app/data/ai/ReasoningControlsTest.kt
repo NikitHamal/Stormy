@@ -79,10 +79,16 @@ class ReasoningControlsTest {
         assertThat(wires(AiProvider.OPENROUTER, "anthropic/claude-sonnet-4.6")).containsExactly("low", "medium", "high").inOrder()
         assertThat(initial(AiProvider.OPENROUTER, "anthropic/claude-opus-5.5")).isEqualTo("medium")
         assertThat(wires(AiProvider.OPENROUTER, "anthropic/claude-opus-4.5")).isNull()
-        // Over Anthropic's own protocol: effort without extended thinking, up to High.
+        // Over Anthropic's own protocol: output_config.effort's full scale.
         val custom = ReasoningControls.forAnthropicCustom(ModelIds.of("p1", "claude-opus-4-8"))!!
-        assertThat(custom.levels.map { it.wire }).containsExactly("low", "medium", "high").inOrder()
+        assertThat(custom.levels.map { it.wire }).containsExactly("low", "medium", "high", "xhigh", "max").inOrder()
         assertThat(custom.wire).isEqualTo(ReasoningWire.ANTHROPIC_EFFORT)
+        val opus55 = ReasoningControls.forAnthropicCustom(ModelIds.of("p1", "claude-opus-5-5"))!!
+        assertThat(opus55.levels.map { it.wire }).containsExactly("low", "medium", "high", "xhigh", "max").inOrder()
+        assertThat(opus55.initial).isEqualTo("medium")
+        val sonnet46 = ReasoningControls.forAnthropicCustom(ModelIds.of("p1", "claude-sonnet-4-6"))!!
+        assertThat(sonnet46.levels.map { it.wire }).containsExactly("low", "medium", "high", "max").inOrder()
+        assertThat(ReasoningControls.forAnthropicCustom(ModelIds.of("p1", "claude-haiku-4-5"))).isNull()
     }
 
     @Test
@@ -181,7 +187,7 @@ class ReasoningControlsTest {
             // Sonnet 4.6 over Anthropic's protocol: Claude's own effort, picked like everything else.
             val sonnet = model(AiProvider.CUSTOM, ModelIds.of("anth", "claude-sonnet-4-6")).reasoningControl!!
             assertThat(sonnet.wire).isEqualTo(ReasoningWire.ANTHROPIC_EFFORT)
-            assertThat(sonnet.levels.map { it.wire }).containsExactly("low", "medium", "high").inOrder()
+            assertThat(sonnet.levels.map { it.wire }).containsExactly("low", "medium", "high", "max").inOrder()
             assertThat(sonnet).isEqualTo(ReasoningControls.forAnthropicCustom(ModelIds.of("anth", "claude-sonnet-4-6")))
             // A non-Claude model there gets no effort, since none is sent.
             assertThat(model(AiProvider.CUSTOM, ModelIds.of("anth", "deepseek-v4-pro")).reasoningControl).isNull()
