@@ -89,11 +89,6 @@ fun DeploySheet(projectRoot: String, projectName: String, onDeployed: (String) -
             verticalArrangement = Arrangement.spacedBy(Space.md)
         ) {
             Text("Publish", style = MaterialTheme.typography.titleLargeEmphasized)
-            Text(
-                "Put this project on the web. Deploying again updates the same site.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             SegmentedPicker(
                 label = "Where",
                 options = DeployTarget.entries.map { PickerOption(it, it.label) },
@@ -107,14 +102,13 @@ fun DeploySheet(projectRoot: String, projectName: String, onDeployed: (String) -
             if (target == DeployTarget.NETLIFY) {
                 if (state.netlifySiteId == null) {
                     OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Site name") }, singleLine = true, shape = OroCorners.medium,
-                        supportingText = { Text("$name.netlify.app if it is free") })
+                        supportingText = { Text("$name.netlify.app") })
                 }
                 OutlinedTextField(
                     netlifyToken, { netlifyToken = it }, Modifier.fillMaxWidth(),
                     label = { Text("Netlify personal access token") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), shape = OroCorners.medium,
-                    supportingText = { Text("app.netlify.com → User settings → Applications") }
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), shape = OroCorners.medium
                 )
             } else {
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Repository name") }, singleLine = true, shape = OroCorners.medium)

@@ -25,14 +25,11 @@ import androidx.compose.material.icons.outlined.Brightness4
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.ModelTraining
 import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.automirrored.outlined.WrapText
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,6 +72,11 @@ import com.oro.app.R
 import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.ApiKeyRequirement
 import com.oro.app.data.repository.ThemeMode
+import com.oro.app.ui.components.expressive.PickerOption
+import com.oro.app.ui.components.expressive.SegmentedPicker
+import com.oro.app.ui.theme.Space
+import androidx.compose.ui.unit.sp
+import com.oro.app.data.ai.displayName
 
 @Composable
 fun SettingsScreen(
@@ -91,7 +93,47 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lowEndDevice = remember(context) { DevicePerformance.isLowEndDevice(context) }
+    SettingsContent(
+        uiState = uiState,
+        lowEndDevice = lowEndDevice,
+        onBackClick = onBackClick,
+        onNavigateToAiModels = onNavigateToAiModels,
+        onNavigateToMemories = onNavigateToMemories,
+        onNavigateToGitSettings = onNavigateToGitSettings,
+        onNavigateToProviders = onNavigateToProviders,
+        onNavigateToMcp = onNavigateToMcp,
+        onNavigateToVoice = onNavigateToVoice,
+        onNavigateToSkills = onNavigateToSkills,
+        onThemeSelected = viewModel::setThemeMode,
+        onLiteModeSelected = viewModel::setLiteMode,
+        onFontSizeChange = viewModel::setFontSize,
+        onLineNumbersChange = viewModel::setLineNumbers,
+        onWordWrapChange = viewModel::setWordWrap,
+        onDebugLogsChange = viewModel::setDebugLogsEnabled,
+    )
+}
 
+/** The settings screen for a given state; [SettingsScreen] wires it to its view model. */
+@Composable
+internal fun SettingsContent(
+    uiState: SettingsUiState,
+    lowEndDevice: Boolean,
+    onBackClick: () -> Unit,
+    onNavigateToAiModels: () -> Unit,
+    onNavigateToMemories: () -> Unit,
+    onNavigateToGitSettings: () -> Unit,
+    onNavigateToProviders: () -> Unit,
+    onNavigateToMcp: () -> Unit,
+    onNavigateToVoice: () -> Unit,
+    onNavigateToSkills: () -> Unit,
+    onThemeSelected: (ThemeMode) -> Unit,
+    onLiteModeSelected: (com.oro.app.data.repository.LiteMode) -> Unit,
+    onFontSizeChange: (Float) -> Unit,
+    onLineNumbersChange: (Boolean) -> Unit,
+    onWordWrapChange: (Boolean) -> Unit,
+    onDebugLogsChange: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             TopAppBar(
@@ -130,7 +172,7 @@ fun SettingsScreen(
                 // Theme Setting
                 ThemeSelector(
                     currentTheme = uiState.themeMode,
-                    onThemeSelected = viewModel::setThemeMode
+                    onThemeSelected = onThemeSelected
                 )
 
                 // The Dynamic Colors toggle was removed. Material You derives
@@ -145,7 +187,7 @@ fun SettingsScreen(
                 LiteModeSelector(
                     current = uiState.liteMode,
                     lowEndDevice = lowEndDevice,
-                    onSelected = viewModel::setLiteMode
+                    onSelected = onLiteModeSelected
                 )
             }
 
@@ -154,25 +196,25 @@ fun SettingsScreen(
                 // Font Size
                 FontSizeSetting(
                     currentSize = uiState.fontSize,
-                    onSizeChange = viewModel::setFontSize
+                    onSizeChange = onFontSizeChange
                 )
 
                 // Line Numbers
                 SettingsToggle(
                     icon = Icons.Outlined.Code,
-                    title = "Line Numbers",
-                    description = "Show line numbers in editor",
+                    title = "Line numbers",
+                    description = null,
                     checked = uiState.lineNumbers,
-                    onCheckedChange = viewModel::setLineNumbers
+                    onCheckedChange = onLineNumbersChange
                 )
 
                 // Word Wrap
                 SettingsToggle(
                     icon = Icons.AutoMirrored.Outlined.WrapText,
-                    title = "Word Wrap",
-                    description = "Wrap long lines",
+                    title = "Word wrap",
+                    description = null,
                     checked = uiState.wordWrap,
-                    onCheckedChange = viewModel::setWordWrap
+                    onCheckedChange = onWordWrapChange
                 )
 
 
@@ -181,11 +223,11 @@ fun SettingsScreen(
             // AI Section
             SettingsSection(title = "AI") {
                 // AI Models Navigation
-                val currentModelName = uiState.availableModels.find { it.id == uiState.aiModel }?.name
+                val currentModelName = uiState.availableModels.find { it.id == uiState.aiModel }?.displayName()
                     ?: uiState.aiModel.substringAfterLast("/")
                 SettingsNavItem(
                     icon = Icons.Outlined.ModelTraining,
-                    title = "AI Models",
+                    title = "AI models",
                     subtitle = currentModelName,
                     onClick = onNavigateToAiModels
                 )
@@ -194,7 +236,7 @@ fun SettingsScreen(
                 SettingsNavItem(
                     icon = Icons.Outlined.Memory,
                     title = "Memories",
-                    subtitle = "AI agent learnings & context",
+                    subtitle = null,
                     onClick = onNavigateToMemories
                 )
 
@@ -211,19 +253,19 @@ fun SettingsScreen(
                 SettingsNavItem(
                     icon = Icons.Outlined.Hub,
                     title = "MCP servers",
-                    subtitle = "GitHub, Supabase, docs and more for Orobi",
+                    subtitle = null,
                     onClick = onNavigateToMcp
                 )
                 SettingsNavItem(
                     icon = Icons.Outlined.Mic,
                     title = "Voice dictation",
-                    subtitle = "System or Whistle, on-device",
+                    subtitle = null,
                     onClick = onNavigateToVoice
                 )
                 SettingsNavItem(
                     icon = Icons.Outlined.AutoAwesome,
                     title = "Skills",
-                    subtitle = "Playbooks Orobi loads when a task matches",
+                    subtitle = null,
                     onClick = onNavigateToSkills
                 )
             }
@@ -231,8 +273,8 @@ fun SettingsScreen(
             // Git Section
             SettingsSection(title = "Git") {
                 GitSettingsNavItem(
-                    title = "Git Settings",
-                    subtitle = "Identity, credentials & preferences",
+                    title = "Git settings",
+                    subtitle = null,
                     onClick = onNavigateToGitSettings
                 )
             }
@@ -250,10 +292,10 @@ fun SettingsScreen(
             SettingsSection(title = "Beta") {
                  SettingsToggle(
                     icon = Icons.Outlined.Code, // Reusing Code icon or maybe Bug icon if available
-                    title = "Debug Logs",
-                    description = "Save raw AI interactions to .oro/logs.txt in project",
+                    title = "Debug logs",
+                    description = "Raw model traffic in .oro/logs.txt",
                     checked = uiState.debugLogsEnabled,
-                    onCheckedChange = viewModel::setDebugLogsEnabled
+                    onCheckedChange = onDebugLogsChange
                 )
             }
 
@@ -337,11 +379,11 @@ private fun SettingsSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 4.dp)
+            text = title.uppercase(),
+            // The small caps every Oro sheet uses for a field label.
+            style = MaterialTheme.typography.labelSmallEmphasized.copy(letterSpacing = 1.2.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = Space.xs)
         )
 
         Surface(
@@ -359,20 +401,17 @@ private fun SettingsSection(
     }
 }
 
-/**
- * Theme selector with visual preview
- */
+/** Theme: System / Light / Dark as a segmented control (selection is the one filled segment). */
 @Composable
 private fun ThemeSelector(
     currentTheme: ThemeMode,
     onThemeSelected: (ThemeMode) -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -390,65 +429,16 @@ private fun ThemeSelector(
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
-
-        // Theme toggle chips
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ThemeChip(
-                icon = Icons.Outlined.PhoneAndroid,
-                isSelected = currentTheme == ThemeMode.SYSTEM,
-                onClick = { onThemeSelected(ThemeMode.SYSTEM) }
-            )
-            ThemeChip(
-                icon = Icons.Outlined.LightMode,
-                isSelected = currentTheme == ThemeMode.LIGHT,
-                onClick = { onThemeSelected(ThemeMode.LIGHT) }
-            )
-            ThemeChip(
-                icon = Icons.Outlined.DarkMode,
-                isSelected = currentTheme == ThemeMode.DARK,
-                onClick = { onThemeSelected(ThemeMode.DARK) }
-            )
-        }
-    }
-}
-
-/**
- * Theme selection chip
- */
-@Composable
-private fun ThemeChip(
-    icon: ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = OroCorners.medium,
-        color = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .padding(8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = if (isSelected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
-        }
+        SegmentedPicker(
+            label = null,
+            options = listOf(
+                PickerOption(ThemeMode.SYSTEM, "System"),
+                PickerOption(ThemeMode.LIGHT, "Light"),
+                PickerOption(ThemeMode.DARK, "Dark")
+            ),
+            selected = currentTheme,
+            onSelect = onThemeSelected
+        )
     }
 }
 
@@ -485,7 +475,7 @@ private fun FontSizeSetting(
                     modifier = Modifier.size(22.dp)
                 )
                 Text(
-                    text = "Font Size",
+                    text = "Font size",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -769,49 +759,32 @@ private fun LiteModeSelector(
                 )
                 Text(
                     text = when (current) {
-                        LiteMode.AUTO -> if (lowEndDevice) {
-                            "On for this device: no blur, calmer motion"
-                        } else {
-                            "Off for this device; turns on for low-memory phones"
-                        }
-                        LiteMode.ON -> "No blur, calmer motion, lighter animations"
-                        LiteMode.OFF -> "Full effects and expressive motion"
+                        LiteMode.AUTO -> if (lowEndDevice) "On for this phone" else "Off for this phone"
+                        LiteMode.ON -> "Calmer motion, no blur"
+                        LiteMode.OFF -> "Full effects"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
                 )
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LiteMode.entries.forEach { mode ->
-                val selected = mode == current
-                Surface(
-                    onClick = { onSelected(mode) },
-                    shape = OroCorners.medium,
-                    color = if (selected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
+        SegmentedPicker(
+            label = null,
+            options = LiteMode.entries.map { mode ->
+                PickerOption(
+                    mode,
+                    when (mode) {
+                        LiteMode.AUTO -> "Auto"
+                        LiteMode.ON -> "On"
+                        LiteMode.OFF -> "Off"
                     }
-                ) {
-                    Text(
-                        text = when (mode) {
-                            LiteMode.AUTO -> "Auto"
-                            LiteMode.ON -> "On"
-                            LiteMode.OFF -> "Off"
-                        },
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-            }
-        }
+                )
+            },
+            selected = current,
+            onSelect = onSelected
+        )
     }
 }
 

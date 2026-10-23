@@ -50,6 +50,7 @@ import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Timer
@@ -557,7 +558,7 @@ private suspend fun closeAllDrawers(
 }
 
 @Composable
-private fun EditorTopBar(
+internal fun EditorTopBar(
     projectName: String,
     onBackClick: () -> Unit,
     onMenuClick: () -> Unit,
@@ -567,8 +568,10 @@ private fun EditorTopBar(
     onSettingsClick: () -> Unit,
     onDeployClick: () -> Unit = {}
 ) {
-    val iconSize = 20.dp // Reduced from 24dp (default) by 4dp
-
+    // Files, source control and preview are what a session reaches for; assets,
+    // publishing and settings sit one tap deeper, so the project name keeps its
+    // room and every target stays at the full 48dp.
+    var overflow by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
             Text(
@@ -579,73 +582,48 @@ private fun EditorTopBar(
         },
         navigationIcon = {
             IconButton(onClick = onBackClick) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = "Back",
-                    modifier = Modifier.size(iconSize)
-                )
+                Icon(imageVector = Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
             }
         },
         actions = {
-            IconButton(
-                onClick = onMenuClick,
-                modifier = Modifier.size(40.dp) // Reduced from 48dp by 8dp for tighter spacing
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Menu,
-                    contentDescription = "Files",
-                    modifier = Modifier.size(iconSize)
-                )
+            IconButton(onClick = onMenuClick) {
+                Icon(imageVector = Icons.Outlined.Menu, contentDescription = "Files")
             }
-            IconButton(
-                onClick = onAssetsClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Image,
-                    contentDescription = "Assets",
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-            IconButton(
-                onClick = onGitClick,
-                modifier = Modifier.size(40.dp)
-            ) {
+            IconButton(onClick = onGitClick) {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_github),
-                    contentDescription = "Source Control",
-                    modifier = Modifier.size(iconSize)
+                    contentDescription = "Source control",
+                    modifier = Modifier.size(Sizes.icon)
                 )
             }
-            IconButton(
-                onClick = onPreviewClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.PlayArrow,
-                    contentDescription = "Preview",
-                    modifier = Modifier.size(iconSize)
-                )
+            IconButton(onClick = onPreviewClick) {
+                Icon(imageVector = Icons.Outlined.PlayArrow, contentDescription = "Preview")
             }
-            IconButton(
-                onClick = onDeployClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.CloudUpload,
-                    contentDescription = "Publish",
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings",
-                    modifier = Modifier.size(iconSize)
-                )
+            Box {
+                IconButton(onClick = { overflow = true }) {
+                    Icon(imageVector = Icons.Outlined.MoreVert, contentDescription = "More")
+                }
+                DropdownMenu(
+                    expanded = overflow,
+                    onDismissRequest = { overflow = false },
+                    shape = OroCorners.large
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Assets", maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
+                        onClick = { overflow = false; onAssetsClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Publish", maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Outlined.CloudUpload, contentDescription = null) },
+                        onClick = { overflow = false; onDeployClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings", maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                        onClick = { overflow = false; onSettingsClick() }
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -669,7 +647,7 @@ private fun EditorTopBar(
  * phone rather than at the screen edge.
  */
 @Composable
-private fun EditorTabs(
+internal fun EditorTabs(
     selectedTab: EditorTab,
     onTabSelected: (EditorTab) -> Unit,
     sessionsOpen: Boolean,
@@ -778,7 +756,7 @@ private fun TabSegment(
 }
 
 @Composable
-private fun FileTabsRow(
+internal fun FileTabsRow(
     openFiles: List<OpenFileTab>,
     currentIndex: Int,
     onTabClick: (Int) -> Unit,

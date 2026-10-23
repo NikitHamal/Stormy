@@ -136,7 +136,7 @@ private enum class CrashTab(val label: String) { Summary("Summary"), Trace("Stac
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CrashScreen(initialLog: String, onRestart: () -> Unit) {
+internal fun CrashScreen(initialLog: String, onRestart: () -> Unit) {
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     var log by remember { mutableStateOf(initialLog) }

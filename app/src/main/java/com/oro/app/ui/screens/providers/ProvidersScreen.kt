@@ -85,59 +85,25 @@ fun ProvidersScreen(
         viewModel.messages.collect { snackbar.showSnackbar(it) }
     }
 
-    // Shipped vendors (seeded presets) list with the built-ins; "Your
-    // providers" is only what the user added themselves.
-    val (seededConfigs, ownConfigs) = remember(state.settings.custom) {
-        state.settings.custom.partition { it.presetId?.startsWith("custom-") == false }
-    }
-    fun customRow(i: Int, c: com.oro.app.data.ai.providers.CustomProviderConfig): ProviderRowUi {
-        val ref = ProviderRef.Custom(c.id)
-        val keys = state.keysOf(ref)
-        val models = counts[c.id] ?: 0
-        val needsKey = c.presetId?.let { com.oro.app.data.ai.providers.ProviderPresets.byId(it)?.needsKey } ?: false
-        return ProviderRowUi(
-            ref = ref,
-            title = c.name,
-            subtitle = c.normalizedBaseUrl.removePrefix("https://").removePrefix("http://"),
-            status = when {
-                !c.enabled -> "Off"
-                needsKey && keys.isEmpty() -> "Needs a key"
-                else -> listOfNotNull(
-                    "$models models".takeIf { models > 0 },
-                    keySummary(keys).takeIf { it.isNotEmpty() }
-                ).joinToString(" · ").ifEmpty { "Ready · fetch models" }
-            },
-            ready = c.enabled && (!needsKey || keys.isNotEmpty()),
-            warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
-            shapeIndex = i + 3
-        )
-    }
-    val seededRows = remember(seededConfigs, state.health, counts) { seededConfigs.mapIndexed { i, c -> customRow(i + 20, c) } }
-    val customRows = remember(ownConfigs, state.health, counts) {
-        ownConfigs.mapIndexed { i, c -> customRow(i, c) }
-    }
-    val builtInRows = remember(state.settings.builtInKeys, state.health, seededRows) {
-        AiProvider.entries.filter { it != AiProvider.CUSTOM }.map { p ->
-            val ref = ProviderRef.BuiltIn(p)
-            val keys = state.keysOf(ref)
-            val hasKey = keys.any { it.entry.enabled && it.entry.key.isNotBlank() }
-            ProviderRowUi(
-                ref = ref,
-                title = p.displayName,
-                subtitle = p.keyNote,
-                status = when {
-                    keys.isNotEmpty() -> keySummary(keys)
-                    p.apiKeyRequirement == ApiKeyRequirement.NONE -> "Ready · no key needed"
-                    p.apiKeyRequirement == ApiKeyRequirement.OPTIONAL -> "Ready · key optional"
-                    else -> "Needs a key"
-                },
-                ready = hasKey || p.worksWithoutKey,
-                warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
-                shapeIndex = p.ordinal
-            )
-        }.plus(seededRows).sortedBy { !it.ready }
-    }
+    val rows = remember(state.settings, state.health, counts) { providerRows(state, counts) }
+    ProvidersContent(
+        customRows = rows.first,
+        builtInRows = rows.second,
+        snackbar = snackbar,
+        onBackClick = onBackClick,
+        onOpenEditor = onOpenEditor
+    )
+}
 
+/** The provider list for given rows; [ProvidersScreen] computes them from its view model. */
+@Composable
+internal fun ProvidersContent(
+    customRows: List<ProviderRowUi>,
+    builtInRows: List<ProviderRowUi>,
+    snackbar: SnackbarHostState,
+    onBackClick: () -> Unit,
+    onOpenEditor: (String) -> Unit
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -164,15 +130,6 @@ fun ProvidersScreen(
             contentPadding = PaddingValues(start = Space.lg, end = Space.lg, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(Space.sm)
         ) {
-            item(key = "intro", contentType = "text") {
-                Text(
-                    text = "Add as many keys as you like to any provider: when one hits a rate limit or runs " +
-                        "out of credits, Oro moves to the next without interrupting your run. Keys stay on this device.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = Space.md)
-                )
-            }
             if (customRows.isNotEmpty()) {
                 item(key = "h-custom", contentType = "header") { SectionLabel("Your providers") }
                 items(customRows, key = { "c-" + it.ref.poolId }, contentType = { "row" }) { row ->
@@ -186,6 +143,62 @@ fun ProvidersScreen(
         }
     }
 
+}
+
+
+/** The list's rows for [state]: your own providers, then built-ins and shipped presets (ready first). */
+internal fun providerRows(
+    state: ProvidersUiState,
+    counts: Map<String, Int>
+): Pair<List<ProviderRowUi>, List<ProviderRowUi>> {
+    // Shipped vendors (seeded presets) list with the built-ins; "Your
+    // providers" is only what the user added themselves.
+    val (seededConfigs, ownConfigs) = state.settings.custom.partition { it.presetId?.startsWith("custom-") == false }
+    fun customRow(i: Int, c: com.oro.app.data.ai.providers.CustomProviderConfig): ProviderRowUi {
+        val ref = ProviderRef.Custom(c.id)
+        val keys = state.keysOf(ref)
+        val models = counts[c.id] ?: 0
+        val needsKey = c.presetId?.let { com.oro.app.data.ai.providers.ProviderPresets.byId(it)?.needsKey } ?: false
+        return ProviderRowUi(
+            ref = ref,
+            title = c.name,
+            subtitle = c.normalizedBaseUrl.removePrefix("https://").removePrefix("http://"),
+            status = when {
+                !c.enabled -> "Off"
+                needsKey && keys.isEmpty() -> "Needs a key"
+                else -> listOfNotNull(
+                    "$models models".takeIf { models > 0 },
+                    keySummary(keys).takeIf { it.isNotEmpty() }
+                ).joinToString(" · ").ifEmpty { "Ready · fetch models" }
+            },
+            ready = c.enabled && (!needsKey || keys.isNotEmpty()),
+            warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
+            shapeIndex = i + 3
+        )
+    }
+    val seededRows = seededConfigs.mapIndexed { i, c -> customRow(i + 20, c) }
+    val customRows = ownConfigs.mapIndexed { i, c -> customRow(i, c) }
+    val builtInRows = AiProvider.entries.filter { it != AiProvider.CUSTOM }.map { p ->
+        val ref = ProviderRef.BuiltIn(p)
+        val keys = state.keysOf(ref)
+        val hasKey = keys.any { it.entry.enabled && it.entry.key.isNotBlank() }
+        ProviderRowUi(
+            ref = ref,
+            title = p.displayName,
+            // The provider's note belongs on its own page; the list states status only.
+            subtitle = "",
+            status = when {
+                keys.isNotEmpty() -> keySummary(keys)
+                p.apiKeyRequirement == ApiKeyRequirement.NONE -> "Ready · no key needed"
+                p.apiKeyRequirement == ApiKeyRequirement.OPTIONAL -> "Ready · key optional"
+                else -> "Needs a key"
+            },
+            ready = hasKey || p.worksWithoutKey,
+            warning = keys.isNotEmpty() && keys.none { it.entry.enabled && it.state.health == KeyHealth.OK },
+            shapeIndex = p.ordinal
+        )
+    }.plus(seededRows).sortedBy { !it.ready }
+    return customRows to builtInRows
 }
 
 /** "2 keys · 1 cooling". */

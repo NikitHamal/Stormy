@@ -97,59 +97,12 @@ fun TimelineScreen(projectId: String, onBack: () -> Unit) {
         },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(Space.lg),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            if (list.isEmpty()) item(key = "empty") {
-                Text(
-                    "No checkpoints yet. Each time Orobi changes files, the earlier versions are saved here so you can compare and restore them.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            items(list, key = { it.id }) { cp ->
-                Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-                    // The rail.
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(24.dp).fillMaxHeight()) {
-                        Box(Modifier.padding(top = 18.dp).size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-                        Box(Modifier.width(2.dp).weight(1f).background(MaterialTheme.colorScheme.outlineVariant))
-                    }
-                    Spacer(Modifier.width(Space.sm))
-                    Surface(shape = OroCorners.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().padding(bottom = Space.md)) {
-                        Column(Modifier.padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-                            Text(cp.label.lineSequence().first().ifBlank { "Orobi run" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(cp.createdAt)) +
-                                    " · ${cp.files.size} file${if (cp.files.size == 1) "" else "s"}",
-                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            cp.files.take(12).forEach { f ->
-                                Row(
-                                    Modifier.fillMaxWidth().clip(OroCorners.small).padding(vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        if (!f.existed) Icons.Outlined.AddCircleOutline else Icons.Outlined.Edit, null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(Space.sm))
-                                    Text(f.path, style = MaterialTheme.typography.bodySmall.copy(fontFamily = com.oro.app.ui.theme.CodeFontFamily), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    TextButton(onClick = { diff = cp to f }) { Text("Diff", maxLines = 1) }
-                                }
-                            }
-                            Row {
-                                Spacer(Modifier.weight(1f))
-                                OutlinedButton(onClick = { confirm = cp }, shape = OroCorners.pill) {
-                                    Icon(Icons.Outlined.History, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.xs)); Text("Restore", maxLines = 1)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        TimelineList(
+            list = list,
+            onDiff = { cp, f -> diff = cp to f },
+            onRestore = { confirm = it },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        )
     }
 
     diff?.let { (cp, f) ->
@@ -197,6 +150,70 @@ fun TimelineScreen(projectId: String, onBack: () -> Unit) {
                 "Files go back to how they were before this run. Later runs in the same chat are undone too. Conversations are kept.",
                 style = MaterialTheme.typography.bodyMedium
             )
+        }
+    }
+}
+
+/** Checkpoints as a rail of cards, newest first; [TimelineScreen] loads them and handles diff and restore. */
+@Composable
+internal fun TimelineList(
+    list: List<CheckpointManifest>,
+    onDiff: (CheckpointManifest, CheckpointFile) -> Unit,
+    onRestore: (CheckpointManifest) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier,
+        contentPadding = PaddingValues(Space.lg),
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        if (list.isEmpty()) item(key = "empty") {
+            com.oro.app.ui.components.expressive.ExpressiveEmptyState(
+                icon = Icons.Outlined.History,
+                title = "No checkpoints yet",
+                description = "Each Orobi run saves what it changed, to compare and restore.",
+                modifier = Modifier.fillMaxWidth().padding(top = Space.huge)
+            )
+        }
+        items(list, key = { it.id }) { cp ->
+            Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+                // The rail.
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(24.dp).fillMaxHeight()) {
+                    Box(Modifier.padding(top = 18.dp).size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                    Box(Modifier.width(2.dp).weight(1f).background(MaterialTheme.colorScheme.outlineVariant))
+                }
+                Spacer(Modifier.width(Space.sm))
+                Surface(shape = OroCorners.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth().padding(bottom = Space.md)) {
+                    Column(Modifier.padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                        Text(cp.label.lineSequence().first().ifBlank { "Orobi run" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(cp.createdAt)) +
+                                " · ${cp.files.size} file${if (cp.files.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        cp.files.take(12).forEach { f ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(OroCorners.small).padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (!f.existed) Icons.Outlined.AddCircleOutline else Icons.Outlined.Edit, null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(Space.sm))
+                                Text(f.path, style = MaterialTheme.typography.bodySmall.copy(fontFamily = com.oro.app.ui.theme.CodeFontFamily), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                TextButton(onClick = { onDiff(cp, f) }) { Text("Diff", maxLines = 1) }
+                            }
+                        }
+                        Row {
+                            Spacer(Modifier.weight(1f))
+                            OutlinedButton(onClick = { onRestore(cp) }, shape = OroCorners.pill) {
+                                Icon(Icons.Outlined.History, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.xs)); Text("Restore", maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

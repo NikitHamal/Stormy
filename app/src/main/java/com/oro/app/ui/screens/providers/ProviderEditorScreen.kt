@@ -184,14 +184,6 @@ fun ProviderEditorScreen(
             if (isNew || custom != null) {
                 item(key = "form") {
                     Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
-                        if (isNew) {
-                            Text(
-                                "For any server that speaks the OpenAI or Anthropic API. DeepSeek, Kimi, xAI and the other " +
-                                    "well-known vendors are already in your provider list.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                         SegmentedPicker(
                             label = "API protocol",
                             options = WireProtocol.entries.map { PickerOption(it, it.label) },
@@ -214,7 +206,6 @@ fun ProviderEditorScreen(
                             OutlinedTextField(
                                 key, { key = it }, Modifier.fillMaxWidth(),
                                 label = { Text("API key (optional)") },
-                                supportingText = { Text("Add more keys after saving; Oro fails over between them.") },
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -235,7 +226,7 @@ fun ProviderEditorScreen(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             shape = OroCorners.medium
                         )
-                        SwitchRow("Native tool calling", "Off for chat-only models: Orobi then uses text tool calls", tools) { tools = it }
+                        SwitchRow("Native tool calling", "Off for chat-only models", tools) { tools = it }
                     }
                 }
             }

@@ -264,7 +264,7 @@ fun GitPanel(
                 if (uiState.stagedFiles.isNotEmpty()) {
                     item {
                         GitChangesSection(
-                            title = "Staged Changes",
+                            title = "Staged changes",
                             files = uiState.stagedFiles,
                             isStaged = true,
                             onToggleStage = { path -> onUnstageFile(path) },
@@ -373,7 +373,7 @@ private fun GitPanelHeader(
         Spacer(modifier = Modifier.width(8.dp))
 
         Text(
-            text = "Source Control",
+            text = "Source control",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
@@ -490,7 +490,7 @@ private fun GitInitPrompt(onInit: () -> Unit) {
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Initialize Repository")
+                Text("Initialize repository", maxLines = 1)
             }
         }
     }
@@ -1159,7 +1159,7 @@ private fun CommitsSection(
             Spacer(modifier = Modifier.width(8.dp))
 
             Text(
-                text = "Recent Commits",
+                text = "Recent commits",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,

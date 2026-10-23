@@ -89,6 +89,7 @@ import com.oro.app.ui.components.expressive.ExpressiveLoadingIndicator
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.data.ai.AiModel
+import com.oro.app.data.ai.displayName
 import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.providerLabel
 import kotlinx.coroutines.launch
@@ -213,7 +214,7 @@ fun AiModelsScreen(
  * here to change.
  */
 @Composable
-private fun ModelsTopBar(
+internal fun ModelsTopBar(
     enabledCount: Int,
     totalCount: Int,
     searchActive: Boolean,
@@ -241,7 +242,7 @@ private fun ModelsTopBar(
                 Spacer(Modifier.width(Space.sm))
                 Column {
                     Text(
-                        text = "AI Models",
+                        text = "AI models",
                         style = MaterialTheme.typography.titleLargeEmphasized,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -275,7 +276,7 @@ private fun ModelsTopBar(
  * Clean model list without excessive decoration
  */
 @Composable
-private fun ModelsList(
+internal fun ModelsList(
     models: List<AiModel>,
     currentModelId: String?,
     defaultModelId: String,
@@ -333,10 +334,6 @@ private fun ModelsList(
                 )
             }
 
-            // Spacer
-            item(key = "spacer_${provider.name}") {
-                Spacer(modifier = Modifier.height(12.dp))
-            }
         }
     }
 }
@@ -357,7 +354,7 @@ private fun ProviderSectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = Space.md, bottom = Space.xs),
+            .padding(top = Space.lg),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.sm)
     ) {
@@ -468,7 +465,7 @@ private fun MinimalModelItem(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = model.name,
+                            text = model.displayName(),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isDefault) FontWeight.SemiBold else FontWeight.Normal,
                             color = when {
@@ -656,7 +653,7 @@ private const val ProviderChipAll = "__all__"
  * different action, so each gets its own.
  */
 @Composable
-private fun ProviderEmptyState(
+internal fun ProviderEmptyState(
     provider: AiProvider?,
     hasKey: Boolean,
     query: String,

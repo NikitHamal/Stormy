@@ -1157,7 +1157,7 @@ private fun InspectorElementData.toInspectedElement(): InspectedElement {
  * Shows current mode and provides helpful context
  */
 @Composable
-private fun SelectionModeIndicator(
+internal fun SelectionModeIndicator(
     mode: SelectionMode,
     selectedCount: Int,
     modifier: Modifier = Modifier
@@ -1227,7 +1227,7 @@ private data class Quadruple<A, B, C, D>(
  * Now processes AI directly instead of redirecting to chat
  */
 @Composable
-private fun AgentPromptBar(
+internal fun AgentPromptBar(
     selectedElements: List<InspectedElement>,
     onClearSelection: () -> Unit,
     onSubmit: (String) -> Unit,
@@ -1515,7 +1515,7 @@ private fun QuickSuggestionChip(
 }
 
 @Composable
-private fun ConsolePanel(
+internal fun ConsolePanel(
     logs: List<ConsoleLogEntry>,
     onClear: () -> Unit,
     modifier: Modifier = Modifier
@@ -1529,30 +1529,28 @@ private fun ConsolePanel(
         }
     }
 
+    // A sheet over the page: rounded top, the editor's tonal surface, and a
+    // full-size Clear target instead of a bare label.
     Column(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(start = 16.dp, end = 4.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "Console",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f)
             )
-            Text(
-                text = "Clear",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .clickable { onClear() }
-            )
+            if (logs.isNotEmpty()) {
+                androidx.compose.material3.TextButton(onClick = onClear) { Text("Clear", maxLines = 1) }
+            }
         }
 
         if (logs.isEmpty()) {
@@ -1585,7 +1583,7 @@ private fun ConsolePanel(
 @Composable
 private fun ConsoleLogItem(log: ConsoleLogEntry) {
     val color = when (log.level) {
-        ConsoleMessage.MessageLevel.ERROR -> Color(0xFFFF6B6B)
+        ConsoleMessage.MessageLevel.ERROR -> MaterialTheme.colorScheme.error
         ConsoleMessage.MessageLevel.WARNING -> Color(0xFFFFB347)
         ConsoleMessage.MessageLevel.LOG -> MaterialTheme.colorScheme.onSurface
         ConsoleMessage.MessageLevel.DEBUG -> Color(0xFF64B5F6)
@@ -1600,18 +1598,30 @@ private fun ConsoleLogItem(log: ConsoleLogEntry) {
         ConsoleMessage.MessageLevel.TIP -> "[TIP]"
     }
 
-    Text(
-        text = "$prefix ${log.message}",
-        style = MaterialTheme.typography.bodySmall.copy(
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            lineHeight = 16.sp
-        ),
-        color = color,
-        modifier = Modifier
+    Column(
+        Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-    )
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text = "$prefix ${log.message}",
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            ),
+            color = color
+        )
+        // Where a warning or error came from: the first thing to open.
+        val serious = log.level == ConsoleMessage.MessageLevel.ERROR || log.level == ConsoleMessage.MessageLevel.WARNING
+        if (serious && log.sourceId.isNotBlank()) {
+            Text(
+                text = log.sourceId.substringAfterLast('/') + if (log.lineNumber > 0) ":${log.lineNumber}" else "",
+                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 /**

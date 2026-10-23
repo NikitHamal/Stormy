@@ -84,18 +84,9 @@ fun SkillsScreen(onBack: () -> Unit) {
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = Space.lg, end = Space.lg, bottom = 96.dp),
+            contentPadding = PaddingValues(start = Space.lg, top = Space.sm, end = Space.lg, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(Space.sm)
         ) {
-            item(key = "intro") {
-                Text(
-                    "Orobi sees each skill's name and description and loads the full playbook when a task matches. " +
-                        "Share one as text; paste a shared skill with the clipboard button.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = Space.md)
-                )
-            }
             items(skills, key = { it.name }) { skill ->
                 Surface(
                     onClick = { if (skill.source == Skill.Source.MINE) editing = skill },

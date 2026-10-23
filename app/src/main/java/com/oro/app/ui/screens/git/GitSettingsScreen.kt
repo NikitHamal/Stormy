@@ -66,6 +66,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.oro.app.ui.components.expressive.ExpressiveLoadingIndicator
 import com.oro.app.OroApplication
 import kotlinx.coroutines.launch
@@ -99,7 +100,7 @@ fun GitSettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Git Settings",
+                        text = "Git settings",
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -129,13 +130,8 @@ fun GitSettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Git Identity Section
-            GitSettingsSection(title = "Git Identity") {
-                Text(
-                    text = "This information is used for commit authorship",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+            GitSettingsSection(title = "Commit identity") {
+                Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
                     value = editName,
@@ -207,14 +203,14 @@ fun GitSettingsScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Identity")
+                    Text("Save identity", maxLines = 1)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Repository Credentials Section
-            GitSettingsSection(title = "Repository Credentials") {
+            GitSettingsSection(title = "Credentials") {
                 // Saved Credentials List
                 val savedHosts by credentialsManager.savedHosts.collectAsStateWithLifecycle(initialValue = emptySet())
                 
@@ -306,7 +302,7 @@ fun GitSettingsScreen(
                             )
                             Column {
                                 Text(
-                                    text = "Add Credentials",
+                                    text = "Add credentials",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -492,30 +488,11 @@ fun GitSettingsScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(if (credHost.startsWith("http")) "Test & Save" else "Save Credentials")
+                                    Text(if (credHost.startsWith("http")) "Test and save" else "Save credentials", maxLines = 1)
                                 }
                             }
                         }
                     }
-                }
-            }
-
-            // Info Section
-            GitSettingsSection(title = "Information") {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Git credentials are stored securely using Android Keystore encryption.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Your identity information (name and email) is used when creating commits.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
 
@@ -538,11 +515,11 @@ private fun GitSettingsSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 4.dp)
+            text = title.uppercase(),
+            // The small caps every Oro sheet uses for a field label.
+            style = MaterialTheme.typography.labelSmallEmphasized.copy(letterSpacing = 1.2.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp)
         )
 
         Surface(
