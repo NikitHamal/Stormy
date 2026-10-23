@@ -44,6 +44,12 @@ data class ScreenElement(
      * a password registers as a change.
      */
     val secretLength: Int = 0,
+    /** A scrollable that can still move back (up, or left when [horizontal]). */
+    val canScrollBack: Boolean = false,
+    /** A scrollable that can still move forward (down, or right when [horizontal]). */
+    val canScrollForward: Boolean = false,
+    /** Scrolls sideways (carousel, tab strip, pager) rather than up and down. */
+    val horizontal: Boolean = false,
 ) {
     val centerX: Int get() = bounds.centerX
     val centerY: Int get() = bounds.centerY
@@ -61,10 +67,13 @@ data class ScreenElement(
      * abbreviations. Plain texts drop the role (most of a screen is text),
      * flags are single words, and the window tag appears only off the main app.
      */
-    fun render(): String = buildString {
-        append('[').append(index).append("] ")
-        if (role != ROLE_TEXT) append(role).append(' ')
-        if (label.isNotBlank()) append('"').append(label).append('"')
+    fun render(where: String? = null, underKeyboard: Boolean = false): String = buildString {
+        append('[').append(index).append(']')
+        if (role != ROLE_TEXT) append(' ').append(role)
+        if (label.isNotBlank()) append(" \"").append(label).append('"')
+        // An icon with no name at all: where it sits is what the model can go
+        // on ("the ⋮ menu top right"), better than a bare number.
+        else if (where != null) append(" (").append(where).append(')')
         if (editable) {
             // The label is the field's name (hint, description); what is typed
             // in it is always shown, so the model never reads a filled field
@@ -76,13 +85,39 @@ data class ScreenElement(
             }
         }
         if (checkable) append(if (checked) " on" else " off")
-        if (scrollable && role != ROLE_LIST) append(" scrollable")
+        // Whether there is more to see, so "the end of the list" is read off
+        // the screen instead of found by a wasted scroll.
+        val more = scrollWords()
+        if (more != null) append(' ').append(more)
+        else if (scrollable && role != ROLE_LIST) append(" scrollable")
         if (selected) append(" selected")
         if (focused && editable) append(" focused")
         if (!enabled) append(" disabled")
+        if (underKeyboard) append(" under keyboard")
         if (longClickable && !clickable) append(" long-press")
         if (window != null) append(" @").append(window)
     }.trimEnd()
+
+    /** "more below", "more above and below", "more to the right"…; null when nothing is known. */
+    fun scrollWords(): String? {
+        if (!scrollable || !(canScrollBack || canScrollForward)) return null
+        val (back, fwd) = if (horizontal) "to the left" to "to the right" else "above" to "below"
+        return when {
+            canScrollBack && canScrollForward -> if (horizontal) "more to the left and right" else "more above and below"
+            canScrollForward -> "more $fwd"
+            else -> "more $back"
+        }
+    }
+
+    /** Whether scrolling this way can show anything new: down/right is forward, up/left is back. */
+    fun canScroll(direction: String): Boolean? {
+        if (!scrollable || !(canScrollBack || canScrollForward)) return null
+        return when (direction.lowercase()) {
+            "down", "right", "forward" -> canScrollForward
+            "up", "left", "back", "backward" -> canScrollBack
+            else -> null
+        }
+    }
 
     companion object {
         const val ROLE_TEXT = "text"
@@ -101,7 +136,12 @@ data class ScreenState(
     val elements: List<ScreenElement>,
     val truncated: Int,
     val capturedAt: Long = System.currentTimeMillis(),
+    /** Top edge of the on-screen keyboard while it is open; what lies below it cannot be tapped. */
+    val keyboardTop: Int? = null,
 ) {
+    /** Whether [e] sits behind the open keyboard (a tap there would press a key). */
+    fun underKeyboard(e: ScreenElement): Boolean = keyboardTop != null && e.window == null && e.centerY >= keyboardTop
+
     /**
      * Cheap fingerprint to tell the model whether an action changed anything.
      *
@@ -118,6 +158,7 @@ data class ScreenState(
             h = 31 * h + (e.value?.hashCode() ?: 0)
             h = 31 * h + (if (e.checked) 1 else 0) + (if (e.selected) 2 else 0)
             h = 31 * h + e.secretLength
+            h = 31 * h + (if (e.canScrollBack) 4 else 0) + (if (e.canScrollForward) 8 else 0)
             h = 31 * h + e.bounds.top / 40
         }
         31 * h + (if (keyboardVisible) 1 else 0)
@@ -161,6 +202,34 @@ data class ScreenState(
             ?: e
     }
 
+    /**
+     * The list a bare "scroll" moves: the largest vertically scrolling element
+     * of the app's own window (not a dialog or popup over it).
+     */
+    fun mainList(): ScreenElement? = elements.asSequence()
+        .filter { it.scrollable && !it.horizontal && it.window == null }
+        .maxByOrNull { it.bounds.area }
+
+    /** Where [e] sits, in words: "top right", "bottom", "middle"… */
+    fun whereIs(e: ScreenElement): String {
+        val col = when {
+            e.centerX < width / 3 -> "left"
+            e.centerX > width * 2 / 3 -> "right"
+            else -> null
+        }
+        val row = when {
+            e.centerY < height / 4 -> "top"
+            e.centerY > height * 3 / 4 -> "bottom"
+            else -> null
+        }
+        return when {
+            row != null && col != null -> "$row $col"
+            row != null -> row
+            col != null -> col
+            else -> "middle"
+        }
+    }
+
     /** True when something on screen says it is still loading. */
     val loading: Boolean get() = elements.any { it.role == ScreenElement.ROLE_PROGRESS }
 
@@ -179,6 +248,24 @@ data class ScreenState(
             labels.any { PERMISSION.matches(it) }
         ) {
             out += "A permission dialog is open: allow only what the task needs (prefer \"While using the app\" / \"Only this time\")."
+        }
+        if (labels.any { HUMAN_CHECK.containsMatchIn(it) }) {
+            out += "A human check (captcha) is on screen. You cannot solve it: ask_user to complete it on the phone, then continue."
+        }
+        val inputs = elements.any { it.editable }
+        if (elements.any { it.password } || (inputs && labels.any { SIGN_IN.matches(it) }) ||
+            (labels.any { SSO.containsMatchIn(it) } && labels.any { SIGN_IN.matches(it) || SIGN_IN_PROMPT.containsMatchIn(it) })
+        ) {
+            out += "This screen asks to sign in. Use only credentials the user gave you; otherwise ask_user (never invent them), " +
+                "or look for \"Not now\"/\"Skip\" if the task does not need an account."
+        }
+        elements.firstOrNull { ERROR_STATE.matches(it.label.lowercase().trim()) }?.let { e ->
+            out += "The app shows an error (\"${e.label.take(60)}\"): try its Retry/Try again once; device_status shows whether the phone is online."
+        }
+        if (labels.any { NAG.matches(it) }) {
+            elements.firstOrNull { DISMISS.matches(it.label.lowercase().trim()) && it.actionable }?.let { d ->
+                out += "A prompt (rating, update, notifications, tips) is in the way: dismiss it with \"${d.label.take(30)}\" unless the task needs it."
+            }
         }
         if (loading) out += "Something is still loading: wait_for the content (or wait 2) before acting."
         if (adsHandled && labels.any { AD.containsMatchIn(it) }) {
@@ -204,7 +291,11 @@ data class ScreenState(
             return@buildString
         }
         for (i in elements.indices) {
-            val line = elements[i].render()
+            val e = elements[i]
+            val line = e.render(
+                where = if (e.label.isBlank() && e.takesTaps && e.role != ScreenElement.ROLE_LIST) whereIs(e) else null,
+                underKeyboard = underKeyboard(e),
+            )
             if (length + line.length > maxChars) {
                 append("… ").append(elements.size - i).append(" more not shown; scroll or use find_text.\n")
                 break
@@ -228,6 +319,22 @@ data class ScreenState(
         private val PERMISSION = Regex(
             "^(allow|don.t allow|deny|while using the app|only this time|allow all the time|allow only while using the app)$"
         )
+        private val HUMAN_CHECK = Regex(
+            "\\b(i.m not a robot|verify (that )?you are (a )?human|are you a robot|captcha|human verification|unusual traffic|security check)\\b"
+        )
+        private val SIGN_IN = Regex("^(sign in|log in|login)$")
+        private val SIGN_IN_PROMPT = Regex("\\b(sign in to|log in to|sign in or|log in or)\\b")
+        private val SSO = Regex("\\bcontinue with (google|facebook|apple|microsoft)\\b")
+        private val ERROR_STATE = Regex(
+            "^(no internet( connection)?|you.re offline|you are offline|no (network )?connection|connection (lost|failed|error)|" +
+                "something went wrong.*|couldn.t (load|connect|refresh).*|unable to (load|connect).*|check your (internet|network|connection).*|" +
+                "network error.*|server error.*|page not found|this site can.t be reached.*)$"
+        )
+        private val NAG = Regex(
+            "^(rate (us|this app|the app).*|enjoying .{1,40}\\?|update (now|available|the app)|a new version is available.*|" +
+                "turn on notifications\\??|allow notifications\\??|get notified.*|what.s new.*|get started|let.s get started|take a tour)$"
+        )
+        private val DISMISS = Regex("^(not now|no thanks|no, thanks|later|maybe later|skip|skip for now|dismiss|close|cancel|remind me later)$")
         private val AD = Regex("^(ad|ads|sponsored)( ·|$)|\\bskip ads?\\b|\\bvisit advertiser\\b|\\bad \\d+ of \\d+\\b")
 
         /**

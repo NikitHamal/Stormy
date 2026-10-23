@@ -1,0 +1,276 @@
+package com.oro.app.device
+
+import com.google.common.truth.Truth.assertThat
+import com.oro.app.device.FakePhone.Act
+import com.oro.app.device.ScenarioBench.play
+import com.oro.app.device.ScreenElement.Companion.ROLE_LIST
+import com.oro.app.device.ScreenElement.Companion.ROLE_TEXT
+import com.oro.app.device.ScreenFixtures.el
+import com.oro.app.device.ScreenFixtures.screen
+import com.oro.app.device.ScriptedModel.Companion.calls
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+/** Real tasks, scripted end to end through the device agent's run loop (see [FakePhone]). */
+class ScenarioBenchTest {
+
+    private val home = screen(
+        el(0, "icon", "YouTube", top = 1800, left = 100, right = 300),
+        el(1, "icon", "WhatsApp", top = 1800, left = 400, right = 600),
+        pkg = "com.android.launcher3", label = "Home",
+    )
+
+    @Test
+    fun `YouTube - search link, tap the result by its words, an ad skipped on the way`() = runTest {
+        val results = screen(
+            el(0, ROLE_LIST, "", top = 250, height = 1900).copy(canScrollForward = true),
+            el(1, "input", "Search YouTube", value = "lofi", top = 100),
+            el(2, "button", "lofi hip hop radio - beats to relax/study to · Lofi Girl · 41K watching", top = 300, height = 400),
+            el(3, "button", "Lofi beats playlist · 2 hours", top = 750, height = 400),
+            pkg = "com.google.android.youtube", label = "YouTube",
+        )
+        val player = screen(
+            el(0, "view", "Video player", top = 200, height = 700),
+            el(1, "button", "Pause video", top = 500),
+            el(2, ROLE_TEXT, "lofi hip hop radio - beats to relax/study to", top = 950),
+            pkg = "com.google.android.youtube", label = "YouTube",
+        )
+        val phone = ScenarioBench.phone(this, home)
+        phone.rules = { a ->
+            when {
+                a is Act.Url && "youtube.com/results" in a.url -> results
+                a is Act.Tap && a.label.startsWith("lofi hip hop radio") -> player.also {
+                    // The service skips the pre-roll by itself while the agent waits.
+                    DeviceAgent.onAdSkipped("Skipped a YouTube ad")
+                }
+                else -> null
+            }
+        }
+        val model = ScriptedModel(
+            calls("open_url" to """{"url":"https://www.youtube.com/results?search_query=lofi"}"""),
+            calls("tap_text" to """{"text":"lofi hip hop radio"}"""),
+            calls("finish_task" to """{"summary":"Playing lofi hip hop radio on YouTube.","success":true}"""),
+        )
+
+        val end = play(phone, model, "Play lofi on YouTube and skip the ads")
+
+        assertThat(phone.log).containsExactly(
+            Act.Url("https://www.youtube.com/results?search_query=lofi"),
+            Act.Tap("lofi hip hop radio - beats to relax/study to · Lofi Girl · 41K watching", 2),
+        ).inOrder()
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.DONE)
+        assertThat(end.summary).isEqualTo("Playing lofi hip hop radio on YouTube.")
+        // The results list says there is more below it, so "the end" is never guessed.
+        assertThat(model.seen[1]).contains("list more below")
+        assertThat(model.seen[2]).contains("Screen changed.")
+        assertThat(model.seen[2]).contains("Oro skipped an ad automatically")
+        assertThat(end.steps.map { it.tool }).contains("skip_ad")
+    }
+
+    @Test
+    fun `checkout - a row that shifts under a two-call turn never slips Place order past the guard`() = runTest {
+        val checkout = screen(
+            el(0, ROLE_TEXT, "Checkout"),
+            el(1, "button", "Apply coupon"),
+            el(2, ROLE_TEXT, "Total ₹500"),
+            el(3, "button", "Place order"),
+            pkg = "com.shop", label = "Shop",
+        )
+        val couponApplied = screen(
+            el(0, ROLE_TEXT, "Checkout"),
+            el(1, ROLE_TEXT, "Coupon SAVE10 applied"),
+            el(2, "button", "Apply coupon"),
+            el(3, ROLE_TEXT, "Total ₹450"),
+            el(4, "button", "Place order"),
+            pkg = "com.shop", label = "Shop",
+        )
+        val phone = ScenarioBench.phone(this, checkout)
+        phone.rules = { a -> if (a is Act.Tap && a.label == "Apply coupon") couponApplied else null }
+        val model = ScriptedModel(
+            // [3] was "Place order" on the screen the model saw; after the coupon it is [4].
+            calls("tap" to """{"index":1}""", "tap" to """{"index":3}"""),
+            calls("finish_task" to """{"summary":"Coupon applied; the order needs your OK.","success":false}"""),
+        )
+
+        val asked = ScenarioBench.answerApprovals(this, allow = false)
+        val end = play(phone, model, "Apply the coupon and place the order")
+
+        assertThat(asked).hasSize(1)
+        assertThat(asked.single()).contains("Place order")
+        assertThat(phone.log).containsExactly(Act.Tap("Apply coupon", 1))
+        assertThat(model.seen[1]).contains("Blocked: the user denied")
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.FAILED)
+    }
+
+    @Test
+    fun `stuck - a tap that changes nothing escalates instead of repeating forever`() = runTest {
+        val feed = screen(el(0, "button", "Load more"), el(1, ROLE_TEXT, "Post 1"), pkg = "com.feed", label = "Feed")
+        val phone = ScenarioBench.phone(this, feed)
+        val tap = calls("tap_text" to """{"text":"Load more"}""")
+        val model = ScriptedModel(tap, tap, calls("finish_task" to """{"summary":"Nothing more loads.","success":false}"""))
+
+        play(phone, model, "Load all posts")
+
+        assertThat(model.seen[1]).contains("⚠ The screen did not change")
+        assertThat(model.seen[2]).contains("That is 2 in a row: stop repeating it")
+    }
+
+    @Test
+    fun `scroll_to stops where the list says it ends, without a wasted scroll`() = runTest {
+        fun page(n: Int, more: Boolean) = screen(
+            el(0, ROLE_LIST, "", top = 200, height = 2000).copy(canScrollForward = more, canScrollBack = n > 1),
+            el(1, ROLE_TEXT, "Contact ${n}a", top = 300),
+            el(2, ROLE_TEXT, "Contact ${n}b", top = 500),
+            pkg = "com.contacts", label = "Contacts",
+        )
+        val pages = listOf(page(1, true), page(2, true), page(3, false))
+        val phone = ScenarioBench.phone(this, pages[0])
+        var at = 0
+        phone.rules = { a -> if (a is Act.Scroll && at < 2) pages[++at] else null }
+        val model = ScriptedModel(
+            calls("scroll_to" to """{"text":"Zed"}"""),
+            calls("finish_task" to """{"summary":"No contact named Zed.","success":true}"""),
+        )
+
+        play(phone, model, "Is Zed in my contacts?")
+
+        assertThat(phone.scrolls).isEqualTo(2)
+        assertThat(model.seen[1]).contains("Reached the end after 2 scrolls")
+    }
+
+    @Test
+    fun `scrolling a list that is at its end answers at once, no swipe`() = runTest {
+        val end = screen(
+            el(0, ROLE_LIST, "", top = 200, height = 2000).copy(canScrollBack = true),
+            el(1, ROLE_TEXT, "Last contact", top = 300),
+            pkg = "com.contacts", label = "Contacts",
+        )
+        val phone = ScenarioBench.phone(this, end)
+        val model = ScriptedModel(
+            calls("scroll" to """{"direction":"down"}"""),
+            calls("finish_task" to """{"summary":"That's everyone.","success":true}"""),
+        )
+
+        play(phone, model, "Read me all my contacts")
+
+        assertThat(phone.scrolls).isEqualTo(0)
+        assertThat(model.seen[1]).contains("Nothing more down: that list is at its end")
+    }
+
+    @Test
+    fun `reading the same screen while waiting is not going in circles`() = runTest {
+        val video = screen(el(0, "view", "Video player"), el(1, ROLE_TEXT, "Buffering"), pkg = "com.video", label = "Video")
+        val phone = ScenarioBench.phone(this, video)
+        val read = calls("read_screen" to "{}")
+        val model = ScriptedModel(read, read, read, read, calls("finish_task" to """{"summary":"Playing.","success":true}"""))
+
+        play(phone, model, "Wait for the video")
+
+        assertThat(model.seen.joinToString("\n")).doesNotContain("going in circles")
+    }
+
+    @Test
+    fun `WhatsApp - one quick action opens the chat, Send still waits for the user's OK`() = runTest {
+        val chat = screen(
+            el(0, ROLE_TEXT, "Mom", top = 100),
+            el(1, "input", "Message", value = "Running 10 min late", top = 2100),
+            el(2, "icon", "Send", top = 2100, left = 950, right = 1060),
+            pkg = "com.whatsapp", label = "WhatsApp",
+        )
+        val sent = screen(
+            el(0, ROLE_TEXT, "Mom", top = 100),
+            el(1, ROLE_TEXT, "Running 10 min late · 21:41 · Delivered", top = 1800),
+            el(2, "input", "Message", top = 2100),
+            pkg = "com.whatsapp", label = "WhatsApp",
+        )
+        val phone = ScenarioBench.phone(this, home)
+        phone.rules = { a ->
+            when {
+                a is Act.Quick && a.args.action == "whatsapp" -> chat
+                a is Act.Tap && a.label == "Send" -> sent
+                else -> null
+            }
+        }
+        val model = ScriptedModel(
+            calls("quick_action" to """{"action":"whatsapp","to":"+977 980-000-0000","text":"Running 10 min late"}"""),
+            calls("tap_text" to """{"text":"Send"}"""),
+            calls("finish_task" to """{"summary":"Told Mom you're running 10 minutes late.","success":true}"""),
+        )
+
+        val asked = ScenarioBench.answerApprovals(this, allow = true)
+        val end = play(phone, model, "WhatsApp Mom that I'm running 10 min late")
+
+        val quick = phone.log.filterIsInstance<Act.Quick>().single().args
+        assertThat(quick.action).isEqualTo("whatsapp")
+        assertThat(quick.to).isEqualTo("+977 980-000-0000")
+        assertThat(quick.text).isEqualTo("Running 10 min late")
+        assertThat(asked.single()).contains("Send")
+        assertThat(phone.log.last()).isEqualTo(Act.Tap("Send", 2))
+        assertThat(end.endReason).isEqualTo(DeviceAgent.EndReason.DONE)
+    }
+
+    @Test
+    fun `a target that changed while the model was thinking is skipped, never guessed`() = runTest {
+        val inbox = screen(el(0, "button", "Archive"), el(1, "button", "Delete"), pkg = "com.mail", label = "Mail")
+        val refreshed = screen(el(0, "button", "Archive"), el(1, "button", "Reply"), pkg = "com.mail", label = "Mail")
+        val phone = ScenarioBench.phone(this, inbox)
+        val model = ScriptedModel(
+            { request ->
+                // A new mail arrives and the toolbar changes while the model decides.
+                phone.change(refreshed)
+                calls("tap" to """{"index":1}""")(request)
+            },
+            calls("finish_task" to """{"summary":"The mail changed; nothing deleted.","success":false}"""),
+        )
+
+        play(phone, model, "Delete this mail")
+
+        assertThat(phone.log).isEmpty()
+        assertThat(model.seen[1]).contains("Skipped: that element changed or left the screen")
+    }
+
+    @Test
+    fun `a sign-in wall and a captcha are named on screen`() = runTest {
+        val login = screen(
+            el(0, ROLE_TEXT, "Sign in to continue"),
+            el(1, "input", "Email"),
+            el(2, "input", "Password", password = true),
+            el(3, "button", "Sign in"),
+            el(4, "checkbox", "I'm not a robot", checkable = true),
+            pkg = "com.site", label = "Site",
+        )
+        val phone = ScenarioBench.phone(this, login)
+        val model = ScriptedModel(calls("finish_task" to """{"summary":"Needs your login.","success":false}"""))
+
+        play(phone, model, "Check my order status")
+
+        assertThat(model.seen[0]).contains("Hint: This screen asks to sign in")
+        assertThat(model.seen[0]).contains("Hint: A human check (captcha)")
+    }
+}
+
+/** Shared plumbing for [ScenarioBenchTest]. */
+internal object ScenarioBench {
+
+    fun phone(scope: TestScope, start: ScreenState) = FakePhone({ scope.testScheduler.currentTime }, start)
+
+    /** Answers every approval prompt with [allow]; the prompts asked go into the returned list. */
+    fun answerApprovals(scope: TestScope, allow: Boolean): List<String> {
+        val asked = mutableListOf<String>()
+        scope.backgroundScope.launch {
+            DeviceAgent.state.collect { s ->
+                val q = s.approval
+                if (q != null) {
+                    if (asked.lastOrNull() != q) asked += q
+                    DeviceAgent.approve(allow)
+                }
+            }
+        }
+        return asked
+    }
+
+    suspend fun play(phone: FakePhone, model: ScriptedModel, task: String, settings: DeviceAgent.Settings = DeviceAgent.Settings()) =
+        DeviceAgent.runScenario(phone, task, ScriptedModel.model, model, settings)
+}

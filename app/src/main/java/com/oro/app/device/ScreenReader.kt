@@ -58,7 +58,9 @@ object ScreenReader {
         val metrics = service.resources.displayMetrics
         val screen = Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
         val windows = runCatching { service.windows }.getOrNull().orEmpty()
-        val keyboard = windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        val keyboard = ime != null
+        val keyboardTop = ime?.let { w -> Rect().also { w.getBoundsInScreen(it) }.top.takeIf { it > 0 } }
 
         val roots = mutableListOf<Pair<AccessibilityNodeInfo, String?>>()
         val active = service.rootInActiveWindow
@@ -117,7 +119,7 @@ object ScreenReader {
                 viewId = node.viewIdResourceName,
                 window = window,
                 secretLength = if (node.isPassword && !showsHint(node)) node.text?.length ?: 0 else 0,
-            )
+            ).let { e -> if (node.isScrollable) withScrollCapacity(e, node) else e }
             nodes += node
         }
 
@@ -172,9 +174,31 @@ object ScreenReader {
             }
         }
         val label = AppCatalog.labelFor(service, pkg) ?: pkg
-        val state = ScreenState(pkg, label, screen.width(), screen.height(), keyboard, deduped, omitted)
+        val state = ScreenState(pkg, label, screen.width(), screen.height(), keyboard, deduped, omitted, keyboardTop = keyboardTop)
         last = Snapshot(state, byOriginal)
         return state
+    }
+
+    /**
+     * Which ways [node] can still scroll, from the actions it offers right now
+     * (a list at its end no longer offers "scroll forward"), and whether it
+     * scrolls sideways. Read only for scrollables, so it costs one call each.
+     */
+    private fun withScrollCapacity(e: ScreenElement, node: AccessibilityNodeInfo): ScreenElement {
+        val ids = runCatching { node.actionList.map { it.id } }.getOrNull() ?: return e
+        val down = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id
+        val up = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id
+        val left = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_LEFT.id
+        val right = AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_RIGHT.id
+        val sideways = (left in ids || right in ids) && down !in ids && up !in ids
+        val cls = node.className?.toString().orEmpty()
+        val horizontal = sideways || cls.contains("HorizontalScrollView") || cls.contains("ViewPager") ||
+            (e.bounds.width > e.bounds.height * 2 && e.bounds.height < 600)
+        return e.copy(
+            canScrollForward = AccessibilityNodeInfo.ACTION_SCROLL_FORWARD in ids || down in ids || right in ids,
+            canScrollBack = AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD in ids || up in ids || left in ids,
+            horizontal = horizontal,
+        )
     }
 
     /** Equal apart from the index: dedupe only drops and renumbers, never edits. */

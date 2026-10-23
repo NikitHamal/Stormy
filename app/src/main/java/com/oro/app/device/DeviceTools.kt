@@ -91,11 +91,11 @@ object DeviceTools {
 
     val QUICK_ACTION = tool(
         "quick_action",
-        "Do a common task in one step instead of navigating screens: alarm (time, text=label), timer (minutes), search (text), navigate (text=place), settings (page), dial (to), sms (to, text), email (to, subject, text), share (text), event (text=title, time, minutes), music (text). Nothing is sent or called without a later tap.",
+        "Do a common task in one step instead of navigating screens: alarm (time, text=label), timer (minutes), search (text), navigate (text=place), maps (text=place to find), settings (page), panel (page=internet|wifi|nfc|volume: toggles over the current app), app_info (text=app: its notifications, permissions, storage), dial (to), sms (to, text), whatsapp (to=number with country code, text), email (to, subject, text), share (text), event (text=title, time, minutes), music (text), store (text=app), flashlight (text=on|off), volume (text=up|down|mute|40). Nothing is sent or called without a later tap.",
         """{"type":"object","properties":{
-          "action":{"type":"string","enum":["alarm","timer","search","navigate","settings","dial","sms","email","share","event","music"]},
-          "text":{"type":"string","description":"Query, message, place, title or label, depending on the action."},
-          "to":{"type":"string","description":"Phone number or email address."},
+          "action":{"type":"string","enum":["alarm","timer","search","navigate","maps","settings","panel","app_info","dial","sms","whatsapp","email","share","event","music","store","flashlight","volume"]},
+          "text":{"type":"string","description":"Query, message, place, title, label, app name or value, depending on the action."},
+          "to":{"type":"string","description":"Phone number (with country code for WhatsApp) or email address."},
           "subject":{"type":"string","description":"Email subject."},
           "time":{"type":"string","description":"\"07:30\", \"7:30 pm\", \"tomorrow 9am\" or \"2026-10-23 15:00\"."},
           "minutes":{"type":"number","description":"Timer length or event duration in minutes."},

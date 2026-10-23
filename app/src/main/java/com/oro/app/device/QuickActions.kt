@@ -4,10 +4,19 @@ import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.MediaStore
+import android.provider.Settings
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToInt
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -24,7 +33,10 @@ import java.time.ZoneId
  */
 object QuickActions {
 
-    val ACTIONS = listOf("alarm", "timer", "search", "navigate", "settings", "dial", "sms", "email", "share", "event", "music")
+    val ACTIONS = listOf(
+        "alarm", "timer", "search", "navigate", "maps", "settings", "panel", "app_info", "dial", "sms", "whatsapp", "email",
+        "share", "event", "music", "store", "flashlight", "volume",
+    )
 
     /** Settings pages by the names people use, mapped to their intent actions. */
     private val SETTINGS = mapOf(
@@ -105,6 +117,77 @@ object QuickActions {
         }
         return day.atTime(h, m).atZone(zone).toInstant().toEpochMilli()
     }
+
+    /**
+     * A WhatsApp chat link: wa.me with the number in international digits and
+     * the message filled in, or wa.me/?text= to pick the contact in WhatsApp.
+     * Null when there is neither a usable number nor text. Pure.
+     */
+    fun whatsappLink(to: String?, text: String?): String? {
+        val digits = to.orEmpty().filter { it.isDigit() }
+        val msg = text?.trim().orEmpty()
+        if (digits.isNotEmpty() && digits.length < 7) return null
+        if (digits.isEmpty() && msg.isEmpty()) return null
+        val q = if (msg.isNotEmpty()) "?text=" + encode(msg) else ""
+        return "https://wa.me/" + digits + q
+    }
+
+    /** Play Store: the app's page for a package id, else a search. Pure. */
+    fun storeLink(query: String?): String? {
+        val q = query?.trim().orEmpty()
+        if (q.isEmpty()) return null
+        return if (PACKAGE_ID.matches(q)) "market://details?id=$q" else "market://search?q=" + encode(q) + "&c=apps"
+    }
+
+    /** The web page for a market:// link, for phones without the Play Store app. Pure. */
+    fun storeWebLink(market: String): String =
+        if (market.startsWith("market://details")) market.replace("market://details", "https://play.google.com/store/apps/details")
+        else market.replace("market://search", "https://play.google.com/store/search")
+
+    /** "on", "off", "toggle" (or nothing) -> true, false, null (= flip). Pure. */
+    fun parseSwitch(text: String?): Boolean? = when (text?.trim()?.lowercase()) {
+        "on", "true", "yes", "enable", "enabled", "start" -> true
+        "off", "false", "no", "disable", "disabled", "stop" -> false
+        else -> null
+    }
+
+    /** What a volume request means: up, down, mute, unmute, max, or a percentage. Pure. */
+    sealed interface Volume {
+        data object Up : Volume
+        data object Down : Volume
+        data object Mute : Volume
+        data object Unmute : Volume
+        data class Percent(val value: Int) : Volume
+    }
+
+    fun parseVolume(text: String?): Volume? {
+        val t = text?.trim()?.lowercase()?.removeSuffix("%")?.trim() ?: return null
+        return when (t) {
+            "up", "louder", "raise", "increase", "+" -> Volume.Up
+            "down", "quieter", "lower", "decrease", "-" -> Volume.Down
+            "mute", "silent", "off", "0" -> Volume.Mute
+            "unmute", "on" -> Volume.Unmute
+            "max", "maximum", "full" -> Volume.Percent(100)
+            else -> t.toDoubleOrNull()?.let { v ->
+                // "0.4" means 40 %; "40" means 40 %.
+                val pct = if (v in 0.0..1.0 && t.contains('.')) v * 100 else v
+                Volume.Percent(pct.roundToInt().coerceIn(0, 100))
+            }
+        }
+    }
+
+    /** Settings panels that float over the current app (Android 10+): internet, wifi, nfc, volume. Pure. */
+    fun panelAction(page: String?): String? = when (page?.trim()?.lowercase()?.removeSuffix(" panel")) {
+        "internet", "data", "mobile data", "network", "connectivity" -> "android.settings.panel.action.INTERNET_CONNECTIVITY"
+        "wifi", "wi-fi" -> "android.settings.panel.action.WIFI"
+        "nfc" -> "android.settings.panel.action.NFC"
+        "volume", "sound" -> "android.settings.panel.action.VOLUME"
+        else -> null
+    }
+
+    private fun encode(s: String): String = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
+    private val PACKAGE_ID = Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z0-9_]+)+$")
 
     data class Args(
         val action: String,
@@ -189,6 +272,40 @@ object QuickActions {
                     .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end)
                 start(context, intent, "Opened a new calendar event \"$text\". Tap Save on screen to keep it.")
             }
+            "maps" -> {
+                if (text.isEmpty()) return "maps needs text (the place or what to find)."
+                start(context, view("geo:0,0?q=" + Uri.encode(text)), "Opened the map searching \"$text\".")
+            }
+            "whatsapp" -> {
+                val link = whatsappLink(a.to, text) ?: return "whatsapp needs to (phone number with country code) and/or text."
+                start(context, view(link), "Opened WhatsApp" + (a.to?.let { " for $it" } ?: "") +
+                    (if (text.isNotEmpty()) " with the message filled in" else "") + ". It is not sent until Send is tapped.")
+            }
+            "store" -> {
+                val link = storeLink(text.ifEmpty { a.to }) ?: return "store needs text (app name or package id)."
+                if (tryStart(context, view(link))) "Opened the Play Store for \"${text.ifEmpty { a.to }}\"."
+                else start(context, view(storeWebLink(link)), "Opened the Play Store page in the browser.")
+            }
+            "panel" -> {
+                val panel = panelAction(a.page ?: text)
+                if (panel != null && Build.VERSION.SDK_INT >= 29 && tryStart(context, Intent(panel))) {
+                    "Opened the ${(a.page ?: text).trim()} panel over the current app. Toggle what the task needs, then press back."
+                } else {
+                    val target = settingsAction(a.page ?: text) ?: "android.settings.SETTINGS"
+                    start(context, Intent(target), "Opened ${(a.page ?: text).ifEmpty { "phone" }} settings.")
+                }
+            }
+            "app_info" -> {
+                if (text.isEmpty()) return "app_info needs text (the app name)."
+                val app = AppCatalog.resolve(context, text) ?: return "No installed app matches \"$text\"."
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.packageName, null))
+                start(context, intent, "Opened ${app.label}'s app settings (notifications, permissions, storage, force stop).")
+            }
+            "flashlight" -> flashlight(context, parseSwitch(text.ifEmpty { a.page }))
+            "volume" -> {
+                val v = parseVolume(text.ifEmpty { a.page }) ?: return "volume needs text: up, down, mute, unmute, max or a percentage like 40."
+                volume(context, v)
+            }
             "music" -> {
                 if (text.isEmpty()) return "music needs text (what to play)."
                 val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
@@ -216,8 +333,59 @@ object QuickActions {
             "share" -> "Share"
             "event" -> if (t != null) "Add “$t” to the calendar" else "Add a calendar event"
             "music" -> if (t != null) "Play “$t”" else "Play music"
+            "maps" -> if (t != null) "Find “$t” on the map" else "Open the map"
+            "whatsapp" -> "Open WhatsApp" + (to?.let { " for $it" } ?: "")
+            "store" -> if (t != null) "Open “$t” in the Play Store" else "Open the Play Store"
+            "panel" -> "Open the ${(page ?: t ?: "settings").trim()} panel"
+            "app_info" -> if (t != null) "Open $t's app settings" else "Open app settings"
+            "flashlight" -> when (parseSwitch(t ?: page)) { true -> "Turn the flashlight on"; false -> "Turn the flashlight off"; null -> "Toggle the flashlight" }
+            "volume" -> "Set the volume" + (t?.let { " ($it)" } ?: "")
             else -> "Quick action"
         }
+    }
+
+    /** Torch state per camera, kept current by a callback registered on first use. */
+    private val torch = ConcurrentHashMap<String, Boolean>()
+    @Volatile private var torchWatched = false
+
+    /** No permission needed: setTorchMode works for any app (Android 6+). */
+    private fun flashlight(context: Context, want: Boolean?): String {
+        val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return "This phone has no camera service."
+        val id = runCatching {
+            cm.cameraIdList.firstOrNull { cm.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true }
+        }.getOrNull() ?: return "This phone has no flashlight."
+        if (!torchWatched) {
+            torchWatched = true
+            runCatching {
+                cm.registerTorchCallback(object : CameraManager.TorchCallback() {
+                    override fun onTorchModeChanged(cameraId: String, enabled: Boolean) { torch[cameraId] = enabled }
+                }, Handler(Looper.getMainLooper()))
+            }
+        }
+        val on = want ?: !(torch[id] ?: false)
+        return runCatching {
+            cm.setTorchMode(id, on)
+            torch[id] = on
+            if (on) "Turned the flashlight on." else "Turned the flashlight off."
+        }.getOrElse { "The flashlight could not be switched (${it.message ?: "camera busy"}). Use quick settings instead." }
+    }
+
+    /** Media volume (what videos and music use); no permission needed. */
+    private fun volume(context: Context, v: Volume): String {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "No audio service."
+        val stream = AudioManager.STREAM_MUSIC
+        val max = am.getStreamMaxVolume(stream).coerceAtLeast(1)
+        runCatching {
+            when (v) {
+                Volume.Up -> am.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                Volume.Down -> am.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                Volume.Mute -> am.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI)
+                Volume.Unmute -> am.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, AudioManager.FLAG_SHOW_UI)
+                is Volume.Percent -> am.setStreamVolume(stream, (v.value * max / 100.0).roundToInt(), AudioManager.FLAG_SHOW_UI)
+            }
+        }.onFailure { return "The volume could not be changed (${it.message ?: "not allowed"})." }
+        val now = (am.getStreamVolume(stream) * 100.0 / max).roundToInt()
+        return if (v == Volume.Mute) "Muted media volume." else "Media volume is now $now%."
     }
 
     fun formatSeconds(seconds: Int): String = when {

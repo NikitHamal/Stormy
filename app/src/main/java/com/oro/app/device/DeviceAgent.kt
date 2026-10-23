@@ -341,7 +341,12 @@ object DeviceAgent {
             origin = origin,
         )
         service.overlay.show(settings.showTouches)
-        val run = DeviceRun(service, task.trim(), model, aiRepository, settings, origin)
+        val run = DeviceRun(
+            phone = DeviceController(service), task = task.trim(), model = model,
+            modelStream = AgentModelClient { req -> aiRepository.streamChat(model, req.messages, req.tools, temperature = 0.2f) },
+            settings = settings, origin = origin,
+            vision = settings.screenshots && ScreenshotTaker.supported && VisionSupport.supports(model),
+        )
         // ATOMIC: the body runs even if Stop lands before it is first
         // dispatched, so the wrap-up in finally always happens -- otherwise the
         // state would stay "running", the island up and the ad skipper armed.
@@ -390,18 +395,21 @@ object DeviceAgent {
 
     // ------------------------------------------------------------- one run
 
-    /** Everything that belongs to one task: its controller, screens, notes and counters. */
+    /**
+     * Everything that belongs to one task: its phone, screens, notes and
+     * counters. It talks to the phone only through [Phone] and to the model
+     * only through [modelStream], so the whole run executes in JVM tests too.
+     */
     private class DeviceRun(
-        val service: OroAccessibilityService,
+        val phone: Phone,
         val task: String,
         val model: AiModel,
-        val ai: AiRepository,
+        val modelStream: AgentModelClient,
         val settings: Settings,
         val origin: Origin,
+        /** Whether this model sees numbered screenshots (look). */
+        val vision: Boolean,
     ) {
-        val controller = DeviceController(service)
-        val vision = settings.screenshots && ScreenshotTaker.supported &&
-            VisionSupport.supports(model)
         val tools = DeviceTools.forRun(vision)
         val limited = settings.maxActions > 0
         var forceText = false
@@ -430,13 +438,13 @@ object DeviceAgent {
         @Volatile var currentStepId: Long = -1
 
         fun observe(maxLabel: Int = ScreenReader.DEFAULT_MAX_LABEL): ScreenState {
-            val startedAt = SystemClock.uptimeMillis()
-            val s = controller.capture(maxLabel)
+            val startedAt = phone.uptime()
+            val s = phone.capture(maxLabel)
             if (maxLabel == ScreenReader.DEFAULT_MAX_LABEL) {
                 lastScreen = s
                 lastCaptureUptime = startedAt
             }
-            if (s.packageName.isNotEmpty() && s.packageName != service.packageName) {
+            if (s.packageName.isNotEmpty() && s.packageName != phone.ownPackage) {
                 leftOro = true
                 workApp = s.packageName
             }
@@ -453,9 +461,9 @@ object DeviceAgent {
          */
         fun freshScreen(): ScreenState {
             val s = lastScreen
-            val reuse = s != null && !mustRecapture && ScreenReader.isLatest(s) &&
-                service.lastEventAt <= lastCaptureUptime &&
-                SystemClock.uptimeMillis() - lastCaptureUptime <= MAX_SNAPSHOT_AGE_MS
+            val reuse = s != null && !mustRecapture && phone.isLatest(s) &&
+                phone.lastEventAt <= lastCaptureUptime &&
+                phone.uptime() - lastCaptureUptime <= MAX_SNAPSHOT_AGE_MS
             if (reuse && s != null) return s
             mustRecapture = false
             return observe()
@@ -476,20 +484,20 @@ object DeviceAgent {
                     paused.first { !it }
                     continue
                 }
-                if (leftOro && controller.oroInFront()) {
+                if (leftOro && phone.oroInFront()) {
                     waited = true
                     // The user answered (or approved) since the last action, most
                     // likely right here in Oro: take them back to the task's app.
                     val back = workApp
                     if (back != null && lastAnswerAt > since) {
                         lastAnswerAt = 0L
-                        if (controller.bringToFront(back)) {
-                            controller.settle(quietMs = 250, maxMs = 2_000)
+                        if (phone.bringToFront(back)) {
+                            phone.settle(quietMs = 250, maxMs = 2_000)
                             continue
                         }
                     }
                     _state.update { it.copy(status = "Waiting while Oro is open") }
-                    while (!paused.value && controller.oroInFront()) delay(500)
+                    while (!paused.value && phone.oroInFront()) delay(500)
                     continue
                 }
                 break
@@ -498,7 +506,7 @@ object DeviceAgent {
                 mustRecapture = true
                 _state.update { it.copy(status = "Continuing") }
             }
-            lastGateAt = SystemClock.uptimeMillis()
+            lastGateAt = phone.uptime()
         }
 
         fun observation(before: Int?, s: ScreenState, maxChars: Int = 6_000): String = buildString {
@@ -519,8 +527,9 @@ object DeviceAgent {
                     append("Screen changed.\n")
                 }
             }
-            val seen = (visits[s.signature] ?: 0) + 1
-            visits[s.signature] = seen
+            // Only an action can bring the run back to a screen; reading or
+            // waiting on the same screen is not going in circles.
+            val seen = if (before != null) ((visits[s.signature] ?: 0) + 1).also { visits[s.signature] = it } else 0
             if (seen == 4 || seen == 8) {
                 append("⚠ You have been on this exact screen ").append(seen).append(" times; you may be going in circles. Take a different route.\n")
             }
@@ -534,11 +543,11 @@ object DeviceAgent {
             val nativeTools = model.supportsToolCalls
 
             // Start from the screen the task is about, not from Oro itself.
-            controller.settle(quietMs = 250, maxMs = 1_200, minMs = 80)
+            phone.settle(quietMs = 250, maxMs = 1_200, minMs = 80)
             var first = observe()
-            if (first.packageName == service.packageName) {
-                controller.global("home")
-                controller.settle(quietMs = 250, maxMs = 1_500)
+            if (first.packageName == phone.ownPackage) {
+                phone.global("home")
+                phone.settle(quietMs = 250, maxMs = 1_500)
                 first = observe()
             }
             turnScreen = first
@@ -557,7 +566,7 @@ object DeviceAgent {
             }
 
             val client = AgentModelClient { request ->
-                val stream = ai.streamChat(model, request.messages, request.tools, temperature = 0.2f)
+                val stream = modelStream.stream(request)
                 if (request.tools == null) stream else detectToolRejection(stream) { forceText = true }
             }
 
@@ -657,7 +666,7 @@ object DeviceAgent {
          * is skipped and the new screen returned, never acted on.
          */
         private suspend fun execute(call: ToolCallResponse): ToolResult {
-            val c = controller
+            val c = phone
             val name = call.function.name.substringAfterLast('.').lowercase()
             val args = JsonParserUtils.parseToJsonObject(call.function.arguments) ?: JsonObject(emptyMap())
 
@@ -759,9 +768,16 @@ object DeviceAgent {
                     val key = DeviceArgs.str(args, "key") ?: return ToolResult(false, "", "Missing key.")
                     act { if (key.equals("enter", true)) c.submit() else c.global(key) }
                 }
-                "scroll" -> act {
-                    c.scroll(DeviceArgs.str(args, "direction") ?: "down", (target as? Target.OnElement)?.element, actScreen,
-                        (DeviceArgs.num(args, "amount") ?: 0.6).toFloat())
+                "scroll" -> {
+                    val dir = DeviceArgs.str(args, "direction") ?: "down"
+                    val list = (target as? Target.OnElement)?.element
+                    // The list already says there is nothing more that way: say so
+                    // now instead of swiping, settling and reporting "no change".
+                    if ((list ?: actScreen.mainList())?.canScroll(dir) == false) {
+                        ToolResult(false, observation(null, actScreen), "Nothing more $dir: that list is at its end. Use what is on screen, or another list or screen.")
+                    } else act {
+                        c.scroll(dir, list, actScreen, (DeviceArgs.num(args, "amount") ?: 0.6).toFloat())
+                    }
                 }
                 "scroll_to" -> {
                     val text = DeviceArgs.str(args, "text") ?: return ToolResult(false, "", "Missing text.")
@@ -787,7 +803,7 @@ object DeviceAgent {
                 }
                 "open_app" -> {
                     val app = DeviceArgs.str(args, "name") ?: DeviceArgs.str(args, "app") ?: return ToolResult(false, "", "Missing app name.")
-                    act(maxSettle = 4_000) { c.openApp(app).also { delay(400) } }
+                    act(maxSettle = 4_000) { c.openApp(app) }
                 }
                 "open_url" -> {
                     val url = DeviceArgs.str(args, "url") ?: return ToolResult(false, "", "Missing url.")
@@ -800,7 +816,7 @@ object DeviceAgent {
                         time = DeviceArgs.str(args, "time"), minutes = DeviceArgs.num(args, "minutes"), page = DeviceArgs.str(args, "page"),
                         subject = DeviceArgs.str(args, "subject"),
                     )
-                    act(maxSettle = 3_000, expectChange = false) { QuickActions.run(service, qa).also { delay(300) } }
+                    act(maxSettle = 3_000, expectChange = false) { phone.quickAction(qa).also { delay(300) } }
                 }
                 "media" -> {
                     val action = DeviceArgs.str(args, "action") ?: return ToolResult(false, "", "Missing action.")
@@ -819,11 +835,11 @@ object DeviceAgent {
         private suspend fun readOnly(name: String, args: JsonObject): ToolResult? = when (name) {
             "list_apps" -> {
                 val q = DeviceArgs.str(args, "query")?.lowercase()
-                val apps = AppCatalog.apps(service)
+                val apps = phone.apps()
                     .filter { q.isNullOrBlank() || it.label.lowercase().contains(q) || it.packageName.contains(q) }
                 ToolResult(true, if (apps.isEmpty()) "No apps match." else apps.take(120).joinToString("\n") { "${it.label} (${it.packageName})" })
             }
-            "device_status" -> ToolResult(true, DeviceInfo.status(service))
+            "device_status" -> ToolResult(true, phone.status())
             "take_note" -> {
                 val note = DeviceArgs.str(args, "note")?.trim().orEmpty()
                 if (note.isEmpty()) ToolResult(false, "", "Empty note.") else {
@@ -858,7 +874,7 @@ object DeviceAgent {
                 else "Found ${hits.size}:\n" + hits.take(12).joinToString("\n") { it.element.render() })
             }
             "read_screen" -> {
-                controller.settle(quietMs = 250, maxMs = 1_500, minMs = 80)
+                phone.settle(quietMs = 250, maxMs = 1_500, minMs = 80)
                 val now = observe()
                 ToolResult(true, "Current screen.\n\n" + observation(null, now))
             }
@@ -866,7 +882,7 @@ object DeviceAgent {
                 if (!vision) ToolResult(false, "", "Screenshots are not available for this model or phone. Use the element listing.")
                 else {
                     val now = observe()
-                    val image = ScreenshotTaker.capture(service, now)
+                    val image = phone.screenshot(now)
                     if (image == null) ToolResult(false, observation(null, now), "The screenshot failed; this app may block screenshots. Use the listing.")
                     else ToolResult(true, "Screenshot attached; the numbers on it match the listing.\n\n" + observation(null, now), images = listOf(image))
                 }
@@ -954,8 +970,10 @@ object DeviceAgent {
             while (hit == null && scrolls < 10) {
                 val before = cur.signature
                 val target = list?.let { l -> cur.elements.firstOrNull { it.role == l.role && it.bounds == l.bounds } }
-                controller.scroll(direction, target, cur, 0.7f)
-                controller.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
+                // The list says there is nothing more this way: done, without a wasted scroll.
+                if ((target ?: cur.mainList())?.canScroll(direction) == false) { atEnd = true; break }
+                phone.scroll(direction, target, cur, 0.7f)
+                phone.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
                 cur = observe()
                 scrolls++
                 if (cur.signature == before) { atEnd = true; break }
@@ -978,8 +996,8 @@ object DeviceAgent {
                 read++
                 if (read >= pages) break
                 val before = full.signature
-                controller.scroll("down", null, null, 0.8f)
-                controller.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
+                phone.scroll("down", null, null, 0.8f)
+                phone.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
                 full = observe(maxLabel = 1_500)
                 if (full.signature == before) break
             }
@@ -989,16 +1007,16 @@ object DeviceAgent {
         }
 
         private suspend fun waitFor(text: String, gone: Boolean, timeoutMs: Long, startSignature: Int): ToolResult {
-            val start = SystemClock.uptimeMillis()
+            val start = phone.uptime()
             // Cheap check while waiting (the platform's own text search), full capture once at the end.
-            while (controller.textVisible(text) == gone && SystemClock.uptimeMillis() - start < timeoutMs) {
+            while (phone.textVisible(text) == gone && phone.uptime() - start < timeoutMs) {
                 delay(400)
             }
-            controller.settle(quietMs = 200, maxMs = 1_000, minMs = 50)
+            phone.settle(quietMs = 200, maxMs = 1_000, minMs = 50)
             val now = observe()
-            val present = TextMatch.hits(text, now).any { it.score >= TextMatch.ACT_THRESHOLD } || controller.textVisible(text)
+            val present = TextMatch.hits(text, now).any { it.score >= TextMatch.ACT_THRESHOLD } || phone.textVisible(text)
             val ok = present != gone
-            val waited = "%.1f".format((SystemClock.uptimeMillis() - start) / 1000.0)
+            val waited = "%.1f".format((phone.uptime() - start) / 1000.0)
             val obs = observation(startSignature, now)
             return if (ok) ToolResult(true, (if (gone) "\"$text\" is gone after ${waited}s." else "\"$text\" appeared after ${waited}s.") + "\n\n" + obs)
             else ToolResult(false, obs, "Waited ${timeoutMs / 1000}s; \"$text\" ${if (gone) "is still there" else "did not appear"}.")
@@ -1056,9 +1074,6 @@ object DeviceAgent {
      * run cancels, so a stale wrap-up never hides the next run's island.
      */
     private fun finish(service: OroAccessibilityService, result: AgentRunResult, settings: Settings, origin: Origin, run: DeviceRun) {
-        adSkipActive = false
-        val now = System.currentTimeMillis()
-        val reason = endReason(result, run.finishCalled, run.finishSuccess, cancelReason, run.limitHit)
         val wrapUp = scope.launch(start = CoroutineStart.LAZY) {
             delay(if (origin == Origin.CHAT) 1_800 else 2_500)
             service.overlay.hideAll()
@@ -1069,6 +1084,15 @@ object DeviceAgent {
             }
         }
         wrapUpJob = wrapUp
+        publishEnd(result, run)
+        wrapUp.start()
+    }
+
+    /** The one state update that ends a run: why it ended, its summary or error, and the last step closed. */
+    private fun publishEnd(result: AgentRunResult, run: DeviceRun) {
+        adSkipActive = false
+        val now = System.currentTimeMillis()
+        val reason = endReason(result, run.finishCalled, run.finishSuccess, cancelReason, run.limitHit)
         val finalText = (result as? AgentRunResult.Completed)?.finalText?.trim().orEmpty()
         _state.update { s ->
             val last = s.steps.lastOrNull()
@@ -1100,7 +1124,46 @@ object DeviceAgent {
                 },
             )
         }
-        wrapUp.start()
+    }
+
+    /**
+     * Runs one task on [phone], with [client] standing in for the model, in
+     * the caller's coroutine. The scenario bench (app/src/test) drives the
+     * real run loop -- observation, target resolution, the guard, stuck
+     * signals, endings -- through this; there is no overlay and no wrap-up.
+     */
+    internal suspend fun runScenario(
+        phone: Phone,
+        task: String,
+        model: AiModel,
+        client: AgentModelClient,
+        settings: Settings = Settings(),
+        vision: Boolean = false,
+    ): State {
+        check(!_state.value.running) { "a run is already live" }
+        paused.value = false
+        cancelReason = null
+        lastAnswerAt = 0L
+        stepSeq.set(0)
+        adsSinceObservation.set(0)
+        adSkipActive = settings.skipAds
+        _state.value = State(
+            serviceConnected = true, running = true, task = task.trim(), modelName = model.name,
+            status = "Starting", maxActions = settings.maxActions, startedAt = System.currentTimeMillis(),
+        )
+        val run = DeviceRun(phone, task.trim(), model, client, settings, Origin.USER, vision)
+        var result: AgentRunResult = AgentRunResult.Failed("The device agent stopped unexpectedly.", retryable = true)
+        try {
+            result = run.run()
+        } catch (e: CancellationException) {
+            result = AgentRunResult.Failed("Stopped.", retryable = false)
+            throw e
+        } catch (e: Exception) {
+            result = AgentRunResult.Failed(e.message ?: "The device agent crashed.", retryable = true)
+        } finally {
+            publishEnd(result, run)
+        }
+        return _state.value
     }
 
     /**

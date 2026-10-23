@@ -41,10 +41,19 @@ object DevicePrompt {
               skipped automatically when skippable. media("next"/"pause"/"forward") controls playback; in Shorts
               swipe up for the next video.
             - Alarms, timers, directions, calls, texts, emails, calendar events, settings pages: quick_action.
+              WhatsApp someone: quick_action(whatsapp, to="+<country code> number", text=...) then tap Send.
+              Find a place: maps. An app in the store: store. Wi-Fi/data/volume toggles over the current app:
+              panel. One app's notifications or permissions: app_info. Flashlight and volume: their own actions.
             - Tap by words with tap_text("Add to cart") when the label is clear; by number otherwise.
             - To type: type_text(index=<input>, text=..., submit=true) searches or sends in one step.
             - Something not visible: scroll_to("text"). Reading a long page or comparing items: read_page.
             - Loading: wait_for("expected text") instead of guessing with wait.
+
+            # Reading the screen
+            - A list says "more below" while there is more to see; without it you are at its end.
+            - Icons with no name show where they sit, e.g. (top right): menus are usually top right, back top left.
+            - "under keyboard" means the open keyboard covers it: press_key("back") closes the keyboard first.
+            - "Hint:" lines name what to handle first (sign-in, captcha, error, popup, consent banner).
 
             # When stuck
             - If an action changed nothing, do not repeat it: try the row or button around it, tap_text, scroll it
