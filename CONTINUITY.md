@@ -10,6 +10,21 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-23 — overnight: crash fix, models, providers, harness, device, preview, evals
+Parallel local worktrees squash-merged into oro-dev; every merge green on CI (last: 9fca5c4). Builds ran on molab (20 CPUs) until its sandbox was terminated (HTTP 410), then on GitHub CI only.
+- **Long chats:** a run's transcript is one message; unlimited runs passed SQLite's ~2 MB row limit and opening the chat crashed. Oversized rows are repaired in SQL once per install (head + tail kept, fences closed), transcripts stay under ~160 KB at the source (`TranscriptCompactor`, RunTranscript caps), parsing is off the main thread with a `ParsedBlocksCache`, long runs window to the newest blocks, chat open/send races fixed.
+- **Models:** Mercury 3 is one model with Instant/Low/Medium/High and the default (High). `ReasoningControls`: each model's exact effort scale and wire values, saved per model (GPT-5.x minimal–xhigh, Claude low–max over Anthropic's API, Gemini, Grok, DeepSeek/GLM, Qwen thinking switch…). Context windows corrected (docs/research/models.md). `ModelProfiles` tune the harness per model (Mercury: whole files, more fix passes, render after each round — about half the turns in a live A/B).
+- **Providers:** new keyless Hy3 (Tencent), Laguna (Poolside), Cloudflare AI Playground (Gemma 4 26B), newer Kilo free models; Qwen hardened (current guest protocol, captcha-aware WebView, falls back to other free Qwen hosts). Removed for limits too low for an agent run: Pollinations, VLM Run, MiniCPM (also logged conversations), OVHcloud/LLM7 keyless (key users keep them). Users of removed models migrate to Mercury 3.
+- **Coding harness:** golden-task tests, `RunLedger` for long runs, `list_files symbols=true`, MockApi accounts/relations/uploads (secrets outside the project, never published), `BriefCheck` + one tap-to-answer question card for vague requests ("Ask before building" setting), `VisualGate` final render check, credited Openverse images, parser handles real models' template drift. Live eval (`docs/research/live-eval.md`): Hy3 text mode went from failing every brief to finishing them.
+- **Device agent:** scenario bench (`Phone`, `ScenarioBench`), screen cues (scroll capacity, icon positions, keyboard, sign-in/captcha hints), one-step quick actions, review fixes (targets resolved once and guarded, axis-aware scrolls, keyboard safety). Live eval with real free models (`docs/research/device-live-eval.md`): 4 of 6 models pass all 11 scripted scenarios after fixes.
+- **Preview + templates:** device presets, sturdier WebView, CSS hot-swap, exact edit-mode write-back with undo and "Ask Orobi about this element"; seven studio starter templates on the UI kit with picker thumbnails.
+- **UI:** CI screenshots of every main screen; settings, providers, models, git, timeline, publish, preview polished to the chat/device design.
+- **CI/repo:** only `main` and `oro-dev` exist (main merged into oro-dev with oro-dev's StormyWeb kept, so PR #30 merges); oro-dev writes the Gradle cache; "[shots]" in a commit message renders screenshots.
+
+**Unverified on a device:** everything above runs only in JVM tests, Roborazzi renders and live evals against real models from datacenter IPs — first install the CI APK and open a long chat, run a vague request with Mercury 3, use edit mode, and try the device agent.
+
+---
+
 ## 2026-10-22 — round 2 review and fix pass
 Three read-only reviews (device engine, harness + providers, island + device UI) found ~45 real issues; three parallel fixers (ci/g1, ci/g2, ci/g3) fixed them, each green on CI, squash-merged.
 - **Device engine (Targets, DeviceArgs):** a call's target is resolved once (index remapped from the screen the model saw, tap_text text/label, x,y hit-tested), SensitiveGuard judges that exact target (coordinates included), and the action uses it; stale screens are re-captured after waits; Pause stops observation too; Oro in front mid-run makes actions wait; ElementRemap refuses look-alikes; tap_text never acts on part of a word; State.endReason on every ending (no "done" without finish_task); wrap-up job separate from the run (Send works right after a run); use_phone refuses retries after the user's Stop.

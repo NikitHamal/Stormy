@@ -8,23 +8,23 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 | Path | What lives there |
 |---|---|
 | `app/` | Compose UI, screens, view models, Android services (`com.oro.app`) |
-| `app/src/main/java/com/oro/app/ui/screens/editor/` | Editor: `EditorViewModel` (runs, sessions, checkpoints, usage), `chat/ChatTab`, `sessions/`, `deploy/`, `agent/RunTranscript` |
+| `app/src/main/java/com/oro/app/ui/screens/editor/` | Editor: `EditorViewModel` (runs, sessions, checkpoints, usage, model profiles, intake questions), `chat/ChatTab` + `ChatSettingsSheet` (reasoning picker, "Ask before building"), `sessions/`, `deploy/`, `agent/RunTranscript` (bounded transcripts) |
 | `app/src/main/java/com/oro/app/agent/` | `BackgroundRuns` + `AgentRunService` (foreground keep-alive, notifications) |
 | `app/src/main/java/com/oro/app/voice/` | Dictation: system speech and Whistle (on-device) |
-| `app/src/main/java/com/oro/app/preview/` | `WebViewPagePreviewer` (off-screen renders for screenshot / responsive / audit tools) |
+| `app/src/main/java/com/oro/app/preview/` + `ui/screens/preview/` | `WebViewPagePreviewer` (off-screen renders, page metrics for audits); the preview screen: `PreviewActivity`, `PreviewWebView` (renderer-gone recovery, file chooser, downloads), `PreviewDevice`/`PreviewDeviceBar` (phone/tablet/desktop presets); edit mode in `ui/components/inspector/` (`SourceTextEdit` exact write-back, `DirectEditService`, `InspectorScripts`) |
 | `core/data/.../ai/skills/` | Skills (Markdown playbooks with optional starter files, `use_skill`); craft playbooks live in `core/data/src/main/resources/oro/skills/` |
-| `core/data/.../ai/craft/` | Quality bar for generated sites: `QualityAuditor` (deterministic review behind `check_syntax`), `QualityGate` (auto fix pass when a run ends), `UiKit` (`add_ui_kit`, files in `resources/oro/kit/`) |
-| `core/data/.../preview/MockApi.kt` | REST backend for every project: `/api/<collection>` over `db.json`, served by the preview server |
+| `core/data/.../ai/craft/` | Quality bar for generated sites: `QualityAuditor` (`check_syntax`, quick file checks), `QualityGate` (fix pass when a run ends), `VisualGate` (phone/desktop render: overflow, broken images, shown hidden states, unreadable contrast), `UiKit` (`add_ui_kit`, files in `resources/oro/kit/`) |
+| `core/data/.../preview/` | `EmbeddedDevServer` (loopback only; CSS hot-swap, scroll-keeping reloads), `MockApi` (REST over `db.json`: relations, accounts with PBKDF2 hashes kept outside the project, uploads), `PublishFilter` (what deploys/PRs may ship), `PageMetrics` |
 | `app/src/main/java/com/oro/app/device/` | Device agent: `OroAccessibilityService` (+ `AdSkipper`), `ScreenReader` → `ScreenModel` (plain-Kotlin screen: compact numbered elements, rolling-hash signature), `DeviceController` (gestures, media keys), `DeviceAgent` (observe → act loop, `runForResult` for chat delegation), `DeviceTools` + `DevicePrompt`, `TextMatch` (tap_text / scroll_to fuzzy matching), `ElementRemap` (stale-index safety), `QuickActions` (intents), `ScreenshotTaker` (numbered screenshots, API 30+), `SensitiveGuard`, `DeviceSettingsStore`; floating island in `AgentOverlay` + `overlay/` (Compose on the accessibility overlay: `AgentIsland`, `IslandModel`, `OverlayLifecycleOwner`, `DragFrame`, `TouchFeedbackView`); screen in `ui/screens/device/` (`DeviceAgentScreen`, `DeviceTranscript`, `DeviceSettingsSheet`) |
 | `core/data/.../ai/search/` | `ProjectSearch` (on-device BM25) and `WebDocs` (offline docs pack) |
 | `core/data/.../git/PullRequests.kt` | GitHub PRs through the Git Data API |
 | `app/.../ui/screens/timeline/` | Checkpoint timeline (diff and restore) |
 | `core/data/.../ai/genui/` + `app/.../ui/genui/` | Generative UI: ```ui blocks → A2UI Compose (protocol, catalog, renderer) |
-| `core/data/.../ai/community/` | Community (keyless web) providers: K2, Qwen, Ptero, Mercury (Inception, with `app/.../community/MercuryWebBridge` for the Vercel check), UniKey; `AiSdkStream` parses Vercel AI SDK v5 streams. Research notes: `docs/research/` |
+| `core/data/.../ai/community/` | Community (keyless web) providers: Mercury (Inception; `MercuryWebBridge` WebView for the Vercel check), K2, Qwen (`QwenWebClient` + `QwenWebBridge`, falls back to other free Qwen hosts), Ptero, UniKey, Hugging Face Space demos (`HfSpaceClient`: Hy3, Laguna), Cloudflare AI Playground (`CloudflarePlaygroundClient`); `AiSdkStream` parses Vercel AI SDK v5 streams. Seeds for gateway-hosted free models live in `ai/KeylessSeeds.kt`, failover in `ai/KeylessFallback.kt`. Research notes: `docs/research/` |
 | `app/src/main/cpp/` | JNI bridge to the Needle/Whistle engine (`libneedle.a` per ABI) |
 | `core/data/` | Everything not UI: AI providers, agent loop, tools, Room DB, repositories |
-| `core/data/.../ai/agent/` | `AgentLoop` (no step cap; truncation guard, early stop on invented results), `StuckDetector`, `TextToolCallParser`, `TextToolProtocol`, `HistoryPruner`, `Autonomy` |
-| `core/data/.../ai/tools/` | `AgentTools` (schemas), `DeviceDelegationTools` (`use_phone`), `ToolExecutor` (dispatch), `WorkspaceTools` (file tools), `UserQuestions` |
+| `core/data/.../ai/agent/` | `AgentLoop` (no step cap; truncation guard, early stop on invented results, `roundNote` hook), `ModelProfiles` (per-model harness tuning; Mercury's fast profile), `BriefCheck` (vague first requests → one batched ask_user), `StuckDetector`, `TextToolCallParser` (opaque raw values, template drift), `TextToolProtocol`, `HistoryPruner` + `RunLedger` (long runs fold old steps into a ledger), `Autonomy` |
+| `core/data/.../ai/tools/` | `AgentTools` (schemas), `DeviceDelegationTools` (`use_phone`), `ToolExecutor` → `ProjectTools` (file-tool dispatch, testable), `WorkspaceTools`, `ProjectOutline` (`list_files symbols=true`), `ImageSearch` (credited Openverse photos), `UserQuestions` |
 | `core/data/.../ai/providers/` | Custom providers, `KeyPool` (multi-key failover), `AnthropicClient`, presets |
 | `core/data/.../ai/mcp/` | MCP Streamable HTTP client, registry, OAuth |
 | `core/data/.../ai/checkpoint/`, `ai/usage/`, `ai/context/`, `preview/`, `deploy/` | Checkpoints, token/cost meter, project instructions, preview diagnostics, Netlify/GitHub Pages deploys |
@@ -33,7 +33,7 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 | `launch-film/` | The hero launch film (35 s, Remotion, built with the Cinetic skill): brief, treatment, beat-locked timeline, earshot score, motion-blurred masters in `deliver/` (16:9, 9:16, 1:1) |
 | `launch-video/` | The earlier 15 s launch film + procedural audio (`npm run render:all`) |
 | `music/` | Oro — Original Soundtrack: code-synthesised music engine, five scores, renders (`npm run render`) |
-| `docs/` | `NEXT.md` roadmap, `perf-notes.md`, `harness-notes.md` |
+| `docs/` | `NEXT.md` roadmap, `perf-notes.md`, `research/` (providers, Mercury, models + context windows, model profiles, live evals of the coding and device agents) |
 
 ## Principles
 - **Cut taglines, helper text and secondary labels.** If a screen needs them to make sense, fix the layout.
@@ -41,9 +41,9 @@ This file is for any coding agent (or person) picking the project up. Read it fi
   agent experience (AX) — always, without breaking anything.
 
 ## Rules of the road
-- **Branch:** work on `oro-dev`. CI (`.github/workflows/android.yml`) builds and runs unit tests on push; it cancels superseded runs on the same branch.
+- **Branch:** work on `oro-dev` only; no side branches on GitHub (the owner asked; parallel work uses local worktrees and is squash-merged). CI (`.github/workflows/android.yml`) runs unit tests and builds the release APK on push and cancels superseded runs; "[shots]" in the head commit message also renders the Roborazzi UI screenshots and uploads them as an artifact.
 - **No local Android build is assumed.** Write compile-safe Kotlin: grep for every symbol you call, check imports, exhaustive `when`, no smart casts on another module's public properties. Let CI compile; fix what it reports.
-- **Tests:** JVM unit tests only (`core/data/src/test`, `app/src/test`). Add one for any pure logic you touch.
+- **Tests:** JVM unit tests only (`core/data/src/test`, `app/src/test`). Add one for any pure logic you touch. UI screenshots: `app/src/test/java/com/oro/app/screenshots` (`-Poro.screenshots=true`). Live evals with real keyless models are opt-in only (`ORO_LIVE_EVAL=1` for the coding agent, `-Poro.liveDeviceEval` for the device agent) and never run in CI.
 - **Room:** schema version lives in `OroDatabase`; every bump needs a migration whose SQL matches what Room generates, plus the exported JSON in `core/data/schemas`.
 - **Settings JSON** (providers, MCP) lives in DataStore via `PreferencesRepository`; prefer additive fields with defaults.
 - **UI:** Material 3 Expressive, tokens from the design system. One-line labels (`maxLines = 1`) on segmented controls and buttons. Sheets for short choices, full screens for forms with lists (e.g. `ProviderEditorScreen`).
@@ -51,6 +51,8 @@ This file is for any coding agent (or person) picking the project up. Read it fi
 - **Quality gate:** `QualityAuditor` checks must stay high-precision -- a false positive costs every model a turn and teaches it to ignore the gate. Anything ambiguous is a TIP, never an ERROR. Fuzzy edit matching (`TextEdits`) must fail on ambiguity.
 - **Device agent safety:** acts only during a task the user started (from the device screen, or a `use_phone` call in a chat the user is running; Leashed mode asks first); Pause/Stop always on screen; sensitive actions (send, pay, delete, passwords) ask first by default; never act on a stale element index; dial with ACTION_DIAL only, never place a call or send a message from an intent.
 - **Images:** check `VisionSupport.supports(model)` (not the id overload) before sending images: community web bridges carry text only.
+- **Models:** reasoning levels come from `ReasoningControls` (each provider's own scale and wire values, saved per model); Claude 4.7+ gets no `temperature`; thinking blocks are never replayed (Oro's pruner edits history). Default model: Mercury 3 at High. Keyless routes must sustain a real agent run (~20–60 calls in 5–15 min) — very low-limit ones were removed.
+- **Asking:** vague first requests get one short, request-specific ask_user card (recommended options first, "You decide" always there); never ask about what the files or the request already answer.
 - **Agent harness changes:** keep tool schemas valid for strict providers (see `ToolSchemaTest`), keep the system prompt prefix stable (prompt caching), and add parser tests with real model output when touching `TextToolCallParser`.
 - **Secrets:** API keys and tokens stay in DataStore; never write them into the project folder (`.oro/` may be committed by users).
 - **Commits:** imperative subject, body explains why; end with the co-author trailer used in history.
