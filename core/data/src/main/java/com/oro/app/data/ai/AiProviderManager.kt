@@ -93,13 +93,28 @@ class AiProviderManager(
         if (!usesKeylessly(model)) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningLevels)
         // Keyless: a busy free model hands the request to the next one (see KeylessFallback).
         val first = if (KeylessFallback.isBusy(model.id)) emptyList() else listOf(model)
-        val chain = first + KeylessFallback.candidates(model, needsNativeTools = tools != null) { id ->
+        // A stand-in must hold what the selected model's window let through.
+        val estimated = requestTokens(messages, tools)
+        val chain = first + KeylessFallback.candidates(
+            model,
+            needsNativeTools = tools != null,
+            minContextTokens = estimated + STAND_IN_OUTPUT_RESERVE
+        ) { id ->
             AiModels.findModelById(id)?.takeIf { usesKeylessly(it) }
         }
         if (chain.isEmpty()) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningLevels)
         return flow {
+            val limiter = ProviderRateLimiter.shared
+            var lastFailure: StreamEvent.Error? = null
             for ((index, candidate) in chain.withIndex()) {
                 val last = index == chain.lastIndex
+                if (candidate.id != model.id) {
+                    // Stand-ins are paced like the selected model (its caller paced
+                    // that one): a spent budget or a full minute moves on instead.
+                    if (limiter.isBudgetSpent(candidate.provider)) continue
+                    if (!last && limiter.remainingThisMinute(candidate.provider) == 0) continue
+                    limiter.acquire(candidate.provider, estimated)
+                }
                 var output = false
                 var failure: StreamEvent.Error? = null
                 val attempt = streamOnce(candidate, messages, tools, temperature, maxTokens, reasoningLevels)
@@ -124,10 +139,32 @@ class AiProviderManager(
                     }
                 }
                 val failed = failure ?: return@flow
+                lastFailure = failed
                 KeylessFallback.markBusy(candidate.id, failed)
             }
+            // Every stand-in after a failure was paced out or used up: say why
+            // rather than ending with nothing.
+            emit(
+                lastFailure ?: StreamEvent.Error(
+                    "Every free model is busy right now; try again in a minute.",
+                    retryable = true
+                )
+            )
         }
     }
+
+    /**
+     * Whether a busy [model] hands its requests to another free model: it is
+     * used without a key. The caller treats a spent free budget as "busy"
+     * for these instead of failing the run.
+     */
+    fun fallsBackWhenBusy(model: AiModel): Boolean = usesKeylessly(model)
+
+    /** Rough size of a request, prompt plus tool schemas, in tokens. */
+    private fun requestTokens(messages: List<ChatRequestMessage>, tools: List<Tool>?): Int =
+        com.oro.app.data.ai.agent.TokenEstimator.estimate(messages) + (tools?.sumOf {
+            (it.function.name.length + it.function.description.length + it.function.parameters.toString().length) / 4
+        } ?: 0)
 
     /** True when this model is being used without a key, so switching to another free model is safe. */
     private fun usesKeylessly(model: AiModel): Boolean {
@@ -183,7 +220,8 @@ class AiProviderManager(
                     model = upstream.id,
                     messages = messages,
                     tools = tools?.takeIf { model.supportsToolCalls },
-                    temperature = temperature,
+                    // Claude 4.7+ and every 5.x answer a temperature with a 400.
+                    temperature = temperature.takeUnless { ReasoningControls.omitsTemperature(model) },
                     maxTokens = maxTokens ?: config.maxOutputTokens ?: DEFAULT_ANTHROPIC_MAX_TOKENS,
                     effort = ReasoningControls.chosen(ReasoningControls.forAnthropicCustom(model.id), model.id, reasoningLevels)
                 )
@@ -410,12 +448,14 @@ class AiProviderManager(
                 WireProtocol.ANTHROPIC -> AnthropicClient(config.name, config.normalizedBaseUrl, key, config.headers)
                     .listModels()
                     .map { list ->
-                        list.map { (id, name) ->
+                        list.map { info ->
                             AiModel(
-                                id = ModelIds.of(config.id, id),
-                                name = name,
+                                id = ModelIds.of(config.id, info.id),
+                                name = info.name,
                                 provider = AiProvider.CUSTOM,
-                                contextLength = ModelCapabilities.resolveContextLength(id, null),
+                                // The list reports each model's window (max_input_tokens) where the server has one.
+                                contextLength = ModelCapabilities.resolveContextLength(info.id, info.maxInputTokens),
+                                reportedContextLength = info.maxInputTokens,
                                 supportsToolCalls = config.supportsTools
                             )
                         }
@@ -468,6 +508,9 @@ class AiProviderManager(
     companion object {
         /** Anthropic requires max_tokens; used when neither caller nor provider sets one. */
         const val DEFAULT_ANTHROPIC_MAX_TOKENS = 8_192
+
+        /** Room a stand-in needs beyond the prompt for its reply. */
+        private const val STAND_IN_OUTPUT_RESERVE = 4_096
 
         fun fromApiKeys(
             apiKeys: Map<AiProvider, String>,

@@ -138,14 +138,29 @@ class CloudflarePlaygroundClient(
                 fail(t.message ?: "the connection failed", response?.code)
             }
 
+            // The server closing first only reaches onClosing: OkHttp calls
+            // onClosed after *we* close too, and reading has already stopped,
+            // so without this a playground restart mid-reply left the run
+            // waiting for the idle watchdog.
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(1000, null)
+                endAfterClose()
+            }
+
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                endAfterClose()
+            }
+
+            private fun endAfterClose() {
                 if (!finished.get()) {
                     if (parser.sawOutput && !parser.failed) finish(parser.finish()) else fail("the connection closed early")
                 }
             }
         }
 
-        val socket = AiHttp.streaming.newWebSocket(request, listener)
+        // Pings notice a connection that died without a close frame (a phone
+        // changing networks); a missed pong fails the socket into onFailure.
+        val socket = SOCKETS.newWebSocket(request, listener)
         // Should the opening state not arrive, configure from defaults anyway.
         launch {
             delay(OPENING_STATE_WAIT_MS)
@@ -240,6 +255,11 @@ class CloudflarePlaygroundClient(
     companion object {
         const val SITE = "Cloudflare AI Playground"
         private const val OPENING_STATE_WAIT_MS = 4_000L
+
+        /** The streaming client with pings: shares its pool and threads, adds a heartbeat. */
+        private val SOCKETS by lazy {
+            AiHttp.streaming.newBuilder().pingInterval(20, java.util.concurrent.TimeUnit.SECONDS).build()
+        }
 
         private fun shortId() = UUID.randomUUID().toString().replace("-", "").take(8)
 

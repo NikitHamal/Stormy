@@ -151,4 +151,21 @@ class AnthropicTest {
         // The newest user turn carries the rolling cache breakpoint.
         assertThat(results[1] as JsonObject).containsKey("cache_control")
     }
+
+    @Test
+    fun `anthropic's model list carries each model's window and output cap`() {
+        val page = AnthropicClient.parseModelPage(
+            """{"data":[
+                {"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","max_input_tokens":1000000,"max_tokens":128000},
+                {"type":"model","id":"vendor-model","display_name":"Vendor"}
+              ],"has_more":true,"first_id":"claude-opus-5-5","last_id":"vendor-model"}"""
+        )
+        assertThat(page.models.map { it.id }).containsExactly("claude-opus-5-5", "vendor-model").inOrder()
+        assertThat(page.models[0].maxInputTokens).isEqualTo(1_000_000)
+        assertThat(page.models[0].maxOutputTokens).isEqualTo(128_000)
+        // Another Messages-API server may not say: the table decides then.
+        assertThat(page.models[1].maxInputTokens).isNull()
+        assertThat(page.nextAfter).isEqualTo("vendor-model")
+        assertThat(AnthropicClient.parseModelPage("""{"data":[],"has_more":false}""").nextAfter).isNull()
+    }
 }

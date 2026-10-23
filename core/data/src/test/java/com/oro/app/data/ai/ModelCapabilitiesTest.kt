@@ -28,7 +28,7 @@ class ModelCapabilitiesTest {
         val cases = mapOf(
             "gpt-5.4" to 1_050_000,
             "gpt-5.1" to 400_000,
-            "claude-opus-5" to 200_000,
+            "claude-opus-5" to 1_000_000,
             "qwen3-coder-480b" to 262_144,
             "deepseek-v4-pro" to 1_048_576,
             "nvidia/nemotron-3-super-120b-a12b" to 262_144,
@@ -189,5 +189,31 @@ class ProviderRateLimiterTest {
     fun `sizes in version numbers are not read as context sizes`() {
         // "3.5m" style false positives: the dot-guard keeps "nemotron-3.5" a version.
         assertThat(ModelCapabilities.contextWindowFor("nvidia/nemotron-3.5-lightning:free")).isEqualTo(262_144)
+    }
+
+    @Test
+    fun `an hourly cap counts as a spent budget until the hour frees up`() = runTest {
+        val clock = FakeClock()
+        val limiter = ProviderRateLimiter(now = { clock.now }, sleep = clock::sleep)
+        // VLM Run anonymous: 30 an hour per IP (paced at 28).
+        repeat(28) { limiter.acquire(AiProvider.VLM_RUN, 100) }
+        assertThat(limiter.isBudgetSpent(AiProvider.VLM_RUN)).isTrue()
+        assertThat(limiter.isDailyBudgetSpent(AiProvider.VLM_RUN)).isFalse()
+        clock.now += 61 * 60_000L
+        assertThat(limiter.isBudgetSpent(AiProvider.VLM_RUN)).isFalse()
+        // Providers without hourly or daily caps are never "spent".
+        assertThat(limiter.isBudgetSpent(AiProvider.CEREBRAS)).isFalse()
+    }
+
+    @Test
+    fun `every current claude has a 1M window, haiku 4_5 and older 200K`() {
+        listOf(
+            "claude-fable-5-1", "claude-fable-5", "claude-mythos-5-1", "claude-opus-5-5", "claude-opus-5",
+            "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "anthropic/claude-opus-4.6",
+            "claude-sonnet-5-5", "claude-sonnet-5", "claude-sonnet-4-6", "anthropic/claude-sonnet-4.6", "claude-haiku-5-5"
+        ).forEach { assertThat(ModelCapabilities.contextWindowFor(it)).isEqualTo(1_000_000) }
+        listOf("claude-haiku-4-5", "claude-opus-4-5-20251101", "claude-sonnet-4-5").forEach {
+            assertThat(ModelCapabilities.contextWindowFor(it)).isEqualTo(200_000)
+        }
     }
 }

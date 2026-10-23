@@ -20,9 +20,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -86,37 +88,46 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
     override fun chat(newChatBody: String, completionBody: String): Flow<String> = callbackFlow {
         val id = UUID.randomUUID().toString()
         channels[id] = channel
-        val failure: String? = try {
-            val deferred = withContext(Dispatchers.Main) { page() }
-            withTimeout(PAGE_TIMEOUT_MS) { deferred.await() }
-            withContext(Dispatchers.Main) {
-                val view = web
-                if (view == null || !onSite(view.url)) throw Reset("the in-app browser left chat.qwen.ai")
-                requests++
-                inFlight += id
-                view.evaluateJavascript(script(id, newChatBody, completionBody, useMessages), null)
+        try {
+            val failure: String? = try {
+                val deferred = withContext(Dispatchers.Main) { page() }
+                withTimeout(PAGE_TIMEOUT_MS) { deferred.await() }
+                withContext(Dispatchers.Main) {
+                    val view = web
+                    if (view == null || !onSite(view.url)) throw Reset("the in-app browser left chat.qwen.ai")
+                    requests++
+                    inFlight += id
+                    view.evaluateJavascript(script(id, newChatBody, completionBody, useMessages), null)
+                }
+                null
+            } catch (e: TimeoutCancellationException) {
+                withContext(Dispatchers.Main) { reset("chat.qwen.ai did not load in time") }
+                "chat.qwen.ai did not load in time"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Reset) {
+                e.message ?: "the in-app browser was reset"
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { reset(e.message ?: "the in-app browser failed") }
+                e.message ?: "the in-app browser could not load chat.qwen.ai"
             }
-            null
-        } catch (e: TimeoutCancellationException) {
-            withContext(Dispatchers.Main) { reset("chat.qwen.ai did not load in time") }
-            "chat.qwen.ai did not load in time"
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Reset) {
-            e.message ?: "the in-app browser was reset"
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) { reset(e.message ?: "the in-app browser failed") }
-            e.message ?: "the in-app browser could not load chat.qwen.ai"
-        }
-        if (failure != null) {
-            trySend("FAIL $failure")
-            channel.close()
-        }
-        awaitClose {
+            if (failure != null) {
+                trySend("FAIL $failure")
+                channel.close()
+            }
+            awaitClose()
+        } finally {
+            // Runs on every ending -- the reply ended, Stop, or a cancel while
+            // still waiting for the page (which never reaches awaitClose).
             channels.remove(id)
-            if (inFlight.remove(id)) main.post { recycleIfIdle() }
+            if (inFlight.remove(id)) main.post {
+                // Stopped mid-reply: end the page's fetch too, so a reply no one
+                // reads stops spending the guest's quota.
+                web?.evaluateJavascript("try { window.$ABORTS && window.$ABORTS[${JSONObject.quote(id)}] && window.$ABORTS[${JSONObject.quote(id)}].abort(); } catch (e) {}", null)
+                recycleIfIdle()
+            }
         }
-    }
+    }.buffer(Channel.UNLIMITED) // never drop a line: a lost one corrupts a file being written
 
     /** The loaded site, creating the page on first use (main thread). */
     @SuppressLint("SetJavaScriptEnabled")
@@ -302,6 +313,9 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
                 const deadline = setTimeout(() => finish('timeout'), ms);
                 p.then(finish, (e) => finish({ error: e }));
               });
+              const ac = new AbortController();
+              window.$ABORTS = window.$ABORTS || {};
+              window.$ABORTS[id] = ac;
               try {
                 if (location.hostname !== ${JSONObject.quote(HOST)}) throw new Error('not on the site');
                 // Let the risk SDK finish initialising, so it signs our requests.
@@ -320,7 +334,7 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
                   'Timezone': new Date().toString().replace(/\s*\(.+\)$/, '')
                 });
                 const created = await guarded(fetch('/api/v2/chats/new', {
-                  method: 'POST', credentials: 'include', headers: headers(), body: ${JSONObject.quote(newChatBody)}
+                  method: 'POST', credentials: 'include', headers: headers(), body: ${JSONObject.quote(newChatBody)}, signal: ac.signal
                 }), 25000);
                 if (created === 'captcha') { closeCaptcha(); send('CHALLENGE the site asked for a human check'); return; }
                 if (created === 'timeout') { send('FAIL starting a chat timed out'); return; }
@@ -339,7 +353,7 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
                 const r = await guarded(fetch('/api/v2/chat/completions?chat_id=' + encodeURIComponent(chatId), {
                   method: 'POST', credentials: 'include',
                   headers: Object.assign(headers(), { 'accept': 'text/event-stream, */*' }),
-                  body: JSON.stringify(body)
+                  body: JSON.stringify(body), signal: ac.signal
                 }), 60000);
                 if (r === 'captcha') { closeCaptcha(); send('CHALLENGE the site asked for a human check'); return; }
                 if (r === 'timeout') { send('FAIL the reply did not start in time'); return; }
@@ -359,8 +373,11 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
                 buf += dec.decode();
                 if (buf) send(buf);
               } catch (e) {
-                send('FAIL ' + String(e && e.message ? e.message : e));
-              } finally { $done; }
+                if (!ac.signal.aborted) send('FAIL ' + String(e && e.message ? e.message : e));
+              } finally {
+                try { delete window.$ABORTS[id]; } catch (e) {}
+                $done;
+              }
             })();
         """.trimIndent()
     }
@@ -370,6 +387,8 @@ class QwenWebBridge(context: Context) : QwenBrowserBridge {
         const val ORIGIN = "https://chat.qwen.ai"
         const val SITE_URL = "https://chat.qwen.ai/"
         const val JS_NAME = "OroQwen"
+        /** Page-side map of request id -> AbortController, so Stop can end a fetch. */
+        const val ABORTS = "__oroQwenAborts"
         /** The web client version when the page's script URLs don't say (2026-10-23). */
         const val FALLBACK_VERSION = "0.3.22"
         const val MAX_REQUESTS = 12

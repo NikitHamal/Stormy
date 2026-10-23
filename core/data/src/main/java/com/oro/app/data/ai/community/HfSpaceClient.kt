@@ -158,13 +158,28 @@ class HfSpaceClient(
         private var content = ""
         private var reasoning = ""
         private var calls: List<ToolCallResponse> = emptyList()
+        private var finishReason: String? = null
         var done = false
             private set
 
+        /**
+         * Stream events for one queue message. A message that changes nothing
+         * visible -- a queue estimate, a heartbeat, a progress line, a Space
+         * that answers in one piece (Laguna) still working -- comes back as a
+         * [StreamEvent.RawSSE] keep-alive: the Space is alive, and a long queue
+         * wait or a long silent reply must not trip the agent loop's idle
+         * watchdog.
+         */
         fun onMessage(data: String): List<StreamEvent> {
             if (done) return emptyList()
             val msg = runCatching { AiHttp.json.parseToJsonElement(data) as? JsonObject }.getOrNull() ?: return emptyList()
-            return when ((msg["msg"] as? JsonPrimitive)?.contentOrNull) {
+            val type = (msg["msg"] as? JsonPrimitive)?.contentOrNull
+            val events = parse(msg, type)
+            return if (events.isEmpty() && !done) listOf(StreamEvent.RawSSE(type ?: "message")) else events
+        }
+
+        private fun parse(msg: JsonObject, type: String?): List<StreamEvent> {
+            return when (type) {
                 "process_generating" -> {
                     val output = msg["output"] as? JsonObject ?: return emptyList()
                     if (msg.isFailure()) return fail(errorOf(output))
@@ -199,11 +214,17 @@ class HfSpaceClient(
             grow(content, frame.content)?.let { out += StreamEvent.ContentDelta(it) }
             if (frame.content.startsWith(content)) content = frame.content
             if (frame.toolCalls.isNotEmpty()) calls = frame.toolCalls
+            frame.finishReason?.takeIf { it.isNotBlank() }?.let { finishReason = it }
             if (complete) out += finish()
             return out
         }
 
-        /** End of stream: tool calls, finish reason, completion -- or an error if nothing came. */
+        /**
+         * End of stream: tool calls, finish reason, completion -- or an error if
+         * nothing came. The Space's own finish reason wins, so a reply cut off
+         * by its output cap ("length") reaches the agent loop, which continues
+         * it and never runs a cut-off call.
+         */
         fun finish(): List<StreamEvent> {
             if (done) return emptyList()
             done = true
@@ -212,7 +233,7 @@ class HfSpaceClient(
             }
             return buildList {
                 if (calls.isNotEmpty()) add(StreamEvent.ToolCalls(calls))
-                add(StreamEvent.FinishReason(if (calls.isNotEmpty()) "tool_calls" else "stop"))
+                add(StreamEvent.FinishReason(finishReason ?: if (calls.isNotEmpty()) "tool_calls" else "stop"))
                 add(StreamEvent.Completed)
             }
         }
@@ -337,7 +358,9 @@ object HfSpaces {
         val content: String,
         val reasoning: String = "",
         val toolCalls: List<ToolCallResponse> = emptyList(),
-        val error: String? = null
+        val error: String? = null,
+        /** The Space's finish reason when it reports one ("stop", "length", "tool_calls"). */
+        val finishReason: String? = null
     )
 
     interface Adapter {
@@ -457,7 +480,8 @@ object HfSpaces {
             return Frame(
                 content = (out["content"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
                 reasoning = (out["reasoning"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                toolCalls = toolCalls(out["tool_calls"] as? JsonArray, "minicpm")
+                toolCalls = toolCalls(out["tool_calls"] as? JsonArray, "minicpm"),
+                finishReason = (out["finish_reason"] as? JsonPrimitive)?.contentOrNull?.takeIf { it != "null" }
             )
         }
 
@@ -635,7 +659,11 @@ object HfSpaces {
                 ?: return Frame("", error = "the Space could not reach the model")
             return Frame(
                 content = (assistant["content"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                reasoning = reasoningText(assistant["reasoning_details"])
+                reasoning = reasoningText(assistant["reasoning_details"]),
+                // OpenRouter's choice-level reason, when the Space passes it on.
+                finishReason = listOf(out["finish_reason"], assistant["finish_reason"]).firstNotNullOfOrNull {
+                    (it as? JsonPrimitive)?.contentOrNull?.takeIf { r -> r.isNotBlank() && r != "null" }
+                }
             )
         }
 

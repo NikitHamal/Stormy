@@ -6,6 +6,7 @@ import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.providers.ModelIds
 import com.oro.app.data.ai.ModelCapabilities
 import com.oro.app.data.ai.GeminiModelService
+import com.oro.app.data.ai.KeylessFallback
 import com.oro.app.data.ai.OpenAiCompatibleModelService
 import com.oro.app.data.local.dao.AiModelDao
 import com.oro.app.data.local.entity.AiModelEntity
@@ -31,12 +32,17 @@ class AiModelRepository(
 
     fun observeEnabledModels(): Flow<List<AiModel>> {
         return aiModelDao.observeEnabledModels().map { entities ->
-            entities.map { it.toAiModel() }
+            entities.map { it.toAiModel() }.also(::noteEnabled)
         }
     }
 
     suspend fun getEnabledModels(): List<AiModel> {
-        return aiModelDao.getEnabledModels().map { it.toAiModel() }
+        return aiModelDao.getEnabledModels().map { it.toAiModel() }.also(::noteEnabled)
+    }
+
+    /** The keyless fallback never hands a request to a model the user switched off. */
+    private fun noteEnabled(models: List<AiModel>) {
+        KeylessFallback.enabledIds = models.mapTo(HashSet()) { it.id }
     }
 
     suspend fun getModelById(id: String): AiModel? {
@@ -214,12 +220,15 @@ class AiModelRepository(
             .map { it.toEntity().copy(isEnabled = true, addedAt = System.currentTimeMillis()) }
         if (missing.isNotEmpty()) aiModelDao.insertModels(missing)
         // Seeded rows keep the window they were inserted with; correct the ones
-        // the catalogue now documents differently. A provider refresh still
-        // overwrites them with whatever its /models reports.
+        // the catalogue now documents differently -- but only while a row still
+        // holds a value Oro seeded. A window a provider refresh reported (its
+        // /models) is live and stays, so a launch never undoes a refresh.
         val seeds = AiModels.getAllModels().associateBy { it.id }
         rows.filter { !it.isCustom }.forEach { row ->
             val documented = seeds[row.id]?.takeIf { it.provider.name == row.provider }?.reportedContextLength ?: return@forEach
-            if (row.reportedContextLength != documented) aiModelDao.updateSeedContext(row.id, documented)
+            if (shouldCorrectSeedContext(row.id, row.reportedContextLength, documented)) {
+                aiModelDao.updateSeedContext(row.id, documented)
+            }
         }
     }
 
@@ -394,6 +403,34 @@ class AiModelRepository(
     }
 
     companion object {
+        /**
+         * Windows earlier versions of Oro seeded, per id (from the seed lists'
+         * history). A row still holding one of these was never refreshed, so
+         * it follows the catalogue; any other value came from the provider.
+         * When a seed's window changes, add its old value here.
+         */
+        private val PREVIOUS_SEED_CONTEXT: Map<String, Set<Int>> = mapOf(
+            "k2:IFM/K2-Horizon-375B-A23B" to setOf(131_072),
+            "mercury:mercury-3" to setOf(131_072),
+            "mistral-large-latest" to setOf(131_072),
+            "deepseek-ai/deepseek-v4.1-flash" to setOf(163_840),
+            "nvidia/nemotron-3-super-120b-a12b" to setOf(131_072),
+            "nvidia/nemotron-3.5-lightning-30b-a3b" to setOf(131_072),
+            "claude-sonnet-5-5" to setOf(200_000),
+            "gpt-5.4" to setOf(400_000),
+            "qwen3.8-max" to setOf(262_144),
+            "openai-fast" to setOf(32_768),
+            "qwen:qwen3.8-max" to setOf(262_144)
+        )
+
+        /**
+         * Whether a seeded row's window should move to the catalogue's
+         * [documented] one: only while it is unset or still an earlier seed
+         * value, never over a window a provider refresh reported.
+         */
+        internal fun shouldCorrectSeedContext(id: String, current: Int?, documented: Int): Boolean =
+            current != documented && (current == null || current in PREVIOUS_SEED_CONTEXT[id].orEmpty())
+
         private val RETIRED_KEYLESS = listOf(
             "ptero:mercury-2.5:free", "ptero:deepseek-v4-flash-0731:free", "ptero:gpt-oss-20b:free",
             "ptero:nemotron-3.5-lightning:free", "fast", "pro",

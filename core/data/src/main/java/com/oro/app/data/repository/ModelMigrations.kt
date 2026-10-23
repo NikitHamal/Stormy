@@ -33,10 +33,11 @@ object ModelMigrations {
         }
         if (instant > 0) prefs.setReasoningLevel(mercury, "instant")
 
-        // 2. The out-of-the-box default moved from K2 Horizon to Mercury 3 (High):
-        //    projects and the last-used model still on K2 follow it.
-        projects.replaceLastUsedModelId(K2, mercury)
-        if (prefs.aiModel.first() == K2) prefs.setAiModel(mercury)
+        // 2. The out-of-the-box default moved from K2 Horizon to Mercury 3 (High).
+        //    Only that default follows: a project's last-used model and the
+        //    selected model are written by explicit picks, and someone who chose
+        //    K2 (say, because Mercury's browser check fails on their network)
+        //    keeps it. Projects with no pick already use the new default.
         if (!prefs.hasSetDefaultModel.first() && prefs.defaultModelId.first() == K2) prefs.clearDefaultModel()
 
         prefs.setModelMigration(CURRENT)

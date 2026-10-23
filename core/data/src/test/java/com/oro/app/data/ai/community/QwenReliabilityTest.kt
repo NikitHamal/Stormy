@@ -35,11 +35,29 @@ class QwenReliabilityTest {
             """data: {"choices":[{"delta":{"content":"","phase":"answer","status":"finished"},"finish_reason":"stop"}]}"""
         ).flatMap { reply.onLine(it) }
         assertThat(reply.chatId).isEqualTo("be9a0a19-f21c-4553-9c14-a3e5e17d3d35")
-        assertThat(events.first()).isEqualTo(StreamEvent.Started)
+        // The chat existing is proof of life; the reply starts when its stream opens, before any token.
+        assertThat(events.first()).isInstanceOf(StreamEvent.RawSSE::class.java)
+        assertThat(events[1]).isEqualTo(StreamEvent.Started)
+        assertThat(events.filterIsInstance<StreamEvent.Started>()).hasSize(1)
         assertThat(reasoning(events)).isEqualTo("Checking")
         assertThat(text(events)).isEqualTo("hello from qwen")
         assertThat(parser.finished).isTrue()
         assertThat(reply.challenge).isNull()
+    }
+
+    @Test
+    fun `a failure after the reply started is a broken reply, not an answer`() {
+        val parser = QwenStreamParser()
+        val reply = QwenWebClient.BrowserReply(parser)
+        reply.onLine("CHAT c1")
+        reply.onLine("HTTP 200 text/event-stream")
+        reply.onLine("""data: {"choices":[{"delta":{"content":"half of a fi","phase":"answer","status":"typing"}}]}""")
+        assertThat(reply.onLine("FAIL the reply stalled")).isEmpty()
+        assertThat(reply.brokeOff).isTrue()
+        assertThat(reply.failure()).contains("stalled")
+        assertThat(parser.sawOutput).isTrue()
+        // Nothing after the break counts.
+        assertThat(reply.onLine("""data: {"choices":[{"delta":{"content":"le","phase":"answer"}}]}""")).isEmpty()
     }
 
     @Test

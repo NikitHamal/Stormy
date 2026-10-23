@@ -121,6 +121,10 @@ object CustomProviderRegistry {
     }
 
     fun nameFor(modelId: String): String? = ModelIds.providerId(modelId)?.let { providers[it]?.name }
+
+    /** The wire protocol of the custom provider serving [modelId], or null when it is not a known custom model. */
+    fun protocolFor(modelId: String): WireProtocol? =
+        providers[ModelIds.providerId(modelId) ?: ProviderSettingsMigration.LEGACY_CUSTOM_ID]?.protocol
 }
 
 /** A starting point in the Add provider sheet. Everything stays editable. */

@@ -95,9 +95,12 @@ class AnthropicClient(
         }
     }.flowOn(Dispatchers.IO)
 
-    /** `GET /v1/models`, following pagination. Returns (id, display name) pairs. */
-    fun listModels(): Result<List<Pair<String, String>>> = runCatching {
-        val out = mutableListOf<Pair<String, String>>()
+    /** One entry of `GET /v1/models`: [maxInputTokens] is the context window, [maxOutputTokens] the output cap. */
+    data class ModelInfo(val id: String, val name: String, val maxInputTokens: Int?, val maxOutputTokens: Int?)
+
+    /** `GET /v1/models`, following pagination. */
+    fun listModels(): Result<List<ModelInfo>> = runCatching {
+        val out = mutableListOf<ModelInfo>()
         var after: String? = null
         repeat(10) {
             val url = "$root/models?limit=100" + (after?.let { "&after_id=$it" } ?: "")
@@ -107,14 +110,9 @@ class AnthropicClient(
                 if (!r.isSuccessful) throw java.io.IOException(errorFor(r.code, null, b).message)
                 b
             }
-            val root = AiHttp.json.parseToJsonElement(text) as JsonObject
-            (root["data"] as? JsonArray).orEmpty().forEach { m ->
-                val o = m as? JsonObject ?: return@forEach
-                val id = o.str("id") ?: return@forEach
-                out += id to (o.str("display_name") ?: id)
-            }
-            if ((root["has_more"] as? JsonPrimitive)?.contentOrNull != "true") return@runCatching out
-            after = root.str("last_id") ?: return@runCatching out
+            val page = parseModelPage(text)
+            out += page.models
+            after = page.nextAfter ?: return@runCatching out
         }
         out
     }
@@ -147,6 +145,30 @@ class AnthropicClient(
 
     companion object {
         const val ANTHROPIC_VERSION = "2023-06-01"
+
+        /** A page of the model list and the cursor for the next one (null on the last page). */
+        data class ModelPage(val models: List<ModelInfo>, val nextAfter: String?)
+
+        /**
+         * Reads one model-list page. Anthropic's list has carried each model's
+         * `max_input_tokens` (context window) and `max_tokens` (output cap)
+         * since March 2026; other Messages-API servers may leave them out.
+         */
+        fun parseModelPage(text: String): ModelPage {
+            val root = AiHttp.json.parseToJsonElement(text) as JsonObject
+            val models = (root["data"] as? JsonArray).orEmpty().mapNotNull { m ->
+                val o = m as? JsonObject ?: return@mapNotNull null
+                val id = o.str("id") ?: return@mapNotNull null
+                ModelInfo(
+                    id = id,
+                    name = o.str("display_name") ?: id,
+                    maxInputTokens = (o["max_input_tokens"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 },
+                    maxOutputTokens = (o["max_tokens"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 }
+                )
+            }
+            val more = (root["has_more"] as? JsonPrimitive)?.contentOrNull == "true"
+            return ModelPage(models, if (more) root.str("last_id") else null)
+        }
         private val EPHEMERAL = buildJsonObject { put("type", "ephemeral") }
 
         /** Mark the last block of the last user turn as a cache breakpoint. */

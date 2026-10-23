@@ -46,8 +46,6 @@ object KeylessFallback {
         "Qwen3.8-27B",
         "poolside/laguna-s-2.1:free",
         "nvidia/nemotron-3.5-lightning:free",
-        // OpenBMB's MiniCPM-V 4.7 demo: native tools, ~2 s, four requests at a time across its visitors.
-        "minicpm:MiniCPM-V-4.7-35B-A3B",
         // Poolside's own Laguna demo: a second route to Laguna S 2.1, on the demo's key (tools via GLM's template).
         "laguna:laguna-s-2.1",
         "unikey:minimax/minimax-m3",
@@ -65,6 +63,28 @@ object KeylessFallback {
         "qwen:qwen3.7-plus",
         "openai-fast"
     )
+
+    /**
+     * Ids of the models the user has switched on, or null before the first
+     * read (then nothing is filtered). A stand-in the user switched off is
+     * never used: it may be a host they chose to avoid. Kept current by
+     * AiModelRepository whenever the enabled list is read or observed.
+     */
+    @Volatile
+    var enabledIds: Set<String>? = null
+
+    /**
+     * Providers that are never stand-ins, only used when the user picks them:
+     * OpenBMB's MiniCPM demo writes every request and reply to its logs, so a
+     * conversation must not land there just because another model was busy.
+     */
+    private val NEVER_STAND_IN = setOf(AiProvider.MINICPM)
+
+    /**
+     * Sites whose upstream swallows text-protocol tool calls: usable with
+     * native tools only, never for a text-mode request.
+     */
+    private val NATIVE_TOOLS_ONLY = setOf(AiProvider.MINICPM)
 
     /** Model id -> time until which it is skipped. */
     private val busyUntil = ConcurrentHashMap<String, Long>()
@@ -144,19 +164,34 @@ object KeylessFallback {
     )
 
     /**
-     * Models to try after [model], in order: free, healthy, and able to take
-     * [needsNativeTools]. Stand-ins from [model]'s own family come first, so a
-     * Qwen stays a Qwen when its usual host is down; the global order follows.
+     * Models to try after [model], in order: free, healthy, switched on
+     * ([enabled]), able to take [needsNativeTools], and with a window of at
+     * least [minContextTokens] (a stand-in must hold the request the selected
+     * model's window let through). Stand-ins from [model]'s own family come
+     * first, so a Qwen stays a Qwen when its usual host is down; the global
+     * order follows.
      */
-    fun candidates(model: AiModel, needsNativeTools: Boolean, lookup: (String) -> AiModel?): List<AiModel> {
+    fun candidates(
+        model: AiModel,
+        needsNativeTools: Boolean,
+        minContextTokens: Int = 0,
+        enabled: Set<String>? = enabledIds,
+        lookup: (String) -> AiModel?
+    ): List<AiModel> {
         val family = sameFamily(model)
         return (family + ORDER.filter { it !in family }).asSequence()
-            .filter { it != model.id && !isBusy(it) }
+            .filter { it != model.id && !isBusy(it) && (enabled == null || it in enabled) }
             .mapNotNull(lookup)
+            .filter { it.provider !in NEVER_STAND_IN }
             .filter {
-                !needsNativeTools || (it.supportsToolCalls &&
-                    (!it.provider.isCommunity || com.oro.app.data.ai.community.CommunityClients.takesTools(it.provider)))
+                if (needsNativeTools) {
+                    it.supportsToolCalls &&
+                        (!it.provider.isCommunity || com.oro.app.data.ai.community.CommunityClients.takesTools(it.provider))
+                } else {
+                    it.provider !in NATIVE_TOOLS_ONLY
+                }
             }
+            .filter { minContextTokens <= 0 || it.contextLength >= minContextTokens }
             // chat.qwen.ai refused this request: the site's other models would be refused too.
             .filter { !(model.provider == AiProvider.QWEN_WEB && it.provider == AiProvider.QWEN_WEB) }
             .toList()

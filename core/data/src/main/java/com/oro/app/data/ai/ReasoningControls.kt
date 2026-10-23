@@ -1,6 +1,8 @@
 package com.oro.app.data.ai
 
+import com.oro.app.data.ai.providers.CustomProviderRegistry
 import com.oro.app.data.ai.providers.ModelIds
+import com.oro.app.data.ai.providers.WireProtocol
 
 /** One step on a model's reasoning scale: [wire] is what the provider expects, [label] what it calls it. */
 data class ReasoningLevel(val wire: String, val label: String)
@@ -67,8 +69,18 @@ object ReasoningControls {
     private fun effort(initial: String, vararg wire: String, pinned: Boolean = false) =
         ReasoningControl(EFFORT, levels(*wire), initial, ReasoningWire.REASONING_EFFORT, pinned)
 
-    /** The reasoning control of [model], or null when it has none. */
-    fun forModel(model: AiModel): ReasoningControl? = forModel(model.provider, model.id, anthropicWire = false)
+    /**
+     * The reasoning control of [model], or null when it has none. A model of a
+     * custom provider that speaks Anthropic's protocol gets the control its
+     * requests actually carry ([forAnthropicCustom]), so the picker and the wire
+     * never disagree.
+     */
+    fun forModel(model: AiModel): ReasoningControl? =
+        if (model.provider == AiProvider.CUSTOM && CustomProviderRegistry.protocolFor(model.id) == WireProtocol.ANTHROPIC) {
+            forAnthropicCustom(model.id)
+        } else {
+            forModel(model.provider, model.id, anthropicWire = false)
+        }
 
     /**
      * Same, for a model served by a custom provider that speaks Anthropic's
@@ -252,13 +264,33 @@ object ReasoningControls {
     }
 
     /**
-     * Whether a request must leave `temperature` out: OpenAI's reasoning
-     * models reject anything but the default on OpenAI's own API, which Zen
-     * and custom endpoints pass through. Gateways drop it themselves.
+     * Whether a request must leave `temperature` out.
+     *
+     *  - Claude from Opus 4.7 on (every 5.x, Fable, Mythos) rejects it with a
+     *    400 -- removed outright, or only the default accepted (Sonnet 5.5,
+     *    Haiku 5.5). Left out on every host: Anthropic's own protocol, Zen,
+     *    gateways; the model's default is what Oro would want anyway.
+     *  - OpenAI's reasoning models reject anything but the default on OpenAI's
+     *    own API, which Zen and custom endpoints pass through. Gateways drop it
+     *    themselves.
      */
     fun omitsTemperature(model: AiModel): Boolean {
-        if (model.provider != AiProvider.OPENCODE_ZEN && model.provider != AiProvider.CUSTOM) return false
         val id = familyId(ModelIds.upstream(model.id))
+        if (claudeRejectsTemperature(id)) return true
+        if (model.provider != AiProvider.OPENCODE_ZEN && model.provider != AiProvider.CUSTOM) return false
         return openAi(id) != null
+    }
+
+    /**
+     * Claude models without a usable `temperature` (Anthropic's model docs,
+     * October 2026): Opus 4.7 and later, Sonnet 5 and later, Haiku 5.5, Fable
+     * and Mythos. Opus 4.6, Sonnet 4.6 and Haiku 4.5 still take it.
+     */
+    internal fun claudeRejectsTemperature(familyId: String): Boolean {
+        val m = CLAUDE.matchEntire(familyId) ?: return false
+        val tier = m.groupValues[1]
+        if (tier == "fable" || tier == "mythos") return true
+        val version = m.groupValues[2].toInt() * 10 + (m.groupValues[3].toIntOrNull() ?: 0)
+        return version >= 47
     }
 }

@@ -64,11 +64,23 @@ object ModelCapabilities {
         "o1" to 200_000,
 
         // --- Anthropic ------------------------------------------------------
-        // 1M by default on Opus 4.8 and the Sonnet 5 line (Anthropic docs);
-        // gateways write versions with dots, Anthropic with dashes.
+        // 1M on every current model -- Fable 5/5.1, Mythos, Opus 4.6 to 5.5,
+        // Sonnet 4.6 to 5.5, Haiku 5.5 -- and 200K on Haiku 4.5 and older
+        // (Anthropic's model docs, October 2026). Gateways write versions with
+        // dots, Anthropic with dashes.
+        "claude-fable" to 1_000_000,
+        "claude-mythos" to 1_000_000,
+        "claude-opus-5" to 1_000_000,
         "claude-opus-4-8" to 1_000_000,
         "claude-opus-4.8" to 1_000_000,
+        "claude-opus-4-7" to 1_000_000,
+        "claude-opus-4.7" to 1_000_000,
+        "claude-opus-4-6" to 1_000_000,
+        "claude-opus-4.6" to 1_000_000,
         "claude-sonnet-5" to 1_000_000,
+        "claude-sonnet-4-6" to 1_000_000,
+        "claude-sonnet-4.6" to 1_000_000,
+        "claude-haiku-5" to 1_000_000,
         "claude" to 200_000,
 
         // --- Qwen -----------------------------------------------------------
@@ -245,7 +257,9 @@ data class RateLimit(
     /** Tokens per minute, usually the binding constraint rather than RPM. */
     val tokensPerMinute: Int,
     /** Requests per day, 0 when the provider publishes none. */
-    val requestsPerDay: Int = 0
+    val requestsPerDay: Int = 0,
+    /** Requests per hour, 0 when the provider publishes none. */
+    val requestsPerHour: Int = 0
 ) {
     /** Minimum spacing between requests to stay under [requestsPerMinute]. */
     val minIntervalMs: Long
@@ -284,7 +298,7 @@ object RateLimits {
         // Inception's free tier: 1,000 requests and 1M input tokens a minute.
         AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000),
         // VLM Run anonymous: 10/min, 30/hour, 100/day per IP (docs.vlm.run, 2026-10-22).
-        AiProvider.VLM_RUN to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000, requestsPerDay = 95),
+        AiProvider.VLM_RUN to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000, requestsPerDay = 95, requestsPerHour = 28),
         // Labs' public demos (2026-10-23): shared with every visitor, so paced gently.
         // Hy3's Space runs 64 requests at a time; MiniCPM's 4; Laguna's rides a free
         // OpenRouter route; Cloudflare caps each model per minute across its playground.

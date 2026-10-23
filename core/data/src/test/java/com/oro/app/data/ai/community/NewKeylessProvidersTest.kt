@@ -89,6 +89,33 @@ class NewKeylessProvidersTest {
     }
 
     @Test
+    fun `queue waits and silent progress keep the stream alive`() {
+        // A long queue or a Space that answers in one piece must not look like silence.
+        val p = HfSpaceClient.QueueParser(HfSpaces.Laguna)
+        listOf(
+            """{"msg":"estimation","event_id":"e1","rank":3,"queue_size":4,"rank_eta":40.0}""",
+            """{"msg":"heartbeat"}""",
+            """{"msg":"process_starts","event_id":"e1"}""",
+            """{"msg":"process_generating","output":{"data":[{"event":"delta","text":"thinking...\n"}]},"success":true}"""
+        ).forEach { frame ->
+            assertThat(p.onMessage(frame).single()).isInstanceOf(StreamEvent.RawSSE::class.java)
+        }
+        assertThat(p.done).isFalse()
+        // Nothing after the end, not even a keep-alive.
+        p.onMessage("""{"msg":"close_stream"}""")
+        assertThat(p.onMessage("""{"msg":"heartbeat"}""")).isEmpty()
+    }
+
+    @Test
+    fun `a reply cut off by the space's output cap says so`() {
+        val p = HfSpaceClient.QueueParser(HfSpaces.MiniCpm)
+        val events = p.onMessage(
+            """{"msg":"process_completed","output":{"data":[{"content":"<!doctype html><html>","reasoning":"","finish_reason":"length"}]},"success":true}"""
+        )
+        assertThat(events.filterIsInstance<StreamEvent.FinishReason>().single().reason).isEqualTo("length")
+    }
+
+    @Test
     fun `fn index is read from the space config`() {
         val config = """{"protocol":"sse_v3","dependencies":[{"id":3,"api_name":"init_state"},{"id":8,"api_name":"chat"}]}"""
         assertThat(HfSpaceClient.fnIndexIn(config, "chat")).isEqualTo(8)
@@ -407,10 +434,12 @@ class NewKeylessProvidersTest {
         }
         assertThat(CommunityClients.takesTools(AiProvider.CLOUDFLARE_PLAYGROUND)).isFalse()
         val anchor = AiModels.findModelById("cfai:@cf/zai-org/glm-4.7-flash")!!
-        val native = KeylessFallback.candidates(anchor, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id }
-        assertThat(native).containsAtLeast("hy3:hy3", "minicpm:MiniCPM-V-4.7-35B-A3B", "laguna:laguna-s-2.1").inOrder()
+        val native = KeylessFallback.candidates(anchor, needsNativeTools = true, enabled = null) { AiModels.findModelById(it) }.map { it.id }
+        assertThat(native).containsAtLeast("hy3:hy3", "laguna:laguna-s-2.1").inOrder()
         assertThat(native).doesNotContain("cfai:@cf/google/gemma-4-26b-a4b-it")
-        val text = KeylessFallback.candidates(anchor, needsNativeTools = false) { AiModels.findModelById(it) }.map { it.id }
+        // MiniCPM's demo logs every request: only used when the user picks it.
+        assertThat(native).doesNotContain("minicpm:MiniCPM-V-4.7-35B-A3B")
+        val text = KeylessFallback.candidates(anchor, needsNativeTools = false, enabled = null) { AiModels.findModelById(it) }.map { it.id }
         assertThat(text).containsAtLeast("laguna:laguna-s-2.1", "cfai:@cf/google/gemma-4-26b-a4b-it")
         // Unreliable text tool calls: selectable, never a stand-in.
         assertThat(KeylessFallback.order).doesNotContain("cfai:@cf/zai-org/glm-4.7-flash")

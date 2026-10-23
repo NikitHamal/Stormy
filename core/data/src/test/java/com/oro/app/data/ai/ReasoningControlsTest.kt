@@ -142,7 +142,55 @@ class ReasoningControlsTest {
         assertThat(ReasoningControls.omitsTemperature(model(AiProvider.OPENCODE_ZEN, "gpt-5.4"))).isTrue()
         assertThat(ReasoningControls.omitsTemperature(model(AiProvider.CUSTOM, ModelIds.of("p", "o4-mini")))).isTrue()
         assertThat(ReasoningControls.omitsTemperature(model(AiProvider.OPENROUTER, "openai/gpt-5.4"))).isFalse()
-        assertThat(ReasoningControls.omitsTemperature(model(AiProvider.OPENCODE_ZEN, "claude-sonnet-5-5"))).isFalse()
+    }
+
+    @Test
+    fun `claude from opus 4_7 on never gets a temperature, on any host`() {
+        // Removed (400) on Opus 4.7+, Opus 5.x, Sonnet 5, Fable, Mythos; only the
+        // default accepted on Sonnet 5.5 and Haiku 5.5.
+        listOf(
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-opus-4-7")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-opus-4-8")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-opus-5")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-opus-5-5")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-sonnet-5")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-haiku-5-5")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-fable-5-1")),
+            model(AiProvider.CUSTOM, ModelIds.of("anthropic", "claude-mythos-5-1")),
+            model(AiProvider.OPENCODE_ZEN, "claude-sonnet-5-5"),
+            model(AiProvider.OPENROUTER, "anthropic/claude-opus-4.8"),
+            model(AiProvider.KILOCODE, "anthropic/claude-sonnet-5.5")
+        ).forEach { assertThat(ReasoningControls.omitsTemperature(it)).isTrue() }
+        // Still taken: Opus 4.6, Sonnet 4.6, Haiku 4.5 and older.
+        listOf("claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-3-5-sonnet-latest").forEach {
+            assertThat(ReasoningControls.omitsTemperature(model(AiProvider.CUSTOM, ModelIds.of("anthropic", it)))).isFalse()
+        }
+    }
+
+    @Test
+    fun `a custom anthropic-protocol provider's picker shows what its requests send`() {
+        val anthropic = com.oro.app.data.ai.providers.CustomProviderConfig(
+            id = "anth", name = "Anthropic", protocol = com.oro.app.data.ai.providers.WireProtocol.ANTHROPIC,
+            baseUrl = "https://api.anthropic.com/v1"
+        )
+        val openai = com.oro.app.data.ai.providers.CustomProviderConfig(id = "oai", name = "Other", baseUrl = "https://x.test/v1")
+        com.oro.app.data.ai.providers.CustomProviderRegistry.update(
+            com.oro.app.data.ai.providers.ProviderSettings(custom = listOf(anthropic, openai))
+        )
+        try {
+            // Sonnet 4.6 over Anthropic's protocol: Claude's own effort, picked like everything else.
+            val sonnet = model(AiProvider.CUSTOM, ModelIds.of("anth", "claude-sonnet-4-6")).reasoningControl!!
+            assertThat(sonnet.wire).isEqualTo(ReasoningWire.ANTHROPIC_EFFORT)
+            assertThat(sonnet.levels.map { it.wire }).containsExactly("low", "medium", "high").inOrder()
+            assertThat(sonnet).isEqualTo(ReasoningControls.forAnthropicCustom(ModelIds.of("anth", "claude-sonnet-4-6")))
+            // A non-Claude model there gets no effort, since none is sent.
+            assertThat(model(AiProvider.CUSTOM, ModelIds.of("anth", "deepseek-v4-pro")).reasoningControl).isNull()
+            // The same ids behind an OpenAI-protocol provider keep that protocol's rules.
+            assertThat(model(AiProvider.CUSTOM, ModelIds.of("oai", "deepseek-v4-pro")).reasoningControl!!.levels.map { it.wire })
+                .containsExactly("low", "high", "max").inOrder()
+        } finally {
+            com.oro.app.data.ai.providers.CustomProviderRegistry.update(com.oro.app.data.ai.providers.ProviderSettings())
+        }
     }
 
     @Test
@@ -154,13 +202,18 @@ class ReasoningControlsTest {
 
     @Test
     fun `levels reach the wire in each protocol's own field`() {
+        // The manager leaves temperature out for Opus 4.8 (Anthropic rejects it there).
         val body = AnthropicClient.buildBody(
-            "claude-opus-4-8", listOf(ChatRequestMessage("user", "hi")), null, 0.5f, 1_024, effort = "medium"
+            "claude-opus-4-8", listOf(ChatRequestMessage("user", "hi")), null, null, 1_024, effort = "medium"
         )
         assertThat(body["output_config"]!!.jsonObject["effort"]!!.jsonPrimitive.content).isEqualTo("medium")
         assertThat(body.containsKey("thinking")).isFalse()
-        val plain = AnthropicClient.buildBody("claude-opus-4-8", listOf(ChatRequestMessage("user", "hi")), null, 0.5f, 1_024)
+        assertThat(body.containsKey("temperature")).isFalse()
+        val plain = AnthropicClient.buildBody("claude-opus-4-8", listOf(ChatRequestMessage("user", "hi")), null, null, 1_024)
         assertThat(plain.containsKey("output_config")).isFalse()
+        // Older Claude still takes one.
+        val older = AnthropicClient.buildBody("claude-sonnet-4-6", listOf(ChatRequestMessage("user", "hi")), null, 0.5f, 1_024)
+        assertThat(older["temperature"]!!.jsonPrimitive.content).isEqualTo("0.5")
 
         assertThat(MercuryWebClient.EFFORTS).containsExactly("instant", "low", "medium", "high")
         val mercury = MercuryWebClient.buildBody("instant", listOf(ChatRequestMessage("user", "hi")))!!

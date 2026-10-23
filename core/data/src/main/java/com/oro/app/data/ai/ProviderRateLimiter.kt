@@ -36,6 +36,7 @@ class ProviderRateLimiter(
     private val mutex = Mutex()
     private val history = mutableMapOf<AiProvider, MutableList<Spend>>()
     private val dayCount = mutableMapOf<AiProvider, MutableList<Long>>()
+    private val hourCount = mutableMapOf<AiProvider, MutableList<Long>>()
 
     /**
      * Wait until [provider] can take a request of roughly [estimatedTokens],
@@ -91,15 +92,9 @@ class ProviderRateLimiter(
             return (oldest + WINDOW_MS) - current
         }
 
-        // Requests per day.
-        if (limit.requestsPerDay > 0) {
-            val daily = dayCount.getOrPut(provider) { mutableListOf() }
-            daily.removeAll { current - it >= DAY_MS }
-            if (daily.size >= limit.requestsPerDay) {
-                // Not worth waiting out; the caller should be told instead.
-                return -1L
-            }
-        }
+        // Requests per hour and per day: not worth waiting out; the caller
+        // should check [isBudgetSpent] and say so (or move to another model).
+        if (hourlySpent(provider, limit, current) || dailySpent(provider, limit, current)) return -1L
 
         return 0L
     }
@@ -107,19 +102,36 @@ class ProviderRateLimiter(
     private fun record(provider: AiProvider, estimatedTokens: Int) {
         val current = now()
         history.getOrPut(provider) { mutableListOf() }.add(Spend(current, estimatedTokens))
-        if (RateLimits[provider]?.requestsPerDay?.let { it > 0 } == true) {
-            dayCount.getOrPut(provider) { mutableListOf() }.add(current)
-        }
+        val limit = RateLimits[provider] ?: return
+        if (limit.requestsPerDay > 0) dayCount.getOrPut(provider) { mutableListOf() }.add(current)
+        if (limit.requestsPerHour > 0) hourCount.getOrPut(provider) { mutableListOf() }.add(current)
+    }
+
+    private fun dailySpent(provider: AiProvider, limit: RateLimit, current: Long): Boolean {
+        if (limit.requestsPerDay <= 0) return false
+        val daily = dayCount.getOrPut(provider) { mutableListOf() }
+        daily.removeAll { current - it >= DAY_MS }
+        return daily.size >= limit.requestsPerDay
+    }
+
+    private fun hourlySpent(provider: AiProvider, limit: RateLimit, current: Long): Boolean {
+        if (limit.requestsPerHour <= 0) return false
+        val hourly = hourCount.getOrPut(provider) { mutableListOf() }
+        hourly.removeAll { current - it >= HOUR_MS }
+        return hourly.size >= limit.requestsPerHour
     }
 
     /** Whether the daily budget is spent; the caller should say so, not wait. */
     suspend fun isDailyBudgetSpent(provider: AiProvider): Boolean = mutex.withLock {
         val limit = RateLimits[provider] ?: return false
-        if (limit.requestsPerDay <= 0) return false
+        dailySpent(provider, limit, now())
+    }
+
+    /** Whether the hourly or the daily budget is spent: nothing more until it frees up. */
+    suspend fun isBudgetSpent(provider: AiProvider): Boolean = mutex.withLock {
+        val limit = RateLimits[provider] ?: return false
         val current = now()
-        val daily = dayCount.getOrPut(provider) { mutableListOf() }
-        daily.removeAll { current - it >= DAY_MS }
-        daily.size >= limit.requestsPerDay
+        hourlySpent(provider, limit, current) || dailySpent(provider, limit, current)
     }
 
     /** Requests still available this minute, for the UI. */
@@ -135,11 +147,20 @@ class ProviderRateLimiter(
     suspend fun reset() = mutex.withLock {
         history.clear()
         dayCount.clear()
+        hourCount.clear()
     }
 
     companion object {
         private const val WINDOW_MS = 60_000L
+        private const val HOUR_MS = 60 * 60 * 1000L
         private const val DAY_MS = 24 * 60 * 60 * 1000L
         private const val MAX_SLICE_MS = 1_000L
+
+        /**
+         * The app's one pacer. Shared, so the model a user picked and the free
+         * models that stand in for it draw on the same budgets: a provider
+         * counts every request from this phone together.
+         */
+        val shared: ProviderRateLimiter = ProviderRateLimiter()
     }
 }

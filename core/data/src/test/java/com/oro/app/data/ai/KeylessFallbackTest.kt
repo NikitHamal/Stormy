@@ -75,6 +75,41 @@ class KeylessFallbackTest {
         assertThat(failure).isInstanceOf(IOException::class.java)
     }
 
+    private val anchor get() = AiModels.findModelById("k2:IFM/K2-Horizon-375B-A23B")!!
+
+    @Test
+    fun `a model the user switched off is never a stand-in`() {
+        val all = KeylessFallback.candidates(anchor, needsNativeTools = false, enabled = null) { AiModels.findModelById(it) }.map { it.id }
+        assertThat(all).contains("kilo-auto/free")
+        val only = setOf("kilo-auto/free", "codestral-latest")
+        val chosen = KeylessFallback.candidates(anchor, needsNativeTools = false, enabled = only) { AiModels.findModelById(it) }.map { it.id }
+        assertThat(chosen).containsExactlyElementsIn(only.filter { it in all })
+    }
+
+    @Test
+    fun `a stand-in must hold the request`() {
+        val big = KeylessFallback.candidates(anchor, needsNativeTools = false, minContextTokens = 200_000, enabled = null) {
+            AiModels.findModelById(it)
+        }
+        assertThat(big).isNotEmpty()
+        assertThat(big.map { it.id }).doesNotContain("codestral-latest") // 32K
+        assertThat(big.all { it.contextLength >= 200_000 }).isTrue()
+        val none = KeylessFallback.candidates(anchor, needsNativeTools = false, minContextTokens = 5_000_000, enabled = null) {
+            AiModels.findModelById(it)
+        }
+        assertThat(none).isEmpty()
+    }
+
+    @Test
+    fun `minicpm's logging demo stands in for nothing`() {
+        listOf(true, false).forEach { tools ->
+            val ids = KeylessFallback.candidates(anchor, needsNativeTools = tools, enabled = null) { AiModels.findModelById(it) }
+                .map { it.provider }
+            assertThat(ids).doesNotContain(AiProvider.MINICPM)
+        }
+        assertThat(KeylessFallback.order).doesNotContain("minicpm:MiniCPM-V-4.7-35B-A3B")
+    }
+
     @Test
     fun `silence windows fit each kind of site`() {
         assertThat(KeylessFallback.silenceTimeoutMs(AiProvider.PTERO)).isNull()

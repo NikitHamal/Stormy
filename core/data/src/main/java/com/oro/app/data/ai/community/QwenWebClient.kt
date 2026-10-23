@@ -180,12 +180,12 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             }
             val source = r.body?.source() ?: return@execute Outcome.Retry("empty response")
             val parser = QwenStreamParser()
-            var started = false
+            // The reply has started once its event stream opens: the silence
+            // guard times the site, not the model thinking before its first token.
+            emit(StreamEvent.Started)
             while (true) {
                 val line = source.readUtf8Line() ?: break
-                val events = parser.onLine(line)
-                if (!started && events.isNotEmpty()) { started = true; emit(StreamEvent.Started) }
-                events.forEach { emit(it) }
+                parser.onLine(line).forEach { emit(it) }
                 if (parser.finished) break
             }
             ident.uses++
@@ -258,6 +258,9 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
         }
         when {
             reader.challenge != null -> emit(challengeError(reader.challenge!!))
+            // The page reported a failure after the reply had started (a stall,
+            // a dropped connection): what arrived is a fragment, never an answer.
+            reader.brokeOff -> emit(StreamEvent.Error("$SITE: the reply broke off (${reader.failure()})", retryable = true))
             !parser.sawOutput -> emit(StreamEvent.Error("$SITE: ${reader.failure()}", retryable = true))
             else -> parser.finish().forEach { emit(it) }
         }
@@ -270,23 +273,33 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
     internal class BrowserReply(private val parser: QwenStreamParser) {
         var chatId: String? = null; private set
         var challenge: String? = null; private set
+        /** The page reported a failure after the reply stream had opened. */
+        var brokeOff = false; private set
         private var failure: String? = null
         private var head = ""
         private val body = StringBuilder()
-        private var started = false
 
         fun onLine(line: String): List<StreamEvent> {
             when {
-                challenge != null || parser.finished -> return emptyList()
+                challenge != null || brokeOff || parser.finished -> return emptyList()
                 chatId == null && head.isEmpty() -> when {
-                    line.startsWith("CHAT ") -> chatId = line.removePrefix("CHAT ").trim()
+                    line.startsWith("CHAT ") -> {
+                        chatId = line.removePrefix("CHAT ").trim()
+                        // The site answered: proof of life for the silence guard
+                        // while the reply itself is requested.
+                        return listOf(StreamEvent.RawSSE("chat"))
+                    }
                     line.startsWith("CHALLENGE") -> challenge = line.removePrefix("CHALLENGE").trim().ifBlank { "the site asked for a human check" }
                     line.startsWith("FAIL") -> failure = line.removePrefix("FAIL").trim()
                     else -> failure = line
                 }
                 head.isEmpty() -> when {
                     line.startsWith("CHALLENGE") -> challenge = line.removePrefix("CHALLENGE").trim().ifBlank { "the site asked for a human check" }
-                    line.startsWith("HTTP ") -> head = line
+                    line.startsWith("HTTP ") -> {
+                        head = line
+                        // The reply has started once its event stream opens.
+                        if (head.contains("event-stream")) return listOf(StreamEvent.Started)
+                    }
                     line.startsWith("FAIL") -> failure = line.removePrefix("FAIL").trim()
                 }
                 line.startsWith("CHALLENGE") -> challenge = line.removePrefix("CHALLENGE").trim().ifBlank { "the site asked for a human check" }
@@ -294,12 +307,13 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
                     body.append(line)
                     if (isChallenge(body.toString())) challenge = "the site asked for a human check"
                 }
-                else -> {
-                    val events = parser.onLine(line)
-                    if (events.isEmpty()) return emptyList()
-                    if (!started) { started = true; return listOf(StreamEvent.Started) + events }
-                    return events
+                // The page's own report mid-stream (SSE lines start with "data:" or
+                // "event:", so these never collide with the reply's lines).
+                line.startsWith("FAIL") -> {
+                    failure = line.removePrefix("FAIL").trim()
+                    brokeOff = true
                 }
+                else -> return parser.onLine(line)
             }
             return emptyList()
         }

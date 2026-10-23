@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.flow
  * screens sending at once must share one budget, since the provider counts
  * them together.
  */
-private val rateLimiter = ProviderRateLimiter()
+private val rateLimiter = ProviderRateLimiter.shared
 
 /**
  * Same 4-chars-per-token heuristic the rest of the app uses.
@@ -82,23 +82,32 @@ class AiRepository(
         // Pace against the free tier before sending. A 429 arrives part-way
         // through an agent run, after files are already written, and reads as
         // the app breaking rather than as a quota.
-        if (rateLimiter.isDailyBudgetSpent(model.provider)) {
-            return flow {
-                emit(
-                    StreamEvent.Error(
-                        "${model.provider.displayName}'s free daily limit is used up. " +
-                            "Switch provider in the model picker, or try again tomorrow."
+        if (rateLimiter.isBudgetSpent(model.provider)) {
+            if (!providerManager.fallsBackWhenBusy(model)) {
+                return flow {
+                    emit(
+                        StreamEvent.Error(
+                            "${model.provider.displayName}'s free limit is used up for now. " +
+                                "Switch provider in the model picker, or try again later."
+                        )
                     )
-                )
+                }
             }
+            // Keyless: a spent free budget is just a busy model; the next free
+            // one answers (the manager skips a busy model and paces stand-ins).
+            com.oro.app.data.ai.KeylessFallback.markBusy(
+                model.id,
+                StreamEvent.Error("${model.provider.displayName}'s free limit is used up", httpCode = 429, retryAfterMs = BUDGET_SKIP_MS)
+            )
+        } else {
+            if (onRateLimitWait != null && rateLimiter.remainingThisMinute(model.provider) == 0) {
+                onRateLimitWait()
+            }
+            rateLimiter.acquire(
+                provider = model.provider,
+                estimatedTokens = messages.estimateTokens()
+            )
         }
-        if (onRateLimitWait != null && rateLimiter.remainingThisMinute(model.provider) == 0) {
-            onRateLimitWait()
-        }
-        rateLimiter.acquire(
-            provider = model.provider,
-            estimatedTokens = messages.estimateTokens()
-        )
 
         // Get the stream from the selected provider
         val stream = providerManager.streamChatCompletion(
@@ -266,6 +275,9 @@ class AiRepository(
     }
 
     companion object {
+        /** How long a keyless model with a spent free budget is skipped before it is tried again. */
+        private const val BUDGET_SKIP_MS = 30 * 60_000L
+
         /** The system message; static so tests and tools can build the real prompt. */
         fun systemMessage(
             projectContext: String = "",
