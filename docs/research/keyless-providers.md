@@ -65,3 +65,67 @@ UniKey: which model actually answers (stream `model` field), 2026-10-22:
 - A generic "site WebView bridge" (Qwen, Mercury, LongCat share the pattern: load the site, let its JS pass the
   check or sign requests, fetch same-origin, stream lines back over a JavascriptInterface).
 - Re-check TryingOpen if its cap rises; its zero-retention models are excellent and very fast.
+
+## 2026-10-22 (round 3) — newer keyless models, VLM Run, faster failover
+
+Method: every candidate was called with a streamed OpenAI request carrying a `write_file` tool, from
+this sandbox (Google Cloud egress behind a TLS-intercepting proxy) and from molab (a different
+network), then with a ~50k-token prompt. Sources: g4f @ 54925a9 (providers with `working=True`,
+`needs_auth` not set), the user's NEB repo (`backend_python/api/*_proxy.py`), the probe-verified
+list github.com/mvalentsev/awesome-free-ai-coding (verified 2026-10-22) and live `/models` listings.
+
+### Added
+
+| Where | Model id (seed) | Context | Native tools | First token (sandbox / molab) | Notes |
+|---|---|---|---|---|---|
+| Kilo (keyless pool) | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1M | yes | 3.0 s / 1.7 s | 550B MoE, reasoning; 51k prompt OK |
+| Kilo | `cohere/north-mini-code:free` | 256k | yes | 5.3 s / 2.4 s | coding model, reasoning; 46k OK |
+| Kilo | `dots-studio/dots-3-note-preview:free` | 512k | yes | 1.3 s / 1.5 s | reasons at length; 51k OK |
+| Kilo | `nvidia/nemotron-3.5-super-vl:free` | 1M | yes | 1.2 s / 1.3 s | takes images; 51k OK |
+| Kilo | `nvidia/nemotron-3.5-lightning:free` | 1M | yes | 3.0 s | |
+| Kilo | `recursive/flint-v1.0:free` | 262k | yes | 1.1 s | wrote an absolute path in the probe |
+| LLM7 (anonymous tier) | `minimax-m2.7` | ~200k | yes | 2.1 s / 0.24 s | anonymous budget ~100k tokens/day per IP (a 40k prompt after the probes got 429 "Daily token quota exceeded") |
+| **VLM Run** (new provider `VLM_RUN`) | `qwen3.8-27b` | 168k | yes | 0.6 s / 0.5 s | `https://gateway.vlm.run/v1/openai`, **no Authorization header** (a bearer returns 401); 10/min, 30/hour, 100/day per IP; 54k needle prompt answered correctly |
+
+- Reasoning controls on the Kilo models (OpenRouter-style gateway): `reasoning: {"enabled": false}` turns thinking
+  off (0 reasoning tokens, verified on Nemotron 3 Ultra, North Mini Code, Dots3-Note); `reasoning_effort` low/high
+  and `reasoning: {"effort": ...}` are accepted (no 400) but changed little on a trivial prompt. Unverified for
+  VLM Run and LLM7.
+- VLM Run's canonical id `qwen/qwen3.8-27b` is also a *paid* model in Kilo's catalogue, and model ids are the table's
+  primary key, so the seed uses the gateway's own alias `qwen3.8-27b`; an anonymous `/models` refresh of VLM Run
+  returns only that seed (its listing shows paid models anonymous callers cannot use).
+- Kilo's free pool as listed 2026-10-22 (19 ids): also `stealth/glyph-cluster` (works, not seeded: stealth ids
+  rotate), `xingchen-agi/xing4.0-29b-a4b:free` (429 upstream), `poolside/laguna-xs-2.1:free`,
+  `liquid/lfm-2.5-2.6b:free` (too small for agents), `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`,
+  `nvidia/nemotron-3-super-120b-a12b:free`.
+
+### Fixed
+
+- **Dead LLM7 seeds:** `DeepSeek-V4-Flash-0731` and `GLM-5.3-Flash` now answer 400 "Model '…' is currently
+  unavailable" and are gone from LLM7's `/models`. A 400 did not trigger the keyless fallback, so a run on either
+  failed outright. `KeylessFallback` now treats retired-model wording (LLM7's, `model_not_found`, OpenRouter's "No
+  endpoints found", "unknown model", "has been retired") as hand-over-and-skip-for-6-hours, and the dead id is out
+  of the fallback order. *Still to do by the seed owner:* drop both from `SeedModels.llm7` and add them to
+  `AiModelRepository.RETIRED_KEYLESS` (removing only from RETIRED would see them re-seeded).
+- **Silent sites:** a candidate that sends nothing at all (not even headers) for 35 s now hands over to the next
+  free model (75 s for the Mercury and Qwen clients, which may open the site in a hidden browser first; Ptero,
+  which answers in one piece, is exempt). Before, a hanging site held the run until the agent's idle watchdog
+  (150 s) and was then retried as itself.
+
+### Rejected (and why)
+
+- **LLM Tech** (`api.llmtech.eu`, shared public trial key, Qwen3.8 27B with tools, 2M tokens/day/IP): the service
+  shuts down after 31 October 2026.
+- **DeepInfra** (g4f `DeepInfra`, GLM 5.2 and others): needs a Cloudflare Turnstile token — a captcha.
+- **g4f.space backup routes** (`/api/nvidia`, `/api/groq`, `/api/gemini`, …): require g4f's own API key, i.e. someone
+  else's credentials.
+- **OpenCode Zen free lane** (Kimi K3, GLM 5.3 Flash, DeepSeek V4.1 Flash via third-party plugins): restricted to the
+  OpenCode client; reaching it means posing as that client.
+- **Puter** (`api.puter.com/puterai/openai/v1`, many frontier models): official and OpenAI-compatible, but billed to
+  the caller's own Puter account (User-Pays). Possible later as a provider where users paste their own Puter token;
+  creating accounts on their behalf is not acceptable.
+- **LLM7 Kimi K2.6 / K2.7 Code**: listed `usage_based_only: false` but answer 402 "Pro models require balance".
+- **NEB proxies not ported:** chatjimmy (Llama 3.1 8B only), yqcloud (unnamed model, no tools), deepai (client-made
+  "tryit" key plus an anti-abuse flag), geminiweb (relies on anti-detection and proxy rotation), metaai (needs a
+  browser session); the rest are TTS.
+- **VLM Run `google/diffusiongemma-26b-a4b-it`**: 500 on every try; 16k context.

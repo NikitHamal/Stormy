@@ -1,5 +1,11 @@
 package com.oro.app.data.ai
 
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.produceIn
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -7,33 +13,44 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Free, anonymous models fail in ordinary ways all the time: a daily quota
  * runs out, an upstream is overloaded, a guest endpoint asks for a human
- * check. With no key there is nothing for the user to fix, so instead of
- * ending the run the request moves to the next free model that can serve it
- * (one with native tools when the request carries tools), and the busy one is
- * skipped for a while. Only failures that arrive before any output switch
- * models, so a reply is never stitched from two models.
+ * check, a model id is retired. With no key there is nothing for the user to
+ * fix, so instead of ending the run the request moves to the next free model
+ * that can serve it (one with native tools when the request carries tools),
+ * and the busy one is skipped for a while. Only failures that arrive before
+ * any output switch models, so a reply is never stitched from two models.
  *
- * The order is by measurement (2026-10-18, every keyless model probed with a
- * streamed tool call): fast and reliable first, rate-paced ones last. The
- * community entries (UniKey, Mercury, K2, Ptero, Qwen) take no tools, so they
- * only ever stand in for text-mode requests.
+ * The order is by measurement (2026-10-22, every keyless model probed from
+ * two networks with a streamed tool call and a ~50k-token prompt): strong
+ * native-tool models with 1-3 s to the first token first, rate-paced ones
+ * last. The community entries (UniKey, Mercury, K2, Ptero, Qwen) take no
+ * tools, so they only ever stand in for text-mode requests.
  */
 object KeylessFallback {
 
     private val ORDER = listOf(
+        // Kilo's free pool, all native tools: 550B at ~2-3 s, 1M context.
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
         "kilo-auto/free",
+        "cohere/north-mini-code:free",
+        "dots-studio/dots-3-note-preview:free",
+        "nvidia/nemotron-3.5-super-vl:free",
         "openrouter/free",
         // Claude Opus 4.8 answering in ~3 s (2026-10-22): the strongest free stand-in for text-mode runs.
         "unikey:claude-opus-4-8",
         // Mercury 3 (the default): over 1,000 tokens/s when its site lets the phone through.
         "mercury:mercury-3",
+        // VLM Run: 0.5-0.8 s to the first token, but 100 requests a day per IP.
+        "qwen3.8-27b",
         "Qwen3.8-27B",
-        "DeepSeek-V4-Flash-0731",
         "poolside/laguna-s-2.1:free",
+        "nvidia/nemotron-3.5-lightning:free",
         "unikey:minimax/minimax-m3",
         "Qwen3.5-397B-A17B",
+        // LLM7's anonymous budget is ~100k tokens a day per IP.
+        "minimax-m2.7",
         "codestral-latest",
         "reflection/beam-free",
+        "recursive/flint-v1.0:free",
         "k2:IFM/K2-Horizon-375B-A23B",
         "ptero:deepseek-v4.1-flash:free",
         "qwen:qwen3.7-plus",
@@ -51,10 +68,17 @@ object KeylessFallback {
         // browser could not pass will not clear in seconds; skip the model for a
         // while so every request does not wait on it first.
         val browserCheck = Regex("browser check|security checkpoint", RegexOption.IGNORE_CASE).containsMatchIn(error.message)
-        val ms = if (browserCheck) BROWSER_CHECK_MS else hint ?: when (error.httpCode) {
-            401, 402, 403 -> 30 * 60_000L // needs a key or a check: not coming back soon
-            429 -> 90_000L
-            else -> 45_000L
+        val ms = when {
+            browserCheck -> BROWSER_CHECK_MS
+            // A retired id stays gone; check again after a few hours.
+            isRetiredModel(error) -> RETIRED_SKIP_MS
+            hint != null -> hint
+            error.message.startsWith(SILENT_PREFIX) -> SILENT_SKIP_MS
+            else -> when (error.httpCode) {
+                401, 402, 403 -> 30 * 60_000L // needs a key or a check: not coming back soon
+                429 -> 90_000L
+                else -> 45_000L
+            }
         }
         busyUntil[id] = now + ms
     }
@@ -65,17 +89,35 @@ object KeylessFallback {
 
     /**
      * Whether [error] is the kind another model would not have: quota, auth
-     * for a key-only model, overload, a guest check. A 400 about tools is left
-     * to the harness, which retries the same model with text tool calls.
+     * for a key-only model, overload, a guest check, a model the gateway no
+     * longer serves. A 400 about tools is left to the harness, which retries
+     * the same model with text tool calls.
      */
     fun shouldFallBack(error: StreamEvent.Error): Boolean {
         val code = error.httpCode
         val msg = error.message
         if (code == 400 && Regex("tool|function", RegexOption.IGNORE_CASE).containsMatchIn(msg)) return false
+        if (isRetiredModel(error)) return true
         if (code != null) return code in setOf(401, 402, 403, 404, 408, 409, 413, 429) || code >= 500
         return error.retryable ||
             Regex("rate limit|quota|overload|busy|unavailable|human check|empty|timed? ?out", RegexOption.IGNORE_CASE).containsMatchIn(msg)
     }
+
+    /**
+     * "Model 'X' is currently unavailable" (LLM7), "model_not_found", "No
+     * endpoints found for ..." (OpenRouter-style gateways): the id is gone,
+     * not busy. Answered with a 400 or 404 rather than a 5xx, so without this
+     * check a retired seed failed the whole run instead of handing over.
+     */
+    fun isRetiredModel(error: StreamEvent.Error): Boolean =
+        error.httpCode in setOf(400, 404, 410, 422, null) && RETIRED.containsMatchIn(error.message)
+
+    private val RETIRED = Regex(
+        "model[_ ]?(not[_ ]found|unavailable|does not exist|is not available|not available)|" +
+            "model\\b[^\\n]{0,80}?\\b(is (currently )?unavailable|not found|does not exist|no longer (available|supported|served)|has been (removed|retired|deprecated))|" +
+            "no endpoints found|unknown model|no such model|invalid model",
+        RegexOption.IGNORE_CASE
+    )
 
     /** Models to try after [model], in order: free, healthy, and able to take [needsNativeTools]. */
     fun candidates(model: AiModel, needsNativeTools: Boolean, lookup: (String) -> AiModel?): List<AiModel> =
@@ -84,4 +126,69 @@ object KeylessFallback {
             .mapNotNull(lookup)
             .filter { !needsNativeTools || (it.supportsToolCalls && !it.provider.isCommunity) }
             .toList()
+
+    /** Ids in fallback order, for tests and diagnostics. */
+    internal val order: List<String> get() = ORDER
+
+    /**
+     * Gives up on a candidate that sends nothing at all -- not even response
+     * headers -- for [timeoutMs], so a dead or hanging site hands over in
+     * seconds instead of holding the run until the stream's idle watchdog
+     * (minutes). Any first event (Started included) disarms it; after that
+     * the stream is passed through untouched. Providers that answer in one
+     * piece (Ptero) are left alone: their headers come with the whole reply.
+     */
+    fun guardSilence(candidate: AiModel, stream: Flow<StreamEvent>): Flow<StreamEvent> {
+        val timeoutMs = silenceTimeoutMs(candidate.provider) ?: return stream
+        return stream.firstEventWithin(timeoutMs) {
+            StreamEvent.Error(
+                "$SILENT_PREFIX ${candidate.name} sent nothing for ${timeoutMs / 1000} s",
+                retryable = true
+            )
+        }
+    }
+
+    /**
+     * How long [provider] may stay silent before its first event, or null for
+     * no limit. Ptero answers in one piece; the Mercury and Qwen clients may
+     * first open the site in a hidden browser to pass its check, which takes
+     * a while on a slow phone.
+     */
+    internal fun silenceTimeoutMs(provider: AiProvider): Long? = when (provider.protocol) {
+        ProviderProtocol.PTERO_GUEST -> null
+        ProviderProtocol.MERCURY_WEB, ProviderProtocol.QWEN_WEB -> BROWSER_SILENT_TIMEOUT_MS
+        else -> SILENT_TIMEOUT_MS
+    }
+
+    const val SILENT_TIMEOUT_MS = 35_000L
+    private const val BROWSER_SILENT_TIMEOUT_MS = 75_000L
+    private const val SILENT_PREFIX = "No answer:"
+    private const val SILENT_SKIP_MS = 5 * 60_000L
+    private const val RETIRED_SKIP_MS = 6 * 60 * 60_000L
+}
+
+/**
+ * Passes [this] through, unless no event at all arrives within [timeoutMs]:
+ * then the upstream is cancelled and [onSilent]'s error is the only event.
+ */
+internal fun Flow<StreamEvent>.firstEventWithin(
+    timeoutMs: Long,
+    onSilent: () -> StreamEvent.Error
+): Flow<StreamEvent> {
+    val upstream = this
+    return channelFlow {
+        val events = upstream.buffer(Channel.UNLIMITED).produceIn(this)
+        val first = withTimeoutOrNull(timeoutMs) { events.receiveCatching() }
+        if (first == null) {
+            events.cancel()
+            send(onSilent())
+            return@channelFlow
+        }
+        if (first.isClosed) {
+            first.exceptionOrNull()?.let { throw it }
+            return@channelFlow
+        }
+        send(first.getOrThrow())
+        for (event in events) send(event)
+    }
 }

@@ -102,7 +102,9 @@ class AiProviderManager(
                 val last = index == chain.lastIndex
                 var output = false
                 var failure: StreamEvent.Error? = null
-                streamOnce(candidate, messages, tools, temperature, maxTokens, reasoningLevels).collect { event ->
+                val attempt = streamOnce(candidate, messages, tools, temperature, maxTokens, reasoningLevels)
+                // A site that sends nothing at all hands over in seconds, not at the idle watchdog.
+                (if (last) attempt else KeylessFallback.guardSilence(candidate, attempt)).collect { event ->
                     if (failure != null) return@collect
                     when (event) {
                         is StreamEvent.Error ->

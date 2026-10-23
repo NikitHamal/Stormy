@@ -270,6 +270,13 @@ enum class AiProvider(
         keyNote = "Official API for Mercury 3, the diffusion model: very fast, 1M context, native tool calling. " +
             "Has a free tier."
     ),
+    VLM_RUN(
+        displayName = "VLM Run",
+        baseUrl = "https://gateway.vlm.run/v1/openai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "No account needed: Qwen3.8 27B with native tool calling, under a second to the first token. " +
+            "Anonymous limit 10 requests/min, 30/hour, 100/day per IP."
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -526,7 +533,7 @@ object SeedModels {
  */
 object AiModels {
 
-    fun getModelsForProvider(provider: AiProvider): List<AiModel> = SeedModels[provider]
+    fun getModelsForProvider(provider: AiProvider): List<AiModel> = SeedModels[provider] + KeylessSeeds[provider]
 
     /**
      * Seed default for a provider, falling back to the keyless default so a
@@ -535,9 +542,10 @@ object AiModels {
     fun getDefaultModel(provider: AiProvider): AiModel =
         SeedModels[provider].firstOrNull() ?: SeedModels.default
 
-    fun getAllModels(): List<AiModel> = SeedModels.all
+    fun getAllModels(): List<AiModel> = SeedModels.all + KeylessSeeds.all
 
-    fun findModelById(modelId: String): AiModel? = SeedModels.all.find { it.id == modelId }
+    fun findModelById(modelId: String): AiModel? =
+        SeedModels.all.find { it.id == modelId } ?: KeylessSeeds.all.find { it.id == modelId }
 
     /** Models worth suggesting for code work, best-first. */
     fun getRecommendedModels(): List<AiModel> = listOf(

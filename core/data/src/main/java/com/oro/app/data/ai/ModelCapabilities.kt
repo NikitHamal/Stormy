@@ -282,7 +282,9 @@ object RateLimits {
         AiProvider.UNIKEY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
         AiProvider.MERCURY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
         // Inception's free tier: 1,000 requests and 1M input tokens a minute.
-        AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000)
+        AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000),
+        // VLM Run anonymous: 10/min, 30/hour, 100/day per IP (docs.vlm.run, 2026-10-22).
+        AiProvider.VLM_RUN to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000, requestsPerDay = 95)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */

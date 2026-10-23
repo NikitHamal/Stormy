@@ -171,6 +171,10 @@ class OpenAiCompatibleModelService {
      * without a key only lists the free ones: the others would just 401.
      */
     internal fun parseModels(provider: AiProvider, body: String, hasKey: Boolean): List<AiModel> {
+        // VLM Run lists its paid catalogue to everyone, but anonymous callers
+        // get only the free tier, which the seed already covers (under the
+        // alias that cannot collide with other gateways' ids).
+        if (!hasKey && provider == AiProvider.VLM_RUN) return KeylessSeeds[AiProvider.VLM_RUN]
         val parsed = json.decodeFromString<OpenAiModelsResponse>(body)
         val keylessGateway = !hasKey && provider == AiProvider.KILOCODE
         // Without a token LLM7 serves only its anonymous tier; the rest answer 401.
