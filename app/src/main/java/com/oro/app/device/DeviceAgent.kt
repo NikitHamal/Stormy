@@ -1029,7 +1029,7 @@ object DeviceAgent {
          * question card already on screen, if the model asked; else one is added.
          */
         private suspend fun handOff(stepId: Long?): ToolResult {
-            val question = "Pass the check on screen. Orobi carries on when it's gone."
+            val question = "Pass the check on screen"
             val id = stepId ?: nextId().also {
                 addStep(Step(it, StepKind.QUESTION, "ask_user", "Human check", app = lastScreen?.appLabel, status = StepStatus.WAITING))
             }
