@@ -6,9 +6,6 @@ import androidx.compose.runtime.remember
 import com.oro.app.ui.brand.OrobiIdle
 import com.oro.app.ui.theme.OroCorners
 import com.oro.app.ui.theme.Space
-import com.oro.app.ui.components.expressive.PickerOption
-import com.oro.app.ui.components.expressive.SegmentedPicker
-import com.oro.app.data.ai.ReasoningEffort
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -66,8 +63,9 @@ fun ModelSelectorSheet(
     onManageModels: () -> Unit = {},
     onRefresh: () -> Unit = {},
     isRefreshing: Boolean = false,
-    reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
-    onReasoningEffortChange: (ReasoningEffort) -> Unit = {},
+    /** Saved reasoning level per model id; the picker shows only when [onReasoningLevelChange] is set. */
+    reasoningLevels: Map<String, String> = emptyMap(),
+    onReasoningLevelChange: ((modelId: String, level: String) -> Unit)? = null,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier
 ) {
@@ -191,12 +189,13 @@ fun ModelSelectorSheet(
                 // Shown only for models that expose a reasoning budget. A disabled
                 // control on every other model would be a permanent dead element,
                 // and the absence is itself informative.
-                if (selectedModel?.supportsReasoningEffort == true) {
-                    SegmentedPicker(
-                        label = "Reasoning effort",
-                        options = ReasoningEffort.entries.map { PickerOption(it, it.label) },
-                        selected = reasoningEffort,
-                        onSelect = onReasoningEffortChange,
+                val pickFor = selectedModel?.takeIf { it.supportsReasoningEffort }
+                val onPick = onReasoningLevelChange
+                if (pickFor != null && onPick != null) {
+                    ReasoningPicker(
+                        model = pickFor,
+                        levels = reasoningLevels,
+                        onSelect = onPick,
                         modifier = Modifier.padding(
                             horizontal = Space.lg,
                             vertical = Space.md

@@ -4,7 +4,6 @@ import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiModels
 import com.oro.app.data.ai.AiProvider
 import com.oro.app.data.ai.providers.ModelIds
-import com.oro.app.data.ai.ReasoningEffortSupport
 import com.oro.app.data.ai.ModelCapabilities
 import com.oro.app.data.ai.GeminiModelService
 import com.oro.app.data.ai.OpenAiCompatibleModelService
@@ -201,15 +200,27 @@ class AiModelRepository(
         // re-routes most of its ids to qwen3.7-flash). Removed so the picker
         // only offers keyless models that answer.
         RETIRED_KEYLESS.forEach { aiModelDao.deleteModelById(it) }
+        RETIRED_SEEDS.forEach { (provider, id) ->
+            if (aiModelDao.getModelById(id)?.provider == provider.name) aiModelDao.deleteModelById(id)
+        }
         val llm7Seeds = AiModels.getModelsForProvider(AiProvider.LLM7).map { it.id }.toSet()
         aiModelDao.getAllModels()
             .filter { it.provider == AiProvider.LLM7.name && it.id !in llm7Seeds }
             .forEach { aiModelDao.deleteModelById(it.id) }
-        val existing = aiModelDao.getAllModels().map { it.id }.toSet()
+        val rows = aiModelDao.getAllModels()
+        val existing = rows.map { it.id }.toSet()
         val missing = AiModels.getAllModels()
             .filter { it.provider.worksWithoutKey && it.id !in existing }
             .map { it.toEntity().copy(isEnabled = true, addedAt = System.currentTimeMillis()) }
         if (missing.isNotEmpty()) aiModelDao.insertModels(missing)
+        // Seeded rows keep the window they were inserted with; correct the ones
+        // the catalogue now documents differently. A provider refresh still
+        // overwrites them with whatever its /models reports.
+        val seeds = AiModels.getAllModels().associateBy { it.id }
+        rows.filter { !it.isCustom }.forEach { row ->
+            val documented = seeds[row.id]?.takeIf { it.provider.name == row.provider }?.reportedContextLength ?: return@forEach
+            if (row.reportedContextLength != documented) aiModelDao.updateSeedContext(row.id, documented)
+        }
     }
 
     /** Enable or disable every model from one provider. */
@@ -359,10 +370,6 @@ class AiModelRepository(
             supportsStreaming = supportsStreaming,
             supportsToolCalls = supportsToolCalls,
             isThinkingModel = isThinkingModel,
-            // Derived rather than stored: capability comes from the model id,
-            // so persisting it would just be a column that can go stale
-            // against the detection table.
-            supportsReasoningEffort = ReasoningEffortSupport.supports(id),
             isEnabled = isEnabled,
             inputPricePerToken = inputPricePerToken,
             outputPricePerToken = outputPricePerToken
@@ -389,7 +396,15 @@ class AiModelRepository(
     companion object {
         private val RETIRED_KEYLESS = listOf(
             "ptero:mercury-2.5:free", "ptero:deepseek-v4-flash-0731:free", "ptero:gpt-oss-20b:free",
-            "ptero:nemotron-3.5-lightning:free", "fast", "pro"
+            "ptero:nemotron-3.5-lightning:free", "fast", "pro",
+            // Mercury 3's effort is now its reasoning setting (ModelMigrations moves its users).
+            "mercury:mercury-3-instant"
+        )
+
+        /** Retired upstream, removed only from the provider that dropped them (the ids live on elsewhere). */
+        private val RETIRED_SEEDS = listOf(
+            AiProvider.GROQ to "qwen/qwen3-32b",          // Groq, August 2026
+            AiProvider.CEREBRAS to "qwen-3-coder-480b"    // Cerebras deprecation
         )
         private val OPENROUTER_HEADERS = mapOf(
             "HTTP-Referer" to "https://github.com/oro/app",

@@ -91,12 +91,14 @@ class K2CommunityTest {
         assertThat(model.supportsToolCalls).isFalse()
         assertThat(model.id).startsWith("k2:")
         assertThat(ModelGroup.caption(model)).contains("unofficial")
-        // It is the keyless default, so it sits in Recommended; other community
-        // models land in the Community group.
+        // Still recommended (one tap from the default); other community models
+        // land in the Community group.
         assertThat(ModelGroup.of(model)).isEqualTo(ModelGroup.RECOMMENDED)
         assertThat(ModelGroup.of(model.copy(id = "k2:other"))).isEqualTo(ModelGroup.COMMUNITY)
-        assertThat(AiProvider.DEFAULT).isEqualTo(AiProvider.K2_HORIZON)
-        assertThat(AiModels.getRecommendedModels().first()).isEqualTo(model)
+        // Mercury 3 replaced K2 as the out-of-the-box default.
+        assertThat(AiProvider.DEFAULT).isEqualTo(AiProvider.MERCURY)
+        assertThat(AiModels.getRecommendedModels().first().id).isEqualTo("mercury:mercury-3")
+        assertThat(AiModels.getRecommendedModels()).contains(model)
     }
 
     @Test

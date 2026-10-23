@@ -49,7 +49,12 @@ fun <T> SegmentedPicker(
     selected: T,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    /**
+     * Five or more options (a provider's full reasoning scale): smaller text
+     * and tighter padding, so every label still fits one line on a phone.
+     */
+    dense: Boolean = options.size > 4
 ) {
     if (options.isEmpty()) return
 
@@ -126,10 +131,11 @@ fun <T> SegmentedPicker(
                                 // Emphasized only when selected: the weight
                                 // change reinforces the fill without altering
                                 // the text size, so nothing reflows.
-                                style = if (isSelected) {
-                                    MaterialTheme.typography.labelLargeEmphasized
-                                } else {
-                                    MaterialTheme.typography.labelLarge
+                                style = when {
+                                    dense && isSelected -> MaterialTheme.typography.labelMediumEmphasized
+                                    dense -> MaterialTheme.typography.labelMedium
+                                    isSelected -> MaterialTheme.typography.labelLargeEmphasized
+                                    else -> MaterialTheme.typography.labelLarge
                                 },
                                 textAlign = TextAlign.Center,
                                 // One line, always: a label broken mid-word
@@ -138,7 +144,7 @@ fun <T> SegmentedPicker(
                                 softWrap = false,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(
-                                    horizontal = Space.sm,
+                                    horizontal = if (dense) Space.xxs else Space.sm,
                                     vertical = Space.md
                                 )
                             )

@@ -12,17 +12,19 @@ data class ChatCompletionRequest(
     val model: String,
     val messages: List<ChatRequestMessage>,
     val stream: Boolean = true,
-    val temperature: Float = 0.7f,
+    /** Null leaves it out: OpenAI's reasoning models reject anything but their default. */
+    val temperature: Float? = 0.7f,
     @SerialName("max_tokens")
     val maxTokens: Int? = null,
     val tools: List<Tool>? = null,
     @SerialName("tool_choice")
     val toolChoice: String? = null,
     /**
-     * OpenAI-compatible reasoning budget. Null for models that do not expose
-     * one -- `explicitNulls = false` on the shared Json means a null is omitted
-     * from the body entirely rather than sent as `"reasoning_effort": null`,
-     * which several providers reject outright.
+     * The model's reasoning level, in its provider's own vocabulary
+     * ([ReasoningControls]). Null for models without one -- `explicitNulls =
+     * false` on the shared Json means a null is omitted from the body entirely
+     * rather than sent as `"reasoning_effort": null`, which several providers
+     * reject outright.
      */
     @SerialName("reasoning_effort")
     val reasoningEffort: String? = null

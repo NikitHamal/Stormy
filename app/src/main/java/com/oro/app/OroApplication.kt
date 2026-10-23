@@ -156,6 +156,7 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         // Initialize AI models on startup to ensure models are available
         applicationScope.launch {
             aiModelRepository.initializeModelsIfEmpty()
+            runCatching { com.oro.app.data.repository.ModelMigrations.run(preferencesRepository, projectRepository) }
         }
     }
 

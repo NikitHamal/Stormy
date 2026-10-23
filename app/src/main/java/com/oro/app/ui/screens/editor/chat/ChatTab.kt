@@ -14,7 +14,6 @@ import com.oro.app.ui.components.chat.ChatSettingsSheet
 import com.oro.app.data.ai.context.ContextUsageLevel
 import com.oro.app.data.ai.context.ContextBreakdown
 import com.oro.app.ui.theme.OroCorners
-import com.oro.app.data.ai.ReasoningEffort
 import com.oro.app.ui.components.agent.AgentActivityCard
 import com.oro.app.ui.components.agent.AskUserCard
 import com.oro.app.ui.components.agent.PendingQuestion
@@ -149,8 +148,8 @@ fun ChatTab(
     availableModels: List<AiModel> = emptyList(),
     fileTree: List<FileTreeNode> = emptyList(),
     agentSessions: List<AgentSession> = emptyList(),
-    reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
-    onReasoningEffortChange: (ReasoningEffort) -> Unit = {},
+    reasoningLevels: Map<String, String> = emptyMap(),
+    onReasoningLevelChange: (modelId: String, level: String) -> Unit = { _, _ -> },
     contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
     compactableMessageCount: Int = 0,
     isCompacting: Boolean = false,
@@ -205,8 +204,8 @@ fun ChatTab(
         ChatSettingsSheet(
             agentMode = agentMode,
             onAgentModeChange = { onToggleAgentMode() },
-            reasoningEffort = reasoningEffort,
-            onReasoningEffortChange = onReasoningEffortChange,
+            reasoningLevels = reasoningLevels,
+            onReasoningLevelChange = onReasoningLevelChange,
             currentModel = currentModel,
             onDismiss = { showChatSettings = false },
             autonomy = autonomy,
@@ -447,6 +446,8 @@ fun ChatTab(
             },
             onRefresh = onRefreshModels,
             isRefreshing = isRefreshingModels,
+            reasoningLevels = reasoningLevels,
+            onReasoningLevelChange = onReasoningLevelChange,
             sheetState = sheetState
         )
     }

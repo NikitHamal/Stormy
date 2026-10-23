@@ -60,8 +60,12 @@ class MercuryWebClient(private val base: String = "https://chat.inceptionlabs.ai
     @Volatile private var preferBrowser = false
 
     override fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent> =
+        stream(model, messages, null)
+
+    override fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String?): Flow<StreamEvent> =
         CommunityHttp.guarded(SITE) {
-            val body = buildBody(effortFor(CommunityClients.upstreamId(model)), messages, TimeZone.getDefault().id)
+            val effort = reasoningLevel?.takeIf { it in EFFORTS } ?: effortFor(CommunityClients.upstreamId(model))
+            val body = buildBody(effort, messages, TimeZone.getDefault().id)
                 ?: run { emit(StreamEvent.Error("$SITE: nothing to send")); return@guarded }
             val payload = body.toString()
 
@@ -231,7 +235,10 @@ class MercuryWebClient(private val base: String = "https://chat.inceptionlabs.ai
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
         private const val SEC_CH_UA = "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\""
 
-        /** The site's effort scale (instant/low/medium/high), chosen by the seed id. */
+        /** The site's effort scale. */
+        val EFFORTS = setOf("instant", "low", "medium", "high")
+
+        /** Effort when none is chosen: High, or what a retired seed id named ("mercury-3-instant"). */
         fun effortFor(upstreamModel: String): String = when {
             upstreamModel.endsWith("-instant") -> "instant"
             upstreamModel.endsWith("-low") -> "low"

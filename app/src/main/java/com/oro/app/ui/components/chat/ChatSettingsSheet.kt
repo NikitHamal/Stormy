@@ -29,7 +29,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.selection.toggleable
 import com.oro.app.data.ai.AiModel
-import com.oro.app.data.ai.ReasoningEffort
 import com.oro.app.ui.components.expressive.PickerOption
 import com.oro.app.ui.components.expressive.SegmentedPicker
 import com.oro.app.ui.theme.OroCorners
@@ -53,8 +52,9 @@ import com.oro.app.ui.theme.Space
 fun ChatSettingsSheet(
     agentMode: Boolean,
     onAgentModeChange: (Boolean) -> Unit,
-    reasoningEffort: ReasoningEffort,
-    onReasoningEffortChange: (ReasoningEffort) -> Unit,
+    /** Saved reasoning level per model id (see ReasoningPicker). */
+    reasoningLevels: Map<String, String>,
+    onReasoningLevelChange: (modelId: String, level: String) -> Unit,
     currentModel: AiModel?,
     onDismiss: () -> Unit,
     autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
@@ -142,15 +142,10 @@ fun ChatSettingsSheet(
                 onCheckedChange = onRichUiChange
             )
 
-            // Only for models that expose a budget; see the note on the file.
-            if (currentModel?.supportsReasoningEffort == true) {
+            // Only for models whose provider has a reasoning control; see the note on the file.
+            currentModel?.takeIf { it.supportsReasoningEffort }?.let { model ->
                 Spacer(Modifier.height(Space.lg))
-                SegmentedPicker(
-                    label = "Reasoning effort",
-                    options = ReasoningEffort.entries.map { PickerOption(it, it.label) },
-                    selected = reasoningEffort,
-                    onSelect = onReasoningEffortChange
-                )
+                ReasoningPicker(model = model, levels = reasoningLevels, onSelect = onReasoningLevelChange)
             }
 
             Spacer(Modifier.height(Space.lg))

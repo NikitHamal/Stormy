@@ -50,6 +50,9 @@ object ModelCapabilities {
         "gemma" to 8 * K,
 
         // --- OpenAI ---------------------------------------------------------
+        // GPT-5.4 and 5.5: 1,050,000 (model pages); earlier GPT-5.x: 400,000.
+        "gpt-5.5" to 1_050_000,
+        "gpt-5.4" to 1_050_000,
         "gpt-6" to 400_000,
         "gpt-5" to 400_000,
         "codex" to 400_000,
@@ -61,10 +64,17 @@ object ModelCapabilities {
         "o1" to 200_000,
 
         // --- Anthropic ------------------------------------------------------
+        // 1M by default on Opus 4.8 and the Sonnet 5 line (Anthropic docs);
+        // gateways write versions with dots, Anthropic with dashes.
+        "claude-opus-4-8" to 1_000_000,
+        "claude-opus-4.8" to 1_000_000,
+        "claude-sonnet-5" to 1_000_000,
         "claude" to 200_000,
 
         // --- Qwen -----------------------------------------------------------
         "qwen3-coder" to 262_144,
+        // Hosted Qwen3.8 Max: 983,616 input tokens in thinking mode (991,808 without).
+        "qwen3.8-max" to 983_616,
         "qwen3.8" to 262_144,
         "qwen3.6" to 262_144,
         "qwen3.5" to 262_144,
@@ -77,7 +87,8 @@ object ModelCapabilities {
         "qwen" to 32 * K,
 
         // --- DeepSeek -------------------------------------------------------
-        "deepseek-v4" to 163_840,
+        // V4 and V4.1: 1M (DeepSeek's release notes, NVIDIA's V4.1 Flash card).
+        "deepseek-v4" to 1_048_576,
         "deepseek-v3" to 163_840,
         "deepseek-r1" to 163_840,
         "deepseek" to 65_536,
@@ -90,14 +101,16 @@ object ModelCapabilities {
         "llama-3" to 8 * K,
 
         // --- NVIDIA Nemotron ------------------------------------------------
-        "nemotron-3.5" to 1_000_000,
+        // The models reach 1M, but hosted endpoints (NIM, OpenRouter) serve 256K.
+        "nemotron-3.5" to 262_144,
         "nemotron-3-ultra" to 1_000_000,
         "nemotron-3" to 262_144,
         "nemotron" to 131_072,
 
         // --- Mistral --------------------------------------------------------
-        "mistral-large" to 131_072,
-        "mistral-medium" to 131_072,
+        // mistral-large-latest is Large 3 and mistral-medium-latest Medium 3.5: 256K.
+        "mistral-large" to 262_144,
+        "mistral-medium" to 262_144,
         "mistral-small-3" to 131_072,
         "mistral-nemo" to 131_072,
         "magistral" to 131_072,
@@ -113,13 +126,23 @@ object ModelCapabilities {
         "agnes-2.5" to 524_288,
         "agnes" to 131_072,
 
+        // --- Inception ------------------------------------------------------
+        "mercury-3" to 1_000_000,
+        "mercury-2.5" to 260_000,
+        "mercury" to 128_000,
+
         // --- Others ---------------------------------------------------------
-        "kimi-k3" to 262_144,
+        "k2-horizon" to 524_288,
+        "kimi-k3" to 1_048_576,
         "kimi-k2" to 262_144,
+        // GLM-5.2 and 5.3 (incl. Flash): 1M; GLM-5 and 5.1: 200K (Z.ai docs).
+        "glm-5.3" to 1_000_000,
+        "glm-5.2" to 1_000_000,
         "glm-5" to 200_000,
         "glm-4.6" to 200_000,
         "glm-4" to 131_072,
         "minimax-m" to 1_000_000,
+        "grok-4.3" to 1_000_000,
         "grok-4" to 256_000,
         "grok-code" to 256_000,
         "grok" to 131_072,

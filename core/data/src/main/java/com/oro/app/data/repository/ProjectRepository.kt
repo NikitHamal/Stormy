@@ -297,6 +297,11 @@ class ProjectRepository(
         projectDao.updateLastUsedModelId(projectId, modelId)
     }
 
+    /** Move every project whose last model is [from] to [to]; returns how many changed. */
+    suspend fun replaceLastUsedModelId(from: String, to: String): Int = withContext(Dispatchers.IO) {
+        projectDao.replaceLastUsedModelId(from, to)
+    }
+
     /**
      * Import a project from a folder selected via document picker.
      * Copies all contents from the source folder to a new project.

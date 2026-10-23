@@ -108,9 +108,9 @@ class AiRepository(
             temperature = temperature,
             maxTokens = maxTokens,
             // Read from preferences here rather than threaded through every
-            // caller: the setting is global, and the provider drops it for
-            // models that do not advertise support.
-            reasoningEffort = preferencesRepository.reasoningEffort.first()
+            // caller. Per model: the manager resolves each model's own level
+            // (and again for a keyless stand-in, whose scale differs).
+            reasoningLevels = preferencesRepository.reasoningLevels.first()
         )
 
         return stream ?: flow {
@@ -139,7 +139,7 @@ class AiRepository(
             tools = tools,
             temperature = temperature,
             maxTokens = maxTokens,
-            reasoningEffort = preferencesRepository.reasoningEffort.first()
+            reasoningLevels = preferencesRepository.reasoningLevels.first()
         )
     }
 

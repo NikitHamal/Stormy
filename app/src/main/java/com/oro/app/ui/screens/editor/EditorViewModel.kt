@@ -3,7 +3,6 @@ package com.oro.app.ui.screens.editor
 import com.oro.app.data.ai.context.ContextCompactor
 import com.oro.app.data.ai.context.ContextBreakdownBuilder
 import com.oro.app.data.ai.context.ContextBreakdown
-import com.oro.app.data.ai.ReasoningEffort
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import com.oro.app.ui.components.agent.PendingApproval
@@ -174,7 +173,8 @@ data class EditorUiState(
     val agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
     /** Delegated work, live and recently finished. */
     val agentSessions: List<com.oro.app.data.ai.agents.AgentSession> = emptyList(),
-    val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    /** Saved reasoning level per model id, in each provider's own vocabulary. */
+    val reasoningLevels: Map<String, String> = emptyMap(),
     /** Where the context window is going, for the context sheet. */
     val contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
     val isCompacting: Boolean = false,
@@ -493,7 +493,7 @@ class EditorViewModel(
             _agentMode, _currentModel, _availableModels, _isRefreshingModels,
             preferencesRepository.lineNumbers, preferencesRepository.wordWrap, preferencesRepository.fontSize,
             _contextTokenCount, _contextMaxTokens, _contextUsageLevel, delegationHandler.plan,
-            subagentOrchestrator.sessions, preferencesRepository.reasoningEffort, _contextBreakdown,
+            subagentOrchestrator.sessions, preferencesRepository.reasoningLevels, _contextBreakdown,
             _compactableCount, _isCompacting, _lastCompactionSavedPercent, undoRedoManager.state,
             _taskList, _largeFileWarning, _fileLoadProgress, _isCurrentFileReadOnly, _runStatus,
             _pendingQuestion, _runError
@@ -526,7 +526,7 @@ class EditorViewModel(
             // Null rather than an empty plan, so the UI can omit the strip.
             agentPlan = (v[22] as com.oro.app.data.ai.agents.AgentPlan).takeIf { !it.isEmpty },
             agentSessions = v[23] as List<com.oro.app.data.ai.agents.AgentSession>,
-            reasoningEffort = v[24] as ReasoningEffort,
+            reasoningLevels = v[24] as Map<String, String>,
             contextBreakdown = v[25] as ContextBreakdown,
             compactableMessageCount = v[26] as Int,
             isCompacting = v[27] as Boolean,
@@ -2808,8 +2808,8 @@ class EditorViewModel(
         viewModelScope.launch { preferencesRepository.setAutonomyMode(mode) }
     }
 
-    fun setReasoningEffort(effort: ReasoningEffort) {
-        viewModelScope.launch { preferencesRepository.setReasoningEffort(effort) }
+    fun setReasoningLevel(modelId: String, level: String) {
+        viewModelScope.launch { preferencesRepository.setReasoningLevel(modelId, level) }
     }
 
     /**

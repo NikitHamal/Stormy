@@ -88,21 +88,21 @@ class AiProviderManager(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
-        reasoningEffort: ReasoningEffort? = null
+        reasoningLevels: Map<String, String> = emptyMap()
     ): Flow<StreamEvent> {
-        if (!usesKeylessly(model)) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningEffort)
+        if (!usesKeylessly(model)) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningLevels)
         // Keyless: a busy free model hands the request to the next one (see KeylessFallback).
         val first = if (KeylessFallback.isBusy(model.id)) emptyList() else listOf(model)
         val chain = first + KeylessFallback.candidates(model, needsNativeTools = tools != null) { id ->
             AiModels.findModelById(id)?.takeIf { usesKeylessly(it) }
         }
-        if (chain.isEmpty()) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningEffort)
+        if (chain.isEmpty()) return streamOnce(model, messages, tools, temperature, maxTokens, reasoningLevels)
         return flow {
             for ((index, candidate) in chain.withIndex()) {
                 val last = index == chain.lastIndex
                 var output = false
                 var failure: StreamEvent.Error? = null
-                streamOnce(candidate, messages, tools, temperature, maxTokens, reasoningEffort).collect { event ->
+                streamOnce(candidate, messages, tools, temperature, maxTokens, reasoningLevels).collect { event ->
                     if (failure != null) return@collect
                     when (event) {
                         is StreamEvent.Error ->
@@ -140,19 +140,21 @@ class AiProviderManager(
         tools: List<Tool>?,
         temperature: Float,
         maxTokens: Int?,
-        reasoningEffort: ReasoningEffort?
+        reasoningLevels: Map<String, String>
     ): Flow<StreamEvent> {
         configurationError(model)?.let { return flowOf(StreamEvent.Error(it)) }
+        // Each model gets its own level: a keyless stand-in has a different scale.
+        val level = ReasoningControls.chosen(model, reasoningLevels)
         // Community bridges speak their own protocols and take no tools.
         if (model.provider.isCommunity) {
-            return com.oro.app.data.ai.community.CommunityClients.stream(model, messages)
+            return com.oro.app.data.ai.community.CommunityClients.stream(model, messages, level)
         }
         val custom = customFor(model)
-        if (custom != null) return streamCustom(custom, model, messages, tools, temperature, maxTokens, reasoningEffort)
+        if (custom != null) return streamCustom(custom, model, messages, tools, temperature, maxTokens, reasoningLevels)
         val provider = model.provider
         return rotating(provider.name, keysFor(provider), rotationFor(provider)) { key ->
             OpenAiCompatibleProvider(provider, key)
-                .streamChatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort)
+                .streamChatCompletion(model, messages, tools, temperature, maxTokens, level)
         }
     }
 
@@ -163,7 +165,7 @@ class AiProviderManager(
         tools: List<Tool>?,
         temperature: Float,
         maxTokens: Int?,
-        reasoningEffort: ReasoningEffort?
+        reasoningLevels: Map<String, String>
     ): Flow<StreamEvent> {
         // The namespace is ours; the server knows the model by its own id.
         val upstream = model.copy(id = ModelIds.upstream(model.id))
@@ -171,13 +173,17 @@ class AiProviderManager(
             when (config.protocol) {
                 WireProtocol.OPENAI -> OpenAiCompatibleProvider(
                     AiProvider.CUSTOM, key, config.normalizedBaseUrl, config.headers, config.name
-                ).streamChatCompletion(upstream, messages, tools, temperature, maxTokens ?: config.maxOutputTokens, reasoningEffort)
+                ).streamChatCompletion(
+                    upstream, messages, tools, temperature, maxTokens ?: config.maxOutputTokens,
+                    ReasoningControls.chosen(model, reasoningLevels)
+                )
                 WireProtocol.ANTHROPIC -> AnthropicClient(config.name, config.normalizedBaseUrl, key, config.headers).stream(
                     model = upstream.id,
                     messages = messages,
                     tools = tools?.takeIf { model.supportsToolCalls },
                     temperature = temperature,
-                    maxTokens = maxTokens ?: config.maxOutputTokens ?: DEFAULT_ANTHROPIC_MAX_TOKENS
+                    maxTokens = maxTokens ?: config.maxOutputTokens ?: DEFAULT_ANTHROPIC_MAX_TOKENS,
+                    effort = ReasoningControls.chosen(ReasoningControls.forAnthropicCustom(model.id), model.id, reasoningLevels)
                 )
             }
         }
@@ -242,7 +248,7 @@ class AiProviderManager(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
-        reasoningEffort: ReasoningEffort? = null
+        reasoningLevels: Map<String, String> = emptyMap()
     ): Result<ChatCompletionResponse> {
         configurationError(model)?.let {
             return Result.failure(IllegalStateException(it))
@@ -251,10 +257,10 @@ class AiProviderManager(
         // Collected from the stream so custom protocols and key rotation
         // behave exactly as they do for streaming requests.
         if (customFor(model) != null || keysFor(model.provider).size > 1) {
-            return collect(model, streamChatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort))
+            return collect(model, streamChatCompletion(model, messages, tools, temperature, maxTokens, reasoningLevels))
         }
         return OpenAiCompatibleProvider(model.provider, keyFor(model.provider))
-            .chatCompletion(model, messages, tools, temperature, maxTokens, reasoningEffort)
+            .chatCompletion(model, messages, tools, temperature, maxTokens, ReasoningControls.chosen(model, reasoningLevels))
     }
 
     /** Model-level check: custom models need their provider to still exist. */

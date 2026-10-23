@@ -9,7 +9,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.oro.app.data.ai.AiProvider
-import com.oro.app.data.ai.ReasoningEffort
+import com.oro.app.data.ai.ReasoningControls
 import com.oro.app.data.ai.AiHttp
 import com.oro.app.data.ai.providers.ApiKeyEntry
 import com.oro.app.data.ai.providers.CustomProviderRegistry
@@ -51,7 +51,12 @@ class PreferencesRepository(private val context: Context) {
         val AUTONOMY = stringPreferencesKey("autonomy_mode")
         val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
         val RICH_UI = booleanPreferencesKey("rich_ui")
+        /** The old app-wide Low/Balanced/Deep choice; read once into [REASONING_LEVELS]. */
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
+        /** JSON map model id -> the provider's own level value (see ReasoningControls). */
+        val REASONING_LEVELS = stringPreferencesKey("reasoning_levels")
+        /** Last applied one-time model migration (see ModelMigrations). */
+        val MODEL_MIGRATION = androidx.datastore.preferences.core.intPreferencesKey("model_migration")
 
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -343,15 +348,39 @@ class PreferencesRepository(private val context: Context) {
         preferences[PreferenceKeys.CUSTOM_BASE_URL] ?: ""
     }
 
-    /** Reasoning budget, for models that expose one. */
-    val reasoningEffort: Flow<ReasoningEffort> = context.dataStore.data.map { preferences ->
-        ReasoningEffort.fromName(preferences[PreferenceKeys.REASONING_EFFORT])
+    /**
+     * Reasoning level per model, as the provider names it ("high", "xhigh",
+     * "instant"...). Until the user picks one, an old app-wide Low/Deep choice
+     * rides along under [ReasoningControls.LEGACY_KEY].
+     */
+    val reasoningLevels: Flow<Map<String, String>> = context.dataStore.data.map { preferences ->
+        reasoningLevelsOf(preferences[PreferenceKeys.REASONING_LEVELS], preferences[PreferenceKeys.REASONING_EFFORT])
+    }.distinctUntilChanged()
+
+    suspend fun setReasoningLevel(modelId: String, level: String) {
+        context.dataStore.edit { preferences ->
+            val current = reasoningLevelsOf(preferences[PreferenceKeys.REASONING_LEVELS], preferences[PreferenceKeys.REASONING_EFFORT])
+            preferences[PreferenceKeys.REASONING_LEVELS] = encodeLevels(current + (modelId to level))
+        }
     }
 
-    suspend fun setReasoningEffort(effort: ReasoningEffort) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.REASONING_EFFORT] = effort.name
+    /** Last applied one-time model migration, 0 before any. */
+    suspend fun modelMigration(): Int = context.dataStore.data.first()[PreferenceKeys.MODEL_MIGRATION] ?: 0
+
+    suspend fun setModelMigration(version: Int) {
+        context.dataStore.edit { it[PreferenceKeys.MODEL_MIGRATION] = version }
+    }
+
+    private fun encodeLevels(levels: Map<String, String>): String =
+        kotlinx.serialization.json.JsonObject(levels.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()
+
+    private fun reasoningLevelsOf(raw: String?, legacy: String?): Map<String, String> {
+        if (raw == null) {
+            return ReasoningControls.legacyLevel(legacy)?.let { mapOf(ReasoningControls.LEGACY_KEY to it) } ?: emptyMap()
         }
+        val obj = runCatching { AiHttp.json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+            ?: return emptyMap()
+        return obj.mapNotNull { (k, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { k to it } }.toMap()
     }
 
     suspend fun getApiKeyForProvider(provider: AiProvider): String = apiKeys.first()[provider] ?: ""

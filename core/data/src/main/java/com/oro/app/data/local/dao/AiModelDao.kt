@@ -45,6 +45,10 @@ interface AiModelDao {
     @Query("DELETE FROM ai_models WHERE id = :id")
     suspend fun deleteModelById(id: String)
 
+    /** Correct a seeded row's window when the seed catalogue's figure changes. */
+    @Query("UPDATE ai_models SET reportedContextLength = :context, contextLength = :context WHERE id = :id AND isCustom = 0")
+    suspend fun updateSeedContext(id: String, context: Int)
+
     /**
      * Bulk enable/disable. One statement rather than reading every row,
      * mapping it and writing it back -- with a few hundred models from a

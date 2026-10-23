@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * The order is by measurement (2026-10-18, every keyless model probed with a
  * streamed tool call): fast and reliable first, rate-paced ones last. The
- * community entries (UniKey, K2, Mercury, Ptero, Qwen) take no tools, so they
+ * community entries (UniKey, Mercury, K2, Ptero, Qwen) take no tools, so they
  * only ever stand in for text-mode requests.
  */
 object KeylessFallback {
@@ -25,6 +25,8 @@ object KeylessFallback {
         "openrouter/free",
         // Claude Opus 4.8 answering in ~3 s (2026-10-22): the strongest free stand-in for text-mode runs.
         "unikey:claude-opus-4-8",
+        // Mercury 3 (the default): over 1,000 tokens/s when its site lets the phone through.
+        "mercury:mercury-3",
         "Qwen3.8-27B",
         "DeepSeek-V4-Flash-0731",
         "poolside/laguna-s-2.1:free",
@@ -33,7 +35,6 @@ object KeylessFallback {
         "codestral-latest",
         "reflection/beam-free",
         "k2:IFM/K2-Horizon-375B-A23B",
-        "mercury:mercury-3",
         "ptero:deepseek-v4.1-flash:free",
         "qwen:qwen3.7-plus",
         "openai-fast"
@@ -46,7 +47,11 @@ object KeylessFallback {
 
     fun markBusy(id: String, error: StreamEvent.Error, now: Long = System.currentTimeMillis()) {
         val hint = error.retryAfterMs?.coerceIn(5_000, 30 * 60_000L)
-        val ms = hint ?: when (error.httpCode) {
+        // A site's browser check (Mercury's Vercel checkpoint) that the in-app
+        // browser could not pass will not clear in seconds; skip the model for a
+        // while so every request does not wait on it first.
+        val browserCheck = Regex("browser check|security checkpoint", RegexOption.IGNORE_CASE).containsMatchIn(error.message)
+        val ms = if (browserCheck) BROWSER_CHECK_MS else hint ?: when (error.httpCode) {
             401, 402, 403 -> 30 * 60_000L // needs a key or a check: not coming back soon
             429 -> 90_000L
             else -> 45_000L
@@ -55,6 +60,8 @@ object KeylessFallback {
     }
 
     fun markHealthy(id: String) { busyUntil.remove(id) }
+
+    private const val BROWSER_CHECK_MS = 10 * 60_000L
 
     /**
      * Whether [error] is the kind another model would not have: quota, auth

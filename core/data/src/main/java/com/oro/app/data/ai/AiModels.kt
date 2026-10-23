@@ -5,33 +5,6 @@ import kotlinx.serialization.Serializable
 /**
  * Represents an AI model available for use
  */
-/**
- * How much the model should think before answering.
- *
- * Only meaningful on models that expose a reasoning budget; the request layer
- * omits the field entirely for the rest rather than sending something they will
- * reject. Three steps, not five: the difference between adjacent levels has to
- * be noticeable or the control is just a dial the user fiddles with.
- */
-@Serializable
-enum class ReasoningEffort(val label: String, val wireValue: String) {
-    /** Answer quickly. Good for edits whose shape is already decided. */
-    LOW("Low", "low"),
-
-    /** The default trade-off. */
-    BALANCED("Balanced", "medium"),
-
-    /** Think longer. Worth it for debugging and design questions. */
-    DEEP("Deep", "high");
-
-    companion object {
-        val DEFAULT = BALANCED
-
-        fun fromName(value: String?): ReasoningEffort =
-            entries.find { it.name.equals(value, ignoreCase = true) } ?: DEFAULT
-    }
-}
-
 @Serializable
 data class AiModel(
     val id: String,
@@ -49,15 +22,6 @@ data class AiModel(
     val supportsToolCalls: Boolean = true,
     val isThinkingModel: Boolean = false,
     /**
-     * Whether this model accepts a reasoning-effort setting.
-     *
-     * Separate from [isThinkingModel]: a model can reason internally without
-     * letting the caller size that budget, and sending the parameter to one
-     * that does not accept it is a 400 rather than a graceful ignore on several
-     * providers.
-     */
-    val supportsReasoningEffort: Boolean = false,
-    /**
      * Whether the user has this model switched on.
      *
      * Only the model picker and the management screen read it; the request
@@ -69,7 +33,19 @@ data class AiModel(
     /** USD per token as the provider publishes it (OpenRouter/Kilo); null when unknown. */
     val inputPricePerToken: Double? = null,
     val outputPricePerToken: Double? = null
-)
+) {
+    /**
+     * The reasoning control this model exposes on its provider, with the
+     * provider's own levels ([ReasoningControls]); null when it has none.
+     *
+     * Derived rather than stored, and separate from [isThinkingModel]: a model
+     * can reason without letting the caller size it, and sending a level to
+     * one that does not take it is a 400 on several providers.
+     */
+    val reasoningControl: ReasoningControl? get() = ReasoningControls.forModel(this)
+
+    val supportsReasoningEffort: Boolean get() = reasoningControl != null
+}
 
 /** How Oro talks to a provider. */
 enum class ProviderProtocol {
@@ -318,7 +294,7 @@ enum class AiProvider(
          * Provider used before the user configures anything. Must be one that
          * works with no key, otherwise a fresh install cannot send a message.
          */
-        val DEFAULT = K2_HORIZON
+        val DEFAULT = MERCURY
     }
 }
 
@@ -396,12 +372,12 @@ object SeedModels {
      * live on 2026-10-17 with a real completion.
      */
     val k2Horizon = listOf(
-        model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 131_072, tools = false, thinking = true)
+        model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 524_288, tools = false, thinking = true)
     )
 
     /** Guest models on chat.qwen.ai, listed by its /api/models without an account (2026-10-18). */
     val qwenWeb = listOf(
-        model("qwen:qwen3.8-max", "Qwen3.8 Max (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true),
+        model("qwen:qwen3.8-max", "Qwen3.8 Max (community)", AiProvider.QWEN_WEB, 983_616, tools = false, thinking = true),
         model("qwen:qwen3.7-plus", "Qwen3.7 Plus (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true),
         model("qwen:qwen3.8-omni-flash", "Qwen3.8 Omni Flash (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true)
     )
@@ -429,15 +405,15 @@ object SeedModels {
     )
 
     /**
-     * Inception's guest chat serves one model, Mercury 3 (a diffusion LLM);
-     * the seed id only picks the reasoning effort the site is asked for. The
-     * recipe is NEB's (2026-10-19). The site sits behind Vercel's browser
-     * check, which a datacenter IP never passes, so these were not re-verified
-     * from one; phones pass it in the in-app browser.
+     * Inception's guest chat serves one model, Mercury 3 (a diffusion LLM,
+     * 1M context). Its reasoning effort (Instant, Low, Medium, High) is the
+     * model's reasoning setting, not a separate model ([ReasoningControls]).
+     * The recipe is NEB's (2026-10-19). The site sits behind Vercel's browser
+     * check, which a datacenter IP never passes; phones pass it in the in-app
+     * browser.
      */
     val mercury = listOf(
-        model("mercury:mercury-3", "Mercury 3 (community)", AiProvider.MERCURY, 131_072, tools = false, thinking = true),
-        model("mercury:mercury-3-instant", "Mercury 3 Instant (community)", AiProvider.MERCURY, 131_072, tools = false)
+        model("mercury:mercury-3", "Mercury 3 (community)", AiProvider.MERCURY, 1_000_000, tools = false, thinking = true)
     )
 
     /**
@@ -462,25 +438,16 @@ object SeedModels {
      * (2026-10-22); Mercury 3 takes a reasoning effort.
      */
     val inception = listOf(
-        AiModel(
-            id = "mercury-3",
-            name = "Mercury 3",
-            provider = AiProvider.INCEPTION,
-            contextLength = ModelCapabilities.resolveContextLength("mercury-3", reported = 1_000_000),
-            reportedContextLength = 1_000_000,
-            supportsToolCalls = true,
-            isThinkingModel = true,
-            supportsReasoningEffort = true
-        ),
+        model("mercury-3", "Mercury 3", AiProvider.INCEPTION, 1_000_000, thinking = true),
         model("mercury-2.5", "Mercury 2.5", AiProvider.INCEPTION, 260_000),
         model("mercury-2", "Mercury 2", AiProvider.INCEPTION, 128_000)
     )
 
     val nvidia = listOf(
-        model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 131_072),
-        model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 131_072),
+        model("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super 120B", AiProvider.NVIDIA, 262_144),
+        model("nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B", AiProvider.NVIDIA, 262_144),
         model("openai/gpt-oss-120b", "GPT-OSS 120B", AiProvider.NVIDIA, 131_072),
-        model("deepseek-ai/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", AiProvider.NVIDIA, 163_840)
+        model("deepseek-ai/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", AiProvider.NVIDIA, 1_048_576)
     )
 
     val agnes = listOf(
@@ -492,23 +459,23 @@ object SeedModels {
     val groq = listOf(
         model("moonshotai/kimi-k2-instruct", "Kimi K2 Instruct", AiProvider.GROQ, 131_072),
         model("openai/gpt-oss-120b", "GPT-OSS 120B", AiProvider.GROQ, 131_072),
-        model("qwen/qwen3-32b", "Qwen3 32B", AiProvider.GROQ, 131_072)
+        model("qwen/qwen3.8-27b", "Qwen3.8 27B", AiProvider.GROQ, 131_072)
     )
 
+    /** Cerebras deprecated qwen-3-coder-480b; its /models lists gpt-oss-120b at 131,072 (65,536 on the free tier). */
     val cerebras = listOf(
-        model("qwen-3-coder-480b", "Qwen3 Coder 480B", AiProvider.CEREBRAS, 131_072),
         model("gpt-oss-120b", "GPT-OSS 120B", AiProvider.CEREBRAS, 131_072)
     )
 
     val mistral = listOf(
         model("devstral-medium-latest", "Devstral Medium", AiProvider.MISTRAL, 131_072),
-        model("mistral-large-latest", "Mistral Large", AiProvider.MISTRAL, 131_072)
+        model("mistral-large-latest", "Mistral Large", AiProvider.MISTRAL, 262_144)
     )
 
     val openCodeZen = listOf(
-        model("claude-sonnet-5-5", "Claude Sonnet 5.5", AiProvider.OPENCODE_ZEN, 200_000),
-        model("gpt-5.4", "GPT-5.4", AiProvider.OPENCODE_ZEN, 400_000),
-        model("qwen3.8-max", "Qwen3.8 Max", AiProvider.OPENCODE_ZEN, 262_144)
+        model("claude-sonnet-5-5", "Claude Sonnet 5.5", AiProvider.OPENCODE_ZEN, 1_000_000),
+        model("gpt-5.4", "GPT-5.4", AiProvider.OPENCODE_ZEN, 1_050_000),
+        model("qwen3.8-max", "Qwen3.8 Max", AiProvider.OPENCODE_ZEN, 983_616)
     )
 
     /**
@@ -545,16 +512,13 @@ object SeedModels {
     val all: List<AiModel> = byProvider.values.flatten()
 
     /**
-     * The model a fresh install starts on. Chosen by measurement, 2026-10-17:
-     * the same two agent tasks (edit two files; create a page and link it
-     * from both) were run end to end on every keyless option. K2 Horizon
-     * finished each in ~3-4 s with no failed tool calls (4/4 runs, text tool
-     * mode); Kilo Auto took 10-16 s (4/4, native tools); OVH Qwen3.5 ~5 s but
-     * is paced to 2 requests/min; Pollinations hit its 30 s free limit and did
-     * not finish. K2 is a community endpoint, so the error card and
-     * [AiModels.getRecommendedModels] keep Kilo one tap away.
+     * The model a fresh install starts on: Mercury 3, at High effort. It is
+     * newer than K2 Horizon and beats it on both speed (over 1,000 tokens/s)
+     * and quality. It is a community endpoint behind a browser check, so
+     * [KeylessFallback] moves a blocked request to the next free model, and
+     * [AiModels.getRecommendedModels] keeps K2, UniKey and Kilo one tap away.
      */
-    val default: AiModel = k2Horizon.first()
+    val default: AiModel = mercury.first()
 }
 
 /**
@@ -579,6 +543,7 @@ object AiModels {
     fun getRecommendedModels(): List<AiModel> = listOf(
         SeedModels.default,
         SeedModels.unikey.first(),
+        SeedModels.k2Horizon.first(),
         SeedModels.kilo.first(),
         SeedModels.ovhcloud.first(),
         SeedModels.pollinations.first(),

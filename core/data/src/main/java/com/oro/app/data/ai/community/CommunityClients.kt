@@ -40,6 +40,13 @@ import okhttp3.Response
  */
 interface CommunityChatClient {
     fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent>
+
+    /**
+     * With the model's reasoning level ([com.oro.app.data.ai.ReasoningControls]),
+     * for sites that have one; the rest ignore it.
+     */
+    fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String?): Flow<StreamEvent> =
+        stream(model, messages)
 }
 
 object CommunityClients {
@@ -55,8 +62,8 @@ object CommunityClients {
 
     fun forProvider(provider: AiProvider): CommunityChatClient? = clients[provider.protocol]
 
-    fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent> =
-        forProvider(model.provider)?.stream(model, messages)
+    fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String? = null): Flow<StreamEvent> =
+        forProvider(model.provider)?.stream(model, messages, reasoningLevel)
             ?: flowOf(StreamEvent.Error("${model.provider.displayName} has no community client"))
 
     /** Upstream model id: the seed id minus its "provider:" namespace. */

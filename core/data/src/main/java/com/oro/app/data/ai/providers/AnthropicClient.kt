@@ -54,9 +54,11 @@ class AnthropicClient(
         messages: List<ChatRequestMessage>,
         tools: List<Tool>?,
         temperature: Float?,
-        maxTokens: Int
+        maxTokens: Int,
+        /** Claude's `output_config.effort` (low/medium/high), or null to leave it to the model. */
+        effort: String? = null
     ): Flow<StreamEvent> = flow {
-        val body = buildBody(model, messages, tools, temperature, maxTokens)
+        val body = buildBody(model, messages, tools, temperature, maxTokens, effort)
         val request = requestBuilder("$root/messages")
             .header("Accept", "text/event-stream")
             .post(body.toString().toRequestBody(AiHttp.jsonMediaType))
@@ -167,12 +169,15 @@ class AnthropicClient(
             messages: List<ChatRequestMessage>,
             tools: List<Tool>?,
             temperature: Float?,
-            maxTokens: Int
+            maxTokens: Int,
+            effort: String? = null
         ): JsonObject = buildJsonObject {
             put("model", model)
             put("max_tokens", maxTokens)
             put("stream", true)
             temperature?.let { put("temperature", it.coerceIn(0f, 1f)) }
+            // Effort without extended thinking: no thinking blocks to send back on tool turns.
+            effort?.let { level -> putJsonObject("output_config") { put("effort", level) } }
             val system = messages.filter { it.role == "system" }.mapNotNull { it.content }.joinToString("\n\n")
             // Prompt caching: breakpoints after the tools, the system prompt
             // and the newest user turn (3 of the 4 allowed). Tools + system are

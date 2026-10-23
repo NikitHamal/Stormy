@@ -47,6 +47,16 @@ class OpenAiCompatibleProvider(
     }
 
     /**
+     * `reasoning_effort` for this request: only a level the model's control on
+     * this provider has. Providers that do not take the field answer 400
+     * rather than ignoring it, so anything else sends nothing.
+     */
+    private fun effortField(model: AiModel, level: String?): String? {
+        val control = model.reasoningControl ?: return null
+        return level?.takeIf { control.wire == ReasoningWire.REASONING_EFFORT && control.has(it) }
+    }
+
+    /**
      * Send a streaming chat completion request.
      */
     fun streamChatCompletion(
@@ -55,7 +65,8 @@ class OpenAiCompatibleProvider(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
-        reasoningEffort: ReasoningEffort? = null
+        /** The model's level as its provider names it ([ReasoningControls.chosen]). */
+        reasoningLevel: String? = null
     ): Flow<StreamEvent> {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return flowOf(StreamEvent.Error(missingKeyMessage()))
@@ -66,15 +77,11 @@ class OpenAiCompatibleProvider(
                 model = model.id,
                 messages = messages,
                 stream = true,
-                temperature = temperature,
+                temperature = temperature.takeUnless { ReasoningControls.omitsTemperature(model) },
                 maxTokens = maxTokens,
                 tools = if (model.supportsToolCalls && tools != null) tools else null,
                 toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null,
-                // Sent only when the model advertises support: providers that
-                // do not accept the field answer 400 rather than ignoring it.
-                reasoningEffort = reasoningEffort
-                    ?.takeIf { model.supportsReasoningEffort }
-                    ?.wireValue
+                reasoningEffort = effortField(model, reasoningLevel)
             )
 
             val requestBody = encodeChatRequest(json, request)
@@ -179,7 +186,8 @@ class OpenAiCompatibleProvider(
         tools: List<Tool>? = null,
         temperature: Float = 0.7f,
         maxTokens: Int? = null,
-        reasoningEffort: ReasoningEffort? = null
+        /** The model's level as its provider names it ([ReasoningControls.chosen]). */
+        reasoningLevel: String? = null
     ): Result<ChatCompletionResponse> = withContext(Dispatchers.IO) {
         if (provider.requiresApiKey && apiKey.isBlank()) {
             return@withContext Result.failure(IOException(missingKeyMessage()))
@@ -190,15 +198,11 @@ class OpenAiCompatibleProvider(
                 model = model.id,
                 messages = messages,
                 stream = false,
-                temperature = temperature,
+                temperature = temperature.takeUnless { ReasoningControls.omitsTemperature(model) },
                 maxTokens = maxTokens,
                 tools = if (model.supportsToolCalls && tools != null) tools else null,
                 toolChoice = if (model.supportsToolCalls && tools != null) "auto" else null,
-                // Sent only when the model advertises support: providers that
-                // do not accept the field answer 400 rather than ignoring it.
-                reasoningEffort = reasoningEffort
-                    ?.takeIf { model.supportsReasoningEffort }
-                    ?.wireValue
+                reasoningEffort = effortField(model, reasoningLevel)
             )
 
             val requestBody = encodeChatRequest(json, request)

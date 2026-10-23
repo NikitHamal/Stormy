@@ -75,15 +75,19 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
     @Volatile private var preferBrowser = false
 
     override fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent> =
+        stream(model, messages, null)
+
+    override fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String?): Flow<StreamEvent> =
         CommunityHttp.guarded(SITE) {
             val upstream = CommunityClients.upstreamId(model)
+            val thinking = thinkingFor(upstream, reasoningLevel)
             val prompt = flatten(messages)
             if (prompt.isBlank()) { emit(StreamEvent.Error("$SITE: nothing to send")); return@guarded }
 
             val bridge = QwenBrowser.bridge
             if (!preferBrowser || bridge == null) {
                 for (attempt in 1..2) {
-                    when (val r = viaHttp(upstream, prompt)) {
+                    when (val r = viaHttp(upstream, prompt, thinking)) {
                         Outcome.Done -> return@guarded
                         Outcome.Refused -> { preferBrowser = true; break }
                         is Outcome.Retry -> if (attempt == 2) { emit(StreamEvent.Error("$SITE: ${r.reason}", retryable = true)); return@guarded }
@@ -94,7 +98,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
                 emit(StreamEvent.Error("$SITE asked for a browser check and no in-app browser is available. Try again in a minute.", retryable = true))
                 return@guarded
             }
-            viaBrowser(bridge, upstream, prompt)
+            viaBrowser(bridge, upstream, prompt, thinking)
         }
 
     private sealed interface Outcome {
@@ -105,7 +109,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
 
     // ------------------------------------------------------------------ HTTP
 
-    private suspend fun FlowCollector<StreamEvent>.viaHttp(model: String, prompt: String): Outcome {
+    private suspend fun FlowCollector<StreamEvent>.viaHttp(model: String, prompt: String, thinking: Boolean): Outcome {
         val ident = identity()
         if (!ident.warmed) {
             ident.warmed = true
@@ -124,7 +128,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
             }.getOrNull()
         } ?: run { retire(ident); return Outcome.Refused }
 
-        val request = post(ident, "$base/api/v2/chat/completions?chat_id=$chatId", completionBody(chatId, model, prompt))
+        val request = post(ident, "$base/api/v2/chat/completions?chat_id=$chatId", completionBody(chatId, model, prompt, thinking))
             .newBuilder().header("Accept", "text/event-stream").header("x-request-id", UUID.randomUUID().toString()).build()
         return CommunityHttp.execute(request, AiHttp.streaming.newBuilder().cookieJar(ident.http.cookieJar).build()) { r ->
             val type = r.header("Content-Type").orEmpty()
@@ -203,7 +207,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
 
     // --------------------------------------------------------------- browser
 
-    private suspend fun FlowCollector<StreamEvent>.viaBrowser(bridge: QwenBrowserBridge, model: String, prompt: String) {
+    private suspend fun FlowCollector<StreamEvent>.viaBrowser(bridge: QwenBrowserBridge, model: String, prompt: String, thinking: Boolean) {
         var chatId: String? = null
         var status = ""
         val created = StringBuilder()
@@ -221,7 +225,7 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
         var head = ""
         val nonStream = StringBuilder()
         emit(StreamEvent.Started)
-        bridge.post("/api/v2/chat/completions?chat_id=$chatId", completionBody(chatId, model, prompt).toString()).collect { line ->
+        bridge.post("/api/v2/chat/completions?chat_id=$chatId", completionBody(chatId, model, prompt, thinking).toString()).collect { line ->
             if (head.isEmpty()) { head = line; return@collect }
             if (!head.contains("event-stream")) { nonStream.append(line); return@collect }
             if (!parser.finished) parser.onLine(line).forEach { emit(it) }
@@ -245,10 +249,8 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
         put("project_id", "")
     }
 
-    private fun completionBody(chatId: String, model: String, prompt: String): JsonObject {
+    private fun completionBody(chatId: String, model: String, prompt: String, thinking: Boolean): JsonObject {
         val now = System.currentTimeMillis()
-        // Qwen3.8 only answers with thinking on; the others are asked to answer directly (faster, cheaper quota).
-        val thinking = model.startsWith("qwen3.8")
         return buildJsonObject {
             put("stream", true)
             put("incremental_output", true)
@@ -309,6 +311,12 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
          * flattened: instructions first, then the earlier turns, then the
          * current request.
          */
+        /**
+         * Qwen Chat's thinking switch: Qwen3.8 models only answer with it on;
+         * the others answer directly unless the user turned it on.
+         */
+        fun thinkingFor(model: String, level: String?): Boolean = model.startsWith("qwen3.8") || level == "on"
+
         fun flatten(messages: List<ChatRequestMessage>): String {
             val turns = Transcript.turns(messages)
             val system = turns.filter { it.role == "system" }.joinToString("\n\n") { it.text }

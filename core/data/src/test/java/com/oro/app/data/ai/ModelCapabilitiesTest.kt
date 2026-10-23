@@ -26,10 +26,11 @@ class ModelCapabilitiesTest {
     @Test
     fun `large families are not flattened to the default`() {
         val cases = mapOf(
-            "gpt-5.4" to 400_000,
+            "gpt-5.4" to 1_050_000,
+            "gpt-5.1" to 400_000,
             "claude-opus-5" to 200_000,
             "qwen3-coder-480b" to 262_144,
-            "deepseek-v4-pro" to 163_840,
+            "deepseek-v4-pro" to 1_048_576,
             "nvidia/nemotron-3-super-120b-a12b" to 262_144,
             "openai/gpt-oss-120b" to 131_072,
             "agnes-2.5-flash" to 524_288,
@@ -39,7 +40,14 @@ class ModelCapabilitiesTest {
             "Meta-Llama-3_3-70B-Instruct" to 131_072,
             "Qwen3.5-397B-A17B" to 262_144,
             "reflection/beam-free" to 1_048_576,
-            "kimi-k2-instruct" to 262_144
+            "kimi-k2-instruct" to 262_144,
+            "claude-opus-4-8" to 1_000_000,
+            "anthropic/claude-opus-4.8" to 1_000_000,
+            "x-ai/grok-4.3" to 1_000_000,
+            "k2:IFM/K2-Horizon-375B-A23B" to 524_288,
+            "mercury-3" to 1_000_000,
+            "glm-5.3-flash" to 1_000_000,
+            "qwen3.8-max" to 983_616
         )
         cases.forEach { (id, expected) ->
             assertThat(ModelCapabilities.contextWindowFor(id)).isEqualTo(expected)
@@ -180,6 +188,6 @@ class ProviderRateLimiterTest {
     @Test
     fun `sizes in version numbers are not read as context sizes`() {
         // "3.5m" style false positives: the dot-guard keeps "nemotron-3.5" a version.
-        assertThat(ModelCapabilities.contextWindowFor("nvidia/nemotron-3.5-lightning:free")).isEqualTo(1_000_000)
+        assertThat(ModelCapabilities.contextWindowFor("nvidia/nemotron-3.5-lightning:free")).isEqualTo(262_144)
     }
 }

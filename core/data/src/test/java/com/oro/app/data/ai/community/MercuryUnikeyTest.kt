@@ -7,7 +7,6 @@ import com.oro.app.data.ai.ChatRequestMessage
 import com.oro.app.data.ai.FunctionCall
 import com.oro.app.data.ai.KeylessFallback
 import com.oro.app.data.ai.OpenAiCompatibleModelService
-import com.oro.app.data.ai.ReasoningEffortSupport
 import com.oro.app.data.ai.SeedModels
 import com.oro.app.data.ai.StreamEvent
 import com.oro.app.data.ai.ToolCallRequest
@@ -204,7 +203,9 @@ class MercuryUnikeyTest {
             }
         }
         assertThat(CommunityClients.upstreamId(SeedModels.unikey.first())).isEqualTo("claude-opus-4-8")
-        assertThat(CommunityClients.upstreamId(SeedModels.mercury.last())).isEqualTo("mercury-3-instant")
+        // One Mercury 3: Instant…High is its reasoning setting, not another model.
+        assertThat(SeedModels.mercury).hasSize(1)
+        assertThat(CommunityClients.upstreamId(SeedModels.mercury.single())).isEqualTo("mercury-3")
     }
 
     @Test
@@ -214,8 +215,9 @@ class MercuryUnikeyTest {
         val m3 = SeedModels.inception.first { it.id == "mercury-3" }
         assertThat(m3.supportsToolCalls).isTrue()
         assertThat(m3.supportsReasoningEffort).isTrue()
-        assertThat(ReasoningEffortSupport.supports("mercury-3")).isTrue()
-        assertThat(ReasoningEffortSupport.supports("mercury-2")).isFalse()
+        // Inception documents the same four levels on every Mercury model.
+        assertThat(SeedModels.inception.first { it.id == "mercury-2" }.reasoningControl!!.levels.map { it.wire })
+            .containsExactly("instant", "low", "medium", "high").inOrder()
     }
 
     @Test
