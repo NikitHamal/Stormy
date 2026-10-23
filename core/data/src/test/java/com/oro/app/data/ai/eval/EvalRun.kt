@@ -225,11 +225,11 @@ internal class EvalRun(
             client, runner,
             AgentLoopConfig(
                 maxIterations = maxTurns,
-                maxQualityPasses = AgentLoopConfig().maxQualityPasses + (if (intakeArmed) 1 else 0),
                 attachImages = VisionSupport.supports(model),
                 toolSchemas = AgentTools.schemasOf(offered),
                 idleTimeoutMs = profile.idleTimeoutMs,
-                maxQualityPasses = profile.qualityPasses,
+                // As EditorViewModel: a prose intake question uses one final-check pass.
+                maxQualityPasses = profile.qualityPasses + (if (intakeArmed) 1 else 0),
                 roundNote = if (profile.previewEachRound) { calls, results -> previewRoundNote(calls, results) } else null
             )
         )
