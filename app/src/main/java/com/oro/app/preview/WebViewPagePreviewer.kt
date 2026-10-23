@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebViewClient
 import com.oro.app.data.preview.Device
+import com.oro.app.data.preview.PageMetrics
 import com.oro.app.data.preview.PageShot
 import com.oro.app.data.preview.PagePreviewer
 import kotlinx.coroutines.Dispatchers
@@ -47,10 +48,12 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
         lock.withLock { devices.map { render(projectRoot, page, it) } }
 
     override suspend fun audit(projectRoot: File, page: String): String = lock.withLock {
-        withPage(projectRoot, page, Device.PHONE) { wv ->
-            val raw = evaluate(wv, AUDIT_JS)
-            formatAudit(page, raw)
-        }
+        val phone = withPage(projectRoot, page, Device.PHONE) { wv -> evaluate(wv, AUDIT_JS) }
+        // Some defects exist only at desktop width: a header button restyled by
+        // the nav's link colour, a menu that is hidden on phones. Checked too,
+        // and reported only where the phone pass did not already say it.
+        val desktop = runCatching { withPage(projectRoot, page, Device.DESKTOP) { wv -> evaluate(wv, AUDIT_JS) } }.getOrNull()
+        formatAudit(page, phone, desktop)
     }
 
     private suspend fun render(root: File, page: String, device: Device): PageShot =
@@ -141,30 +144,22 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
     /** evaluateJavascript returns a JSON-encoded string; unwrap it. */
     private fun unwrap(raw: String): String = runCatching { JSONArray("[$raw]").getString(0) }.getOrDefault(raw)
 
-    private fun formatMetrics(raw: String): String {
-        val o = JSONObject(unwrap(raw))
-        return buildString {
-            append("CSS viewport ").append(o.optInt("vw")).append("px, page ").append(o.optInt("sw")).append("x").append(o.optInt("sh")).append("px.")
-            if (o.optInt("sw") > o.optInt("vw") + 1) append("\nHORIZONTAL OVERFLOW: the page is wider than the screen.")
-            val wide = o.optJSONArray("wide")
-            if (wide != null && wide.length() > 0) {
-                append("\nElements wider than the viewport: ")
-                append((0 until wide.length()).joinToString(", ") { wide.getString(it) })
-            }
-            if (o.optInt("smallTargets") > 0) append("\n").append(o.optInt("smallTargets")).append(" tap targets smaller than 40px.")
-            if (o.optInt("smallText") > 0) append("\n").append(o.optInt("smallText")).append(" text elements under 12px.")
-            if (o.optInt("brokenImages") > 0) append("\n").append(o.optInt("brokenImages")).append(" images failed to load.")
-            o.optString("title").takeIf { it.isNotBlank() }?.let { append("\nTitle: ").append(it) }
-        }
-    }
+    private fun formatMetrics(raw: String): String =
+        PageMetrics.parse(unwrap(raw))?.describe() ?: "(could not measure)"
 
-    private fun formatAudit(page: String, raw: String): String {
-        val issues = JSONArray(unwrap(raw))
-        if (issues.length() == 0) return "Audit of $page: no issues found."
-        val byCat = (0 until issues.length()).map { issues.getJSONObject(it) }.groupBy { it.optString("cat") }
-        val score = (100 - issues.length() * 4).coerceIn(0, 100)
+    private fun formatAudit(page: String, raw: String, desktopRaw: String? = null): String {
+        val phone = JSONArray(unwrap(raw)).let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+        val seen = phone.map { it.optString("msg") + "\u0000" + it.optString("sel") }.toSet()
+        val desktopOnly = desktopRaw?.let { r -> runCatching { JSONArray(unwrap(r)) }.getOrNull() }
+            ?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } }.orEmpty()
+            .filter { it.optString("cat") == "accessibility" && (it.optString("msg") + "\u0000" + it.optString("sel")) !in seen }
+            .map { it.put("msg", it.optString("msg") + " (desktop)") }
+        val all = (phone + desktopOnly).take(60)
+        if (all.isEmpty()) return "Audit of $page: no issues found."
+        val byCat = all.groupBy { it.optString("cat") }
+        val score = (100 - all.size * 4).coerceIn(0, 100)
         return buildString {
-            append("Audit of ").append(page).append(" — ").append(issues.length()).append(" issues (rough score ").append(score).append("/100)\n")
+            append("Audit of ").append(page).append(" — ").append(all.size).append(" issues (rough score ").append(score).append("/100)\n")
             for ((cat, list) in byCat) {
                 append("\n").append(cat.uppercase()).append('\n')
                 list.forEach { i ->
@@ -179,21 +174,24 @@ class WebViewPagePreviewer(private val app: Context) : PagePreviewer {
     companion object {
         private const val EVALUATE_TIMEOUT_MS = 10_000L
 
-        private const val SEL = """function sel(e){if(!e||!e.tagName)return '';var s=e.tagName.toLowerCase();if(e.id)s+='#'+e.id;else if(e.className&&typeof e.className==='string'){var c=e.className.trim().split(/\s+/).slice(0,2).join('.');if(c)s+='.'+c;}return s;}"""
+        private const val SEL = """function shown(e){if(e.checkVisibility)return e.checkVisibility({opacityProperty:true,visibilityProperty:true});var n=e;while(n){var s=getComputedStyle(n);if(s.opacity==='0'||s.visibility==='hidden'||s.display==='none')return false;n=n.parentElement;}return true;}var cx=document.createElement('canvas').getContext('2d');function rgba(c){if(!c||!cx)return null;cx.clearRect(0,0,1,1);cx.fillStyle='rgba(0,0,0,0)';cx.fillStyle=c;cx.fillRect(0,0,1,1);var d=cx.getImageData(0,0,1,1).data;return [d[0],d[1],d[2],d[3]/255];}function L(c){var a=c.map(function(v){v=v/255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);});return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];}function bgc(e){var layers=[];while(e){var cs=getComputedStyle(e);if(cs.backgroundImage&&cs.backgroundImage!=='none')return null;var c=rgba(cs.backgroundColor);if(c&&c[3]>0){layers.push(c);if(c[3]>=0.99)break;}e=e.parentElement;}var b=[255,255,255];for(var i=layers.length-1;i>=0;i--){var l=layers[i];b=[l[0]*l[3]+b[0]*(1-l[3]),l[1]*l[3]+b[1]*(1-l[3]),l[2]*l[3]+b[2]*(1-l[3])];}return b;}function inl(e){if(getComputedStyle(e).display!=='inline'||!e.parentElement)return false;var n=0;e.parentElement.childNodes.forEach(function(c){if(c.nodeType===3)n+=c.textContent.trim().length;});return n>2;}function tiny(r){return r.width>0&&(Math.min(r.width,r.height)<32||(r.width<40&&r.height<40));}function sel(e){if(!e||!e.tagName)return '';var s=e.tagName.toLowerCase();if(e.id)s+='#'+e.id;else if(e.className&&typeof e.className==='string'){var c=e.className.trim().split(/\s+/).slice(0,2).join('.');if(c)s+='.'+c;}return s;}function lowc(){var res=[],checked=0;document.querySelectorAll('p,span,a,li,h1,h2,h3,h4,button,label,td').forEach(function(e){if(checked>200||!e.textContent.trim())return;var s=getComputedStyle(e);if(s.backgroundClip==='text'||s.getPropertyValue('-webkit-background-clip')==='text')return;var tf=rgba(s.getPropertyValue('-webkit-text-fill-color')||s.color);if(!tf||tf[3]<0.05||!shown(e))return;checked++;var g=bgc(e);if(!g)return;var t=[tf[0]*tf[3]+g[0]*(1-tf[3]),tf[1]*tf[3]+g[1]*(1-tf[3]),tf[2]*tf[3]+g[2]*(1-tf[3])],f=L(t),b=L(g);var r=(Math.max(f,b)+0.05)/(Math.min(f,b)+0.05),fs=parseFloat(s.fontSize),large=fs>=24||(fs>=18.66&&parseInt(s.fontWeight,10)>=700);if(r<(large?3:4.5))res.push([e,r]);});return res;}"""
 
         private const val METRICS_JS = """(function(){$SEL
-var vw=document.documentElement.clientWidth,de=document.documentElement,wide=[],st=0,sx=0,bi=0;
+var vw=document.documentElement.clientWidth,touch=vw<1024,de=document.documentElement,wide=[],out=new Set(),st=0,sta=[],sx=0,sxa=[],bi=0;
+function clipped(e){for(var p=e.parentElement;p;p=p.parentElement){if(getComputedStyle(p).overflowX!=='visible')return true;}return false;}
+function lab(e){var t=(e.textContent||e.getAttribute('aria-label')||'').trim().replace(/\s+/g,' ').slice(0,18);return sel(e)+(t?' "'+t+'"':'');}
 document.querySelectorAll('body *').forEach(function(e){var r=e.getBoundingClientRect();
-if(r.width>vw+2&&wide.length<8&&getComputedStyle(e).position!=='fixed')wide.push(sel(e)+' ('+Math.round(r.width)+'px)');
-if((e.tagName==='A'||e.tagName==='BUTTON')&&r.width>0&&(r.width<40||r.height<40))st++;
-if(e.childNodes.length&&e.childNodes[0].nodeType===3&&e.textContent.trim().length>2){var fs=parseFloat(getComputedStyle(e).fontSize);if(fs<12)sx++;}});
+if(r.right>vw+2&&r.width>0&&getComputedStyle(e).position!=='fixed'&&!clipped(e))out.add(e);
+if(touch&&(e.tagName==='A'||e.tagName==='BUTTON')&&tiny(r)&&!inl(e)&&shown(e)){st++;if(sta.length<3)sta.push(lab(e)+' '+Math.round(r.width)+'x'+Math.round(r.height));}
+if(e.childNodes.length&&e.childNodes[0].nodeType===3&&e.textContent.trim().length>2){var fs=parseFloat(getComputedStyle(e).fontSize);if(fs<12&&shown(e)){sx++;if(sxa.length<3)sxa.push(lab(e)+' '+fs+'px');}}});
+out.forEach(function(e){if(wide.length<6&&!out.has(e.parentElement)){var r=e.getBoundingClientRect();wide.push(sel(e)+' ('+Math.round(r.width)+'px wide, right edge at '+Math.round(r.right)+'px)');}});
+var lc=lowc(),lca=lc.slice(0,3).map(function(x){return lab(x[0])+' '+x[1].toFixed(1)+':1';});
 document.querySelectorAll('img').forEach(function(i){if(i.complete&&i.naturalWidth===0)bi++;});
-return JSON.stringify({vw:vw,sw:de.scrollWidth,sh:de.scrollHeight,wide:wide,smallTargets:st,smallText:sx,brokenImages:bi,title:document.title});})()"""
+var hs=0;document.querySelectorAll('[hidden]').forEach(function(e){if(getComputedStyle(e).display!=='none')hs++;});
+return JSON.stringify({vw:vw,sw:de.scrollWidth,sh:de.scrollHeight,wide:wide,smallTargets:st,smallTargetsAt:sta,smallText:sx,smallTextAt:sxa,lowContrast:lc.length,lowContrastAt:lca,brokenImages:bi,hiddenShown:hs,title:document.title});})()"""
 
         private const val AUDIT_JS = """(function(){$SEL
 var out=[];function add(c,m,e){if(out.length<60)out.push({cat:c,msg:m,sel:e?sel(e):''});}
-function lum(c){var m=c.match(/\d+(\.\d+)?/g);if(!m)return null;var a=m.slice(0,3).map(function(v){v=v/255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);});return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];}
-function bg(e){while(e){var b=getComputedStyle(e).backgroundColor;if(b&&b!=='transparent'&&!/rgba\(.*,\s*0\)/.test(b))return b;e=e.parentElement;}return 'rgb(255,255,255)';}
 if(!document.title)add('seo','Missing <title>');
 if(!document.querySelector('meta[name=description]'))add('seo','Missing <meta name="description">');
 if(!document.querySelector('meta[name=viewport]'))add('seo','Missing viewport meta tag (page will not scale on phones)');
@@ -202,8 +200,8 @@ var h1=document.querySelectorAll('h1').length;if(h1===0)add('seo','No <h1> headi
 var last=0;document.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(function(h){var l=+h.tagName[1];if(last&&l>last+1)add('accessibility','Heading level skips from h'+last+' to h'+l,h);last=l;});
 document.querySelectorAll('img').forEach(function(i){if(!i.hasAttribute('alt'))add('accessibility','Image without alt text',i);if(i.naturalWidth>2*i.clientWidth&&i.naturalWidth>1200)add('performance','Image much larger than shown ('+i.naturalWidth+'px wide)',i);if(!i.loading)add('performance','Image without loading="lazy"',i);});
 document.querySelectorAll('input,select,textarea').forEach(function(f){if(f.type==='hidden')return;var id=f.id;if(!(id&&document.querySelector('label[for="'+id+'"]'))&&!f.getAttribute('aria-label')&&!f.closest('label'))add('accessibility','Form field without a label',f);});
-document.querySelectorAll('a,button').forEach(function(b){if(!b.textContent.trim()&&!b.getAttribute('aria-label')&&!b.querySelector('img[alt]'))add('accessibility','Link or button with no text',b);var r=b.getBoundingClientRect();if(r.width>0&&(r.width<40||r.height<40))add('accessibility','Tap target smaller than 40px',b);});
-var checked=0;document.querySelectorAll('p,span,a,li,h1,h2,h3,h4,button,label,td').forEach(function(e){if(checked>200||!e.textContent.trim())return;checked++;var s=getComputedStyle(e),f=lum(s.color),b=lum(bg(e));if(f===null||b===null)return;var r=(Math.max(f,b)+0.05)/(Math.min(f,b)+0.05),large=parseFloat(s.fontSize)>=24;if(r<(large?3:4.5))add('accessibility','Low contrast text ('+r.toFixed(1)+':1)',e);});
+document.querySelectorAll('a,button').forEach(function(b){if(!b.textContent.trim()&&!b.getAttribute('aria-label')&&!b.querySelector('img[alt]'))add('accessibility','Link or button with no text',b);var r=b.getBoundingClientRect();if(innerWidth<1024&&tiny(r)&&!inl(b)&&shown(b))add('accessibility','Tap target too small for a finger ('+Math.round(r.width)+'x'+Math.round(r.height)+'px)',b);});
+lowc().forEach(function(x){add('accessibility','Low contrast text ('+x[1].toFixed(1)+':1)',x[0]);});
 document.querySelectorAll('head script[src]:not([defer]):not([async])').forEach(function(s){add('performance','Render-blocking script in <head>: '+s.getAttribute('src'));});
 var n=document.getElementsByTagName('*').length;if(n>1500)add('performance','Large DOM ('+n+' elements)');
 if(document.documentElement.scrollWidth>document.documentElement.clientWidth+1)add('mobile','Page scrolls sideways on a phone');

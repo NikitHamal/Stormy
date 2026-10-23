@@ -125,9 +125,52 @@ object TextToolCallParser {
 
     /** Opening tokens of every format above; [visiblePrefixLength] hides from the first one. */
     private val OPENERS = listOf(
-        "<tool_call", "<tool_calls", "<function=", "<function name=", "[TOOL_CALLS]", "<|tool_call", "<|tool_calls",
+        "<tool_call", "<tool_calls", "<function=", "<function name=", "<function>", "[TOOL_CALLS]", "<|tool_call", "<|tool_calls",
         "<｜tool▁call", "<ifm|tool_call"
     )
+
+    // Template drift: the taught format with a model's own chat template mixed in
+    // (seen live with Tencent Hy3). Rewritten to the canonical markup when the
+    // line starts with it and names a real tool, so file bodies that merely
+    // mention such tags are left as written.
+
+    /** `<tool_call:6124c78e>use_skill>`: an id on the tag, then the bare tool name. */
+    private val ID_TAG_CALL = Regex("""(?m)^([ \t]*)<tool_call:[\w-]+>[ \t]*([A-Za-z_][\w.\-]*)>[ \t]*$""")
+
+    /** `<tool_call:6124c78e>` or `</tool_calls:6124c78e>` around otherwise canonical markup. */
+    private val ID_TAG = Regex("""(?m)^([ \t]*)<(/?)(tool_calls?):[\w-]+>""")
+
+    /** `<function>list_files>` or `<function list_files>`: the opener with its `=` lost. */
+    private val BARE_FUNCTION = Regex("""(?m)^([ \t]*)<function(?:>|[ \t]+)([A-Za-z_][\w.\-]*)>[ \t]*$""")
+
+    /** `<parameter>content>value`: the same lost `=` on a parameter, the value often on the same line. */
+    private val BARE_PARAMETER = Regex("""(?m)^([ \t]*)<parameter(?:>|[ \t]+)([A-Za-z_][\w\-]*)>""")
+
+    private fun normalizeDrift(text: String, known: Set<String>): String {
+        if ("<tool_call:" !in text && "</tool_call" !in text && "<function>" !in text && "<function " !in text &&
+            "<parameter>" !in text && "<parameter " !in text) return text
+        fun tool(name: String) = ToolAliases.canonicalName(name) in known
+        var t = ID_TAG_CALL.replace(text) { m ->
+            val (indent, name) = m.destructured
+            if (tool(name)) "$indent<tool_call>\n$indent<function=$name>" else m.value
+        }
+        t = BARE_FUNCTION.replace(t) { m ->
+            val (indent, name) = m.destructured
+            if (tool(name)) "$indent<function=$name>" else m.value
+        }
+        t = BARE_PARAMETER.replace(t) { m ->
+            val (indent, name) = m.destructured
+            "$indent<parameter=$name>"
+        }
+        return ID_TAG.replace(t) { m ->
+            val (indent, slash, tag) = m.destructured
+            "$indent<$slash$tag>"
+        }
+    }
+
+    /** The first line of [content] holding call markup, for the resend nudge (null when none). */
+    fun firstMarkupLine(content: String): String? =
+        content.lineSequence().firstOrNull { line -> OPENERS.any { line.contains(it) } }?.trim()?.take(140)
 
     /** Ends of special-token calls the raw scanner does not read; a fabricated result may follow them. */
     private val SPECIAL_CLOSERS = listOf("<|tool_call_end|>", "<｜tool▁call▁end｜>", "</ifm|tool_call>")
@@ -224,6 +267,7 @@ object TextToolCallParser {
         val incompleteCalls = mutableListOf<ToolCallResponse>()
         val openEnded = mutableSetOf<String>()
         var text = if (content.contains("|tool_call>")) content.replace(NAMESPACED_TAG, "<$1") else content
+        text = normalizeDrift(text, known)
         // Invented results after the calls are not part of the reply.
         fakeResultStart(text).takeIf { it >= 0 }?.let { text = text.substring(0, it) }
 

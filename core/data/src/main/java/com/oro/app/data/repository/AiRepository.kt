@@ -389,8 +389,10 @@ class AiRepository(
               validate inline and show busy/success states. No alert().
             - Motion with purpose: 150-400ms, ease-out, transform/opacity only, scroll reveals and
               micro-interactions; honour prefers-reduced-motion.
-            - Mobile-first and responsive; no horizontal scroll at 360px. Real, specific copy and real
-              images (Unsplash/picsum URLs); one icon set (Lucide or inline SVG).
+            - Mobile-first and responsive; no horizontal scroll at 360px. Real, specific copy; one icon set
+              (Lucide or inline SVG). Photos that match the subject: web_fetch
+              https://api.openverse.org/v1/images/?q=<subject>&license_type=commercial&page_size=8 and use the
+              URLs it returns, credited. Never invent images.unsplash.com photo ids (they 404).
             - Data that must persist: localStorage, or Oro's built-in REST backend (/api/<collection>
               backed by db.json, with accounts at /api/auth and file uploads -- see the backend, auth
               and dashboard skills). Relative paths; never reference missing files.

@@ -154,4 +154,32 @@ class QualityAuditorTest {
         assertThat(auditor.quickCheck(".vscode/settings.json", jsonc)).isEmpty()
         assertThat(auditor.quickCheck("data/products.json", jsonc)).hasSize(1)
     }
+
+    @Test
+    fun `hidden elements whose class sets display are flagged`() {
+        // Live eval, 2026-10-23: loading, error and empty states all showed at once.
+        write("index.html", goodHtml.replace(
+            "<button id=\"buy\" class=\"btn\">Buy</button>",
+            "<section id=\"state-error\" class=\"state\" hidden><p>Oops</p></section>\n" +
+                "<section id=\"state-empty\" class=\"state\" hidden><p>Nothing yet</p></section>\n" +
+                "<button id=\"buy\" class=\"btn\" aria-hidden=\"false\">Buy</button>"
+        ))
+        write("css/style.css", ".state{display:flex;gap:8px}.btn:hover{opacity:.9}.btn:focus-visible{outline:2px solid}")
+        write("js/app.js", "document.getElementById('buy').addEventListener('click', () => {});")
+        val issues = QualityAuditor(tmp.root).audit().blocking.filter { it.message.contains("hidden attribute") }
+        assertThat(issues).hasSize(1)
+        assertThat(issues[0].message).contains("2 element(s)")
+        assertThat(issues[0].message).contains(".state")
+    }
+
+    @Test
+    fun `a hidden rule, or classes without display, keep the check quiet`() {
+        write("index.html", goodHtml.replace("<button id=\"buy\" class=\"btn\">Buy</button>",
+            "<section class=\"state\" hidden></section><div class=\"note\" hidden></div><button id=\"buy\" class=\"btn\">Buy</button>"))
+        write("css/style.css", ".state{display:flex}[hidden]{display:none!important}.note{color:red}.btn:focus-visible{outline:2px solid}")
+        write("js/app.js", "document.getElementById('buy').addEventListener('click', () => {});")
+        assertThat(QualityAuditor(tmp.root).audit().blocking.filter { it.message.contains("hidden attribute") }).isEmpty()
+        write("css/style.css", ".note{color:red}.state{padding:4px}.btn:focus-visible{outline:2px solid}")
+        assertThat(QualityAuditor(tmp.root).audit().blocking.filter { it.message.contains("hidden attribute") }).isEmpty()
+    }
 }

@@ -117,4 +117,14 @@ class KeylessFallbackTest {
         assertThat(KeylessFallback.silenceTimeoutMs(AiProvider.QWEN_WEB)).isEqualTo(75_000L)
         assertThat(KeylessFallback.silenceTimeoutMs(AiProvider.KILOCODE)).isEqualTo(KeylessFallback.SILENT_TIMEOUT_MS)
     }
+
+    @Test
+    fun `a gateway whose upstream timed out stays parked for minutes`() {
+        // Kilo's free Nemotron on agent-sized prompts (live eval, 2026-10-23).
+        val id = "nvidia/nemotron-3-ultra-550b-a55b:free"
+        KeylessFallback.markBusy(id, StreamEvent.Error("Upstream idle timeout exceeded", retryable = true), now = 0L)
+        assertThat(KeylessFallback.isBusy(id, now = 3 * 60_000L)).isTrue()
+        assertThat(KeylessFallback.isBusy(id, now = 6 * 60_000L)).isFalse()
+        KeylessFallback.markHealthy(id)
+    }
 }

@@ -6,6 +6,8 @@ description: Structure, copy and polish for landing pages, marketing sites and p
 
 ## Structure (pick what fits; order matters)
 1. **Header**: logo, 3–5 links, one CTA button. Sticky, blurred, compact on scroll; mobile menu.
+   Style the links by class (`.nav-link`), not `.nav a`: that selector outranks `.btn` and turns the
+   header CTA's text the link colour (brown text on a brown button).
 2. **Hero**: benefit-led headline (≤ 8 words), one-sentence subhead, primary + secondary CTA,
    visual (product shot in a device/browser frame, illustration, or animated gradient).
    Social proof right under CTA ("Trusted by 12,000 teams" + avatars/stars).

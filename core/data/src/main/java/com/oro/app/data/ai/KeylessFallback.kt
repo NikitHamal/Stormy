@@ -28,10 +28,13 @@ import java.util.concurrent.ConcurrentHashMap
 object KeylessFallback {
 
     private val ORDER = listOf(
-        // Kilo's free pool, all native tools: 550B at ~2-3 s, 1M context.
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        // Tencent's Hy3 demo: native tool calls, 256K, ~2 s to the first token (2026-10-23).
+        // Tencent's Hy3 demo: native tool calls, 256K, ~2 s to the first token (2026-10-23). In the
+        // live eval (docs/research/live-eval.md) it built and self-checked a landing page, an app and
+        // a game in 5 to 10 minutes each.
         "hy3:hy3",
+        // Kilo's free pool, all native tools: 550B, 1M context -- but on agent-sized prompts its
+        // upstream often times out before the first token ("Upstream idle timeout exceeded").
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
         "kilo-auto/free",
         "cohere/north-mini-code:free",
         "dots-studio/dots-3-note-preview:free",
@@ -112,6 +115,8 @@ object KeylessFallback {
             isRetiredModel(error) -> RETIRED_SKIP_MS
             hint != null -> hint
             error.message.startsWith(SILENT_PREFIX) -> SILENT_SKIP_MS
+            // A gateway whose upstream timed out before answering stays slow for a while.
+            UPSTREAM_TIMEOUT.containsMatchIn(error.message) -> SILENT_SKIP_MS
             else -> when (error.httpCode) {
                 401, 402, 403 -> 30 * 60_000L // needs a key or a check: not coming back soon
                 429 -> 90_000L
@@ -248,6 +253,7 @@ object KeylessFallback {
     const val SILENT_TIMEOUT_MS = 35_000L
     private const val BROWSER_SILENT_TIMEOUT_MS = 75_000L
     private const val SILENT_PREFIX = "No answer:"
+    private val UPSTREAM_TIMEOUT = Regex("upstream (idle )?time ?out|gateway time-?out|upstream request timeout", RegexOption.IGNORE_CASE)
     private const val SILENT_SKIP_MS = 5 * 60_000L
     private const val RETIRED_SKIP_MS = 6 * 60 * 60_000L
 }

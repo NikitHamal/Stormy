@@ -515,6 +515,7 @@ class WorkspaceTools(private val root: File) {
                 if (!response.isSuccessful) {
                     return@withContext fail("HTTP ${response.code} from $url" + raw.take(200).let { if (it.isBlank()) "" else ": $it" })
                 }
+                if (ImageSearch.isOpenverse(url)) ImageSearch.format(raw)?.let { return@withContext ok("URL: $url\n\n$it") }
                 val text = if (type.contains("html", true) || raw.trimStart().startsWith("<")) HtmlText.toText(raw) else raw
                 val body = if (text.length > maxChars) text.take(maxChars) + "\n[Truncated at $maxChars characters.]" else text
                 ok("URL: $url\nContent-Type: ${type.ifBlank { "unknown" }}\n\n$body")

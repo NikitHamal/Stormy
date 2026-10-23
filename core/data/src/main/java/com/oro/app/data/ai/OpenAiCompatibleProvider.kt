@@ -163,7 +163,11 @@ class OpenAiCompatibleProvider(
                         }
                     }
 
-                    trySend(errorFor(response?.code, retryHeader(response), body, t))
+                    // A stream that broke after a 200 is a dropped connection,
+                    // not a refusal: classify it by the failure, so it retries
+                    // (it used to read "request failed (200)" and end the run).
+                    val code = response?.code?.takeUnless { response.isSuccessful }
+                    trySend(errorFor(code, retryHeader(response), body, t))
                     channel.close()
                 }
             }

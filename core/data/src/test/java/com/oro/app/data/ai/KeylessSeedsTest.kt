@@ -47,11 +47,12 @@ class KeylessSeedsTest {
     }
 
     @Test
-    fun `native tool requests hand over to the new kilo models first`() {
+    fun `native tool requests hand over to hy3 first, then the kilo models`() {
         val from = AiModels.findModelById("k2:IFM/K2-Horizon-375B-A23B")!!
         KeylessFallback.order.forEach { KeylessFallback.markHealthy(it) }
         val native = KeylessFallback.candidates(from, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id }
-        assertThat(native.first()).isEqualTo("nvidia/nemotron-3-ultra-550b-a55b:free")
+        // Hy3 leads on the live eval's evidence; Kilo's Nemotron times out on agent-sized prompts.
+        assertThat(native.take(2)).containsExactly("hy3:hy3", "nvidia/nemotron-3-ultra-550b-a55b:free").inOrder()
         assertThat(native).containsAtLeast("cohere/north-mini-code:free", "qwen3.8-27b", "minimax-m2.7")
         assertThat(native.none { it.startsWith("unikey:") || it.startsWith("mercury:") }).isTrue()
     }

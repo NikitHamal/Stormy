@@ -459,4 +459,67 @@ class TextToolCallParserTest {
         val kv = "<tool_call>ask_user<arg_key>big</arg_key><arg_value>123456789012345678901234</arg_value></tool_call>"
         assertThat(TextToolCallParser.parse(kv, known).calls).hasSize(1)
     }
+
+    // ------------------------------------------------ template drift (live eval, Tencent Hy3)
+
+    private val hy3Tools = setOf("use_skill", "add_ui_kit", "list_files", "update_plan", "write_file")
+
+    @Test
+    fun `hy3 id-tagged calls with the name and no function tag are read`() {
+        // Verbatim from a live run: the first two calls are canonical, the rest carry Hy3's own template.
+        val content = "I'll build this premium coffee shop site. Let me load the right playbooks and the UI kit first.\n\n" +
+            "<tool_call>\n<function=use_skill>\n<parameter=name>design-system</parameter>\n</function>\n</tool_call>\n" +
+            "<tool_call>\n<function=use_skill>\n<parameter=name>landing-page</parameter>\n</function>\n</tool_call>\n" +
+            "<tool_call:6124c78e>use_skill>\n<parameter=name>ui-states</parameter>\n</function>\n</tool_call>\n" +
+            "<tool_call:6124c78e>use_skill>\n<parameter=name>forms</parameter>\n</function>\n</tool_call>\n" +
+            "<tool_call:6124c78e>add_ui_kit>\n<parameter=brand_hue>22</parameter>\n</function>\n</tool_call>\n" +
+            "</tool_calls:6124c78e>"
+        val parsed = TextToolCallParser.parse(content, hy3Tools)
+        assertThat(parsed.calls.map { it.function.name }).containsExactly("use_skill", "use_skill", "use_skill", "use_skill", "add_ui_kit").inOrder()
+        assertThat(parsed.calls[2].function.arguments).contains("ui-states")
+        assertThat(parsed.calls[4].function.arguments).contains("22")
+        assertThat(parsed.visibleText).isEqualTo("I'll build this premium coffee shop site. Let me load the right playbooks and the UI kit first.")
+    }
+
+    @Test
+    fun `a function tag missing its equals sign is read`() {
+        val content = "Let me see what the UI kit created and plan the build.\n\n" +
+            "<tool_call>\n<function>list_files>\n<parameter=path>.</parameter>\n<parameter=depth>2</parameter>\n" +
+            "<parameter=symbols>true</parameter>\n</function>\n</tool_call>\n" +
+            "<tool_call:6124c78e>update_plan>\n<parameter=tasks>[{\"title\":\"Set up index.html\",\"state\":\"active\"}]</parameter>\n" +
+            "</function>\n</tool_call>\n</tool_calls:6124c78e>"
+        val parsed = TextToolCallParser.parse(content, hy3Tools)
+        assertThat(parsed.calls.map { it.function.name }).containsExactly("list_files", "update_plan").inOrder()
+        assertThat(parsed.calls[0].function.arguments).contains("\"depth\":2")
+        assertThat(parsed.calls[1].function.arguments).contains("Set up index.html")
+        assertThat(TextToolCallParser.looksLikeToolCall("x\n<function>list_files>\n")).isTrue()
+    }
+
+    @Test
+    fun `a parameter tag missing its equals sign is read, value on the same line`() {
+        // Verbatim shape from a live run: before this, write_file arrived without its content.
+        val content = "app.js still didn't save. Retrying the write.\n\n" +
+            "<tool_call>\n<function>update_plan>\n<parameter>tasks>[{\"title\":\"Load design system\", \"state\":\"active\"}]</parameter>\n" +
+            "</function>\n</tool_call>\n\n" +
+            "<tool_call>\n<function>write_file>\n<parameter=path>app.js</parameter>\n<parameter>content>/* Himalayan Brew - interactions */\n" +
+            "(function () {\n  \"use strict\";\n})();\n</parameter>\n</function>\n</tool_call>"
+        val parsed = TextToolCallParser.parse(content, hy3Tools)
+        assertThat(parsed.calls.map { it.function.name }).containsExactly("update_plan", "write_file").inOrder()
+        assertThat(parsed.calls[0].function.arguments).contains("Load design system")
+        val args = argsOf(parsed.calls[1])
+        assertThat((args["path"] as kotlinx.serialization.json.JsonPrimitive).content).isEqualTo("app.js")
+        assertThat((args["content"] as kotlinx.serialization.json.JsonPrimitive).content).startsWith("/* Himalayan Brew - interactions */\n(function () {")
+    }
+
+    @Test
+    fun `drifted openers inside a file body stay content`() {
+        // Only line-start markup naming a real tool is rewritten; prose that mentions the tags is not.
+        val body = "Docs: the model may write <function>list_files> by mistake.\nAnd <tool_call:abc>nothing> too."
+        val content = "<tool_call>\n<function=write_file>\n<parameter=path>NOTES.md</parameter>\n<parameter=content>\n" +
+            body + "\n</parameter>\n</function>\n</tool_call>"
+        val parsed = TextToolCallParser.parse(content, hy3Tools)
+        assertThat(parsed.calls).hasSize(1)
+        assertThat(parsed.calls[0].function.arguments).contains("<function>list_files> by mistake")
+        assertThat(parsed.calls[0].function.arguments).contains("<tool_call:abc>nothing>")
+    }
 }

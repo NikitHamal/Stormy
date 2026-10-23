@@ -284,7 +284,7 @@ class AgentLoop(
                 malformedNudges++
                 listener.onTurnComplete(visible, emptyList())
                 conversation += ChatRequestMessage(role = "assistant", content = stripThinking(turn.content))
-                conversation += ChatRequestMessage(role = "user", content = malformedCallNudge(knownTools))
+                conversation += ChatRequestMessage(role = "user", content = malformedCallNudge(knownTools, turn.content))
                 continue
             }
             if (malformed) {
@@ -453,8 +453,11 @@ class AgentLoop(
         append("write_file calls with append=true, a few hundred lines each. Keep edits short.")
     }
 
-    private fun malformedCallNudge(knownTools: Set<String>): String = buildString {
+    private fun malformedCallNudge(knownTools: Set<String>, reply: String): String = buildString {
         append("Your last reply contained a tool call that could not be read, so nothing ran. ")
+        // Show the model its own broken line: weak models repeat a reply verbatim
+        // when told only that "something" was wrong.
+        TextToolCallParser.firstMarkupLine(reply)?.let { append("This line was not understood: `").append(it).append("`. ") }
         append("Send it again in exactly this format (values are raw text, no JSON escaping):\n")
         append("<tool_call>\n<function=TOOL_NAME>\n<parameter=NAME>value</parameter>\n</function>\n</tool_call>\n")
         append("TOOL_NAME must be one of: ").append(knownTools.sorted().joinToString(", ")).append('.')

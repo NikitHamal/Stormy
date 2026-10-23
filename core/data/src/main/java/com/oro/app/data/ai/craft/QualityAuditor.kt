@@ -95,6 +95,7 @@ class QualityAuditor(private val root: File) {
                     "@media (prefers-reduced-motion: reduce) block that disables non-essential motion."
             )
         }
+        hiddenOverridden(html, css, issues)
         val styledInteractive = css.any { it.text.contains(":hover") }
         val hasFocus = sources.any { it.text.contains(":focus") }
         if (styledInteractive && !hasFocus) {
@@ -267,6 +268,40 @@ class QualityAuditor(private val root: File) {
         }
     }
 
+    /**
+     * `hidden` loses to any class rule that sets `display`: `.state{display:flex}`
+     * beats the browser's own `[hidden]{display:none}`, so every loading, empty
+     * and error state a script toggles with `el.hidden` shows at once. The most
+     * common state bug in generated apps (live eval, 2026-10-23); certain when
+     * an element carries both the attribute and such a class and no
+     * `[hidden]{display:none}` rule restores it.
+     */
+    private fun hiddenOverridden(html: List<Source>, css: List<Source>, out: MutableList<Issue>) {
+        if (html.none { HIDDEN_ELEMENT.containsMatchIn(it.text) }) return
+        val styles = css.joinToString("\n") { it.text } + "\n" +
+            html.joinToString("\n") { s -> INLINE_STYLE.findAll(s.text).joinToString("\n") { it.groupValues[1] } }
+        if (HIDDEN_RULE.containsMatchIn(styles)) return
+        val displayed = HashSet<String>()
+        CSS_RULE.findAll(styles).forEach { m ->
+            if (!VISIBLE_DISPLAY.containsMatchIn(m.groupValues[2])) return@forEach
+            m.groupValues[1].split(',').map { it.trim() }.forEach { sel -> SIMPLE_CLASS.matchEntire(sel)?.let { displayed += it.groupValues[1] } }
+        }
+        if (displayed.isEmpty()) return
+        html.forEach { s ->
+            val hits = HIDDEN_ELEMENT.findAll(s.text).mapNotNull { m ->
+                val classes = CLASS_ATTR.find(m.value)?.groupValues?.get(2)?.split(Regex("\\s+")).orEmpty()
+                classes.firstOrNull { it in displayed }?.let { cls -> m to cls }
+            }.toList()
+            if (hits.isEmpty()) return@forEach
+            val (first, cls) = hits.first()
+            out += Issue(
+                Severity.WARNING, s.rel, lineAt(s.text, first.range.first),
+                "${hits.size} element(s) have the hidden attribute but a class that sets display (e.g. .$cls), " +
+                    "which overrides hidden: they show anyway. Add [hidden]{display:none!important} to the CSS."
+            )
+        }
+    }
+
     // ----------------------------------------------------------------- CSS
 
     private fun checkCss(s: Source, out: MutableList<Issue>) {
@@ -415,6 +450,13 @@ class QualityAuditor(private val root: File) {
         private val ANIMATION = Regex("""\b(animation|transition)\s*:|@keyframes""")
         private val INLINE_SCRIPT = Regex("<script\\b(?![^>]*\\bsrc=)[^>]*>(.*?)</script>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val INLINE_STYLE = Regex("<style\\b[^>]*>(.*?)</style>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        /** An opening tag carrying the bare `hidden` attribute (not aria-hidden / data-hidden). */
+        private val HIDDEN_ELEMENT = Regex("""<[a-zA-Z][\w-]*\b[^<>]*?\shidden(?:\s*=\s*(["'])[^"']*\1)?(?=[\s/>])[^<>]*>""")
+        private val HIDDEN_RULE = Regex("""\[hidden][^{}]*\{[^}]*display\s*:\s*none""")
+        private val CSS_RULE = Regex("""([^{}@;]+)\{([^{}]*)\}""")
+        private val VISIBLE_DISPLAY = Regex("""(?<![\w-])display\s*:\s*(flex|grid|block|inline-flex|inline-grid|inline-block|table|contents)""")
+        private val SIMPLE_CLASS = Regex("""\.([A-Za-z_][\w-]*)""")
+        private val CLASS_ATTR = Regex("""\sclass\s*=\s*(["'])([^"']*)\1""")
         private val SCRIPT_TYPE = Regex("type\\s*=\\s*[\"']([^\"']+)", RegexOption.IGNORE_CASE)
 
         fun levenshtein(a: String, b: String): Int {

@@ -54,3 +54,10 @@ never only colour. Keep user input after an error. Network offline: `navigator.o
 ## Interaction states for every control
 default · hover · focus-visible · active/pressed · disabled · loading · selected/checked · invalid.
 If you styled a button, you must have styled all of these.
+
+## Toggling states without bugs
+- Show one state at a time from one function (`render(state)`), never by adding classes in several places.
+- If you toggle with the `hidden` attribute, make sure CSS cannot override it: a class rule such as
+  `.state{display:flex}` beats the browser's own `[hidden]{display:none}`, and every state shows at once.
+  Add `[hidden]{display:none!important}` (the Oro UI kit already has it).
+- Check the result: after the first load exactly one of loading / empty / error / content is visible.

@@ -56,10 +56,14 @@ Tailwind projects: express the same tokens in `tailwind.config` (`theme.extend.c
   snaps to its edges. Left-align body text; centre only short hero copy.
 - **Depth:** cards = surface + 1px border + soft shadow; elevate on hover (shadow-2, translateY(-2px)).
 - **Radius consistency:** pick one scale and stick to it; nested radius = outer − padding.
-- **Contrast:** body text ≥ 4.5:1. Grey text on coloured backgrounds is the #1 amateur tell.
-- **Images:** `object-fit: cover`, fixed `aspect-ratio`, `loading="lazy"`, real alt text. Use
-  `https://images.unsplash.com/photo-...?auto=format&fit=crop&w=1200&q=80` or
-  `https://picsum.photos/seed/<word>/1200/800` placeholders — never broken `img.jpg` paths.
+- **Contrast:** body text ≥ 4.5:1. Grey text on coloured backgrounds is the #1 amateur tell. White on a
+  mid-tone brand button often lands near 3:1: darken the button (or use dark text) until it passes.
+  `screenshot_preview` lists low-contrast text by element; fix each one it names.
+- **Images:** `object-fit: cover`, fixed `aspect-ratio`, `loading="lazy"`, real alt text. For photos
+  that match the content, `web_fetch` `https://api.openverse.org/v1/images/?q=<subject>&license_type=commercial&page_size=8`
+  (one or two plain words, e.g. `latte art`, `coffee beans`) and use the returned URLs, with a small
+  credit line. Never invent `images.unsplash.com/photo-…` ids — they 404. `https://picsum.photos/seed/<word>/1200/800`
+  is random: only for abstract placeholders. Never broken `img.jpg` paths.
 - **Icons:** one set only. Lucide via CDN (`<script src="https://unpkg.com/lucide@latest"></script>`
   then `lucide.createIcons()`, markup `<i data-lucide="arrow-right"></i>`), or inline SVG.
 - **Fonts:** load from Google Fonts with `display=swap` and `preconnect`.
