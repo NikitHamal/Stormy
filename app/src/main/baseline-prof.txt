@@ -54,6 +54,18 @@ HSPLcom/oro/app/ui/components/message/**->**(**)**
 HSPLcom/oro/app/ui/components/chat/**->**(**)**
 HSPLcom/oro/app/ui/components/diff/**->**(**)**
 
+# --- Agent runs: the loop, stream and tool-call parsing, providers, tools ----
+# Not startup, but hot on every message: without these the first turns after
+# install run interpreted while the JIT warms up, which is slowest exactly on
+# the phones Oro targets.
+HPLcom/oro/app/data/ai/**->**(**)**
+HPLcom/oro/app/data/preview/**->**(**)**
+HPLcom/oro/app/ui/screens/editor/sessions/**->**(**)**
+
+# --- Device agent: screen reading, gestures, the island and its screen -----
+HPLcom/oro/app/device/**->**(**)**
+HPLcom/oro/app/ui/screens/device/**->**(**)**
+
 # --- Settings / secondary screens (post-startup) ----------------------------
 PLcom/oro/app/ui/screens/settings/**->**(**)**
 PLcom/oro/app/ui/screens/git/**->**(**)**

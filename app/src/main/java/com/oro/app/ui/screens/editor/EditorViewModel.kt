@@ -549,6 +549,10 @@ class EditorViewModel(
     // Debug logging state
     private val _debugLogsEnabled = MutableStateFlow(false)
 
+    /** The project root the file tree was first loaded for. */
+    private var treeLoadedFor: String? = null
+    private var treeRefreshJob: Job? = null
+
     init {
         // Rewind markers follow the chat on screen (and appear once the project loads).
         viewModelScope.launch {
@@ -664,9 +668,29 @@ class EditorViewModel(
                         usageStore = store
                         usageBySession.value = withContext(Dispatchers.IO) { store.load() }
                     }
-                    loadFileTree()
+                    if (project.rootPath != treeLoadedFor) {
+                        treeLoadedFor = project.rootPath
+                        loadFileTree()
+                    } else {
+                        scheduleTreeRefresh()
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * Every file write bumps the project's updatedAt, so the project row
+     * re-emits once per write. Rebuilding the whole tree on each of those
+     * walked the project twice per agent edit (the run also refreshes it after
+     * every tool). A burst of writes now costs one walk, once it settles;
+     * operations that change the tree's shape still refresh it themselves.
+     */
+    private fun scheduleTreeRefresh() {
+        treeRefreshJob?.cancel()
+        treeRefreshJob = viewModelScope.launch {
+            delay(TREE_REFRESH_DEBOUNCE_MS)
+            loadFileTree()
         }
     }
 
@@ -2479,6 +2503,8 @@ class EditorViewModel(
 
     companion object {
         private const val OPEN_FILE_CONTEXT_CHARS = 12_000
+        /** Quiet time before a project-row change refreshes the file tree. */
+        private const val TREE_REFRESH_DEBOUNCE_MS = 600L
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L
         /** Slowest push cadence, for very long runs; see pushIntervalMs. */

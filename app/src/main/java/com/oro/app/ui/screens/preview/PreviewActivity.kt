@@ -2295,7 +2295,12 @@ private fun WebViewPreview(
                     builtInZoomControls = true
                     displayZoomControls = false
                     setSupportZoom(true)
-                    cacheMode = WebSettings.LOAD_NO_CACHE
+                    // Normal HTTP caching. The project's own files are always
+                    // fresh anyway -- the dev server sends no-store on every
+                    // response -- while CDN libraries (Tailwind, fonts, icon
+                    // sets) are no longer re-downloaded on every reload, which
+                    // LOAD_NO_CACHE did over mobile data.
+                    cacheMode = WebSettings.LOAD_DEFAULT
                     // Enable modern web features
                     mediaPlaybackRequiresUserGesture = false
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

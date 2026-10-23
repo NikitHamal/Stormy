@@ -98,6 +98,15 @@ android {
         buildConfig = true
     }
 
+    // Oro's UI is English-only (no values-xx folders), but the libraries
+    // bundle their own strings in ~80 languages. Keeping only English drops
+    // those from resources.arsc and keeps library labels (sheet handles,
+    // date pickers, TalkBack hints) in the same language as the rest of the
+    // app. Add a locale here when the app itself is translated.
+    androidResources {
+        localeFilters += setOf("en")
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -115,6 +124,10 @@ android {
                 "/META-INF/INDEX.LIST",
                 "/META-INF/*.kotlin_module",
                 "DebugProbesKt.bin",
+                // Read only by kotlin-reflect, which Oro does not use.
+                "/kotlin/**",
+                // AndroidX build stamps; nothing reads them at runtime.
+                "/META-INF/*.version",
             )
         }
         jniLibs {
@@ -169,8 +182,9 @@ dependencies {
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3.window.sizeclass)
-    implementation(libs.androidx.material3.adaptive.navigation.suite)
+    // material3-window-size-class and material3-adaptive-navigation-suite were
+    // declared but never imported; the latter pulled androidx.window (and its
+    // manifest entries) into every build for nothing.
     implementation(libs.androidx.material.icons.extended)
 
     implementation(libs.androidx.navigation.compose)

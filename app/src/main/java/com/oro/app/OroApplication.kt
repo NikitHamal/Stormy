@@ -5,6 +5,7 @@ import android.os.Build
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.PlatformContext
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.oro.app.crash.CrashHandler
@@ -136,6 +137,7 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         // extra memory pressure at exactly the moment the device just crashed.
         if (isCrashProcess()) return
         trackForeground()
+        prewarmFonts()
         // Off-screen page renderer for the agent's screenshot / audit tools.
         com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
         // Browser-grade transport for the Qwen community provider (see QwenWebClient).
@@ -157,18 +159,47 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         }
     }
 
+    /**
+     * Decodes the Poppins faces off the main thread while the splash screen is
+     * up. Compose loads resource fonts synchronously the first time text is
+     * drawn, so otherwise the first frame waits for four font files to be
+     * parsed on the UI thread. Same calls Compose makes, so it lands in the
+     * same cache: Resources.getFont on API 26+, ResourcesCompat below.
+     */
+    private fun prewarmFonts() {
+        applicationScope.launch(Dispatchers.IO) {
+            val fonts = intArrayOf(
+                com.oro.app.designsystem.R.font.poppins_regular_static,
+                com.oro.app.designsystem.R.font.poppins_medium_static,
+                com.oro.app.designsystem.R.font.poppins_semibold_static,
+                com.oro.app.designsystem.R.font.poppins_bold_static,
+            )
+            for (id in fonts) {
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        resources.getFont(id)
+                    } else {
+                        androidx.core.content.res.ResourcesCompat.getFont(this@OroApplication, id)
+                    }
+                }
+            }
+        }
+    }
+
     private fun isCrashProcess(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
             Application.getProcessName().endsWith(":crash_handler")
 
     /**
-     * Coil 3 singleton loader. SVG decoding is registered explicitly; network
-     * fetching comes from coil-network-okhttp, which reuses the shared OkHttp
-     * client instead of standing up a second connection pool.
+     * Coil 3 singleton loader. SVG decoding is registered explicitly. Network
+     * fetching goes through the app's shared OkHttp client: left to itself,
+     * coil-network-okhttp builds a second client, with its own connection
+     * pool and dispatcher threads, for the same hosts.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {
+                add(OkHttpNetworkFetcherFactory({ com.oro.app.data.ai.AiHttp.client }))
                 add(SvgDecoder.Factory())
             }
             .crossfade(true)

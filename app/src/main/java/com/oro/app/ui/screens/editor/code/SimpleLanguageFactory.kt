@@ -5,15 +5,14 @@ import io.github.rosemoe.sora.lang.EmptyLanguage
 import io.github.rosemoe.sora.lang.Language
 import io.github.rosemoe.sora.lang.QuickQuoteHandler
 import io.github.rosemoe.sora.lang.analysis.AnalyzeManager
+import io.github.rosemoe.sora.lang.analysis.AsyncIncrementalAnalyzeManager
 import io.github.rosemoe.sora.lang.analysis.IncrementalAnalyzeManager
 import io.github.rosemoe.sora.lang.analysis.StyleReceiver
 import io.github.rosemoe.sora.lang.completion.CompletionPublisher
 import io.github.rosemoe.sora.lang.format.Formatter
 import io.github.rosemoe.sora.lang.smartEnter.NewlineHandler
 import io.github.rosemoe.sora.lang.styling.CodeBlock
-import io.github.rosemoe.sora.lang.styling.MappedSpans
 import io.github.rosemoe.sora.lang.styling.Span
-import io.github.rosemoe.sora.lang.styling.Styles
 import io.github.rosemoe.sora.lang.styling.TextStyle
 import io.github.rosemoe.sora.text.CharPosition
 import io.github.rosemoe.sora.text.Content
@@ -115,189 +114,194 @@ class SimpleLanguage(private val config: LanguageConfig) : Language {
 }
 
 /**
- * Simple analyze manager that provides basic syntax highlighting
+ * Highlighting for [SimpleLanguage], incremental and off the main thread.
+ *
+ * It used to re-tokenize the whole document synchronously on every insert and
+ * delete -- i.e. on the UI thread, per keystroke -- so typing in a 2,000-line
+ * page meant tens of milliseconds of span building before each character
+ * appeared on a low-end phone. Sora's [AsyncIncrementalAnalyzeManager] runs
+ * [tokenizeLine] on its own thread, re-tokenizes only the lines an edit
+ * touched (plus following lines while their start state differs), and keeps
+ * the existing spans aligned while it works.
+ *
+ * The per-line state is whether the line starts inside a block comment, so
+ * a `/* ... */` or `<!-- ... -->` spanning lines is now coloured on every
+ * line it covers, not only the first.
  */
-class SimpleAnalyzeManagerImpl(private val config: LanguageConfig) : AnalyzeManager {
+class SimpleAnalyzeManagerImpl(
+    private val config: LanguageConfig
+) : AsyncIncrementalAnalyzeManager<Int, SimpleTokenizer.Token>() {
 
-    private var receiver: StyleReceiver? = null
-    private var reference: ContentReference? = null
-    @Volatile
-    private var shouldReanalyze = false
+    override fun getInitialState(): Int = SimpleTokenizer.NORMAL
 
-    override fun setReceiver(receiver: StyleReceiver?) {
-        this.receiver = receiver
+    override fun stateEquals(state: Int, another: Int): Boolean = state == another
+
+    override fun tokenizeLine(
+        line: CharSequence,
+        state: Int,
+        lineIndex: Int
+    ): IncrementalAnalyzeManager.LineTokenizeResult<Int, SimpleTokenizer.Token> {
+        val result = SimpleTokenizer.tokenize(line, state == SimpleTokenizer.IN_BLOCK_COMMENT, config)
+        return IncrementalAnalyzeManager.LineTokenizeResult<Int, SimpleTokenizer.Token>(
+            if (result.endsInBlockComment) SimpleTokenizer.IN_BLOCK_COMMENT else SimpleTokenizer.NORMAL,
+            result.tokens
+        )
     }
 
-    override fun reset(content: ContentReference, extraArguments: Bundle) {
-        this.reference = content
-        rerun()
+    /** Fresh spans per call: Sora pools and recycles [Span]s, so tokens never hold one. */
+    override fun generateSpansForLine(
+        tokens: IncrementalAnalyzeManager.LineTokenizeResult<Int, SimpleTokenizer.Token>
+    ): List<Span> {
+        val list: List<SimpleTokenizer.Token> = tokens.tokens ?: emptyList()
+        if (list.isEmpty()) return arrayListOf(Span.obtain(0, SimpleTokenizer.NORMAL_STYLE))
+        val spans = ArrayList<Span>(list.size)
+        for (t in list) spans.add(Span.obtain(t.column, t.style))
+        return spans
     }
 
-    override fun insert(start: CharPosition, end: CharPosition, insertedContent: CharSequence) {
-        rerun()
+    override fun computeBlocks(
+        text: Content,
+        delegate: AsyncIncrementalAnalyzeManager<Int, SimpleTokenizer.Token>.CodeBlockAnalyzeDelegate
+    ): List<CodeBlock> = emptyList()
+}
+
+/**
+ * One line of [SimpleLanguage] highlighting, as plain data: keywords, types,
+ * builtins, strings, numbers, operators and comments by column. Pure (no
+ * editor state), so it runs on the analyzer's thread and under unit tests.
+ */
+object SimpleTokenizer {
+
+    /** A highlight run: from [column] to the next token, in [style] (a [TextStyle.makeStyle] value). */
+    class Token(@JvmField val column: Int, @JvmField val style: Long) {
+        override fun equals(other: Any?): Boolean = other is Token && other.column == column && other.style == style
+        override fun hashCode(): Int = column * 31 + style.hashCode()
+        override fun toString(): String = "Token($column, $style)"
     }
 
-    override fun delete(start: CharPosition, end: CharPosition, deletedContent: CharSequence) {
-        rerun()
-    }
+    class Result(val tokens: List<Token>, val endsInBlockComment: Boolean)
 
-    override fun rerun() {
-        shouldReanalyze = true
-        reference?.let { content ->
-            try {
-                val styles = analyze(content)
-                receiver?.setStyles(this, styles)
-            } catch (e: Exception) {
-                // Silently handle analysis errors
-            }
-        }
-    }
+    const val NORMAL = 0
+    const val IN_BLOCK_COMMENT = 1
 
-    override fun destroy() {
-        receiver = null
-        reference = null
-    }
+    val NORMAL_STYLE: Long = TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)
+    private val COMMENT: Long = TextStyle.makeStyle(EditorColorScheme.COMMENT)
+    private val LITERAL: Long = TextStyle.makeStyle(EditorColorScheme.LITERAL)
+    private val OPERATOR: Long = TextStyle.makeStyle(EditorColorScheme.OPERATOR)
+    private val KEYWORD: Long = TextStyle.makeStyle(EditorColorScheme.KEYWORD)
+    private val TYPE: Long = TextStyle.makeStyle(EditorColorScheme.IDENTIFIER_VAR)
+    private val BUILTIN: Long = TextStyle.makeStyle(EditorColorScheme.FUNCTION_NAME)
+    private val NAME: Long = TextStyle.makeStyle(EditorColorScheme.IDENTIFIER_NAME)
 
-    private fun analyze(content: ContentReference): Styles {
-        val styles = Styles()
-        val spansBuilder = MappedSpans.Builder()
-        val lineCount = content.lineCount
-
-        for (line in 0 until lineCount) {
-            val lineContent = content.getLine(line)
-            val spans = analyzeLine(lineContent.toString(), line)
-            for (span in spans) {
-                spansBuilder.add(line, span)
-            }
-        }
-        spansBuilder.determine(lineCount)
-
-        styles.spans = spansBuilder.build()
-        return styles
-    }
-
-    private fun analyzeLine(line: String, lineNumber: Int): MutableList<Span> {
-        val spans = mutableListOf<Span>()
+    fun tokenize(line: CharSequence, inBlockComment: Boolean, config: LanguageConfig): Result {
+        val tokens = ArrayList<Token>(8)
         var i = 0
+        val blockStart = config.blockCommentStart
+        val blockEnd = config.blockCommentEnd
+
+        // A line that starts inside a block comment is comment up to its end marker.
+        if (inBlockComment && blockEnd != null) {
+            tokens.add(Token(0, COMMENT))
+            val end = indexOf(line, blockEnd, 0)
+            if (end < 0) return Result(tokens, endsInBlockComment = true)
+            i = end + blockEnd.length
+            if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
+        }
 
         while (i < line.length) {
             val c = line[i]
 
-            // Check for single line comment
             config.singleLineComment?.let { commentStart ->
-                if (line.startsWith(commentStart, i)) {
-                    if (i > 0 && spans.isEmpty()) {
-                        spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                    }
-                    spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.COMMENT)))
-                    return spans
+                if (startsWith(line, commentStart, i)) {
+                    if (i > 0 && tokens.isEmpty()) tokens.add(Token(0, NORMAL_STYLE))
+                    tokens.add(Token(i, COMMENT))
+                    return Result(tokens, endsInBlockComment = false)
                 }
             }
 
-            // Check for block comment start
-            val blockCommentStart = config.blockCommentStart
-            if (blockCommentStart != null && line.startsWith(blockCommentStart, i)) {
-                if (i > 0 && spans.isEmpty()) {
-                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
-                spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.COMMENT)))
-                // Find end of block comment
-                val blockCommentEnd = config.blockCommentEnd
-                val endIdx = if (blockCommentEnd != null) line.indexOf(blockCommentEnd, i + blockCommentStart.length) else -1
-                if (endIdx != -1) {
-                    i = endIdx + (blockCommentEnd?.length ?: 0)
-                } else {
-                    return spans
-                }
+            if (blockStart != null && startsWith(line, blockStart, i)) {
+                if (i > 0 && tokens.isEmpty()) tokens.add(Token(0, NORMAL_STYLE))
+                tokens.add(Token(i, COMMENT))
+                val endIdx = if (blockEnd != null) indexOf(line, blockEnd, i + blockStart.length) else -1
+                if (endIdx < 0) return Result(tokens, endsInBlockComment = blockEnd != null)
+                i = endIdx + blockEnd!!.length
+                if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
+                continue
             }
 
-            // Check for string start
-            if (c in config.stringDelimiters) {
-                if (spans.isEmpty() && i > 0) {
-                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
-                spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.LITERAL)))
+            if (config.stringDelimiters.indexOf(c) >= 0) {
+                if (tokens.isEmpty() && i > 0) tokens.add(Token(0, NORMAL_STYLE))
+                tokens.add(Token(i, LITERAL))
                 val endIdx = findStringEnd(line, i + 1, c)
                 i = if (endIdx != -1) endIdx + 1 else line.length
-                if (i < line.length) {
-                    spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
+                if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
                 continue
             }
 
-            // Check for numbers
             if (c.isDigit() || (c == '.' && i + 1 < line.length && line[i + 1].isDigit())) {
-                if (spans.isEmpty() && i > 0) {
-                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
-                spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.LITERAL)))
+                if (tokens.isEmpty() && i > 0) tokens.add(Token(0, NORMAL_STYLE))
+                tokens.add(Token(i, LITERAL))
                 while (i < line.length && (line[i].isDigit() || line[i] == '.' || line[i] == 'x' ||
-                            line[i] in 'a'..'f' || line[i] in 'A'..'F' || line[i] == '_')) {
+                        line[i] in 'a'..'f' || line[i] in 'A'..'F' || line[i] == '_')
+                ) {
                     i++
                 }
-                if (i < line.length) {
-                    spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
+                if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
                 continue
             }
 
-            // Check for operators
-            if (c in config.operators) {
-                if (spans.isEmpty() && i > 0) {
-                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
-                spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.OPERATOR)))
+            if (config.operators.indexOf(c) >= 0) {
+                if (tokens.isEmpty() && i > 0) tokens.add(Token(0, NORMAL_STYLE))
+                tokens.add(Token(i, OPERATOR))
                 i++
-                if (i < line.length) {
-                    spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
+                if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
                 continue
             }
 
-            // Check for keywords/identifiers
             if (c.isLetter() || c == '_' || c == '$') {
                 val start = i
-                while (i < line.length && (line[i].isLetterOrDigit() || line[i] == '_' || line[i] == '$')) {
-                    i++
-                }
-                val word = line.substring(start, i)
-
-                if (spans.isEmpty() && start > 0) {
-                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
-
+                while (i < line.length && (line[i].isLetterOrDigit() || line[i] == '_' || line[i] == '$')) i++
+                val word = line.subSequence(start, i).toString()
+                if (tokens.isEmpty() && start > 0) tokens.add(Token(0, NORMAL_STYLE))
                 val style = when {
-                    word in config.keywords -> TextStyle.makeStyle(EditorColorScheme.KEYWORD)
-                    word in config.types -> TextStyle.makeStyle(EditorColorScheme.IDENTIFIER_VAR)
-                    word in config.builtins -> TextStyle.makeStyle(EditorColorScheme.FUNCTION_NAME)
-                    word.firstOrNull()?.isUpperCase() == true -> TextStyle.makeStyle(EditorColorScheme.IDENTIFIER_VAR)
-                    else -> TextStyle.makeStyle(EditorColorScheme.IDENTIFIER_NAME)
+                    word in config.keywords -> KEYWORD
+                    word in config.types -> TYPE
+                    word in config.builtins -> BUILTIN
+                    word[0].isUpperCase() -> TYPE
+                    else -> NAME
                 }
-
-                spans.add(Span.obtain(start, style))
-                if (i < line.length) {
-                    spans.add(Span.obtain(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-                }
+                tokens.add(Token(start, style))
+                if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
                 continue
             }
 
             i++
         }
 
-        // Ensure at least one span
-        if (spans.isEmpty()) {
-            spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
-        }
-
-        return spans
+        if (tokens.isEmpty()) tokens.add(Token(0, NORMAL_STYLE))
+        return Result(tokens, endsInBlockComment = false)
     }
 
-    private fun findStringEnd(line: String, startIndex: Int, delimiter: Char): Int {
+    private fun startsWith(line: CharSequence, prefix: String, at: Int): Boolean {
+        if (at + prefix.length > line.length) return false
+        for (k in prefix.indices) if (line[at + k] != prefix[k]) return false
+        return true
+    }
+
+    private fun indexOf(line: CharSequence, needle: String, from: Int): Int {
+        var at = from
+        val last = line.length - needle.length
+        while (at <= last) {
+            if (startsWith(line, needle, at)) return at
+            at++
+        }
+        return -1
+    }
+
+    private fun findStringEnd(line: CharSequence, startIndex: Int, delimiter: Char): Int {
         var i = startIndex
         while (i < line.length) {
-            if (line[i] == delimiter && (i == 0 || line[i - 1] != '\\')) {
-                return i
-            }
+            if (line[i] == delimiter && (i == 0 || line[i - 1] != '\\')) return i
             i++
         }
         return -1

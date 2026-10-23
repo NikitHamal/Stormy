@@ -1,3 +1,53 @@
+# Performance notes — round 3 (2026-10-22, app-wide pass)
+
+Measured on molab release builds (same commit, before/after).
+
+| | Before | After |
+|---|---|---|
+| Release APK | 8,922,361 B | 8,570,118 B (-352 KB, -3.9%) |
+| resources.arsc | 346,516 B | 30,016 B |
+
+## Changed
+- **Code editor typing.** `SimpleLanguage` re-tokenized the whole document on the UI thread on every
+  keystroke. It now runs on Sora's `AsyncIncrementalAnalyzeManager`: background thread, only the edited
+  lines (plus following lines while their start state differs), spans kept aligned in between. The
+  tokenizer is pure (`SimpleTokenizer`, `SimpleTokenizerTest`), same colours, and block comments now
+  carry across lines.
+- **Idle brand clocks.** `rememberAnimationClock(maxFps)` sleeps between ticks below 60 fps instead of
+  waking on every vsync. `OrobiIdle` ticks at 30 (the Home bar shows it as long as Home is open), so the
+  UI thread and GPU idle between frames. Low-RAM and Lite stay capped at 30 for every clock.
+- **Startup.** Poppins is decoded on a background thread while the splash is up, through the same calls
+  Compose makes (`Resources.getFont` on 26+, `ResourcesCompat` below), so the first frame hits the cache.
+- **Baseline Profile.** Now also covers `data/ai/**` (agent loop, parsers, providers, tools),
+  `data/preview/**`, sessions and the device agent (`HPL`: hot, post-startup).
+- **Editor file tree.** Project-row emissions (one per file write, via `updatedAt`) used to rebuild the
+  tree each time, on top of the refresh after every tool: two walks per agent edit. First load still
+  loads at once; later emissions coalesce into one refresh after 600 ms of quiet.
+- **Preview.** `LOAD_DEFAULT` instead of `LOAD_NO_CACHE`: the dev server sends `no-store` for every
+  project file, so edits still show, while CDN libraries stop being re-downloaded on each reload.
+- **Network.** Coil and `GitHubActionsService` share `AiHttp.client`'s pool and dispatcher.
+- **Home.** A project's live link is read in the background before its menu opens (was a disk read in
+  composition).
+- **APK.** English-only resources (`localeFilters`), no `kotlin/**` builtins, no `META-INF/*.version`,
+  two unused Compose dependencies removed.
+
+## Measured but not changed (risky without a device)
+- **JGit is kept whole** (`-keep class org.eclipse.jgit.** { *; }`): 1.30 MB of 7.72 MB raw dex. A
+  narrower rule (`-keep,allowshrinking` + keeping `TranslationBundle` field names and enums used through
+  `getEnumConstants`) could save a few hundred KB, but a mistake breaks clone/push only in release
+  builds. Needs an on-device smoke test of clone, commit, push, pull before trying.
+- **ViewModels kept whole** (`ui.screens.**ViewModel*` and their `$` classes, 257 KB raw): constructors
+  are already kept by `-keep class * extends ViewModel { <init>(...); }`, so the member keeps could go
+  for a small gain once a release build can be exercised on a phone.
+- **ToolCard computes a diff in composition** for every edit row with old/new content
+  (`app/.../components/agent/ToolCard.kt`): main-thread work proportional to file size per row in long
+  chats. Belongs with the chat-performance work (compute it off the main thread or carry the counts).
+- **Code editor copies the whole document per keystroke** (`editor.text.toString()` in
+  `SoraCodeEditorView`) to push it to the view model. Debouncing needs the push tied to its file and a
+  flush before save; small files make it cheap, so it was left.
+
+---
+
 # Performance notes (wip/perf)
 
 Findings from the low-end-device performance pass. Part 1 lists what changed on

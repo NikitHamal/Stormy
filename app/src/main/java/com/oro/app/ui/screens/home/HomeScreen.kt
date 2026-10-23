@@ -656,8 +656,20 @@ private fun SwipeableProjectCard(
     val shareContext = androidx.compose.ui.platform.LocalContext.current
     val shareScope = rememberCoroutineScope()
 
+    // The live link is read from the project's deploy state on disk, off the
+    // main thread, before the sheet opens -- so the sheet never jumps when the
+    // link rows appear, and opening it never reads a file on the UI thread.
+    var liveUrl by remember { mutableStateOf<String?>(null) }
+    val openMenu: () -> Unit = {
+        shareScope.launch {
+            liveUrl = withContext(Dispatchers.IO) {
+                runCatching { com.oro.app.share.ProjectSharing.liveUrl(java.io.File(project.rootPath)) }.getOrNull()
+            }
+            showMenu = true
+        }
+    }
+
     if (showMenu) {
-        val liveUrl = remember(project.rootPath) { com.oro.app.share.ProjectSharing.liveUrl(java.io.File(project.rootPath)) }
         ActionSheet(
             title = project.name,
             subtitle = liveUrl,
@@ -868,7 +880,7 @@ private fun SwipeableProjectCard(
                     // to this icon opens wherever the row has scrolled to, and
                     // near the bottom of the screen it flips above the anchor
                     // and lands under the thumb that just tapped it.
-                    IconButton(onClick = { showMenu = true }) {
+                    IconButton(onClick = openMenu) {
                         Icon(
                             imageVector = Icons.Outlined.MoreVert,
                             contentDescription = "Actions for ${project.name}",
