@@ -30,6 +30,8 @@ object KeylessFallback {
     private val ORDER = listOf(
         // Kilo's free pool, all native tools: 550B at ~2-3 s, 1M context.
         "nvidia/nemotron-3-ultra-550b-a55b:free",
+        // Tencent's Hy3 demo: native tool calls, 256K, ~2 s to the first token (2026-10-23).
+        "hy3:hy3",
         "kilo-auto/free",
         "cohere/north-mini-code:free",
         "dots-studio/dots-3-note-preview:free",
@@ -44,6 +46,10 @@ object KeylessFallback {
         "Qwen3.8-27B",
         "poolside/laguna-s-2.1:free",
         "nvidia/nemotron-3.5-lightning:free",
+        // OpenBMB's MiniCPM-V 4.7 demo: native tools, ~2 s, four requests at a time across its visitors.
+        "minicpm:MiniCPM-V-4.7-35B-A3B",
+        // Poolside's own Laguna demo: a second route to Laguna S 2.1, on the demo's key (tools via GLM's template).
+        "laguna:laguna-s-2.1",
         "unikey:minimax/minimax-m3",
         "Qwen3.5-397B-A17B",
         // LLM7's anonymous budget is ~100k tokens a day per IP.
@@ -51,6 +57,9 @@ object KeylessFallback {
         "codestral-latest",
         "reflection/beam-free",
         "recursive/flint-v1.0:free",
+        // Text-mode stand-in found 2026-10-23: Cloudflare's playground (per-minute
+        // caps shared by all its visitors).
+        "cfai:@cf/google/gemma-4-26b-a4b-it",
         "k2:IFM/K2-Horizon-375B-A23B",
         "ptero:deepseek-v4.1-flash:free",
         "qwen:qwen3.7-plus",
@@ -144,7 +153,10 @@ object KeylessFallback {
         return (family + ORDER.filter { it !in family }).asSequence()
             .filter { it != model.id && !isBusy(it) }
             .mapNotNull(lookup)
-            .filter { !needsNativeTools || (it.supportsToolCalls && !it.provider.isCommunity) }
+            .filter {
+                !needsNativeTools || (it.supportsToolCalls &&
+                    (!it.provider.isCommunity || com.oro.app.data.ai.community.CommunityClients.takesTools(it.provider)))
+            }
             // chat.qwen.ai refused this request: the site's other models would be refused too.
             .filter { !(model.provider == AiProvider.QWEN_WEB && it.provider == AiProvider.QWEN_WEB) }
             .toList()
@@ -193,7 +205,8 @@ object KeylessFallback {
      */
     internal fun silenceTimeoutMs(provider: AiProvider): Long? = when (provider.protocol) {
         ProviderProtocol.PTERO_GUEST -> null
-        ProviderProtocol.MERCURY_WEB, ProviderProtocol.QWEN_WEB -> BROWSER_SILENT_TIMEOUT_MS
+        // A Space may be waking up or queueing; the in-app browser bridges load a site first.
+        ProviderProtocol.MERCURY_WEB, ProviderProtocol.QWEN_WEB, ProviderProtocol.HF_SPACE -> BROWSER_SILENT_TIMEOUT_MS
         else -> SILENT_TIMEOUT_MS
     }
 

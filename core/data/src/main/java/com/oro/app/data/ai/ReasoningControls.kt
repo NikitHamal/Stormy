@@ -91,6 +91,16 @@ object ReasoningControls {
                 ReasoningControl("Thinking", levels("off", "on"), "off", ReasoningWire.CLIENT)
             } else null
             AiProvider.INCEPTION -> mercury(id)
+            // Tencent's Hy3 demo: its own think_level scale, the Space's default High.
+            AiProvider.HY3 -> ReasoningControl(
+                "Think level",
+                listOf(ReasoningLevel("no_think", "No think"), ReasoningLevel("low", "Low"), ReasoningLevel("high", "High")),
+                "high",
+                ReasoningWire.CLIENT
+            )
+            // On/off switches the demos expose (both default to on).
+            AiProvider.LAGUNA -> ReasoningControl("Reasoning", levels("off", "on"), "on", ReasoningWire.CLIENT)
+            AiProvider.MINICPM -> ReasoningControl("Thinking", levels("off", "on"), "on", ReasoningWire.CLIENT)
             AiProvider.GROQ -> when {
                 id.startsWith("gpt-oss") -> effort("medium", "low", "medium", "high")
                 id.startsWith("qwen3.8") -> effort("default", "none", "default", "low", "medium", "high")

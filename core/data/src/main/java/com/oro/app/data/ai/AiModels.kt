@@ -60,7 +60,11 @@ enum class ProviderProtocol {
     /** chat.inceptionlabs.ai guest chat (Mercury 3): session token + Vercel AI SDK v5 stream. */
     MERCURY_WEB,
     /** getunikey.ai anonymous trial: OpenAI-style SSE, a fresh visitor id per request, no tools. */
-    UNIKEY_GUEST
+    UNIKEY_GUEST,
+    /** A lab's official Hugging Face Space relaying to its own API, over Gradio's queue protocol. */
+    HF_SPACE,
+    /** Cloudflare's AI Playground: an Agents SDK WebSocket (setConfig RPC + AI SDK chat stream). */
+    CF_PLAYGROUND
 }
 
 /** How a provider treats credentials. */
@@ -276,6 +280,38 @@ enum class AiProvider(
         apiKeyRequirement = ApiKeyRequirement.NONE,
         keyNote = "No account needed: Qwen3.8 27B with native tool calling, under a second to the first token. " +
             "Anonymous limit 10 requests/min, 30/hour, 100/day per IP."
+    ),
+    HY3(
+        displayName = "Hy3 (Tencent, community)",
+        baseUrl = "https://tencent-hy3.hf.space",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Tencent's Hy3 (295B MoE, 256K context) through Tencent's own Hugging Face demo: no account, " +
+            "native tool calls, think level. Shared with the demo's visitors; may change without notice.",
+        protocol = ProviderProtocol.HF_SPACE
+    ),
+    CLOUDFLARE_PLAYGROUND(
+        displayName = "Cloudflare AI Playground (community)",
+        baseUrl = "https://playground.ai.cloudflare.com",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Workers AI models (Gemma 4 26B, GLM-4.7 Flash) through Cloudflare's public playground: " +
+            "no account. Rate limited per minute across all its visitors; no native tools.",
+        protocol = ProviderProtocol.CF_PLAYGROUND
+    ),
+    MINICPM(
+        displayName = "MiniCPM (OpenBMB, community)",
+        baseUrl = "https://openbmb-minicpm-v-4-7-demo.hf.space",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "OpenBMB's MiniCPM-V 4.7 (35B-A3B) through OpenBMB's own Hugging Face demo: no account. " +
+            "Four requests at a time across all visitors; the demo logs conversations.",
+        protocol = ProviderProtocol.HF_SPACE
+    ),
+    LAGUNA(
+        displayName = "Laguna (Poolside, community)",
+        baseUrl = "https://poolside-laguna-s-2-1.hf.space",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Poolside's Laguna S 2.1 coding model through Poolside's own Hugging Face demo: no account, " +
+            "tool calls. Answers arrive whole (the demo does not stream); shared with the demo's visitors.",
+        protocol = ProviderProtocol.HF_SPACE
     ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",

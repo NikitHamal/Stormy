@@ -17,7 +17,8 @@ object KeylessSeeds {
         name: String,
         provider: AiProvider,
         context: Int,
-        thinking: Boolean = false
+        thinking: Boolean = false,
+        tools: Boolean = true
     ) = AiModel(
         id = id,
         name = name,
@@ -25,7 +26,7 @@ object KeylessSeeds {
         contextLength = ModelCapabilities.resolveContextLength(id, reported = context),
         reportedContextLength = context,
         supportsStreaming = true,
-        supportsToolCalls = true,
+        supportsToolCalls = tools,
         isThinkingModel = thinking
     )
 
@@ -66,10 +67,61 @@ object KeylessSeeds {
         model("qwen3.8-27b", "Qwen3.8 27B (VLM Run, no key)", AiProvider.VLM_RUN, 168_000)
     )
 
+    /**
+     * New keyless providers from the 2026-10-23 survey (docs/research/keyless-providers.md),
+     * each checked live with a streamed reply and a long prompt.
+     *
+     * Hy3: Tencent's own Hugging Face demo relays to Tencent's API -- 295B MoE,
+     * 256K context, native tool calls (a round trip verified), think level.
+     */
+    val hy3 = listOf(
+        model("hy3:hy3", "Hy3 (Tencent, no key)", AiProvider.HY3, 262_144, thinking = true)
+    )
+
+    /**
+     * Cloudflare's AI Playground: Workers AI models over the Agents SDK
+     * socket. Windows are the ones its own `getModels` reports. Only models
+     * that stream cleanly and finish long answers are seeded (gpt-oss-120b
+     * stops after a few hundred characters there; Llama 4 Scout and Qwen3
+     * repeat every chunk). The text protocol carries tools.
+     */
+    val cloudflare = listOf(
+        // Follows Oro's text tool protocol exactly (verified live).
+        model("cfai:@cf/google/gemma-4-26b-a4b-it", "Gemma 4 26B (Cloudflare, no key)", AiProvider.CLOUDFLARE_PLAYGROUND, 256_000, thinking = true, tools = false),
+        // Good for chat; its text tool calls are unreliable (unnamed parameters, escaped HTML), so
+        // it is not a fallback stand-in.
+        model("cfai:@cf/zai-org/glm-4.7-flash", "GLM-4.7 Flash (Cloudflare, no key)", AiProvider.CLOUDFLARE_PLAYGROUND, 131_072, thinking = true, tools = false)
+        // GLM-5.3 Flash is listed too but answered "rate limited" (a cap shared by all the
+        // playground's visitors) on every try over two hours, so it is not seeded.
+    )
+
+    /**
+     * OpenBMB's own demo of MiniCPM-V 4.7 (35B-A3B MoE): native tool calls
+     * (a call, its result and a follow-up turn verified live). The model
+     * reads 262K tokens; the relay's limit is unpublished, so a safe window
+     * is set (a ~32k-token prompt answered correctly).
+     */
+    val minicpm = listOf(
+        model("minicpm:MiniCPM-V-4.7-35B-A3B", "MiniCPM-V 4.7 35B-A3B (OpenBMB, no key)", AiProvider.MINICPM, 131_072, thinking = true)
+    )
+
+    /**
+     * Poolside's own demo of Laguna S 2.1 (OpenRouter's free route: 262K
+     * context, 32K output). The demo forwards no tools; the adapter carries
+     * them in GLM's template, which the model follows (see HfSpaces.Laguna).
+     */
+    val laguna = listOf(
+        model("laguna:laguna-s-2.1", "Laguna S 2.1 (Poolside, no key)", AiProvider.LAGUNA, 262_144, thinking = true)
+    )
+
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
         AiProvider.KILOCODE to kilo,
         AiProvider.LLM7 to llm7,
-        AiProvider.VLM_RUN to vlmRun
+        AiProvider.VLM_RUN to vlmRun,
+        AiProvider.HY3 to hy3,
+        AiProvider.CLOUDFLARE_PLAYGROUND to cloudflare,
+        AiProvider.MINICPM to minicpm,
+        AiProvider.LAGUNA to laguna
     )
 
     operator fun get(provider: AiProvider): List<AiModel> = byProvider[provider].orEmpty()

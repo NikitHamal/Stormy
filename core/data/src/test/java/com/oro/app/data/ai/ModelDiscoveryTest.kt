@@ -93,7 +93,8 @@ class ModelDiscoveryTest {
         val k2 = AiModels.findModelById("k2:IFM/K2-Horizon-375B-A23B")!!
         val withTools = KeylessFallback.candidates(k2, needsNativeTools = true) { AiModels.findModelById(it) }
         assertThat(withTools).isNotEmpty()
-        assertThat(withTools.none { it.provider.isCommunity }).isTrue()
+        // Community bridges only where the bridge passes tools through (Tencent's Hy3 demo).
+        assertThat(withTools.all { !it.provider.isCommunity || com.oro.app.data.ai.community.CommunityClients.takesTools(it.provider) }).isTrue()
         val first = withTools.first()
         KeylessFallback.markBusy(first.id, StreamEvent.Error("rate limit", httpCode = 429))
         assertThat(KeylessFallback.candidates(k2, needsNativeTools = true) { AiModels.findModelById(it) }.map { it.id })

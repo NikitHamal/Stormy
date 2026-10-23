@@ -147,9 +147,9 @@ class AiProviderManager(
         configurationError(model)?.let { return flowOf(StreamEvent.Error(it)) }
         // Each model gets its own level: a keyless stand-in has a different scale.
         val level = ReasoningControls.chosen(model, reasoningLevels)
-        // Community bridges speak their own protocols and take no tools.
+        // Community bridges speak their own protocols; the few that take tools get them.
         if (model.provider.isCommunity) {
-            return com.oro.app.data.ai.community.CommunityClients.stream(model, messages, level)
+            return com.oro.app.data.ai.community.CommunityClients.stream(model, messages, level, tools)
         }
         val custom = customFor(model)
         if (custom != null) return streamCustom(custom, model, messages, tools, temperature, maxTokens, reasoningLevels)

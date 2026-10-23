@@ -11,9 +11,10 @@ class KeylessSeedsTest {
         assertThat(KeylessSeeds.all).isNotEmpty()
         KeylessSeeds.all.forEach { m ->
             assertThat(m.provider.worksWithoutKey).isTrue()
-            assertThat(m.provider.isCommunity).isFalse()
-            assertThat(m.supportsToolCalls).isTrue()
             assertThat(m.contextLength).isAtLeast(128_000)
+            // Gateways take native tools; a community bridge does only when its client says so.
+            if (!m.provider.isCommunity) assertThat(m.supportsToolCalls).isTrue()
+            else assertThat(m.supportsToolCalls).isEqualTo(com.oro.app.data.ai.community.CommunityClients.takesTools(m.provider))
         }
     }
 

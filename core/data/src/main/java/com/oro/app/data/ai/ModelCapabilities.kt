@@ -284,7 +284,14 @@ object RateLimits {
         // Inception's free tier: 1,000 requests and 1M input tokens a minute.
         AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000),
         // VLM Run anonymous: 10/min, 30/hour, 100/day per IP (docs.vlm.run, 2026-10-22).
-        AiProvider.VLM_RUN to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000, requestsPerDay = 95)
+        AiProvider.VLM_RUN to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000, requestsPerDay = 95),
+        // Labs' public demos (2026-10-23): shared with every visitor, so paced gently.
+        // Hy3's Space runs 64 requests at a time; MiniCPM's 4; Laguna's rides a free
+        // OpenRouter route; Cloudflare caps each model per minute across its playground.
+        AiProvider.HY3 to RateLimit(requestsPerMinute = 15, tokensPerMinute = 600_000),
+        AiProvider.MINICPM to RateLimit(requestsPerMinute = 6, tokensPerMinute = 300_000),
+        AiProvider.LAGUNA to RateLimit(requestsPerMinute = 6, tokensPerMinute = 300_000),
+        AiProvider.CLOUDFLARE_PLAYGROUND to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */

@@ -47,6 +47,21 @@ interface CommunityChatClient {
      */
     fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String?): Flow<StreamEvent> =
         stream(model, messages)
+
+    /**
+     * Whether this site takes OpenAI tool definitions for [provider] (native
+     * function calling, e.g. Tencent's Hy3 Space). The rest use the text
+     * protocol. Per provider: one client may serve several sites.
+     */
+    fun takesTools(provider: AiProvider): Boolean = false
+
+    /** With the request's tools, for sites that [takesTools]; the rest ignore them. */
+    fun stream(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        reasoningLevel: String?,
+        tools: List<com.oro.app.data.ai.Tool>?
+    ): Flow<StreamEvent> = stream(model, messages, reasoningLevel)
 }
 
 object CommunityClients {
@@ -56,15 +71,27 @@ object CommunityClients {
             ProviderProtocol.QWEN_WEB to QwenWebClient(),
             ProviderProtocol.PTERO_GUEST to PteroClient(),
             ProviderProtocol.MERCURY_WEB to MercuryWebClient(),
-            ProviderProtocol.UNIKEY_GUEST to UnikeyClient()
+            ProviderProtocol.UNIKEY_GUEST to UnikeyClient(),
+            ProviderProtocol.HF_SPACE to HfSpaceClient(),
+            ProviderProtocol.CF_PLAYGROUND to CloudflarePlaygroundClient()
         )
     }
 
     fun forProvider(provider: AiProvider): CommunityChatClient? = clients[provider.protocol]
 
-    fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String? = null): Flow<StreamEvent> =
-        forProvider(model.provider)?.stream(model, messages, reasoningLevel)
-            ?: flowOf(StreamEvent.Error("${model.provider.displayName} has no community client"))
+    fun stream(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        reasoningLevel: String? = null,
+        tools: List<com.oro.app.data.ai.Tool>? = null
+    ): Flow<StreamEvent> =
+        forProvider(model.provider)?.let { client ->
+            if (tools != null && client.takesTools(model.provider)) client.stream(model, messages, reasoningLevel, tools)
+            else client.stream(model, messages, reasoningLevel)
+        } ?: flowOf(StreamEvent.Error("${model.provider.displayName} has no community client"))
+
+    /** Whether [provider]'s bridge takes native tool definitions (see [CommunityChatClient.takesTools]). */
+    fun takesTools(provider: AiProvider): Boolean = forProvider(provider)?.takesTools(provider) == true
 
     /** Upstream model id: the seed id minus its "provider:" namespace. */
     fun upstreamId(model: AiModel): String = model.id.substringAfter(':', model.id)
@@ -89,19 +116,21 @@ internal object CommunityHeaders {
  * the same `<tool_call>` / `<tool_result>` text the agent uses in text mode --
  * the raw-parameter format [com.oro.app.data.ai.agent.TextToolProtocol] teaches
  * -- so a conversation started on another model stays intelligible here, and
- * the history the model imitates matches its instructions.
+ * the history the model imitates matches its instructions. A site whose model
+ * was trained on another call format passes its own [formatCall].
  */
 internal object Transcript {
 
     data class Turn(val role: String, val text: String)
 
-    fun turns(messages: List<ChatRequestMessage>): List<Turn> = messages.mapNotNull { m ->
+    fun turns(
+        messages: List<ChatRequestMessage>,
+        formatCall: (name: String, argumentsJson: String) -> String = com.oro.app.data.ai.agent.TextToolProtocol::formatCall
+    ): List<Turn> = messages.mapNotNull { m ->
         when (m.role) {
             "system", "user" -> m.content?.takeIf { it.isNotBlank() }?.let { Turn(m.role, it) }
             "assistant" -> {
-                val calls = m.toolCalls.orEmpty().joinToString("\n") { c ->
-                    com.oro.app.data.ai.agent.TextToolProtocol.formatCall(c.function.name, c.function.arguments)
-                }
+                val calls = m.toolCalls.orEmpty().joinToString("\n") { c -> formatCall(c.function.name, c.function.arguments) }
                 listOfNotNull(m.content?.takeIf { it.isNotBlank() }, calls.takeIf { it.isNotBlank() })
                     .joinToString("\n").takeIf { it.isNotBlank() }?.let { Turn("assistant", it) }
             }

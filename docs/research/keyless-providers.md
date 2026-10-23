@@ -144,3 +144,66 @@ list github.com/mvalentsev/awesome-free-ai-coding (verified 2026-10-22) and live
 3. **Another free Qwen when the site asks for a human check.** The error says "browser check", so KeylessFallback parks *all* chat.qwen.ai models for 10 minutes. The request goes to Qwen-family stand-ins first: VLM Run Qwen3.8 27B, OVHcloud Qwen3.8 27B, OVHcloud Qwen3.5 397B, then Ptero Qwen 3.7 Flash, before the global order. All four answered keylessly from both networks on 2026-10-23. The reasoning stream says which model answered.
 
 Not done, on purpose: solving the slider automatically (no captcha solving). Showing it to the user to solve in a visible WebView would recover the site route on a distrusted network, but needs UI outside this pass.
+
+## 2026-10-23 — four new keyless providers (fork N)
+
+Method: labs' own demos and playgrounds that relay to the lab's API, found in the Hugging Face Spaces listings of
+~80 lab accounts (CPU-hosted Spaces only: the model runs at the lab, so there is no ZeroGPU quota), the lists
+cheahjs/free-llm-api-resources and awesome-free-ai-coding, g4f and NEB. Candidates were probed from this sandbox
+(Google Cloud egress behind a TLS-intercepting proxy) and from molab (a different network); the four added answer on
+both. Each also passed, through Oro's own Kotlin clients on molab: a streamed reply, a tool call, a ~32k-token needle
+prompt, and a full
+agent-loop run on a 108k-character task with Oro's real system prompt and all its tools (the code from the middle of
+the log had to be written to `answer.txt` with `write_file` and the run had to end with a reply).
+
+### Added
+
+| Provider (`AiProvider`) | Endpoint | Model (seed id) | Context | Tools | Limits | Networks | Live results |
+|---|---|---|---|---|---|---|---|
+| **Hy3** `HY3` (Tencent) | `https://tencent-hy3.hf.space`, Gradio queue (`/config` → `fn_index` of `chat`, `queue/join`, `queue/data` SSE diffs) | `hy3:hy3` — Hy3, 295B MoE / 21B active | 262,144 | **native** (OpenAI tools as a JSON string; tool turns in the history) | the Space's queue, shared with its visitors; Oro paces at 15/min | sandbox + molab | PONG 1.7–2.1 s; `write_file` call 2.9–3.7 s; 2,000-line (~49k-token) needle OK; agent round trip 11.6 s |
+| **MiniCPM** `MINICPM` (OpenBMB) | `https://openbmb-minicpm-v-4-7-demo.hf.space`, `predict` | `minicpm:MiniCPM-V-4.7-35B-A3B` (takes images upstream; Oro sends text) | 131,072 (model reads 262K; the relay's cap is unpublished) | **native** (`tools`, `tool_choice`, `tool_messages`; names must match `[A-Za-z0-9_-]{1,64}`) | four requests at a time across all visitors; **the demo logs requests and outputs** | sandbox + molab | PONG ~1 s; `write_file` 1.3 s; call → result → follow-up verified; ~32k-token needle 51–59 s; agent round trip 58 s |
+| **Laguna** `LAGUNA` (Poolside) | `https://poolside-laguna-s-2-1.hf.space`, `chat` (OpenAI `messages` + `reasoning` bool, forwarded to OpenRouter `poolside/laguna-s-2.1:free` on Poolside's key) | `laguna:laguna-s-2.1` | 262,144 (32K output) | **GLM template** in the system message (the Space forwards no `tools`); the agent loop reads the `<arg_key>/<arg_value>` blocks | OpenRouter's free limits on Poolside's key, shared by the demo's visitors ("temporarily rate-limited upstream" seen once in ~30 calls); answers arrive whole | sandbox + molab | PONG 1–1.5 s; `write_file` call 5/5; ~32k needle OK; agent round trip 3 of 4 (3.4–8 s; once it gave the code without the call) |
+| **Cloudflare AI Playground** `CLOUDFLARE_PLAYGROUND` | `wss://playground.ai.cloudflare.com/agents/playground/{name}?_pk={uuid}` (Agents SDK socket: `rpc setConfig` with model + system, then `cf_agent_use_chat_request`; replies are AI SDK v5 chunks) | `cfai:@cf/google/gemma-4-26b-a4b-it` (256,000), `cfai:@cf/zai-org/glm-4.7-flash` (131,072, chat only) | as `getModels` reports | **text protocol** (Gemma follows it exactly; GLM-4.7 Flash does not, so it is no fallback stand-in) | per-minute caps shared by all visitors (`3021: rate limiting` → 429); newest message ≤ 6,000 characters (Oro splits a long final turn into parts joined by "Noted." turns); "Safety check unavailable" → 503 | sandbox + molab | PONG 4.5 s (sandbox); 600- and 1,300-line needles OK; text-protocol `write_file` OK; agent round trip 43.6 s |
+
+Reasoning controls (`ReasoningWire.CLIENT`, each demo's own scale): Hy3 `no_think | low | high` (default high),
+MiniCPM and Laguna `off | on` (default on). Cloudflare's models have none exposed.
+
+Fallback order: Hy3 right after Nemotron 3 Ultra (native tools, 256K, ~2 s); MiniCPM and Laguna after Nemotron 3.5
+Lightning; Gemma 4 26B among the text-mode stand-ins. GLM-4.7 Flash is selectable but never a stand-in.
+
+Why Laguna gets GLM's template: with Oro's raw-parameter format it wrote a readable call 1 time in 5, mixing in
+GLM's `<arg_key>` tags; with the tools in GLM's own template (`# Tools … <tools>{json}</tools> … <tool_call>{name}
+<arg_key>…`) it wrote clean calls 5 times in 5, and 18 replies sampled with Oro's full system prompt and catalogue
+(~35k tokens with the task) all carried a call in that format (`write_file` in 14; `grep`, `read_file` or
+`list_files` first in 4). The format is ours to choose because the Space's `chat` passes `messages` straight to
+`client.chat.completions.create` and never `tools`.
+
+### Rejected (and why)
+
+- **Sign-in or account needed:** gpt-oss.com (ChatKit behind a Hugging Face sign-in; anonymous calls 500), Mistral
+  Le Chat (login on send), HuggingChat (AWS WAF, then login), Kimi (login and fingerprinting), Yuanbao, Grok,
+  Copilot (sign-in), Doubao (no guest input), Hack Club AI proxy (auth), api.airforce (free tier needs a key).
+- **Bot checks or captchas:** Meta AI (`__rd_verify` challenge, then a TOS-bound temporary user), DeepSeek (human
+  verification), Z.ai, Baichuan and LMArena (captchas), Venice (attestation that detects automation), LongCat
+  (signed `mtgsig` requests), Cerebras chat (challenge), Perplexity (Cloudflare challenge; search-only anyway).
+- **Unreachable or unsuitable:** Duck.ai (unreachable from molab), Baidu chat (guest streaming works but needs
+  tokens scraped from the page, and answers are search-oriented), ModelScope studios (no stable host).
+- **Spaces that failed:** Cohere Command A+ (concurrency 2, `/respond` keeps history server-side, queue joins hung),
+  StepFun Step-3.7-Flash-dev (402 "quota exceeded" on every try), Step3-VL-10B (hung). Not pursued: Falcon-H1R
+  (small model, custom inputs), Hy3-preview (same family as Hy3), Qwen3.5-Omni (left to the Qwen work).
+- **Cloudflare models not seeded:** gpt-oss-120b (stops after a few hundred characters, repeats chunks), Llama 4
+  Scout and Qwen3 (repeat every chunk), GLM-5.3 Flash (rate limited on every try over two hours); the playground's
+  "premium" models are silently answered by GLM-4.7 Flash.
+- **Key-only or offline:** FreeInference (521), Hetzner AI (key), LLMTR (DNS failure; key), Routeway (Cloudflare
+  check and key), BazaarLink (key).
+
+### Caveats
+
+- No identity rotation anywhere: no visitor ids, cookies or fingerprints are minted. The playground socket gets a
+  fresh agent (chat room) name per request, as its own page does for a new chat; its limits are per-minute caps
+  shared by everyone, so this stretches nothing.
+- These are demos: a lab can change a Space's inputs or switch it off without notice. A broken adapter fails fast
+  with a retryable error and the keyless fallback hands the request on (a silent Space after 75 s, the playground
+  after 35 s).
+- MiniCPM's demo writes every request and raw model output to log files (its `app.py`); the provider note in the
+  app says so.
