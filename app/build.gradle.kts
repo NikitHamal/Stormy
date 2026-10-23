@@ -126,8 +126,6 @@ android {
                 "DebugProbesKt.bin",
                 // Read only by kotlin-reflect, which Oro does not use.
                 "/kotlin/**",
-                // AndroidX build stamps; nothing reads them at runtime.
-                "/META-INF/*.version",
             )
         }
         jniLibs {
@@ -160,6 +158,15 @@ composeCompiler {
     if (providers.gradleProperty("composeReports").orNull == "true") {
         reportsDestination.set(layout.buildDirectory.dir("compose_compiler"))
         metricsDestination.set(layout.buildDirectory.dir("compose_compiler"))
+    }
+}
+
+// AndroidX build stamps (META-INF/*.version): nothing reads them while the app
+// runs, but Layout Inspector needs the Compose ones to inspect a debug build,
+// so only release builds drop them.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.resources.excludes.add("/META-INF/*.version")
     }
 }
 

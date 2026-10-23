@@ -76,4 +76,38 @@ class SimpleTokenizerTest {
         // The string runs to the unescaped quote at 9; normal text resumes at 10.
         assertThat(r.tokens).contains(SimpleTokenizer.Token(10, normal))
     }
+
+    @Test
+    fun `a slash-star inside a regular expression is not a comment`() {
+        val r = SimpleTokenizer.tokenize("""const trailing = /\/*$/;""", SimpleTokenizer.NORMAL, JavaScriptConfig)
+        assertThat(r.endState).isEqualTo(SimpleTokenizer.NORMAL)
+        assertThat(r.tokens).contains(SimpleTokenizer.Token(17, literal))
+        assertThat(r.tokens.map { it.style }).doesNotContain(comment)
+    }
+
+    @Test
+    fun `a division is still a division`() {
+        val r = SimpleTokenizer.tokenize("const half = total / 2; /* note */ x", SimpleTokenizer.NORMAL, JavaScriptConfig)
+        assertThat(r.endState).isEqualTo(SimpleTokenizer.NORMAL)
+        assertThat(r.tokens).contains(SimpleTokenizer.Token(24, comment))
+    }
+
+    @Test
+    fun `a template string carries across lines and hides slash-star`() {
+        val first = SimpleTokenizer.tokenize("const glob = `", SimpleTokenizer.NORMAL, JavaScriptConfig)
+        assertThat(first.endState).isEqualTo(SimpleTokenizer.IN_TEMPLATE)
+        val middle = SimpleTokenizer.tokenize("  dist/* and more", first.endState, JavaScriptConfig)
+        assertThat(middle.endState).isEqualTo(SimpleTokenizer.IN_TEMPLATE)
+        assertThat(middle.tokens).containsExactly(SimpleTokenizer.Token(0, literal))
+        val last = SimpleTokenizer.tokenize("`; let x = 1", middle.endState, JavaScriptConfig)
+        assertThat(last.endState).isEqualTo(SimpleTokenizer.NORMAL)
+        assertThat(last.tokens.first()).isEqualTo(SimpleTokenizer.Token(0, literal))
+        assertThat(last.tokens).contains(SimpleTokenizer.Token(3, keyword))
+    }
+
+    @Test
+    fun `an unterminated quote does not carry to the next line`() {
+        val r = SimpleTokenizer.tokenize("const s = 'open", SimpleTokenizer.NORMAL, JavaScriptConfig)
+        assertThat(r.endState).isEqualTo(SimpleTokenizer.NORMAL)
+    }
 }

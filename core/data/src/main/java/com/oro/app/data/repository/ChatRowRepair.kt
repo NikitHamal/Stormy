@@ -28,6 +28,43 @@ object ChatRowRepair {
     /** Between the two, the compactor's own marker, so a later compaction recognises the cut. */
     const val MARKER = TranscriptCompactor.CUT_MARKER
 
+    /**
+     * The repaired text of a row, from its two kept ends: the head up to its
+     * last block boundary (a blank line) with any code fence it left open
+     * closed, then [MARKER], then the tail from its first block boundary,
+     * starting after a fence closer if the cut entered a fenced block. A cut
+     * at an arbitrary character used to leave half a tool card or a stray
+     * fence that turned the rest of the message into a code block.
+     */
+    fun join(head: String, tail: String): String {
+        var h = head
+        val lastBreak = h.lastIndexOf("\n\n")
+        if (lastBreak > 0) h = h.substring(0, lastBreak)
+        if (fenceCount(h) % 2 == 1) h = h.trimEnd() + "\n```"
+        var t = tail
+        val firstBreak = t.indexOf("\n\n")
+        // Within the first half only: a tail that is one long block keeps it all.
+        if (firstBreak >= 0 && firstBreak < t.length / 2) t = t.substring(firstBreak + 2)
+        if (fenceCount(t) % 2 == 1) {
+            // The first fence closes a block opened before the cut: start after its line.
+            val fence = t.indexOf("```")
+            val lineEnd = t.indexOf('\n', fence)
+            t = if (lineEnd < 0) "" else t.substring(lineEnd + 1)
+        }
+        return h.trimEnd() + MARKER + t.trimStart('\n')
+    }
+
+    /** Fence markers in [text]; they open mid-line too (a card's `new_content: ```). */
+    internal fun fenceCount(text: String): Int {
+        var n = 0
+        var i = text.indexOf("```")
+        while (i >= 0) {
+            n++
+            i = text.indexOf("```", i + 3)
+        }
+        return n
+    }
+
     /** Whether [error], or any cause, is SQLite refusing a row too big for a cursor window. */
     fun isOversizedRow(error: Throwable?): Boolean {
         var e = error

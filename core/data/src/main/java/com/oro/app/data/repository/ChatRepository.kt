@@ -12,6 +12,7 @@ import com.oro.app.domain.model.DeletedSessionSnapshot
 import com.oro.app.domain.model.SessionTitles
 import com.oro.app.data.ai.text.TranscriptCompactor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -121,7 +122,7 @@ class ChatRepository(
      * All messages of a session, oldest first, as a live Flow.
      *
      * Never fails on a row too big for a cursor window: stored rows are
-     * repaired once per process before the first read, and a read that still
+     * repaired once per install before the first read, and a read that still
      * hits one repairs and re-subscribes. Mapping runs off the main thread --
      * a long chat is megabytes of text, and the collector is the UI.
      */
@@ -153,36 +154,57 @@ class ChatRepository(
     private val repairLock = Mutex()
     @Volatile private var repairedOnce = false
 
+    /** Remembers across launches that stored rows were checked once. */
+    private val repairPrefs by lazy { context.getSharedPreferences("chat_store", Context.MODE_PRIVATE) }
+
     /**
-     * Shrinks every stored message too big to read back (see [ChatRowRepair]),
-     * then tidies each repaired row with [TranscriptCompactor] so it still
-     * renders as a transcript. Runs once per process unless [force]d: the scan
-     * is one `length()` pass in SQL, and reads no message content.
+     * Repairs every stored message too big to read back (see [ChatRowRepair]):
+     * each row is rebuilt from its two ends, read in SQL without the middle,
+     * cut at block boundaries and tidied by [TranscriptCompactor], then written
+     * back in one statement -- so a pass interrupted at any point leaves every
+     * row either untouched or fully repaired, never half-done.
+     *
+     * The scan has SQLite measure every row, which reads all chat text, so it
+     * runs once per install: rows written since are bounded where they are
+     * built. A read that still hits an oversized row [force]s a pass. The pass
+     * finishes even if the screen that asked for it goes away.
      *
      * @return how many messages were repaired.
      */
     suspend fun repairOversizedMessages(force: Boolean = false): Int = repairLock.withLock {
-        if (repairedOnce && !force) return@withLock 0
-        val repaired = withContext(Dispatchers.IO) {
-            runCatching {
-                val ids = chatMessageDao.findOversizedIds(ChatRowRepair.LIMIT_CHARS)
-                if (ids.isEmpty()) return@runCatching 0
-                chatMessageDao.shrinkOversized(
-                    limit = ChatRowRepair.LIMIT_CHARS,
-                    head = ChatRowRepair.HEAD_CHARS,
-                    negativeTail = -ChatRowRepair.TAIL_CHARS,
-                    marker = ChatRowRepair.MARKER
-                )
-                for (id in ids) {
-                    val row = runCatching { chatMessageDao.getMessageById(id) }.getOrNull() ?: continue
-                    val tidy = TranscriptCompactor.compact(row.content)
-                    if (tidy != row.content) chatMessageDao.updateMessage(row.copy(content = tidy))
-                }
-                ids.size
-            }.getOrDefault(0)
+        if (!force) {
+            if (repairedOnce) return@withLock 0
+            if (withContext(Dispatchers.IO) { repairPrefs.getBoolean(KEY_ROWS_REPAIRED, false) }) {
+                repairedOnce = true
+                return@withLock 0
+            }
         }
-        repairedOnce = true
-        repaired
+        withContext(NonCancellable + Dispatchers.IO) {
+            var repaired = 0
+            val complete = try {
+                for (id in chatMessageDao.findOversizedIds(ChatRowRepair.LIMIT_CHARS)) {
+                    try {
+                        val ends = chatMessageDao.readEnds(id, ChatRowRepair.HEAD_CHARS, -ChatRowRepair.TAIL_CHARS)
+                            ?: continue
+                        val tidy = TranscriptCompactor.compact(ChatRowRepair.join(ends.head, ends.tail))
+                        chatMessageDao.updateContent(id, tidy)
+                        repaired++
+                    } catch (e: Exception) {
+                        // One broken row must not keep the others unreadable.
+                        android.util.Log.w("ChatRepository", "Could not repair message $id", e)
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                android.util.Log.w("ChatRepository", "Oversized-row scan failed", e)
+                false
+            }
+            if (complete) {
+                repairedOnce = true
+                repairPrefs.edit().putBoolean(KEY_ROWS_REPAIRED, true).apply()
+            }
+            repaired
+        }
     }
 
     /** Runs a read, repairing oversized rows first (once) and again if the read still hits one. */
@@ -383,5 +405,10 @@ class ChatRepository(
         }
 
         return result
+    }
+
+    private companion object {
+        /** Set once every stored row has been checked for the cursor-window limit. */
+        const val KEY_ROWS_REPAIRED = "oversized_rows_repaired_v1"
     }
 }

@@ -70,4 +70,17 @@ class TranscriptCompactorTest {
         assertThat(TranscriptCompactor.trimMiddle("abcdefghij", 2, 3)).isEqualTo("ab\n…\nhij")
         assertThat(TranscriptCompactor.trimMiddle("short", 10, 10)).isEqualTo("short")
     }
+
+    @Test
+    fun `a card body with a blank line inside is dropped whole`() {
+        // RunTranscript writes a blank body line as " " so it does not end the card.
+        val card = "🔧 **Write File**\n✅ Wrote index.html\nFile: index.html\nwritten: 40 lines\n" +
+            "new_content: ```\n<main>\n \n</main>\n```\n\n"
+        val t = card + "x".repeat(2_000) + "\n\nFinal."
+        val out = TranscriptCompactor.dropOldCardBodies(t, t.length - 20)
+        assertThat(out).contains("✅ Wrote index.html")
+        assertThat(out).doesNotContain("new_content")
+        assertThat(out).doesNotContain("</main>")
+        assertThat(out).doesNotContain("```")
+    }
 }

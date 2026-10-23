@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.oro.app.data.local.entity.ChatMessageEntity
+import com.oro.app.data.local.entity.MessageEnds
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -60,21 +61,23 @@ interface ChatMessageDao {
     suspend fun totalContentLength(sessionId: String): Long
 
     /**
-     * Ids of rows whose content is longer than [limit] characters. Reads only
-     * the ids, so it works even when a row is too big for a cursor window.
+     * Ids of rows whose content is longer than [limit] characters. Only ids
+     * come back, so it works even when a row is too big for a cursor window;
+     * SQLite still reads every row's text to measure it, so this is a one-time
+     * scan (see ChatRepository.repairOversizedMessages), not a per-open one.
      */
     @Query("SELECT id FROM chat_messages WHERE length(content) > :limit")
     suspend fun findOversizedIds(limit: Int): List<String>
 
     /**
-     * Shrinks every row longer than [limit] to its first [head] and last
-     * characters ([negativeTail] is minus the tail length, SQLite's way of
-     * counting from the end), with [marker] between. Done entirely in SQL, so
-     * a row too big to read through a cursor never has to be read.
+     * The first [head] characters and the last ones ([negativeTail] is minus
+     * the tail length, SQLite's way of counting from the end) of one row. Both
+     * ends fit a cursor window even when the whole row does not.
      */
-    @Query(
-        "UPDATE chat_messages SET content = substr(content, 1, :head) || :marker || substr(content, :negativeTail) " +
-            "WHERE length(content) > :limit"
-    )
-    suspend fun shrinkOversized(limit: Int, head: Int, negativeTail: Int, marker: String): Int
+    @Query("SELECT substr(content, 1, :head) AS head, substr(content, :negativeTail) AS tail FROM chat_messages WHERE id = :id")
+    suspend fun readEnds(id: String, head: Int, negativeTail: Int): MessageEnds?
+
+    /** Replaces one row's content in a single statement (a repair is never half-written). */
+    @Query("UPDATE chat_messages SET content = :content WHERE id = :id")
+    suspend fun updateContent(id: String, content: String)
 }

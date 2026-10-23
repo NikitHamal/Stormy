@@ -105,6 +105,8 @@ import com.oro.app.domain.model.SessionTitles
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOf
+import com.oro.app.ui.components.message.ParsedBlocksCache
+import com.oro.app.ui.components.message.SYNC_PARSE_LIMIT
 
 /**
  * Represents an open file tab in the editor
@@ -771,31 +773,40 @@ class EditorViewModel(
             _currentSessionId
                 .flatMapLatest { sessionId ->
                     if (sessionId == null) {
-                        flowOf(emptyList<ChatMessage>())
+                        flowOf<Pair<String?, List<ChatMessage>>>(null to emptyList())
                     } else {
                         chatRepository.getMessagesForSession(sessionId)
+                            // Tagged with its session: a switch while an
+                            // emission is being prepared must never put one
+                            // chat's messages (or history) under another.
+                            .map<List<ChatMessage>, Pair<String?, List<ChatMessage>>> { sessionId to it }
                             // A chat that cannot be read must never take the
                             // app down with it; the repository already repairs
                             // rows too big to read, so this is the last resort.
                             .catch { e ->
                                 _error.value = "This chat could not be loaded: ${e.message ?: e.javaClass.simpleName}"
-                                emit(emptyList())
+                                emit(sessionId to emptyList())
                             }
                     }
                 }
-                .collect { dbMessages ->
-                    _isSessionLoading.value = false
+                .collect { (sessionId, dbMessages) ->
                     // Only update from database if we're not currently processing AI response
                     // During AI processing, the in-memory state is managed by streaming logic
                     if (!_isAiProcessing.value) {
                         // Off the main thread: a long chat is megabytes of
                         // transcript, and turning each into history text is a
                         // handful of regex passes. On Main this froze the
-                        // screen every time a long chat opened.
+                        // screen every time a long chat opened. The newest
+                        // long transcripts are parsed here too, while the chat
+                        // still shows its loading state, so they appear at full
+                        // height instead of growing out of a placeholder.
                         val (unique, history) = withContext(Dispatchers.Default) {
                             val distinct = dbMessages.distinctBy { it.id }
+                            ParsedBlocksCache.prefetch(longTranscripts(distinct), limit = LOAD_PREFETCH)
                             distinct to buildMessageHistory(distinct)
                         }
+                        // The user moved to another chat meanwhile: this one is stale.
+                        if (_currentSessionId.value != sessionId) return@collect
                         if (!_isAiProcessing.value) {
                             // Database is the source of truth when not streaming
                             _messages.value = unique
@@ -805,9 +816,34 @@ class EditorViewModel(
                                 breakdownStale = false
                                 refreshContextBreakdown()
                             }
+                            prefetchLongMessages(unique)
                         }
                     }
+                    // Loaded only once the transcript and the history the next
+                    // send builds on are both in place; until then the chat
+                    // shows its loading state and sendMessage waits.
+                    if (_currentSessionId.value == sessionId) _isSessionLoading.value = false
                 }
+        }
+    }
+
+    /** Long, finished assistant transcripts of [messages], newest first, for the parse cache. */
+    private fun longTranscripts(messages: List<ChatMessage>): Sequence<Pair<String, String>> =
+        messages.asReversed().asSequence()
+            .filter { it.isAssistant && it.status != MessageStatus.STREAMING && it.content.length > SYNC_PARSE_LIMIT }
+            .map { it.id to it.content }
+
+    private var prefetchJob: Job? = null
+
+    /**
+     * Parses the rest of the chat's long transcripts into the shared cache, in
+     * the background, so scrolling back through a long chat never shows a
+     * placeholder that then grows and pushes away what the user was reading.
+     */
+    private fun prefetchLongMessages(messages: List<ChatMessage>) {
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch(Dispatchers.Default) {
+            ParsedBlocksCache.prefetch(longTranscripts(messages))
         }
     }
 
@@ -1411,7 +1447,9 @@ class EditorViewModel(
         }
         // Before the last session is restored there is no telling which
         // session this would belong to; that window is a few milliseconds.
-        if (content.isEmpty() || _isAiProcessing.value || !sessionRestored) return
+        // While a chat is still loading, its history is not in place yet: a
+        // send then would run without it (the text stays in the composer).
+        if (content.isEmpty() || _isAiProcessing.value || !sessionRestored || _isSessionLoading.value) return
         if (projectId in BackgroundRuns.active.value) return
 
         // The first message of a fresh chat creates its session, titled from
@@ -2180,7 +2218,10 @@ class EditorViewModel(
                 _messages.value = currentMessages
 
                 if (status != MessageStatus.STREAMING) {
-                    viewModelScope.launch {
+                    // The run lives in the application scope (it survives the
+                    // user leaving the editor), so its reply is saved there
+                    // too: viewModelScope is gone by then and the save with it.
+                    com.oro.app.OroApplication.getInstance().applicationScope.launch {
                         if (updatedMessage.content.isBlank()) {
                             // Nothing to keep: an empty assistant row would
                             // render as a blank bubble after reload.
@@ -2507,6 +2548,8 @@ class EditorViewModel(
         private const val TREE_REFRESH_DEBOUNCE_MS = 600L
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L
+        /** Long transcripts parsed while a chat loads, newest first; the rest follow in the background. */
+        private const val LOAD_PREFETCH = 2
         /** Slowest push cadence, for very long runs; see pushIntervalMs. */
         private const val MAX_STREAMING_UPDATE_INTERVAL_MS = 500L
         /** How long a deleted session can be restored. */

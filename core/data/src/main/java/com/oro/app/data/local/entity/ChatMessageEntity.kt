@@ -37,6 +37,12 @@ data class ChatMessageEntity(
     val codeChanges: String?
 )
 
+/**
+ * The two ends of a stored message, read in SQL without its middle: how a row
+ * too big for a cursor window is repaired (see ChatRowRepair).
+ */
+data class MessageEnds(val head: String, val tail: String)
+
 enum class MessageRole {
     USER,
     ASSISTANT,

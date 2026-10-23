@@ -58,6 +58,8 @@ interface LanguageConfig {
     val singleLineComment: String?
     val blockCommentStart: String?
     val blockCommentEnd: String?
+    /** Whether `/.../` can be a regular-expression literal (JavaScript, TypeScript). */
+    val regexLiterals: Boolean get() = false
 }
 
 /**
@@ -124,9 +126,11 @@ class SimpleLanguage(private val config: LanguageConfig) : Language {
  * touched (plus following lines while their start state differs), and keeps
  * the existing spans aligned while it works.
  *
- * The per-line state is whether the line starts inside a block comment, so
- * a `/* ... */` or `<!-- ... -->` spanning lines is now coloured on every
- * line it covers, not only the first.
+ * The per-line state is whether the line starts inside a block comment or a
+ * template string, so a `/* ... */`, `<!-- ... -->` or multi-line template
+ * string is coloured on every line it covers, and a comment opener inside a
+ * template string or a regular expression never turns the rest of the file
+ * into a comment.
  */
 class SimpleAnalyzeManagerImpl(
     private val config: LanguageConfig
@@ -141,11 +145,8 @@ class SimpleAnalyzeManagerImpl(
         state: Int,
         lineIndex: Int
     ): IncrementalAnalyzeManager.LineTokenizeResult<Int, SimpleTokenizer.Token> {
-        val result = SimpleTokenizer.tokenize(line, state == SimpleTokenizer.IN_BLOCK_COMMENT, config)
-        return IncrementalAnalyzeManager.LineTokenizeResult<Int, SimpleTokenizer.Token>(
-            if (result.endsInBlockComment) SimpleTokenizer.IN_BLOCK_COMMENT else SimpleTokenizer.NORMAL,
-            result.tokens
-        )
+        val result = SimpleTokenizer.tokenize(line, state, config)
+        return IncrementalAnalyzeManager.LineTokenizeResult<Int, SimpleTokenizer.Token>(result.endState, result.tokens)
     }
 
     /** Fresh spans per call: Sora pools and recycles [Span]s, so tokens never hold one. */
@@ -179,10 +180,15 @@ object SimpleTokenizer {
         override fun toString(): String = "Token($column, $style)"
     }
 
-    class Result(val tokens: List<Token>, val endsInBlockComment: Boolean)
+    /** One line's highlighting and the state the next line starts in. */
+    class Result(val tokens: List<Token>, val endState: Int) {
+        val endsInBlockComment: Boolean get() = endState == IN_BLOCK_COMMENT
+    }
 
     const val NORMAL = 0
     const val IN_BLOCK_COMMENT = 1
+    /** Inside a backtick template string that continues on the next line. */
+    const val IN_TEMPLATE = 2
 
     val NORMAL_STYLE: Long = TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)
     private val COMMENT: Long = TextStyle.makeStyle(EditorColorScheme.COMMENT)
@@ -193,18 +199,39 @@ object SimpleTokenizer {
     private val BUILTIN: Long = TextStyle.makeStyle(EditorColorScheme.FUNCTION_NAME)
     private val NAME: Long = TextStyle.makeStyle(EditorColorScheme.IDENTIFIER_NAME)
 
-    fun tokenize(line: CharSequence, inBlockComment: Boolean, config: LanguageConfig): Result {
+    /** Keywords after which a `/` starts a regular expression rather than a division. */
+    private val REGEX_AFTER_WORDS = setOf(
+        "return", "typeof", "instanceof", "case", "do", "else", "in", "of", "new", "delete", "void",
+        "throw", "yield", "await"
+    )
+
+    /** Characters after which a `/` starts a regular expression rather than a division. */
+    private const val REGEX_AFTER_CHARS = "(,=:[!&|?{};+-*%<>~^"
+
+    fun tokenize(line: CharSequence, inBlockComment: Boolean, config: LanguageConfig): Result =
+        tokenize(line, if (inBlockComment) IN_BLOCK_COMMENT else NORMAL, config)
+
+    fun tokenize(line: CharSequence, state: Int, config: LanguageConfig): Result {
         val tokens = ArrayList<Token>(8)
         var i = 0
         val blockStart = config.blockCommentStart
         val blockEnd = config.blockCommentEnd
 
         // A line that starts inside a block comment is comment up to its end marker.
-        if (inBlockComment && blockEnd != null) {
+        if (state == IN_BLOCK_COMMENT && blockEnd != null) {
             tokens.add(Token(0, COMMENT))
             val end = indexOf(line, blockEnd, 0)
-            if (end < 0) return Result(tokens, endsInBlockComment = true)
+            if (end < 0) return Result(tokens, IN_BLOCK_COMMENT)
             i = end + blockEnd.length
+            if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
+        }
+
+        // A line that starts inside a template string is text up to its closing backtick.
+        if (state == IN_TEMPLATE && config.stringDelimiters.indexOf('`') >= 0) {
+            tokens.add(Token(0, LITERAL))
+            val end = findStringEnd(line, 0, '`')
+            if (end < 0) return Result(tokens, IN_TEMPLATE)
+            i = end + 1
             if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
         }
 
@@ -215,7 +242,7 @@ object SimpleTokenizer {
                 if (startsWith(line, commentStart, i)) {
                     if (i > 0 && tokens.isEmpty()) tokens.add(Token(0, NORMAL_STYLE))
                     tokens.add(Token(i, COMMENT))
-                    return Result(tokens, endsInBlockComment = false)
+                    return Result(tokens, NORMAL)
                 }
             }
 
@@ -223,7 +250,7 @@ object SimpleTokenizer {
                 if (i > 0 && tokens.isEmpty()) tokens.add(Token(0, NORMAL_STYLE))
                 tokens.add(Token(i, COMMENT))
                 val endIdx = if (blockEnd != null) indexOf(line, blockEnd, i + blockStart.length) else -1
-                if (endIdx < 0) return Result(tokens, endsInBlockComment = blockEnd != null)
+                if (endIdx < 0) return Result(tokens, if (blockEnd != null) IN_BLOCK_COMMENT else NORMAL)
                 i = endIdx + blockEnd!!.length
                 if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
                 continue
@@ -233,9 +260,23 @@ object SimpleTokenizer {
                 if (tokens.isEmpty() && i > 0) tokens.add(Token(0, NORMAL_STYLE))
                 tokens.add(Token(i, LITERAL))
                 val endIdx = findStringEnd(line, i + 1, c)
-                i = if (endIdx != -1) endIdx + 1 else line.length
+                // Only a template string carries on to the next line.
+                if (endIdx == -1) return Result(tokens, if (c == '`') IN_TEMPLATE else NORMAL)
+                i = endIdx + 1
                 if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
                 continue
+            }
+
+            if (c == '/' && config.regexLiterals && startsRegex(line, i)) {
+                val endIdx = findRegexEnd(line, i + 1)
+                if (endIdx != -1) {
+                    if (tokens.isEmpty() && i > 0) tokens.add(Token(0, NORMAL_STYLE))
+                    tokens.add(Token(i, LITERAL))
+                    i = endIdx + 1
+                    while (i < line.length && line[i].isLetter()) i++ // flags
+                    if (i < line.length) tokens.add(Token(i, NORMAL_STYLE))
+                    continue
+                }
             }
 
             if (c.isDigit() || (c == '.' && i + 1 < line.length && line[i + 1].isDigit())) {
@@ -279,7 +320,42 @@ object SimpleTokenizer {
         }
 
         if (tokens.isEmpty()) tokens.add(Token(0, NORMAL_STYLE))
-        return Result(tokens, endsInBlockComment = false)
+        return Result(tokens, NORMAL)
+    }
+
+    /**
+     * Whether the `/` at [at] starts a regular expression: at the start of the
+     * line, after an operator or opening bracket, or after a keyword such as
+     * `return`. After a name, number or closing bracket it is a division.
+     */
+    private fun startsRegex(line: CharSequence, at: Int): Boolean {
+        var p = at - 1
+        while (p >= 0 && line[p].isWhitespace()) p--
+        if (p < 0) return true
+        val prev = line[p]
+        if (REGEX_AFTER_CHARS.indexOf(prev) >= 0) return true
+        if (prev.isLetter() || prev == '_' || prev == '$') {
+            var s = p
+            while (s > 0 && (line[s - 1].isLetterOrDigit() || line[s - 1] == '_' || line[s - 1] == '$')) s--
+            return line.subSequence(s, p + 1).toString() in REGEX_AFTER_WORDS
+        }
+        return false
+    }
+
+    /** The closing `/` of a regular expression starting at [from], or -1 if the line has none. */
+    private fun findRegexEnd(line: CharSequence, from: Int): Int {
+        var i = from
+        var inClass = false
+        while (i < line.length) {
+            when (line[i]) {
+                '\\' -> i++ // the escaped character, whatever it is
+                '[' -> inClass = true
+                ']' -> inClass = false
+                '/' -> if (!inClass) return if (i == from) -1 else i
+            }
+            i++
+        }
+        return -1
     }
 
     private fun startsWith(line: CharSequence, prefix: String, at: Int): Boolean {
@@ -364,6 +440,7 @@ object JavaScriptConfig : LanguageConfig {
     override val singleLineComment = "//"
     override val blockCommentStart = "/*"
     override val blockCommentEnd = "*/"
+    override val regexLiterals = true
 }
 
 object TypeScriptConfig : LanguageConfig {
@@ -389,6 +466,7 @@ object TypeScriptConfig : LanguageConfig {
     override val singleLineComment = "//"
     override val blockCommentStart = "/*"
     override val blockCommentEnd = "*/"
+    override val regexLiterals = true
 }
 
 object JsonConfig : LanguageConfig {

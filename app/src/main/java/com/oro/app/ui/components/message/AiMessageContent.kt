@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -59,6 +60,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -132,11 +136,55 @@ enum class ToolStatus { RUNNING, SUCCESS, ERROR }
 private data class ParseInput(val content: String, val isStreaming: Boolean)
 
 /** Messages up to this many characters parse synchronously on first composition. */
-private const val SYNC_PARSE_LIMIT = 16_000
+internal const val SYNC_PARSE_LIMIT = 16_000
 
 /** Grouped blocks composed at first for one message, and how many more each tap shows. */
 internal const val MESSAGE_WINDOW = 40
 internal const val MESSAGE_WINDOW_STEP = 60
+
+/**
+ * Which grouped blocks of a long message are composed.
+ *
+ * The window's start is an anchor, not "the newest N": blocks a live run
+ * appends extend the window instead of shifting it, so the text being read
+ * stays put and every block keeps its key (and its expanded state). Only a
+ * live run that has put more than twice [MESSAGE_WINDOW] blocks on screen
+ * moves the anchor, in one step, so composition stays bounded. "Show earlier"
+ * is the only other thing that moves it.
+ */
+internal object MessageWindow {
+    /** Not anchored yet: the first parse decides. */
+    const val UNSET = -1
+
+    /** The first composed block for [total] blocks, given the current [anchor]. */
+    fun start(total: Int, anchor: Int, streaming: Boolean): Int {
+        if (total <= 0) return if (anchor == UNSET) UNSET else 0
+        var start = if (anchor == UNSET) (total - MESSAGE_WINDOW).coerceAtLeast(0) else anchor
+        // The message got shorter (compacted when the run ended): show its end.
+        if (start >= total) start = (total - MESSAGE_WINDOW).coerceAtLeast(0)
+        if (streaming && total - start > 2 * MESSAGE_WINDOW) start = total - MESSAGE_WINDOW
+        return start
+    }
+
+    /** The anchor after "Show earlier". */
+    fun earlier(start: Int): Int = (start - MESSAGE_WINDOW_STEP).coerceAtLeast(0)
+
+    /**
+     * Rows a still-parsing message will roughly take, from its tool cards, so
+     * its stand-in is about as tall as the message and the list barely moves
+     * when it arrives. Counting stops early; this runs on a tap's budget.
+     */
+    fun estimatedRows(content: String): Int {
+        var cards = 0
+        var i = content.indexOf("🔧")
+        while (i >= 0 && cards < 4 * MESSAGE_WINDOW) {
+            cards++
+            i = content.indexOf("🔧", i + 2)
+        }
+        // Consecutive calls fold into one group row; text sits between groups.
+        return (cards / 2 + 2).coerceIn(3, MESSAGE_WINDOW)
+    }
+}
 
 /**
  * Parsed blocks of recently shown messages, shared by every bubble: scrolling
@@ -157,6 +205,27 @@ internal object ParsedBlocksCache {
         synchronized(this) {
             val e = entries[key] ?: return null
             return if (e.length == content.length && e.streaming == streaming && e.hash == content.hashCode()) e.blocks else null
+        }
+    }
+
+    /**
+     * Parses the long, finished messages in [messages] (id to content, in the
+     * order given) that are not cached yet, until [limit] messages or [budget]
+     * characters. Called off the main thread after a chat loads, newest first,
+     * so a long transcript scrolled into view draws at its full height at once
+     * instead of growing out of a placeholder and pushing the list around.
+     */
+    suspend fun prefetch(messages: Sequence<Pair<String, String>>, limit: Int = Int.MAX_VALUE, budget: Int = MAX_CHARS / 2) {
+        var count = 0
+        var spent = 0
+        for ((key, content) in messages) {
+            if (count >= limit || spent >= budget) break
+            if (content.length <= SYNC_PARSE_LIMIT || content.length > MAX_CHARS / 2) continue
+            kotlinx.coroutines.yield()
+            count++
+            if (get(key, content, false) != null) continue
+            put(key, content, false, parseAiMessageContent(content, false))
+            spent += content.length
         }
     }
 
@@ -802,8 +871,10 @@ fun AiMessageContent(
         }
 
         if (blocks == null) {
-            // A big message still parsing: a quiet stand-in, never a frozen frame.
-            ParsingPlaceholder()
+            // A big message still parsing: a quiet stand-in about as tall as
+            // the message will be, never a frozen frame.
+            val rows = remember(content.length) { MessageWindow.estimatedRows(content) }
+            ParsingPlaceholder(rows)
         }
 
         // Consecutive tool calls collapse into one group.
@@ -814,10 +885,15 @@ fun AiMessageContent(
         // pure text-to-blocks function.
         val grouped = remember(blocks) { blocks?.let { groupConsecutiveToolCalls(it) } ?: emptyList() }
 
-        // A run of hundreds of steps is not composed all at once: the newest
-        // groups show, and the earlier ones wait behind one control.
-        var shownCount by remember { mutableStateOf(MESSAGE_WINDOW) }
-        val hidden = (grouped.size - shownCount).coerceAtLeast(0)
+        // A run of hundreds of steps is not composed all at once: a window of
+        // groups shows, and the earlier ones wait behind one control. The
+        // window's start is anchored (see MessageWindow), and each block is
+        // keyed by its position in the whole message, so a live run never
+        // shifts what is on screen or collapses a group the user opened.
+        val anchor = remember { mutableIntStateOf(MessageWindow.UNSET) }
+        val start = MessageWindow.start(grouped.size, anchor.intValue, isStreaming)
+        if (start != anchor.intValue) SideEffect { anchor.intValue = start }
+        val hidden = start.coerceAtLeast(0)
         if (hidden > 0) {
             val hiddenCalls = remember(grouped, hidden) {
                 grouped.subList(0, hidden).sumOf { b ->
@@ -828,76 +904,78 @@ fun AiMessageContent(
                     }
                 }
             }
-            EarlierStepsButton(hiddenCalls = hiddenCalls, onClick = { shownCount += MESSAGE_WINDOW_STEP })
+            EarlierStepsButton(hiddenCalls = hiddenCalls, onClick = { anchor.intValue = MessageWindow.earlier(hidden) })
         }
-        val visibleBlocks = if (hidden > 0) grouped.subList(hidden, grouped.size) else grouped
 
-        visibleBlocks.forEach { block ->
-            when (block) {
-                is MessageContentBlock.ToolRunBlock -> {
-                    // Mapped once per block rather than on every recomposition
-                    // of the message, so the group can skip when unchanged.
-                    val entries = remember(block) { block.calls.map { call ->
-                            ToolCallEntry(
-                                toolName = call.toolName,
-                                subject = call.filePath,
-                                status = call.status.toToolCallStatus(),
-                                additions = call.additions,
-                                deletions = call.deletions,
-                                // Carried through rather than dropped: these
-                                // are what each card opens to show.
-                                output = call.output,
-                                oldContent = call.oldContent,
-                                newContent = call.newContent
-                            )
-                        } }
-                    ToolCallGroup(
-                        entries = entries,
-                        // Expanded while anything is still running, so the user
-                        // can watch; collapsed once the run finishes, so the
-                        // answer is what remains on screen.
-                        initiallyExpanded = block.calls.any {
-                            it.status == ToolStatus.RUNNING
+        for (index in hidden until grouped.size) {
+            val block = grouped[index]
+            key(index) {
+                when (block) {
+                    is MessageContentBlock.ToolRunBlock -> {
+                        // Mapped once per block rather than on every recomposition
+                        // of the message, so the group can skip when unchanged.
+                        val entries = remember(block) { block.calls.map { call ->
+                                ToolCallEntry(
+                                    toolName = call.toolName,
+                                    subject = call.filePath,
+                                    status = call.status.toToolCallStatus(),
+                                    additions = call.additions,
+                                    deletions = call.deletions,
+                                    // Carried through rather than dropped: these
+                                    // are what each card opens to show.
+                                    output = call.output,
+                                    oldContent = call.oldContent,
+                                    newContent = call.newContent
+                                )
+                            } }
+                        ToolCallGroup(
+                            entries = entries,
+                            // Expanded while anything is still running, so the user
+                            // can watch; collapsed once the run finishes, so the
+                            // answer is what remains on screen.
+                            initiallyExpanded = block.calls.any {
+                                it.status == ToolStatus.RUNNING
+                            }
+                        )
+                    }
+
+                    is MessageContentBlock.TextBlock ->
+                        if (com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.content)) {
+                            // A UI block the model forgot to fence.
+                            com.oro.app.ui.genui.GenUiBlock(source = block.content.trim(), streaming = false)
+                        } else {
+                            ResponseSection(markdown = block.content)
                         }
-                    )
+
+                    is MessageContentBlock.CodeBlock ->
+                        if (com.oro.app.data.ai.genui.GenUi.isUiFence(block.language) ||
+                            (com.oro.app.data.ai.genui.GenUi.mayHoldUi(block.language) && com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.code))
+                        ) {
+                            // A UI block: rendered as native components (A2UI), not as code.
+                            com.oro.app.ui.genui.GenUiBlock(source = block.code, streaming = block.isActive && isStreaming)
+                        } else {
+                            CodeSection(code = block.code, language = block.language, isActive = block.isActive && isStreaming)
+                        }
+
+                    is MessageContentBlock.ThinkingBlock ->
+                        ThinkingSection(content = block.content, isActive = block.isActive && isStreaming)
+
+                    is MessageContentBlock.ReasoningBlock ->
+                        ReasoningSection(content = block.content, isActive = block.isActive && isStreaming)
+
+                    is MessageContentBlock.ToolCallBlock ->
+                        ToolCallSection(
+                            toolName = block.toolName,
+                            status = block.status,
+                            output = block.output,
+                            filePath = block.filePath,
+                            isActive = block.isActive && isStreaming,
+                            additions = block.additions,
+                            deletions = block.deletions,
+                            oldContent = block.oldContent,
+                            newContent = block.newContent
+                        )
                 }
-
-                is MessageContentBlock.TextBlock ->
-                    if (com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.content)) {
-                        // A UI block the model forgot to fence.
-                        com.oro.app.ui.genui.GenUiBlock(source = block.content.trim(), streaming = false)
-                    } else {
-                        ResponseSection(markdown = block.content)
-                    }
-
-                is MessageContentBlock.CodeBlock ->
-                    if (com.oro.app.data.ai.genui.GenUi.isUiFence(block.language) ||
-                        (com.oro.app.data.ai.genui.GenUi.mayHoldUi(block.language) && com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.code))
-                    ) {
-                        // A UI block: rendered as native components (A2UI), not as code.
-                        com.oro.app.ui.genui.GenUiBlock(source = block.code, streaming = block.isActive && isStreaming)
-                    } else {
-                        CodeSection(code = block.code, language = block.language, isActive = block.isActive && isStreaming)
-                    }
-
-                is MessageContentBlock.ThinkingBlock ->
-                    ThinkingSection(content = block.content, isActive = block.isActive && isStreaming)
-
-                is MessageContentBlock.ReasoningBlock ->
-                    ReasoningSection(content = block.content, isActive = block.isActive && isStreaming)
-
-                is MessageContentBlock.ToolCallBlock ->
-                    ToolCallSection(
-                        toolName = block.toolName,
-                        status = block.status,
-                        output = block.output,
-                        filePath = block.filePath,
-                        isActive = block.isActive && isStreaming,
-                        additions = block.additions,
-                        deletions = block.deletions,
-                        oldContent = block.oldContent,
-                        newContent = block.newContent
-                    )
             }
         }
 
@@ -915,10 +993,17 @@ fun AiMessageContent(
     }
 }
 
-/** Stands in for a long message while it is parsed off the main thread. */
+/**
+ * Stands in for a long message while it is parsed off the main thread: about
+ * [rows] rows tall (see MessageWindow.estimatedRows), so the list moves little
+ * when the real blocks replace it.
+ */
 @Composable
-private fun ParsingPlaceholder() {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun ParsingPlaceholder(rows: Int) {
+    Column(
+        modifier = Modifier.heightIn(min = (rows * PLACEHOLDER_ROW_DP).dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         repeat(3) { i ->
             Box(
                 Modifier
@@ -930,6 +1015,9 @@ private fun ParsingPlaceholder() {
         }
     }
 }
+
+/** Height of one row of a long transcript (a tool group or a short paragraph), for the stand-in. */
+private const val PLACEHOLDER_ROW_DP = 44
 
 /** "Show 160 earlier tool calls": the hidden start of a very long run. */
 @Composable

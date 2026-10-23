@@ -111,7 +111,9 @@ object TranscriptCompactor {
             if (isCardHeader(lines[i]) && i + 1 < lines.size && isStatusLine(lines[i + 1])) {
                 val start = i + 2
                 var end = start
-                while (end < lines.size && lines[end].isNotBlank() && !isCardHeader(lines[end])) end++
+                // A card ends at a truly empty line: RunTranscript writes a blank
+                // line inside a body as " " precisely so it does not end the card.
+                while (end < lines.size && lines[end].isNotEmpty() && !isCardHeader(lines[end])) end++
                 if (end > start) bodies += start until end
                 i = end
             } else {
