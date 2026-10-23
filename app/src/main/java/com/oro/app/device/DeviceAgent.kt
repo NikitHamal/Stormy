@@ -148,6 +148,8 @@ object DeviceAgent {
     data class Settings(
         val confirmSensitive: Boolean = true,
         val showTouches: Boolean = true,
+        /** Light the screen's edge while a task runs. */
+        val edgeGlow: Boolean = true,
         val returnToOro: Boolean = true,
         /** Stop after this many actions; 0 = no limit (the default -- Stop is always on screen). */
         val maxActions: Int = 0,
@@ -340,7 +342,7 @@ object DeviceAgent {
             status = "Starting", maxActions = settings.maxActions, startedAt = System.currentTimeMillis(),
             origin = origin,
         )
-        service.overlay.show(settings.showTouches)
+        service.overlay.show(settings.showTouches, settings.edgeGlow)
         val run = DeviceRun(
             phone = DeviceController(service), task = task.trim(), model = model,
             modelStream = AgentModelClient { req -> aiRepository.streamChat(model, req.messages, req.tools, temperature = 0.2f) },

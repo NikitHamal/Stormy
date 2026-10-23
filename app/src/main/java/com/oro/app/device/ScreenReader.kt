@@ -55,8 +55,9 @@ object ScreenReader {
     fun isLatest(state: ScreenState): Boolean = last?.state === state
 
     fun capture(service: AccessibilityService, maxLabel: Int = DEFAULT_MAX_LABEL): ScreenState {
-        val metrics = service.resources.displayMetrics
-        val screen = Rect(0, 0, metrics.widthPixels, metrics.heightPixels)
+        // The whole display: clipping to displayMetrics (which can leave out
+        // the bars) shifted bottom controls' centres upwards.
+        val screen = DisplaySize.of(service)
         val windows = runCatching { service.windows }.getOrNull().orEmpty()
         val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
         val keyboard = ime != null

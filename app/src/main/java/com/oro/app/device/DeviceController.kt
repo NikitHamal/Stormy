@@ -42,8 +42,22 @@ import kotlin.coroutines.resume
  */
 class DeviceController(private val service: OroAccessibilityService) : Phone {
 
-    private val width get() = service.resources.displayMetrics.widthPixels
-    private val height get() = service.resources.displayMetrics.heightPixels
+    // The space gestures are injected in: the whole display, bars included
+    // (see [DisplaySize]), the same one the screen's bounds are measured in.
+    // Read many times per action, so kept for a moment; a rotation outlives it.
+    @Volatile private var display = Rect()
+    @Volatile private var displayAt = 0L
+    private val displayRect: Rect
+        get() {
+            val now = SystemClock.uptimeMillis()
+            if (display.isEmpty || now - displayAt > DISPLAY_TTL_MS) {
+                display = DisplaySize.of(service)
+                displayAt = now
+            }
+            return display
+        }
+    private val width get() = displayRect.width()
+    private val height get() = displayRect.height()
 
     // ------------------------------------------------------------ observe
 
@@ -63,7 +77,10 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
     override fun status(): String = DeviceInfo.status(service)
 
-    override suspend fun screenshot(state: ScreenState): String? = ScreenshotTaker.capture(service, state)
+    override suspend fun screenshot(state: ScreenState): String? {
+        service.overlay.clearMarksForCapture()
+        return ScreenshotTaker.capture(service, state)
+    }
 
     /**
      * Whether [text] is visible in the active window, using the platform's
@@ -96,18 +113,25 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
     // ---------------------------------------------------------- gestures
 
-    override suspend fun tap(x: Int, y: Int): Boolean {
-        service.overlay.showTouch(x, y)
+    override suspend fun tap(x: Int, y: Int): Boolean = tapAt(x, y, frame = null)
+
+    override suspend fun longPress(x: Int, y: Int, durationMs: Long): Boolean = longPressAt(x, y, durationMs, frame = null)
+
+    override suspend fun doubleTap(x: Int, y: Int): Boolean = doubleTapAt(x, y, frame = null)
+
+    // The mark goes where the finger does: the clamped point, not the asked-for one.
+    private suspend fun tapAt(x: Int, y: Int, frame: Rect?): Boolean {
+        service.overlay.showTouch(c(x, width), c(y, height), bounds = frame)
         return gestures(region(cx(x), cy(y))) { dispatch(stroke(path(x, y), 0, 60)) }
     }
 
-    override suspend fun longPress(x: Int, y: Int, durationMs: Long): Boolean {
-        service.overlay.showTouch(x, y, long = true)
+    private suspend fun longPressAt(x: Int, y: Int, durationMs: Long, frame: Rect?): Boolean {
+        service.overlay.showTouch(c(x, width), c(y, height), long = true, bounds = frame)
         return gestures(region(cx(x), cy(y))) { dispatch(stroke(path(x, y), 0, durationMs)) }
     }
 
-    override suspend fun doubleTap(x: Int, y: Int): Boolean {
-        service.overlay.showTouch(x, y)
+    private suspend fun doubleTapAt(x: Int, y: Int, frame: Rect?): Boolean {
+        service.overlay.showTouch(c(x, width), c(y, height), bounds = frame)
         return gestures(region(cx(x), cy(y))) {
             val ok = dispatch(stroke(path(x, y), 0, 50))
             delay(90)
@@ -170,26 +194,32 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
     override suspend fun tapElement(e: ScreenElement, screen: ScreenState): String {
         val node = liveNode(e, screen) ?: return gone(e)
         val target = clickableSelfOrAncestor(node)
+        // Where the node is now, not where the capture saw it: a list that
+        // settled after the capture moved it, and the mark has to follow.
+        val live = liveBounds(node)
         if (target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-            service.overlay.showTouch(e.centerX, e.centerY)
+            val at = live ?: Rect(e.bounds.left, e.bounds.top, e.bounds.right, e.bounds.bottom)
+            service.overlay.showTouch(at.centerX(), at.centerY(), bounds = at)
             return "Tapped [${e.index}] ${e.describe()}."
         }
         if (screen.underKeyboard(e)) return underKeyboard(e)
         val (x, y) = centreOf(node, e)
-        return if (tap(x, y)) "Tapped [${e.index}] ${e.describe()} at ($x,$y)."
+        return if (tapAt(x, y, live)) "Tapped [${e.index}] ${e.describe()} at ($x,$y)."
         else "The tap on [${e.index}] could not be performed."
     }
 
     override suspend fun longPressElement(e: ScreenElement, screen: ScreenState): String {
         val node = liveNode(e, screen) ?: return gone(e)
         val target = longClickableSelfOrAncestor(node)
+        val live = liveBounds(node)
         if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
-            service.overlay.showTouch(e.centerX, e.centerY, long = true)
+            val at = live ?: Rect(e.bounds.left, e.bounds.top, e.bounds.right, e.bounds.bottom)
+            service.overlay.showTouch(at.centerX(), at.centerY(), long = true, bounds = at)
             return "Long-pressed [${e.index}] ${e.describe()}."
         }
         if (screen.underKeyboard(e)) return underKeyboard(e)
         val (x, y) = centreOf(node, e)
-        return if (longPress(x, y)) "Long-pressed [${e.index}] ${e.describe()}."
+        return if (longPressAt(x, y, LONG_PRESS_MS, live)) "Long-pressed [${e.index}] ${e.describe()}."
         else "The long press on [${e.index}] could not be performed."
     }
 
@@ -198,7 +228,7 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
         val node = liveNode(e, screen) ?: return gone(e)
         if (screen.underKeyboard(e)) return underKeyboard(e)
         val (x, y) = centreOf(node, e)
-        return if (doubleTap(x, y)) "Double-tapped [${e.index}] ${e.describe()}." else "The double tap failed."
+        return if (doubleTapAt(x, y, liveBounds(node))) "Double-tapped [${e.index}] ${e.describe()}." else "The double tap failed."
     }
 
     /**
@@ -222,6 +252,7 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
             node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             delay(150)
         }
+        liveBounds(node)?.let { service.overlay.showField(it) }
         val existing = node.text?.toString().takeUnless { showsHint(node) || node.isPassword }.orEmpty()
         val newText = if (append) existing + text else text
         val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText) }
@@ -278,8 +309,15 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
     /** Where [node] is now (it may have moved since the capture), else where [e] was. */
     private fun centreOf(node: AccessibilityNodeInfo, e: ScreenElement): Pair<Int, Int> {
+        val r = liveBounds(node) ?: return e.centerX to e.centerY
+        return r.centerX() to r.centerY()
+    }
+
+    /** [node]'s bounds on screen now, cut to the display; null when it has no real size. */
+    private fun liveBounds(node: AccessibilityNodeInfo): Rect? {
         val r = Rect().also { node.getBoundsInScreen(it) }
-        return if (r.width() > 1 && r.height() > 1) r.centerX() to r.centerY() else e.centerX to e.centerY
+        if (!r.intersect(0, 0, width, height)) return null
+        return r.takeIf { it.width() > 1 && it.height() > 1 }
     }
 
     /**
@@ -569,6 +607,11 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
         /** Half a fingertip, around every injected touch, for the island's way-clearing. */
         const val FINGER_DP = 24f
+
+        /** [Phone.longPress]'s default hold, for the element path that calls the private helper. */
+        const val LONG_PRESS_MS = 700L
+
+        const val DISPLAY_TTL_MS = 500L
     }
 
     private fun c(v: Int, max: Int) = v.coerceIn(1, max - 1)

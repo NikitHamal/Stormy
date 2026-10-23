@@ -10,6 +10,14 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 
 ---
 
+## 2026-10-23 — round 4: edge glow, exact touches, parallel tool calls
+Local worktrees, compiled and tested on molab (20 CPUs, JDK 21 + Android SDK in `/home/marimo/oro`), squash-merged onto oro-dev.
+- **Edge glow:** `overlay/EdgeGlowView` + `GlowMask`: Orobi's colours light the display's edge (its real rounded corners) while a run is Working, fade out on pause/question/approval/end, swell on each action; Lite mode = one still frame; "Edge glow" switch in the device settings (`Settings.edgeGlow`). `AgentOverlay.drawingLayer()` is the shared untouchable full-screen layer (cutout included).
+- **Touch accuracy:** ScreenReader clipped bounds to `displayMetrics`, which can leave out the navigation bar, so bottom controls' centres moved up; bounds, gestures and the island now share `DisplaySize` (the whole display). ACTION_CLICK taps mark the live node's bounds; marks are kept in screen pixels and mapped into the window when drawn (`TouchGeometry`). A tap frames its element, typing frames its field; marks are cleared before a vision screenshot.
+- **molab:** paired through marimo (`uvx marimo pair prompt --url … --with-token`, token via `MARIMO_TOKEN`). The notebook shows auto-refreshing cards: `/home/marimo/oro/status/*.json` (builds, tests) and `/home/marimo/oro/previews/**.png` (+ a `.json` sidecar for title/note). MockK needs ByteBuddy's agent at JVM start under gVisor: `/root/.gradle/init.d/molab-mockk.gradle` (molab only, not in the repo).
+
+**Next:** device agent: stop a turn's remaining actions after a failed one, `fill_form`, captcha hand-off. Then the phone checks from the entry below.
+
 ## 2026-10-23 — overnight: crash fix, models, providers, harness, device, preview, evals
 Parallel local worktrees squash-merged into oro-dev; every merge green on CI (last: 9fca5c4). Builds ran on molab (20 CPUs) until its sandbox was terminated (HTTP 410), then on GitHub CI only.
 - **Long chats:** a run's transcript is one message; unlimited runs passed SQLite's ~2 MB row limit and opening the chat crashed. Oversized rows are repaired in SQL once per install (head + tail kept, fences closed), transcripts stay under ~160 KB at the source (`TranscriptCompactor`, RunTranscript caps), parsing is off the main thread with a `ParsedBlocksCache`, long runs window to the newest blocks, chat open/send races fixed.

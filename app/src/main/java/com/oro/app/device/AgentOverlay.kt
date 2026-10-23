@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -30,7 +31,10 @@ import com.oro.app.data.repository.LiteMode
 import com.oro.app.device.overlay.AgentIsland
 import com.oro.app.device.overlay.DeviceAgentUi
 import com.oro.app.device.overlay.DragFrame
+import com.oro.app.device.overlay.EdgeGlowView
 import com.oro.app.device.overlay.IslandActions
+import com.oro.app.device.overlay.IslandModel
+import com.oro.app.device.overlay.IslandPhase
 import com.oro.app.device.overlay.OverlayLifecycleOwner
 import com.oro.app.device.overlay.TouchFeedbackView
 import com.oro.app.ui.theme.DevicePerformance
@@ -77,6 +81,7 @@ class AgentOverlay(private val context: Context) {
 
     private var island: IslandWindow? = null
     private var touches: TouchFeedbackView? = null
+    private var glow: EdgeGlowView? = null
 
     /** Whether the island should be on screen; it animates out before its window is removed. */
     private val visible = MutableStateFlow(false)
@@ -101,9 +106,11 @@ class AgentOverlay(private val context: Context) {
 
     // ------------------------------------------------------------ island
 
-    fun show(showTouches: Boolean) = ui {
+    fun show(showTouches: Boolean, edgeGlow: Boolean = true) = ui {
         pendingRemoval?.let { main.removeCallbacks(it) }
         pendingRemoval = null
+        // The glow goes in first, so the island and the touch marks draw over it.
+        if (edgeGlow) addGlowLayer() else removeGlowLayer()
         // A window the system refused is not kept: the next show() tries again,
         // so a run is never left without Stop on screen.
         if (island == null) island = IslandWindow().takeIf { it.attach() }
@@ -121,7 +128,7 @@ class AgentOverlay(private val context: Context) {
     /** The island opens itself for approvals; this only makes sure it is there. */
     @Suppress("UNUSED_PARAMETER")
     fun askApproval(question: String) = ui {
-        if (island == null) show(showTouches = touches != null)
+        if (island == null) show(showTouches = touches != null, edgeGlow = glow != null)
     }
 
     fun clearApproval() = Unit
@@ -129,6 +136,7 @@ class AgentOverlay(private val context: Context) {
     fun hideAll() = ui {
         visible.value = false
         removeTouchLayer()
+        removeGlowLayer()
         val window = island ?: return@ui
         val removal = Runnable {
             if (!visible.value) {
@@ -186,29 +194,75 @@ class AgentOverlay(private val context: Context) {
 
     // ---------------------------------------------------- touch feedback
 
-    fun showTouch(x: Int, y: Int, long: Boolean = false) = ui { touches?.tap(x.toFloat(), y.toFloat(), long) }
+    /**
+     * A touch at ([x], [y]), screen pixels. [bounds] (screen pixels) is the
+     * element it was for, framed with it; the edge glow swells with it.
+     */
+    fun showTouch(x: Int, y: Int, long: Boolean = false, bounds: Rect? = null) = ui {
+        touches?.tap(x.toFloat(), y.toFloat(), long, bounds?.let { RectF(it) })
+        glow?.pulse()
+    }
 
     fun showSwipe(x1: Int, y1: Int, x2: Int, y2: Int) = ui {
         touches?.swipe(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat())
+        glow?.pulse()
+    }
+
+    /**
+     * Takes the touch marks off the screen before a screenshot for the model,
+     * so it sees the app rather than Orobi's rings over it. The edge glow
+     * stays: it only tints the outermost band, and blinking it on every
+     * capture would be worse for the person watching.
+     */
+    suspend fun clearMarksForCapture() {
+        val cleared = withContext(Dispatchers.Main.immediate) { touches?.clear() ?: false }
+        if (cleared) awaitFrames(2)
+    }
+
+    /** Frames the field text is going into ([bounds], screen pixels). */
+    fun showField(bounds: Rect) = ui {
+        touches?.field(RectF(bounds))
+        glow?.pulse()
+    }
+
+    /**
+     * A full-screen window that never takes a touch or focus: the drawing
+     * layers over every app. Screen coordinates all the way to the edges,
+     * the cutout and both bars included, so a ring lands exactly where the
+     * gesture did and the glow meets the display's frame.
+     */
+    private fun drawingLayer(name: String) = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT
+    ).apply {
+        gravity = Gravity.TOP or Gravity.START
+        title = name
+        if (Build.VERSION.SDK_INT >= 30) {
+            fitInsetsTypes = 0
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= 28) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
     }
 
     private fun addTouchLayer() {
         if (touches != null) return
         val layer = TouchFeedbackView(context)
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            title = "Orobi touches"
-            // Screen coordinates all the way to the edges, so a ring lands
-            // exactly where the gesture did, nav bar or not.
-            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
-        }
-        if (runCatching { wm.addView(layer, lp) }.isSuccess) touches = layer
+        if (runCatching { wm.addView(layer, drawingLayer("Orobi touches")) }.isSuccess) touches = layer
+    }
+
+    private fun addGlowLayer() {
+        if (glow != null) return
+        val layer = EdgeGlowView(context).apply { lite = liteNow }
+        if (runCatching { wm.addView(layer, drawingLayer("Orobi glow")) }.isSuccess) glow = layer
+    }
+
+    private fun removeGlowLayer() {
+        glow?.let { runCatching { wm.removeView(it) } }
+        glow = null
     }
 
     private fun removeTouchLayer() {
@@ -250,6 +304,13 @@ class AgentOverlay(private val context: Context) {
         val lowEnd = remember { DevicePerformance.isLowEndDevice(context) }
         val lite = choice.isEnabled(lowEnd)
         SideEffect { liteNow = lite }
+        // The edge glow follows the run: lit while Orobi works the phone, out
+        // while it waits on the user (pause, question, approval) or is done.
+        val working = shown && IslandModel.phase(state) == IslandPhase.Working
+        SideEffect {
+            glow?.lite = lite
+            glow?.setActive(working)
+        }
         val config = LocalConfiguration.current
         // The whole height between the bars, or the part above the keyboard
         // while the reply field has it; the card's middle scrolls past that.
@@ -542,18 +603,7 @@ class AgentOverlay(private val context: Context) {
             }
         }
 
-        private fun screenSize(): Pair<Int, Int> {
-            if (Build.VERSION.SDK_INT >= 30) {
-                runCatching { wm.currentWindowMetrics.bounds }.getOrNull()
-                    ?.takeIf { it.width() > 0 && it.height() > 0 }
-                    ?.let { return it.width() to it.height() }
-            }
-            @Suppress("DEPRECATION")
-            val real = android.util.DisplayMetrics().also { runCatching { wm.defaultDisplay.getRealMetrics(it) } }
-            if (real.widthPixels > 0 && real.heightPixels > 0) return real.widthPixels to real.heightPixels
-            val m = context.resources.displayMetrics
-            return m.widthPixels to m.heightPixels
-        }
+        private fun screenSize(): Pair<Int, Int> = DisplaySize.of(context).let { it.width() to it.height() }
 
         /** Below the status bar (and any cutout); never less than a bar, even where a service context reports none. */
         private fun topInset(): Int {

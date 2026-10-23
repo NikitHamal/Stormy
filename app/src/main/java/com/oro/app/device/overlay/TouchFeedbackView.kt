@@ -3,6 +3,7 @@ package com.oro.app.device.overlay
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.os.SystemClock
 import android.view.View
 import androidx.compose.ui.graphics.toArgb
@@ -12,8 +13,14 @@ import kotlin.math.max
 /**
  * Where Orobi touches the screen, drawn on a full-screen untouchable window:
  * a ring that opens out from each tap, a ring that fills while a long press
- * holds, and a trail behind each swipe. Every action is visible, so nothing
+ * holds, and a trail behind each swipe. A tap on an element also frames the
+ * element itself, and a field being typed into gets the same frame, so it is
+ * plain which control the touch was for. Every action is visible, so nothing
  * happens to the phone "invisibly".
+ *
+ * Marks are kept in screen pixels and moved into this view's space when they
+ * are drawn ([TouchGeometry]): the window is not always at the screen's corner,
+ * and a mark drawn at raw screen coordinates sat above or below its target.
  *
  * Plain Canvas on purpose: it runs over whatever app is in front, on budget
  * phones too, and only animates while a mark is alive (a few hundred ms).
@@ -25,10 +32,14 @@ internal class TouchFeedbackView(context: Context) : View(context) {
     private class Mark(
         val x1: Float, val y1: Float, val x2: Float, val y2: Float,
         val born: Long, val kind: Int,
+        /** The target's bounds in screen pixels (l, t, r, b), framed while the mark lives. */
+        val frame: FloatArray? = null,
     )
 
     private val marks = ArrayList<Mark>(8)
     private val density = resources.displayMetrics.density
+    private val origin = IntArray(2)
+    private val box = RectF()
 
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = MAGENTA }
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = MAGENTA }
@@ -37,6 +48,8 @@ internal class TouchFeedbackView(context: Context) : View(context) {
     private val trail = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = MAGENTA
     }
+    private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = MAGENTA }
+    private val wash = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = MAGENTA }
 
     init {
         // Never part of what the agent reads, never a touch target.
@@ -45,9 +58,37 @@ internal class TouchFeedbackView(context: Context) : View(context) {
         isFocusable = false
     }
 
-    fun tap(x: Float, y: Float, long: Boolean) = add(Mark(x, y, x, y, now(), if (long) LONG else TAP))
+    /** A tap at ([x], [y]) in screen pixels; [bounds] (screen pixels) frames the element it was for. */
+    fun tap(x: Float, y: Float, long: Boolean, bounds: RectF? = null) =
+        add(Mark(x, y, x, y, now(), if (long) LONG else TAP, frameOf(bounds)))
 
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float) = add(Mark(x1, y1, x2, y2, now(), SWIPE))
+
+    /** Frames a field while text goes into it: no ring, nothing was touched. */
+    fun field(bounds: RectF) {
+        val frame = frameOf(bounds) ?: return
+        add(Mark(bounds.centerX(), bounds.centerY(), bounds.centerX(), bounds.centerY(), now(), FIELD, frame))
+    }
+
+    /** Drops every mark at once; true when there was one to drop. */
+    fun clear(): Boolean {
+        if (marks.isEmpty()) return false
+        marks.clear()
+        invalidate()
+        return true
+    }
+
+    private fun frameOf(bounds: RectF?): FloatArray? {
+        bounds ?: return null
+        val pad = 3f * density
+        val frame = TouchGeometry.outline(bounds.left, bounds.top, bounds.right, bounds.bottom, pad) ?: return null
+        val screen = resources.displayMetrics
+        val w = max(width, screen.widthPixels)
+        val h = max(height, screen.heightPixels)
+        return frame.takeIf { TouchGeometry.worthOutlining(bounds.toArray(), w, h) }
+    }
+
+    private fun RectF.toArray() = floatArrayOf(left, top, right, bottom)
 
     private fun add(mark: Mark) {
         if (marks.size >= MAX_MARKS) marks.removeAt(0)
@@ -61,15 +102,40 @@ internal class TouchFeedbackView(context: Context) : View(context) {
         super.onDraw(canvas)
         val t = now()
         marks.removeAll { t - it.born > life(it.kind) }
+        if (marks.isEmpty()) return
+        // Screen pixels to this window's pixels, read every frame: the window
+        // can move under a rotation or a cutout change between two marks.
+        getLocationOnScreen(origin)
+        canvas.save()
+        canvas.translate(TouchGeometry.toView(0f, origin[0]), TouchGeometry.toView(0f, origin[1]))
         for (m in marks) {
             val p = ((t - m.born) / life(m.kind).toFloat()).coerceIn(0f, 1f)
+            m.frame?.let { drawFrame(canvas, it, p, filled = m.kind == FIELD) }
             when (m.kind) {
                 SWIPE -> drawSwipe(canvas, m, p)
                 LONG -> drawLongPress(canvas, m, p)
+                FIELD -> Unit
                 else -> drawTap(canvas, m, p)
             }
         }
-        if (marks.isNotEmpty()) postInvalidateOnAnimation()
+        canvas.restore()
+        postInvalidateOnAnimation()
+    }
+
+    /** The target's own outline: it settles onto the control, holds, then fades with the mark. */
+    private fun drawFrame(canvas: Canvas, f: FloatArray, p: Float, filled: Boolean) {
+        val settle = easeOut((p / 0.35f).coerceAtMost(1f))
+        val grow = (1f - settle) * 4f * density
+        box.set(f[0] - grow, f[1] - grow, f[2] + grow, f[3] + grow)
+        val radius = minOf(FRAME_RADIUS_DP * density, minOf(box.width(), box.height()) / 2f)
+        val fade = fadeLate(p)
+        if (filled) {
+            wash.alpha = (fade * 28).toInt()
+            canvas.drawRoundRect(box, radius, radius, wash)
+        }
+        outline.strokeWidth = 2f * density
+        outline.alpha = (fade * settle * 230).toInt()
+        canvas.drawRoundRect(box, radius, radius, outline)
     }
 
     private fun drawTap(canvas: Canvas, m: Mark, p: Float) {
@@ -130,14 +196,17 @@ internal class TouchFeedbackView(context: Context) : View(context) {
     private fun life(kind: Int): Long = when (kind) {
         LONG -> 900L
         SWIPE -> 700L
-        else -> 560L
+        FIELD -> 900L
+        else -> 640L
     }
 
     private companion object {
         const val TAP = 0
         const val LONG = 1
         const val SWIPE = 2
+        const val FIELD = 3
         const val MAX_MARKS = 12
+        const val FRAME_RADIUS_DP = 12f
         /** Orobi's markings and skin, as ARGB ints for Paint. */
         val MAGENTA = OroBrand.Magenta.toArgb()
         val PEACH = OroBrand.Peach.toArgb()

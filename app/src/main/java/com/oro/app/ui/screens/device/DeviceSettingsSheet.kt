@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
+import androidx.compose.material.icons.outlined.BorderOuter
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Screenshot
 import androidx.compose.material.icons.outlined.SkipNext
@@ -27,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import com.oro.app.device.DeviceAgent
 import com.oro.app.ui.components.expressive.PickerOption
 import com.oro.app.ui.components.expressive.SegmentedPicker
@@ -37,7 +39,6 @@ import com.oro.app.ui.theme.Space
 internal data class DeviceToggle(
     val icon: ImageVector,
     val title: String,
-    val subtitle: String,
     val checked: Boolean,
     val onChange: (Boolean) -> Unit,
 )
@@ -57,35 +58,36 @@ internal fun DeviceSettingsSheet(
         DeviceToggle(
             icon = Icons.Outlined.PrivacyTip,
             title = "Ask before sensitive actions",
-            subtitle = "Sending, paying, deleting and passwords wait for your OK",
             checked = settings.confirmSensitive,
             onChange = { v -> onChange { it.copy(confirmSensitive = v) } },
         ),
         DeviceToggle(
             icon = Icons.Outlined.TouchApp,
             title = "Show touches",
-            subtitle = "A ring wherever Orobi taps or swipes",
             checked = settings.showTouches,
             onChange = { v -> onChange { it.copy(showTouches = v) } },
         ),
         DeviceToggle(
+            icon = Icons.Outlined.BorderOuter,
+            title = "Edge glow",
+            checked = settings.edgeGlow,
+            onChange = { v -> onChange { it.copy(edgeGlow = v) } },
+        ),
+        DeviceToggle(
             icon = Icons.Outlined.SkipNext,
             title = "Skip ads",
-            subtitle = "Taps Skip as soon as it shows",
             checked = settings.skipAds,
             onChange = { v -> onChange { it.copy(skipAds = v) } },
         ),
         DeviceToggle(
             icon = Icons.Outlined.Screenshot,
             title = "Screenshots",
-            subtitle = "Vision models also see the screen",
             checked = settings.screenshots,
             onChange = { v -> onChange { it.copy(screenshots = v) } },
         ),
         DeviceToggle(
             icon = Icons.AutoMirrored.Outlined.KeyboardReturn,
             title = "Return to Oro when done",
-            subtitle = "Come back here when the task ends",
             checked = settings.returnToOro,
             onChange = { v -> onChange { it.copy(returnToOro = v) } },
         ),
@@ -146,18 +148,14 @@ private fun ToggleRow(toggle: DeviceToggle) {
             modifier = Modifier.size(Sizes.iconLarge),
         )
         Spacer(Modifier.width(Space.lg))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = toggle.title,
-                style = MaterialTheme.typography.bodyLargeEmphasized,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = toggle.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = toggle.title,
+            style = MaterialTheme.typography.bodyLargeEmphasized,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
         Spacer(Modifier.width(Space.md))
         Switch(checked = toggle.checked, onCheckedChange = null)
     }
