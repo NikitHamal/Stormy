@@ -16,7 +16,7 @@ Three read-only reviews (device engine, harness + providers, island + device UI)
 - **Harness:** TextToolCallParser scans raw values as opaque (a README showing an example call no longer runs it or truncates the file); early stop and truncation guard checked on every call; retry budgets reset after progress; StuckDetector keys reads on a write epoch; raw values typed by each run's tool schemas (`AgentLoopConfig.toolSchemas`).
 - **Providers:** WebView bridges survive renderer death; Mercury bridge origin-restricted, never hangs pending streams; community calls cancel immediately on Stop; AI SDK error frames are errors.
 - **Island:** Stop on the collapsed pill; clearPathFor(region) only clears the island under an injected gesture; focusable only while the user types; re-clamped on rotation/growth; fixed pill width (no per-frame window resizes); TalkBack pane titles.
-- **Screenshots:** push to `shots/<name>` (or ci/shots) and run `/data/workspace/tools/shots.py --branch shots/<name>` (AgentSky sandbox tool; the job log carries base64 PNGs prefixed `ORO|`). Locally: `./gradlew :app:testDebugUnitTest -Poro.screenshots=true`.
+- **Screenshots:** push to `shots/<name>` (or ci/shots) and run `shots.py --branch shots/<name>` (AgentSky task folder `task/tools/`; the job log carries base64 PNGs prefixed `ORO|`). Locally: `./gradlew :app:testDebugUnitTest -Poro.screenshots=true`.
 
 ---
 
