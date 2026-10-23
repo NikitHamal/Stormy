@@ -131,8 +131,8 @@ internal class IslandActions(
 /** One shape for the pill and the card, so expanding reads as the same island growing. */
 private val IslandShape = OroCorners.xLarge
 
-/** Transparent margin inside the window so the island's shadow is not clipped by it. */
-internal val IslandShadowRoom = 6.dp
+/** [IslandShape]'s radius, for the glow that traces it. */
+private val IslandCorner = 24.dp
 
 /**
  * The pill's width while a run is live. Fixed on purpose: the window wraps
@@ -221,7 +221,10 @@ internal fun AgentIsland(
         exit = if (lite) fadeOut(tween(100)) else fadeOut(tween(140)) + scaleOut(targetScale = 0.82f, transformOrigin = origin),
     ) {
         Surface(
-            modifier = Modifier.padding(IslandShadowRoom),
+            // The window wraps the island with room for its glow and shadow.
+            modifier = Modifier
+                .padding(IslandGlowRoom)
+                .islandGlow(phase, lite, IslandCorner),
             shape = IslandShape,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             contentColor = MaterialTheme.colorScheme.onSurface,

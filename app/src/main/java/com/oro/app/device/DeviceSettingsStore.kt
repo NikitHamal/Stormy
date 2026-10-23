@@ -22,7 +22,6 @@ object DeviceSettingsStore {
         return DeviceAgent.Settings(
             confirmSensitive = p.getBoolean("confirm", defaults.confirmSensitive),
             showTouches = p.getBoolean("touches", defaults.showTouches),
-            edgeGlow = p.getBoolean("glow", defaults.edgeGlow),
             returnToOro = p.getBoolean("return", defaults.returnToOro),
             maxActions = max.coerceAtLeast(0),
             skipAds = p.getBoolean("skipAds", defaults.skipAds),
@@ -35,7 +34,6 @@ object DeviceSettingsStore {
             .putInt("v", VERSION)
             .putBoolean("confirm", s.confirmSensitive)
             .putBoolean("touches", s.showTouches)
-            .putBoolean("glow", s.edgeGlow)
             .putBoolean("return", s.returnToOro)
             .putInt("max", s.maxActions.coerceAtLeast(0))
             .putBoolean("skipAds", s.skipAds)

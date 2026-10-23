@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
-import androidx.compose.material.icons.outlined.BorderOuter
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Screenshot
@@ -71,12 +70,6 @@ internal fun DeviceSettingsSheet(
             title = "Show touches",
             checked = settings.showTouches,
             onChange = { v -> onChange { it.copy(showTouches = v) } },
-        ),
-        DeviceToggle(
-            icon = Icons.Outlined.BorderOuter,
-            title = "Edge glow",
-            checked = settings.edgeGlow,
-            onChange = { v -> onChange { it.copy(edgeGlow = v) } },
         ),
         DeviceToggle(
             icon = Icons.Outlined.SkipNext,
