@@ -17,6 +17,7 @@ object ProjectOutline {
     private const val MAX_FILE_BYTES = 400_000L
     private const val MAX_LINE = 170
     private const val MAX_ITEMS = 10
+    private const val MAX_SELECTOR_SPAN = 400
 
     fun of(file: File): String? {
         if (!file.isFile) return null
@@ -53,8 +54,8 @@ object ProjectOutline {
     }
 
     private fun css(text: String): List<String> {
-        val clean = COMMENT.replace(text, "")
-        val selectors = RULE.findAll(clean).map { it.groupValues[1].trim() }
+        val clean = stripDataUrls(COMMENT.replace(text, ""))
+        val selectors = ruleHeads(clean)
             .filter { it.isNotEmpty() && !it.startsWith("@") && !it.endsWith("%") && it != "from" && it != "to" }
             .flatMap { it.split(',').asSequence().map { s -> s.trim() } }
             .filter { it.isNotEmpty() && it.length < 60 }
@@ -97,6 +98,45 @@ object ProjectOutline {
 
     private fun stripScripts(text: String) = INLINE_SCRIPT.replace(text, "")
 
+    /**
+     * The text before each `{` back to the previous `{`, `}` or `;`: rule
+     * selectors. One linear pass. A regex like `([^{};]+)\{` backtracks over
+     * every long run without those characters -- an embedded base64 font of
+     * 100 KB took tens of seconds -- so it is not used here.
+     */
+    internal fun ruleHeads(css: String): Sequence<String> = sequence {
+        var start = 0
+        for (i in css.indices) {
+            when (css[i]) {
+                '{' -> {
+                    // A selector is short; a head this long is data, not a selector.
+                    if (i - start <= MAX_SELECTOR_SPAN) yield(css.substring(start, i).trim())
+                    start = i + 1
+                }
+                '}', ';' -> start = i + 1
+            }
+        }
+    }
+
+    /** `url(data:…)` payloads (fonts, images) reduced to `url()`: they are most of the bytes and none of the meaning. */
+    internal fun stripDataUrls(css: String): String {
+        if (!css.contains("data:")) return css
+        val sb = StringBuilder(css.length)
+        var i = 0
+        while (i < css.length) {
+            val at = css.indexOf("url(", i, ignoreCase = true)
+            if (at < 0) { sb.append(css, i, css.length); break }
+            val close = css.indexOf(')', at + 4)
+            if (close < 0) { sb.append(css, i, css.length); break }
+            val inner = css.substring(at + 4, minOf(close, at + 16)).trimStart('\'', '"', ' ')
+            sb.append(css, i, at + 4)
+            if (!inner.startsWith("data:", ignoreCase = true)) sb.append(css, at + 4, close)
+            sb.append(')')
+            i = close + 1
+        }
+        return sb.toString()
+    }
+
     private val TEXT_TYPES = setOf("html", "htm", "css", "js", "mjs", "jsx", "ts", "tsx", "json", "md")
     private val ID = Regex("""(?<![\w:-])id\s*=\s*["']([^"'{}\s]+)["']""", RegexOption.IGNORE_CASE)
     private val SCRIPT_SRC = Regex("""<script[^>]*\bsrc\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
@@ -104,7 +144,6 @@ object ProjectOutline {
     private val INLINE_SCRIPT = Regex("""(?is)<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>""")
     private val COMMENT = Regex("""(?s)/\*.*?\*/""")
     private val BLOCK_COMMENT = Regex("""(?s)/\*.*?\*/""")
-    private val RULE = Regex("""([^{};]+)\{""")
     private val AT_RULE = Regex("""@(media|supports|container|keyframes)\b""")
     private val CUSTOM_PROPERTY = Regex("""(--[\w-]+)\s*:""")
     private val FUNCTION = Regex("""(?:^|[^\w$.])function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(""")

@@ -58,13 +58,19 @@ class Deployer(private val projectRoot: File) {
         stateFile.parentFile?.mkdirs(); stateFile.writeText(AiHttp.json.encodeToString(DeployState.serializer(), s))
     }
 
-    /** Project files to publish, as (relative path, file). */
-    fun files(): List<Pair<String, File>> = projectRoot.walkTopDown()
-        .onEnter { d -> d == projectRoot || d.name !in SKIP_DIRS }
-        .filter { it.isFile }
-        .map { it.relativeTo(projectRoot).invariantSeparatorsPath to it }
-        .take(MAX_FILES)
-        .toList()
+    /**
+     * Project files to publish, as (relative path, file): db.json without its
+     * secrets, and never the preview's uploads (see [PublishFilter]).
+     */
+    fun files(): List<Pair<String, File>> = com.oro.app.data.preview.PublishFilter.apply(
+        projectRoot,
+        projectRoot.walkTopDown()
+            .onEnter { d -> d == projectRoot || d.name !in SKIP_DIRS }
+            .filter { it.isFile }
+            .map { it.relativeTo(projectRoot).invariantSeparatorsPath to it }
+            .take(MAX_FILES)
+            .toList()
+    )
 
     // ------------------------------------------------------------- Netlify
 

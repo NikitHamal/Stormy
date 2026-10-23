@@ -107,4 +107,50 @@ class SensitiveGuardTest {
         val s = screen(el(0, "button", "Next"), el(1, "button", "Search"))
         assertThat(tap(args("index" to 0), s)).isNull()
     }
+
+    @Test
+    fun `destroying app data asks first`() {
+        val appInfo = screen(
+            el(0, "button", "Force stop"), el(1, "button", "Clear storage"), el(2, "button", "Disable"),
+            el(3, "button", "Clear cache"),
+            pkg = "com.android.settings", label = "Settings",
+        )
+        for (i in 0..3) assertThat(tap(args("index" to i), appInfo)).isNotNull()
+    }
+
+    @Test
+    fun `a plain OK is judged by the dialog it confirms`() {
+        val clear = screen(
+            el(0, ROLE_TEXT_, "Clear app data?", top = 900),
+            el(1, ROLE_TEXT_, "All this app's data will be deleted permanently.", top = 1000),
+            el(2, "button", "Cancel", top = 1200),
+            el(3, "button", "OK", top = 1200, left = 600),
+            pkg = "com.android.settings", label = "Settings",
+        )
+        assertThat(tap(args("index" to 3), clear)).contains("Clear app data?")
+        val send = screen(
+            el(0, ROLE_TEXT_, "Send this photo to Mum?", top = 900),
+            el(1, "button", "Yes", top = 1100),
+            pkg = "com.chat", label = "Chat",
+        )
+        assertThat(tap(args("index" to 1), send)).contains("Send this photo")
+        // A notice that something happened is not a confirmation.
+        val saved = screen(
+            el(0, ROLE_TEXT_, "Your post was published", top = 900),
+            el(1, "button", "OK", top = 1100),
+            pkg = "com.blog", label = "Blog",
+        )
+        assertThat(tap(args("index" to 1), saved)).isNull()
+        // Far-away page text is not the button's dialog.
+        val page = screen(
+            el(0, ROLE_TEXT_, "How to delete your account", top = 100),
+            el(1, "button", "OK", top = 2000),
+            pkg = "com.help", label = "Help",
+        )
+        assertThat(tap(args("index" to 1), page)).isNull()
+    }
+
+    private companion object {
+        const val ROLE_TEXT_ = ScreenElement.ROLE_TEXT
+    }
 }

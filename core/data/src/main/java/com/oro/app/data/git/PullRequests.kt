@@ -127,12 +127,16 @@ class PullRequests(private val projectRoot: File, private val token: String) {
         private const val MAX_FILES = 2_000
         private const val MAX_BYTES = 5L * 1024 * 1024
 
-        fun files(root: File): List<Pair<String, File>> = root.walkTopDown()
-            .onEnter { d -> d == root || d.name !in SKIP_DIRS }
-            .filter { it.isFile && it.length() <= MAX_BYTES }
-            .map { it.relativeTo(root).invariantSeparatorsPath to it }
-            .take(MAX_FILES)
-            .toList()
+        /** Files a pull request may carry: db.json without its secrets, never the preview's uploads. */
+        fun files(root: File): List<Pair<String, File>> = com.oro.app.data.preview.PublishFilter.apply(
+            root,
+            root.walkTopDown()
+                .onEnter { d -> d == root || d.name !in SKIP_DIRS }
+                .filter { it.isFile && it.length() <= MAX_BYTES }
+                .map { it.relativeTo(root).invariantSeparatorsPath to it }
+                .take(MAX_FILES)
+                .toList()
+        )
 
         /** Git's blob id: sha1("blob <size>\0" + content). */
         fun blobSha(bytes: ByteArray): String {

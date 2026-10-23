@@ -155,4 +155,67 @@ class HistoryPrunerTest {
         )
         assertThat(HistoryPruner.taskIndex(msgs)).isEqualTo(2)
     }
+
+    @Test
+    fun `a retry note or a deploy note never becomes the task`() {
+        val task = user("Build a booking page with a calendar")
+        val run = (1..60).flatMap { i -> listOf(writeCall("c$i", "index.html", 2_000), tool("c$i", 300)) }
+        val retry = user(HistoryPruner.appNote("continue from where you stopped. Check the current state of the files first if unsure."))
+        val deployed = user(HistoryPruner.appNote("the user published this project. It is live at https://x.netlify.app"))
+        val msgs = listOf(task) + run + listOf(deployed, retry)
+        assertThat(HistoryPruner.taskIndex(msgs)).isEqualTo(0)
+
+        val pruned = HistoryPruner.prune(msgs, 8_000)
+        assertThat(pruned.first().content).startsWith("Build a booking page")
+        assertThat(pruned.last().content).startsWith("[Oro: continue from where you stopped")
+        assertThat(TokenEstimator.estimate(pruned)).isAtMost(8_000)
+        // Notes written by older versions are recognised too.
+        assertThat(HistoryPruner.isHarnessMessage(user("Continue from where you stopped. Check the files."))).isTrue()
+    }
+
+    @Test
+    fun `the newest step of a text-protocol run is never folded away from its results`() {
+        val task = user("Write the whole site")
+        fun call(i: Int, size: Int) = ChatRequestMessage(
+            role = "assistant",
+            content = "Step $i.\n<tool_call>\n<function=write_file>\n<parameter=path>p$i.html</parameter>\n" +
+                "<parameter=content>\n${"x".repeat(size)}\n</parameter>\n</function>\n</tool_call>"
+        )
+        fun results(i: Int) = user("Tool results:\n<tool_result name=\"write_file\">\nWrote p$i.html\n</tool_result>\nContinue.")
+        val msgs = listOf(task) + (1..30).flatMap { listOf(call(it, 600), results(it)) } + listOf(call(31, 40_000), results(31))
+
+        val pruned = HistoryPruner.prune(msgs, 6_000)
+
+        // The last call survives (shrunk) right before its results.
+        assertThat(pruned.last().content).contains("Wrote p31.html")
+        val lastCall = pruned[pruned.lastIndex - 1]
+        assertThat(lastCall.role).isEqualTo("assistant")
+        assertThat(lastCall.content).contains("<parameter=path>p31.html</parameter>")
+        assertThat(lastCall.content).contains("characters omitted")
+        assertThat(TokenEstimator.estimate(pruned)).isAtMost(6_000)
+    }
+
+    @Test
+    fun `a note after the newest native step keeps that step`() {
+        val task = user("Polish the header")
+        val run = (1..40).flatMap { i -> listOf(writeCall("c$i", "index.html", 1_500), tool("c$i", 400)) }
+        val note = user("Automatic quality review (by the Oro app, not the user) found 1 problem: index.html")
+        val pruned = HistoryPruner.prune(listOf(task) + run + listOf(note), 4_000)
+
+        assertThat(pruned.last()).isEqualTo(note)
+        assertThat(pruned.any { m -> m.toolCalls?.any { it.id == "c40" } == true }).isTrue()
+        assertPaired(pruned)
+    }
+
+    @Test
+    fun `a very long run prunes in one pass`() {
+        val task = user("Build the app")
+        val run = (1..1_500).flatMap { i -> listOf(writeCall("c$i", "src/f${i % 40}.js", 1_200), tool("c$i", 300)) }
+        val started = System.nanoTime()
+        val pruned = HistoryPruner.prune(listOf(task) + run, 16_000)
+        val ms = (System.nanoTime() - started) / 1_000_000
+        assertThat(TokenEstimator.estimate(pruned)).isAtMost(16_000)
+        assertThat(pruned.first().content).contains("collapsed to fit the context window")
+        assertThat(ms).isLessThan(5_000)
+    }
 }

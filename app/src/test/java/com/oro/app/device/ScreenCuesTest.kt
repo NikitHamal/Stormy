@@ -58,6 +58,21 @@ class ScreenCuesTest {
     }
 
     @Test
+    fun `a direction across a list's axis says nothing about that list`() {
+        val feed = el(0, ROLE_LIST, "", height = 1800).copy(canScrollForward = true)
+        assertThat(feed.canScroll("left")).isNull()
+        assertThat(feed.canScroll("right")).isNull()
+        assertThat(feed.canScroll("up")).isFalse()
+        val carousel = el(1, ROLE_LIST, "", height = 300).copy(horizontal = true, canScrollBack = true)
+        assertThat(carousel.canScroll("down")).isNull()
+        assertThat(carousel.canScroll("left")).isTrue()
+        assertThat(carousel.canScroll("right")).isFalse()
+        val s = screen(carousel.copy(index = 0, bounds = Bounds(0, 300, 1080, 600)), feed.copy(index = 1, bounds = Bounds(0, 700, 1080, 2300)))
+        assertThat(s.listFor("left")?.horizontal).isTrue()
+        assertThat(s.listFor("down")?.horizontal).isFalse()
+    }
+
+    @Test
     fun `sign-in walls are named, a newsletter box is not`() {
         val password = screen(el(0, "input", "Email"), el(1, "input", "Password", password = true), el(2, "button", "Log in"))
         assertThat(password.hints(false).joinToString()).contains("asks to sign in")
@@ -67,6 +82,14 @@ class ScreenCuesTest {
         assertThat(sso.hints(false).joinToString()).contains("asks to sign in")
         val newsletter = screen(el(0, ROLE_TEXT, "Get our weekly news"), el(1, "input", "Your email"), el(2, "button", "Sign up"))
         assertThat(newsletter.hints(false).joinToString()).doesNotContain("sign in")
+        // A web page with a "Sign in" link: the address bar is editable, but it is not a login form.
+        val page = screen(
+            el(0, "input", "Search or type URL", viewId = "com.android.chrome:id/url_bar"),
+            el(1, "button", "Sign in"),
+            el(2, ROLE_TEXT, "Today's top stories"),
+            pkg = "com.android.chrome", label = "Chrome",
+        )
+        assertThat(page.hints(false).joinToString()).doesNotContain("sign in")
     }
 
     @Test
@@ -82,6 +105,33 @@ class ScreenCuesTest {
         assertThat(settings.hints(false)).isEmpty()
         val plain = screen(el(0, "button", "Next"), el(1, "input", "Name"), el(2, ROLE_TEXT, "Something to read"))
         assertThat(plain.hints(false)).isEmpty()
+    }
+
+    @Test
+    fun `captcha words in content and full-screen app pages raise no hint`() {
+        val inbox = screen(
+            el(0, "button", "Google · Security check: confirm it's you signed in on a new device · 9:41"),
+            el(1, ROLE_TEXT, "An article about why every site now shows a captcha before you can read the news today"),
+        )
+        assertThat(inbox.hints(false)).isEmpty()
+        // A store page: "Update now" and "Cancel" are the page itself, not a prompt in the way.
+        val store = screen(
+            el(0, ROLE_TEXT, "Shopsy", top = 200),
+            el(1, "button", "Update now", top = 400),
+            el(2, "button", "Cancel", top = 400, left = 600),
+            el(3, ROLE_TEXT, "What's new", top = 900),
+            el(4, ROLE_TEXT, "Bug fixes and improvements", top = 1000),
+            el(5, "button", "Rate this app", top = 2200),
+            pkg = "com.android.vending", label = "Play Store",
+        )
+        assertThat(store.hints(false)).isEmpty()
+        // The same nag in a dialog is named, and dismissed with "Not now", never "Cancel".
+        val dialog = screen(
+            el(0, ROLE_TEXT, "Update available", top = 900, window = ScreenState.WINDOW_DIALOG),
+            el(1, "button", "Cancel", top = 1100, window = ScreenState.WINDOW_DIALOG),
+            el(2, "button", "Not now", top = 1100, left = 500, window = ScreenState.WINDOW_DIALOG),
+        )
+        assertThat(dialog.hints(false).joinToString()).contains("dismiss it with \"Not now\"")
     }
 }
 

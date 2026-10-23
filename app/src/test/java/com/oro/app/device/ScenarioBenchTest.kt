@@ -160,6 +160,67 @@ class ScenarioBenchTest {
     }
 
     @Test
+    fun `scrolling sideways moves the carousel, never the feed it sits on`() = runTest {
+        val shop = screen(
+            el(0, ROLE_LIST, "", top = 200, height = 2100).copy(canScrollForward = true),
+            el(1, ROLE_LIST, "", top = 400, height = 300).copy(horizontal = true, canScrollBack = true, canScrollForward = true),
+            el(2, ROLE_TEXT, "Deals of the day", top = 300),
+            pkg = "com.shop", label = "Shop",
+        )
+        val phone = ScenarioBench.phone(this, shop)
+        val model = ScriptedModel(
+            // The feed is at its top, but "left" is about the carousel: it must not be refused.
+            calls("scroll" to """{"direction":"left"}"""),
+            calls("scroll" to """{"direction":"down"}"""),
+            calls("finish_task" to """{"summary":"Browsed the deals.","success":true}"""),
+        )
+
+        play(phone, model, "Show me today's deals")
+
+        assertThat(phone.log).containsExactly(Act.Scroll("left", 1), Act.Scroll("down", 0)).inOrder()
+        assertThat(model.seen[1]).doesNotContain("Nothing more left")
+    }
+
+    @Test
+    fun `sideways with no carousel is tried, not refused by the vertical list`() = runTest {
+        val feed = screen(
+            el(0, ROLE_LIST, "", top = 200, height = 2100).copy(canScrollForward = true),
+            el(1, ROLE_TEXT, "Story 1", top = 300),
+            pkg = "com.news", label = "News",
+        )
+        val phone = ScenarioBench.phone(this, feed)
+        val model = ScriptedModel(
+            calls("scroll" to """{"direction":"right"}"""),
+            calls("finish_task" to """{"summary":"Swiped.","success":true}"""),
+        )
+
+        play(phone, model, "Swipe to the next story")
+
+        assertThat(phone.log).containsExactly(Act.Scroll("right", null))
+    }
+
+    @Test
+    fun `a tap by coordinates on the open keyboard is refused like an element tap`() = runTest {
+        val chat = screen(
+            el(0, "input", "Message", value = "Running late", top = 1300, height = 120),
+            el(1, ROLE_TEXT, "Earlier message", top = 1900),
+            pkg = "com.chat", label = "Chat",
+        ).copy(keyboardVisible = true, keyboardTop = 1500)
+        val phone = ScenarioBench.phone(this, chat)
+        val model = ScriptedModel(
+            calls("tap" to """{"x":980,"y":2250}"""),
+            calls("swipe" to """{"x1":540,"y1":2000,"x2":540,"y2":1000}"""),
+            calls("finish_task" to """{"summary":"Left the draft.","success":false}"""),
+        )
+
+        play(phone, model, "Send the draft")
+
+        assertThat(phone.log).isEmpty()
+        assertThat(model.seen[1]).contains("is under the keyboard")
+        assertThat(model.seen[2]).contains("is under the keyboard")
+    }
+
+    @Test
     fun `reading the same screen while waiting is not going in circles`() = runTest {
         val video = screen(el(0, "view", "Video player"), el(1, ROLE_TEXT, "Buffering"), pkg = "com.video", label = "Video")
         val phone = ScenarioBench.phone(this, video)

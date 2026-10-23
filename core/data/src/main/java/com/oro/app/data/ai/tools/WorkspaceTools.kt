@@ -47,6 +47,7 @@ class WorkspaceTools(private val root: File) {
 
         /** Budget for list_files(symbols=true) outlines, in characters. */
         const val MAX_OUTLINE_CHARS = 16_000
+        private const val OUTLINE_BUDGET_NANOS = 4_000_000_000L
         const val MAX_GLOB_RESULTS = 200
         const val MAX_GREP_MATCHES = 200
         const val MAX_SEARCH_FILE_BYTES = 1_000_000L
@@ -312,6 +313,9 @@ class WorkspaceTools(private val root: File) {
         var truncated = false
         var outlineChars = 0
         var outlinesCut = false
+        // Outlines read files; on a huge project they stop at a time budget
+        // rather than hold the run (and Stop) for minutes.
+        val outlineDeadline = System.nanoTime() + OUTLINE_BUDGET_NANOS
         val sb = StringBuilder()
         fun walk(d: File, level: Int) {
             val children = d.listFiles()?.filter { AgentPathPolicy.isVisible(it.name) }
@@ -329,6 +333,7 @@ class WorkspaceTools(private val root: File) {
                     }
                 } else {
                     sb.append(indent).append(c.name)
+                    if (symbols && !outlinesCut && System.nanoTime() > outlineDeadline) outlinesCut = true
                     if (symbols && !outlinesCut) {
                         val outline = ProjectOutline.of(c)
                         if (outline != null) {

@@ -31,7 +31,8 @@ internal class FakePhone(private val clock: () -> Long, start: ScreenState) : Ph
         data class Type(val field: String?, val text: String) : Act
         data object Submit : Act
         data class Key(val key: String) : Act
-        data class Scroll(val direction: String) : Act
+        /** [list] is the index of the element scrolled, null for "whatever the phone picks". */
+        data class Scroll(val direction: String, val list: Int? = null) : Act
         data class Url(val url: String) : Act
         data class App(val name: String) : Act
         data class Quick(val args: QuickActions.Args) : Act
@@ -102,7 +103,7 @@ internal class FakePhone(private val clock: () -> Long, start: ScreenState) : Ph
     override suspend fun media(action: String): String { act(Act.Media(action)); return "Sent media $action to the current player." }
 
     override suspend fun scroll(direction: String, e: ScreenElement?, screen: ScreenState?, amount: Float): String {
-        act(Act.Scroll(direction))
+        act(Act.Scroll(direction, e?.index))
         return "Scrolled $direction."
     }
 

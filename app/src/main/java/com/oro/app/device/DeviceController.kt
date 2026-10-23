@@ -377,15 +377,26 @@ class DeviceController(private val service: OroAccessibilityService) : Phone {
 
     override suspend fun scroll(direction: String, e: ScreenElement?, screen: ScreenState?, amount: Float): String {
         val dir = direction.lowercase()
+        val sideways = dir == "left" || dir == "right"
+        // With no element, only an up/down scroll goes to the biggest list: the
+        // biggest list is almost always the vertical feed, and "left" must not
+        // page it backwards.
         val node = e?.let { el -> screen?.let { ScreenReader.nodeFor(it, el.index) } }?.let { scrollableSelfOrAncestor(it) }
-            ?: if (e == null) largestScrollable() else null
+            ?: if (e == null && !sideways) largestScrollable() else null
         if (node != null) {
+            val directional = directionalScroll(dir)
+            if (directional != null && node.performAction(directional)) {
+                return "Scrolled $dir${e?.let { " in [${it.index}]" } ?: ""}."
+            }
+            // Forward/backward move a list along its own axis, so they stand in
+            // for a direction only when that axis is the one asked for.
+            val alongAxis = dir == "forward" || dir == "back" || dir == "backward" ||
+                (e == null && !sideways) || (e != null && (!e.scrollable || e.horizontal == sideways))
             val action = when (dir) {
                 "down", "right", "forward" -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
                 else -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
             }
-            val directional = directionalScroll(dir)
-            if ((directional != null && node.performAction(directional)) || node.performAction(action)) {
+            if (alongAxis && node.performAction(action)) {
                 return "Scrolled $dir${e?.let { " in [${it.index}]" } ?: ""}."
             }
         }

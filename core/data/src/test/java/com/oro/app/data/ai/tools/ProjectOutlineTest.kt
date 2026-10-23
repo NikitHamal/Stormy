@@ -83,4 +83,26 @@ class ProjectOutlineTest {
         assertThat(out).contains("logo.png")
         assertThat(out).doesNotContain("logo.png —")
     }
+
+    @Test
+    fun `css with an embedded font outlines quickly and still lists its selectors`() {
+        val font = "A".repeat(150_000)
+        val css = "@font-face { font-family: Icons; src: url(data:font/woff2;base64,$font) format('woff2'); }\n" +
+            ".icon { font-family: Icons; }\n.card, .card:hover { color: red; }\n" + "B".repeat(60_000) + "\n.footer{margin:0}"
+        val started = System.nanoTime()
+        val outline = ProjectOutline.of("icons.css", css)!!
+        val ms = (System.nanoTime() - started) / 1_000_000
+        assertThat(ms).isLessThan(2_000)
+        assertThat(outline).contains(".icon")
+        assertThat(outline).contains(".card")
+        assertThat(outline).doesNotContain("AAAA")
+    }
+
+    @Test
+    fun `rule heads are found in one pass`() {
+        assertThat(ProjectOutline.ruleHeads("a{b:c} .x , .y { z: 1; } @media (max-width: 1px) { .m { } }").toList())
+            .containsExactly("a", ".x , .y", "@media (max-width: 1px)", ".m").inOrder()
+        assertThat(ProjectOutline.stripDataUrls("x{background:url(\"data:image/png;base64,QUJD\")} y{background:url(a.png)}"))
+            .isEqualTo("x{background:url()} y{background:url(a.png)}")
+    }
 }

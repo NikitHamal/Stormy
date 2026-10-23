@@ -79,9 +79,10 @@ class MockApiTest {
         assertThat(reg.status).isEqualTo(201)
         assertThat(reg.body).contains("\"email\": \"ana@example.com\"")
         assertThat(reg.body).doesNotContain("password")
-        // The hash is stored but never served.
-        assertThat(File(tmp.root, "db.json").readText()).contains("passwordHash")
-        assertThat(a.handle("GET", "/api/users", null).body).doesNotContain("passwordHash")
+        // The hash is stored outside db.json (a deploy publishes db.json) and never served.
+        assertThat(File(tmp.root, "db.json").readText()).doesNotContain("password")
+        assertThat(File(tmp.root, ".oro/mock-auth.json").readText()).contains("pbkdf2:")
+        assertThat(a.handle("GET", "/api/users", null).body).doesNotContain("password")
 
         assertThat(a.handle("POST", "/api/auth/register", """{"email":"ana@example.com","password":"other1"}""").status).isEqualTo(409)
         assertThat(a.handle("POST", "/api/auth/login", """{"email":"ana@example.com","password":"wrong"}""").status).isEqualTo(401)
@@ -96,16 +97,94 @@ class MockApiTest {
 
         assertThat(a.handle("POST", "/api/auth/logout", null, mapOf("authorization" to "Bearer $t")).status).isEqualTo(204)
         assertThat(a.handle("GET", "/api/auth/me", null, mapOf("Authorization" to "Bearer $t")).status).isEqualTo(401)
-        // Sessions are internal.
+        // Sessions are internal, and not in the project's data at all.
         assertThat(a.handle("GET", "/api/_sessions", null).status).isEqualTo(404)
         assertThat(a.handle("GET", "/api", null).body).doesNotContain("_sessions")
+        assertThat(File(tmp.root, "db.json").readText()).doesNotContain("_sessions")
     }
 
     @Test
-    fun `a patch from the page keeps the password hash`() {
+    fun `hashes and sessions an older version wrote into db json move out and keep working`() {
+        val salt = "abc123"
+        val hex = java.security.MessageDigest.getInstance("SHA-256").digest((salt + "matrix").toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val a = api(
+            """{"users":[{"id":1,"username":"neo","passwordHash":"sha256:$salt:$hex"}],""" +
+                """"_sessions":{"tok1":{"userId":1,"createdAt":"2026-01-01T00:00:00Z"}}}"""
+        )
+        assertThat(a.handle("GET", "/api/auth/me", null, mapOf("Authorization" to "Bearer tok1")).status).isEqualTo(200)
+        val db = File(tmp.root, "db.json").readText()
+        assertThat(db).doesNotContain("passwordHash")
+        assertThat(db).doesNotContain("_sessions")
+        // The old SHA-256 hash still logs in, and is upgraded to PBKDF2.
+        assertThat(a.handle("POST", "/api/auth/login", """{"username":"neo","password":"matrix"}""").status).isEqualTo(200)
+        assertThat(File(tmp.root, ".oro/mock-auth.json").readText()).doesNotContain("sha256:")
+        assertThat(a.handle("POST", "/api/auth/login", """{"username":"neo","password":"wrong"}""").status).isEqualTo(401)
+    }
+
+    @Test
+    fun `a seeded plain password logs in once, then lives on only as a hash`() {
+        val a = api("""{"users":[{"id":1,"email":"demo@site.com","name":"Demo","password":"demo123"}]}""")
+        assertThat(a.handle("GET", "/api/users", null).body).doesNotContain("demo123")
+        assertThat(a.handle("POST", "/api/auth/login", """{"email":"demo@site.com","password":"nope"}""").status).isEqualTo(401)
+        assertThat(a.handle("POST", "/api/auth/login", """{"email":"demo@site.com","password":"demo123"}""").status).isEqualTo(200)
+        assertThat(File(tmp.root, "db.json").readText()).doesNotContain("demo123")
+        assertThat(a.handle("POST", "/api/auth/login", """{"email":"demo@site.com","password":"demo123"}""").status).isEqualTo(200)
+    }
+
+    @Test
+    fun `a password sent in a patch is hashed, never stored as text`() {
+        val a = api("""{"users":[{"id":1,"email":"ana@site.com","password":"old1"}]}""")
+        val r = a.handle("PATCH", "/api/users/1", """{"name":"Ana","password":"new22","confirmPassword":"new22"}""")
+        assertThat(r.body).doesNotContain("new22")
+        assertThat(File(tmp.root, "db.json").readText()).doesNotContain("new22")
+        assertThat(File(tmp.root, "db.json").readText()).doesNotContain("old1")
+        assertThat(a.handle("POST", "/api/auth/login", """{"email":"ana@site.com","password":"new22"}""").status).isEqualTo(200)
+        assertThat(a.handle("POST", "/api/auth/login", """{"email":"ana@site.com","password":"old1"}""").status).isEqualTo(401)
+        // A patch without a password keeps the one there is.
+        a.handle("PATCH", "/api/users/1", """{"name":"Ana B"}""")
+        assertThat(a.handle("POST", "/api/auth/login", """{"email":"ana@site.com","password":"new22"}""").status).isEqualTo(200)
+    }
+
+    @Test
+    fun `secrets cannot be searched, filtered, sorted or embedded`() {
+        val a = api(
+            """{"users":[{"id":1,"email":"a@b.c","password":"hunter2"},{"id":2,"email":"d@e.f","password":"pass99"}],""" +
+                """"posts":[{"id":1,"userId":1,"title":"Hi"}],"_resetCodes":[{"id":1,"postId":1,"code":"9911"}]}"""
+        )
+        assertThat(a.handle("GET", "/api/users?q=hunter2", null).body.trim()).isEqualTo("[]")
+        assertThat(a.handle("GET", "/api/users?password_like=hun", null).status).isEqualTo(400)
+        assertThat(a.handle("GET", "/api/users?passwordHash_like=sha", null).status).isEqualTo(400)
+        assertThat(a.handle("GET", "/api/users?password_ne=x", null).status).isEqualTo(400)
+        assertThat(a.handle("GET", "/api/users?_sort=password", null).status).isEqualTo(400)
+        assertThat(a.handle("GET", "/api/posts/1?_embed=_resetCodes", null).body).doesNotContain("9911")
+        assertThat(a.handle("GET", "/api/posts/1?_expand=user", null).body).doesNotContain("hunter2")
+        assertThat(a.handle("GET", "/api/users?email=a@b.c", null).body).contains("a@b.c")
+    }
+
+    @Test
+    fun `a deleted user's password and sessions go with it`() {
+        val a = api("""{"users":[]}""")
+        val t = token(a.handle("POST", "/api/auth/register", """{"username":"neo","password":"matrix"}""").body)
+        assertThat(a.handle("DELETE", "/api/users/1", null).status).isEqualTo(204)
+        assertThat(a.handle("GET", "/api/auth/me", null, mapOf("Authorization" to "Bearer $t")).status).isEqualTo(401)
+        // A new user that gets the same id inherits nothing.
+        a.handle("POST", "/api/users", """{"username":"trinity"}""")
+        assertThat(a.handle("POST", "/api/auth/login", """{"username":"trinity","password":"matrix"}""").status).isEqualTo(401)
+    }
+
+    @Test
+    fun `the upload limit fits a phone photo sent as a data url`() {
+        assertThat(MockApi.MAX_UPLOAD_BYTES).isAtLeast(8_000_000)
+        assertThat(MockApi.MAX_BODY_BYTES.toLong()).isAtLeast(MockApi.MAX_UPLOAD_BYTES.toLong() * 4 / 3)
+    }
+
+    @Test
+    fun `a patch from the page keeps the password`() {
         val a = api("""{"users":[]}""")
         a.handle("POST", "/api/auth/register", """{"username":"neo","password":"matrix"}""")
         a.handle("PATCH", "/api/users/1", """{"name":"Thomas"}""")
+        a.handle("PUT", "/api/users/1", """{"username":"neo","name":"Thomas A."}""")
         assertThat(a.handle("POST", "/api/auth/login", """{"username":"neo","password":"matrix"}""").status).isEqualTo(200)
     }
 

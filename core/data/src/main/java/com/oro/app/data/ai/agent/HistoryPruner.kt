@@ -63,21 +63,7 @@ object HistoryPruner {
 
         // 1 + 2: shrink old tool traffic -- native messages, and the same
         // traffic written as text by models on the text tool protocol.
-        val shrunk = messages.mapIndexed { i, m ->
-            if (i >= protectFrom) return@mapIndexed m
-            val content = m.content
-            when {
-                m.role == "tool" && (content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length ->
-                    m.copy(content = PRUNED_TOOL_OUTPUT)
-                m.role == "assistant" && m.toolCalls != null ->
-                    m.copy(toolCalls = m.toolCalls.map { shrinkCall(it) })
-                m.role == "user" && content != null && content.startsWith(TEXT_RESULTS_HEADER) ->
-                    m.copy(content = shrinkTextResults(content))
-                m.role == "assistant" && content != null && content.length > LARGE_ARGUMENT_CHARS &&
-                    content.contains("<parameter=") -> m.copy(content = shrinkTextCalls(content))
-                else -> m
-            }
-        }
+        val shrunk = messages.mapIndexed { i, m -> if (i >= protectFrom) m else shrinkMessage(m) }
         if (TokenEstimator.estimate(shrunk) <= budgetTokens) return shrunk
 
         // Exchanges as index ranges; the same indexes address the originals,
@@ -85,62 +71,95 @@ object HistoryPruner {
         val units = unitRanges(shrunk)
         val task = taskIndex(shrunk)
         val anchorUnit = units.indexOfFirst { task in it }.let { if (it < 0) units.lastIndex else it }
-        val runUnits = units.size - anchorUnit - 1
+        val firstRun = anchorUnit + 1
 
-        var pre = 0      // exchanges dropped before the task message
-        var collapsed = 0 // oldest exchanges of the current run folded into the ledger
-        fun assemble(): List<ChatRequestMessage> {
-            val out = ArrayList<ChatRequestMessage>(shrunk.size)
-            if (pre > 0) out += ChatRequestMessage(role = "user", content = OMITTED_NOTE)
-            for (u in pre until anchorUnit) units[u].forEach { out += shrunk[it] }
-            units[anchorUnit].forEach { i ->
-                val m = shrunk[i]
-                if (i == task && collapsed > 0) {
-                    val dropped = units.subList(anchorUnit + 1, anchorUnit + 1 + collapsed).flatMap { r -> r.map { messages[it] } }
-                    out += m.copy(content = (m.content ?: "").trimEnd() + "\n\n" + RunLedger.summarize(dropped))
-                } else {
-                    out += m
-                }
-            }
-            for (u in anchorUnit + 1 + collapsed until units.size) units[u].forEach { out += shrunk[it] }
-            return out
-        }
+        // Every unit's size once; each candidate cut below is arithmetic on
+        // these, so a long run costs one pass instead of one per candidate
+        // (and the ledger is summarised once, not once per fold step).
+        val size = LongArray(units.size) { u -> units[u].sumOf { TokenEstimator.estimate(shrunk[it]).toLong() } }
+        val tail = LongArray(units.size + 1).also { t -> for (u in units.indices.reversed()) t[u] = t[u + 1] + size[u] }
+        val omitted = TokenEstimator.estimate(ChatRequestMessage(role = "user", content = OMITTED_NOTE)).toLong()
+        fun total(pre: Int, collapsed: Int): Long =
+            (if (pre > 0) omitted else 0L) + (tail[pre] - tail[anchorUnit]) + size[anchorUnit] +
+                (if (collapsed > 0) LEDGER_RESERVE_TOKENS else 0L) + tail[firstRun + collapsed]
 
         // 3: drop whole exchanges from before the task, oldest first.
-        while (pre < anchorUnit && TokenEstimator.estimate(assemble()) > budgetTokens) pre++
+        var pre = 0
+        while (pre < anchorUnit && total(pre, 0) > budgetTokens) pre++
 
         // 4: an unlimited run can outgrow any window on its own. Fold its
         // oldest exchanges into a ledger appended to the task message --
-        // whole exchanges, so tool calls and results stay paired, and never
-        // the newest one. The fold grows [COLLAPSE_CHUNK] exchanges at a time,
-        // so as the run goes on the boundary (and with it the prompt prefix:
-        // task + ledger) stays put for several turns and providers' prompt
-        // caches keep hitting.
-        if (TokenEstimator.estimate(assemble()) > budgetTokens && runUnits > 1) {
-            while (collapsed < runUnits - 1 && TokenEstimator.estimate(assemble()) > budgetTokens) {
-                collapsed = (collapsed + COLLAPSE_CHUNK).coerceAtMost(runUnits - 1)
+        // whole exchanges, so tool calls and results stay paired. Never the
+        // newest assistant step (and so nothing after it): the model must see
+        // what it just did, and a results message must keep its call. The
+        // fold grows [COLLAPSE_CHUNK] exchanges at a time, so as the run goes
+        // on the boundary (and with it the prompt prefix: task + ledger) stays
+        // put for several turns and providers' prompt caches keep hitting.
+        val lastAssistant = (units.lastIndex downTo firstRun).firstOrNull { shrunk[units[it].first].role == "assistant" }
+        val maxCollapse = if (lastAssistant == null) 0 else lastAssistant - firstRun
+        var collapsed = 0
+        if (total(pre, 0) > budgetTokens && maxCollapse > 0) {
+            while (collapsed < maxCollapse && total(pre, collapsed) > budgetTokens) {
+                collapsed = (collapsed + COLLAPSE_CHUNK).coerceAtMost(maxCollapse)
             }
-            // Never leave a results or harness message whose call was folded
-            // away: the run resumes on the model's own turn.
-            while (collapsed < runUnits - 1 && shrunk[units[anchorUnit + 1 + collapsed].first].role != "assistant") collapsed++
+            // The run resumes on the model's own turn, never on an orphaned result or note.
+            while (collapsed < maxCollapse && shrunk[units[firstRun + collapsed].first].role != "assistant") collapsed++
         }
-        var result = assemble()
 
-        // Still over with only the current exchange left: shrink its oldest
-        // tool outputs too, newest kept intact as long as possible.
-        if (TokenEstimator.estimate(result) > budgetTokens) {
-            val mutable = result.toMutableList()
-            for (i in mutable.indices) {
-                if (TokenEstimator.estimate(mutable) <= budgetTokens) break
-                val m = mutable[i]
-                if (m.role == "tool" && (m.content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length) {
-                    mutable[i] = m.copy(content = PRUNED_TOOL_OUTPUT)
-                }
-            }
-            result = mutable
+        val ledger = if (collapsed > 0) {
+            RunLedger.summarize(units.subList(firstRun, firstRun + collapsed).flatMap { r -> r.map { messages[it] } })
+        } else null
+        val out = ArrayList<ChatRequestMessage>(shrunk.size)
+        if (pre > 0) out += ChatRequestMessage(role = "user", content = OMITTED_NOTE)
+        for (u in pre until anchorUnit) units[u].forEach { out += shrunk[it] }
+        units[anchorUnit].forEach { i ->
+            val m = shrunk[i]
+            out += if (i == task && ledger != null) m.copy(content = (m.content ?: "").trimEnd() + "\n\n" + ledger) else m
         }
-        return result
+        val runStart = out.size
+        for (u in firstRun + collapsed until units.size) units[u].forEach { out += shrunk[it] }
+
+        // Still over with only the newest steps left: shrink their tool traffic
+        // too, oldest first, so the newest step stays whole as long as possible.
+        var tokens = TokenEstimator.estimate(out).toLong()
+        var i = runStart
+        while (tokens > budgetTokens && i < out.size) {
+            val before = out[i]
+            val after = shrinkMessage(before)
+            if (after !== before) {
+                out[i] = after
+                tokens += TokenEstimator.estimate(after) - TokenEstimator.estimate(before)
+            }
+            i++
+        }
+        return out
     }
+
+    /**
+     * [m] with its bulk replaced by stubs: a tool output, a call's large
+     * arguments, text-protocol results and raw parameter values. The same
+     * message object when there is nothing to shrink.
+     */
+    private fun shrinkMessage(m: ChatRequestMessage): ChatRequestMessage {
+        val content = m.content
+        return when {
+            m.role == "tool" && (content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length ->
+                m.copy(content = PRUNED_TOOL_OUTPUT)
+            m.role == "assistant" && m.toolCalls != null && m.toolCalls.any { it.function.arguments.length > LARGE_ARGUMENT_CHARS } ->
+                m.copy(toolCalls = m.toolCalls.map { shrinkCall(it) })
+            m.role == "user" && content != null && content.startsWith(TEXT_RESULTS_HEADER) ->
+                shrinkTextResults(content).let { if (it == content) m else m.copy(content = it) }
+            m.role == "assistant" && content != null && content.length > LARGE_ARGUMENT_CHARS &&
+                content.contains("<parameter=") -> shrinkTextCalls(content).let { if (it == content) m else m.copy(content = it) }
+            else -> m
+        }
+    }
+
+    /** The ledger is capped at [RunLedger.MAX_CHARS]; this much is set aside for it when deciding the fold. */
+    private val LEDGER_RESERVE_TOKENS = (RunLedger.MAX_CHARS / 4 + 8).toLong()
+
+    /** `[Oro: …]`: a note the app adds to the conversation, never mistaken for the user's task. */
+    fun appNote(text: String): String = "[Oro: ${text.trim()}]"
 
     /** Exchanges folded into the run ledger at a time (see step 4). */
     private const val COLLAPSE_CHUNK = 8
@@ -166,7 +185,9 @@ object HistoryPruner {
         "Tool results:", "Your previous reply was cut off", "Your reply ended in the middle of",
         "Your last reply contained a tool call", "The screenshots your last tool call captured",
         "Automatic quality review (by the Oro app", "[Oro:", "[Earlier parts of this conversation",
-        "If the task is complete, call finish_task"
+        "If the task is complete, call finish_task",
+        // Notes the editor wrote before they carried the [Oro: prefix (see appNote).
+        "Continue from where you stopped", "[The user published this project", "[The user restored "
     )
 
     /**

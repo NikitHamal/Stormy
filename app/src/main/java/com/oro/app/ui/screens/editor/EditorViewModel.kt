@@ -383,7 +383,7 @@ class EditorViewModel(
     /** The user published the site; Orobi should know where it lives. */
     fun onDeployed(url: String) {
         if (_isAiProcessing.value) return
-        _messageHistory += ChatRequestMessage(role = "user", content = "[The user published this project. It is live at $url]")
+        _messageHistory += ChatRequestMessage(role = "user", content = HistoryPruner.appNote("the user published this project. It is live at $url"))
     }
 
     /** Put every file back to how it was before [messageId]'s run (and all later runs). */
@@ -407,8 +407,10 @@ class EditorViewModel(
                 val n = result.files.size
                 _messageHistory += ChatRequestMessage(
                     role = "user",
-                    content = "[The user restored $n file${if (n == 1) "" else "s"} to their state before an earlier " +
-                        "message: ${result.files.take(12).joinToString(", ")}. Re-read files before editing them.]"
+                    content = HistoryPruner.appNote(
+                        "the user restored $n file${if (n == 1) "" else "s"} to their state before an earlier " +
+                            "message: ${result.files.take(12).joinToString(", ")}. Re-read files before editing them."
+                    )
                 )
             }
             refreshCheckpoints()
@@ -1522,9 +1524,10 @@ class EditorViewModel(
         // After a run the history is rebuilt from the saved transcript and
         // ends with Orobi's partial reply; ask it to pick up from there.
         if (_messageHistory.lastOrNull()?.role != "user") {
+            // An app note, so the pruner keeps anchoring on the user's real request.
             _messageHistory.add(
                 aiRepository.createUserMessage(
-                    "Continue from where you stopped. Check the current state of the files first if unsure."
+                    HistoryPruner.appNote("continue from where you stopped. Check the current state of the files first if unsure.")
                 )
             )
         }

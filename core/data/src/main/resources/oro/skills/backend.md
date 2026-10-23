@@ -22,11 +22,12 @@ Endpoints (all JSON, CORS enabled):
 | GET | `/api/posts/1?_expand=user&_embed=comments` | relations: `user` from `userId`, `comments` whose `postId` is 1 |
 | POST | `/api/auth/register`, `/api/auth/login` | accounts: `{email or username, password}` → `{token, user}` (see use_skill "auth") |
 | GET | `/api/auth/me` | the signed-in user (`Authorization: Bearer <token>`) |
-| POST | `/api/uploads` | `{name, dataUrl}` → `{id, url, type, size}`; the file is saved under `uploads/` and served at `url` |
+| POST | `/api/uploads` | `{name, dataUrl}` (≤ 8 MB) → `{id, url, type, size}`; the file is saved under `uploads/` and served at `url` |
 More filters: `field_like=te`, `field_ne=x`, `price_gte=10&price_lte=50`, `q=text` (any field),
 `_start/_end`. Lists send `X-Total-Count` for pagination. Items get `createdAt`/`updatedAt` when the
 collection's existing items have them, so seed records with those fields for sortable timelines.
-Collections starting with `_` are internal. Data persists in `db.json`.
+Collections starting with `_` are internal. Data persists in `db.json`; a deploy publishes it without
+passwords, internal collections or `uploads/`. Password fields are never served, searched or sorted.
 With the UI kit, `Oro.api.get/post/patch/del/upload` does all of this (and sends the login token).
 Without it, write a small client:
 ```js

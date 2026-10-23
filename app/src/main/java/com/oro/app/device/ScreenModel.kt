@@ -109,12 +109,21 @@ data class ScreenElement(
         }
     }
 
-    /** Whether scrolling this way can show anything new: down/right is forward, up/left is back. */
+    /**
+     * Whether scrolling this way can show anything new: down/right is forward,
+     * up/left is back. Null when unknown -- including a direction across this
+     * element's axis (left on a vertical feed, down on a carousel): its
+     * capacity says nothing about that.
+     */
     fun canScroll(direction: String): Boolean? {
         if (!scrollable || !(canScrollBack || canScrollForward)) return null
         return when (direction.lowercase()) {
-            "down", "right", "forward" -> canScrollForward
-            "up", "left", "back", "backward" -> canScrollBack
+            "down" -> if (horizontal) null else canScrollForward
+            "up" -> if (horizontal) null else canScrollBack
+            "right" -> if (horizontal) canScrollForward else null
+            "left" -> if (horizontal) canScrollBack else null
+            "forward" -> canScrollForward
+            "back", "backward" -> canScrollBack
             else -> null
         }
     }
@@ -206,9 +215,22 @@ data class ScreenState(
      * The list a bare "scroll" moves: the largest vertically scrolling element
      * of the app's own window (not a dialog or popup over it).
      */
-    fun mainList(): ScreenElement? = elements.asSequence()
-        .filter { it.scrollable && !it.horizontal && it.window == null }
-        .maxByOrNull { it.bounds.area }
+    fun mainList(): ScreenElement? = listFor("down")
+
+    /**
+     * The list a scroll [direction] with no index moves: the largest element
+     * of the app's own window that scrolls on that axis -- a carousel for
+     * left/right, the feed for up/down.
+     */
+    fun listFor(direction: String): ScreenElement? {
+        val sideways = direction.lowercase().let { it == "left" || it == "right" }
+        return elements.asSequence()
+            .filter { it.scrollable && it.horizontal == sideways && it.window == null }
+            .maxByOrNull { it.bounds.area }
+    }
+
+    /** Whether (x, y) lies behind the open keyboard, where a tap presses a key. */
+    fun underKeyboard(x: Int, y: Int): Boolean = keyboardTop != null && y >= keyboardTop
 
     /** Where [e] sits, in words: "top right", "bottom", "middle"… */
     fun whereIs(e: ScreenElement): String {
@@ -230,6 +252,27 @@ data class ScreenState(
         }
     }
 
+    /**
+     * Whether the elements of [window] form something laid over the app: a
+     * dialog or system window, or a window whose content covers well under the
+     * whole screen (an in-app dialog or bottom sheet is the active window too).
+     */
+    private fun overlayLike(window: String?): Boolean {
+        if (window == WINDOW_DIALOG || window == WINDOW_SYSTEM) return true
+        val inWindow = elements.filter { it.window == window }
+        if (inWindow.isEmpty() || height <= 0) return false
+        val top = inWindow.minOf { it.bounds.top }
+        val bottom = inWindow.maxOf { it.bounds.bottom }
+        return bottom - top < height * 3 / 4
+    }
+
+    private fun isCredentialField(e: ScreenElement): Boolean {
+        val id = e.viewId.orEmpty().lowercase()
+        if (URL_BAR_ID.containsMatchIn(id)) return false
+        val name = e.label.lowercase()
+        return CREDENTIAL.containsMatchIn(name) || CREDENTIAL.containsMatchIn(id.substringAfter(":id/").replace('_', ' '))
+    }
+
     /** True when something on screen says it is still loading. */
     val loading: Boolean get() = elements.any { it.role == ScreenElement.ROLE_PROGRESS }
 
@@ -249,11 +292,16 @@ data class ScreenState(
         ) {
             out += "A permission dialog is open: allow only what the task needs (prefer \"While using the app\" / \"Only this time\")."
         }
-        if (labels.any { HUMAN_CHECK.containsMatchIn(it) }) {
+        // A captcha is a widget (a checkbox, a button, a short label), not any
+        // text that mentions one: an email about a "security check" or an
+        // article about captchas is not a human check.
+        if (elements.any { e -> (e.checkable || e.label.length <= MAX_WIDGET_LABEL) && HUMAN_CHECK.containsMatchIn(e.label.lowercase()) }) {
             out += "A human check (captcha) is on screen. You cannot solve it: ask_user to complete it on the phone, then continue."
         }
-        val inputs = elements.any { it.editable }
-        if (elements.any { it.password } || (inputs && labels.any { SIGN_IN.matches(it) }) ||
+        // A sign-in wall has a field for credentials, not just an editable box
+        // (every browser page has the address bar) and a "Sign in" link.
+        val credentials = elements.any { e -> e.password || (e.editable && e.window == null && isCredentialField(e)) }
+        if (elements.any { it.password } || (credentials && labels.any { SIGN_IN.matches(it) }) ||
             (labels.any { SSO.containsMatchIn(it) } && labels.any { SIGN_IN.matches(it) || SIGN_IN_PROMPT.containsMatchIn(it) })
         ) {
             out += "This screen asks to sign in. Use only credentials the user gave you; otherwise ask_user (never invent them), " +
@@ -262,8 +310,12 @@ data class ScreenState(
         elements.firstOrNull { ERROR_STATE.matches(it.label.lowercase().trim()) }?.let { e ->
             out += "The app shows an error (\"${e.label.take(60)}\"): try its Retry/Try again once; device_status shows whether the phone is online."
         }
-        if (labels.any { NAG.matches(it) }) {
-            elements.firstOrNull { DISMISS.matches(it.label.lowercase().trim()) && it.actionable }?.let { d ->
+        // A nag is a dialog or sheet over the app: the same words on a full
+        // screen (a store page's "Update" header) are the app itself.
+        elements.firstOrNull { NAG.matches(it.label.lowercase().trim()) && overlayLike(it.window) }?.let { nag ->
+            elements.firstOrNull {
+                it.window == nag.window && it.actionable && DISMISS.matches(it.label.lowercase().trim())
+            }?.let { d ->
                 out += "A prompt (rating, update, notifications, tips) is in the way: dismiss it with \"${d.label.take(30)}\" unless the task needs it."
             }
         }
@@ -320,8 +372,12 @@ data class ScreenState(
             "^(allow|don.t allow|deny|while using the app|only this time|allow all the time|allow only while using the app)$"
         )
         private val HUMAN_CHECK = Regex(
-            "\\b(i.m not a robot|verify (that )?you are (a )?human|are you a robot|captcha|human verification|unusual traffic|security check)\\b"
+            "\\b(i.m not a robot|verify (that )?you are (a )?human|are you a robot|captcha|human verification|unusual traffic)\\b"
         )
+        /** Longest label read as a widget's own (a checkbox's, a button's) rather than content. */
+        private const val MAX_WIDGET_LABEL = 50
+        private val CREDENTIAL = Regex("\\b(e-?mail|user ?name|login|phone|mobile|password|passcode)\\b")
+        private val URL_BAR_ID = Regex("url|omnibox|location_bar|address_bar|search_src|search_box")
         private val SIGN_IN = Regex("^(sign in|log in|login)$")
         private val SIGN_IN_PROMPT = Regex("\\b(sign in to|log in to|sign in or|log in or)\\b")
         private val SSO = Regex("\\bcontinue with (google|facebook|apple|microsoft)\\b")
@@ -332,9 +388,10 @@ data class ScreenState(
         )
         private val NAG = Regex(
             "^(rate (us|this app|the app).*|enjoying .{1,40}\\?|update (now|available|the app)|a new version is available.*|" +
-                "turn on notifications\\??|allow notifications\\??|get notified.*|what.s new.*|get started|let.s get started|take a tour)$"
+                "turn on notifications\\??|allow notifications\\??|get notified.*|get started|let.s get started|take a tour)$"
         )
-        private val DISMISS = Regex("^(not now|no thanks|no, thanks|later|maybe later|skip|skip for now|dismiss|close|cancel|remind me later)$")
+        // Not "cancel": on a download or an order it undoes what is in progress.
+        private val DISMISS = Regex("^(not now|no thanks|no, thanks|later|maybe later|skip|skip for now|dismiss|close|remind me later)$")
         private val AD = Regex("^(ad|ads|sponsored)( ·|$)|\\bskip ads?\\b|\\bvisit advertiser\\b|\\bad \\d+ of \\d+\\b")
 
         /**

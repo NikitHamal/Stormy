@@ -14,9 +14,27 @@ package com.oro.app.device
 object SensitiveGuard {
 
     private val SENSITIVE = Regex(
-        "\\b(pay|payment|purchase|buy|order|checkout|place order|subscribe|donate|transfer|send money|" +
+        "\\b(pay|payment|purchase|buy|order|checkout|place order|subscribe|unsubscribe|donate|transfer|send money|" +
             "send|post|publish|tweet|share|reply|comment|submit|confirm|delete|remove|erase|uninstall|install|" +
-            "reset|factory|sign out|log ?out|block|report|call|dial|accept|agree|grant|allow)\\b",
+            "reset|factory|sign out|log ?out|block|report|call|dial|accept|agree|grant|allow|" +
+            "clear (app )?(data|storage|cache)|clear all data|force stop|disable|deactivate|wipe|" +
+            "format (the )?(sd card|card|storage|device|phone))\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** A button that only says yes: what it agrees to is written in the dialog above it. */
+    private val GENERIC_YES = Regex("^(ok|okay|yes|continue|proceed|done|apply|sure|got it|i understand|i agree)$", RegexOption.IGNORE_CASE)
+
+    /** Dialog text that makes its yes-button destructive, question or not. */
+    private val DESTRUCTIVE = Regex(
+        "\\b(delet\\w*|remov\\w*|eras\\w*|clear (app |all )?(data|storage|cache)|wip\\w*|uninstall\\w*|reset\\w*|" +
+            "disabl\\w*|force stop|permanent\\w*|cannot be undone|can.t be undone|will be lost)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** An action a dialog asks about ("Send this message?"); a notice that it happened ("Message sent") is not. */
+    private val ACTION = Regex(
+        "\\b(pay\\w*|purchas\\w*|buy|charg\\w*|subscri\\w*|send|post|publish|transfer|share|sign out|log ?out|call)\\b",
         RegexOption.IGNORE_CASE
     )
 
@@ -26,8 +44,34 @@ object SensitiveGuard {
     /** A tap, double tap or long press on [target]. */
     fun tap(target: Target?, screen: ScreenState, verb: String = "tap"): String? = when (target) {
         is Target.OnElement -> sensitiveLabel(target.element, target.receiver)?.let { "$verb “$it” in ${appOf(screen)}" }
+            ?: confirmation(target.receiver.takeIf { it.label.isNotBlank() } ?: target.element, screen)
+                ?.let { (yes, what) -> "$verb “$yes” on “$what” in ${appOf(screen)}" }
         is Target.AtPoint -> sensitiveLabel(target.element, target.text)?.let { "$verb “$it” in ${appOf(screen)}" }
+            ?: (target.element ?: target.text)?.let { confirmation(it, screen) }?.let { (yes, what) -> "$verb “$yes” on “$what” in ${appOf(screen)}" }
         else -> null
+    }
+
+    /**
+     * A plain "OK"/"Yes" in a dialog that says what it confirms: "Clear app
+     * data? … will be deleted permanently" with OK. The button's own word is
+     * harmless; the dialog's text above it is what the tap agrees to. Returns
+     * (button, that text) or null.
+     */
+    internal fun confirmation(button: ScreenElement, screen: ScreenState): Pair<String, String>? {
+        val label = button.label.trim()
+        if (!GENERIC_YES.matches(label)) return null
+        // The few texts just above the button, in its own window: the dialog's
+        // title and message, not the page around it.
+        val context = screen.elements
+            .filter { it !== button && it.window == button.window && it.label.isNotBlank() && !it.takesTaps }
+            .filter { it.bounds.bottom <= button.bounds.top + 8 && button.bounds.top - it.bounds.bottom < 700 }
+            .sortedByDescending { it.bounds.bottom }
+            .take(4)
+        // Reported by the top-most matching line: the dialog's title when it says it.
+        val hit = context.sortedBy { it.bounds.top }.firstOrNull {
+            DESTRUCTIVE.containsMatchIn(it.label) || ('?' in it.label && ACTION.containsMatchIn(it.label))
+        } ?: return null
+        return label to hit.label.take(60)
     }
 
     /** type_text into [field] (null: the focused field), optionally pressing Enter. */

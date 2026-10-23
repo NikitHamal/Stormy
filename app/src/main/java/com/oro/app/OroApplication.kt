@@ -140,6 +140,8 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         prewarmFonts()
         // Off-screen page renderer for the agent's screenshot / audit tools.
         com.oro.app.data.preview.PagePreviewers.instance = com.oro.app.preview.WebViewPagePreviewer(this)
+        // The preview's mock accounts keep hashes and sessions here, never in a project folder.
+        com.oro.app.data.preview.MockApi.authDir = java.io.File(noBackupFilesDir, "mock-auth")
         // Browser-grade transport for the Qwen community provider (see QwenWebClient).
         com.oro.app.data.ai.community.QwenBrowser.bridge = com.oro.app.community.QwenWebBridge(this)
         // Same for Mercury: passes Vercel's browser check the guest chat sits behind (see MercuryWebClient).

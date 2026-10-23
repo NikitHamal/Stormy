@@ -739,20 +739,29 @@ object DeviceAgent {
 
             fun noTarget() = ToolResult(false, "", "Give an element index from the screen listing, or x and y.")
 
+            // A point behind the open keyboard: a tap there presses a key (Send,
+            // Enter), whatever the app shows underneath. Same rule as element taps.
+            fun underKeyboard(x: Int, y: Int): ToolResult? = if (actScreen.underKeyboard(x, y)) {
+                skipped("($x,$y) is under the keyboard. press_key(\"back\") closes the keyboard; then act there.", actScreen)
+            } else null
+
             return when (name) {
                 "tap", "tap_text" -> when (val t = target) {
                     is Target.OnElement -> act { c.tapElement(t.element, actScreen) }
-                    is Target.AtPoint -> act { if (c.tap(t.x, t.y)) "Tapped (${t.x},${t.y})." else "The tap could not be performed." }
+                    is Target.AtPoint -> underKeyboard(t.x, t.y)
+                        ?: act { if (c.tap(t.x, t.y)) "Tapped (${t.x},${t.y})." else "The tap could not be performed." }
                     else -> noTarget()
                 }
                 "long_press" -> when (val t = target) {
                     is Target.OnElement -> act { c.longPressElement(t.element, actScreen) }
-                    is Target.AtPoint -> act { if (c.longPress(t.x, t.y)) "Long-pressed (${t.x},${t.y})." else "The long press failed." }
+                    is Target.AtPoint -> underKeyboard(t.x, t.y)
+                        ?: act { if (c.longPress(t.x, t.y)) "Long-pressed (${t.x},${t.y})." else "The long press failed." }
                     else -> noTarget()
                 }
                 "double_tap" -> when (val t = target) {
                     is Target.OnElement -> act { c.doubleTapElement(t.element, actScreen) }
-                    is Target.AtPoint -> act { if (c.doubleTap(t.x, t.y)) "Double-tapped (${t.x},${t.y})." else "The double tap failed." }
+                    is Target.AtPoint -> underKeyboard(t.x, t.y)
+                        ?: act { if (c.doubleTap(t.x, t.y)) "Double-tapped (${t.x},${t.y})." else "The double tap failed." }
                     else -> noTarget()
                 }
                 "type_text" -> {
@@ -770,10 +779,13 @@ object DeviceAgent {
                 }
                 "scroll" -> {
                     val dir = DeviceArgs.str(args, "direction") ?: "down"
-                    val list = (target as? Target.OnElement)?.element
+                    // The list named, else the biggest one on the app's screen that
+                    // scrolls this way (a carousel for left/right). The same element
+                    // is checked and scrolled, so the answer is about the list moved.
+                    val list = (target as? Target.OnElement)?.element ?: actScreen.listFor(dir)
                     // The list already says there is nothing more that way: say so
                     // now instead of swiping, settling and reporting "no change".
-                    if ((list ?: actScreen.mainList())?.canScroll(dir) == false) {
+                    if (list?.canScroll(dir) == false) {
                         ToolResult(false, observation(null, actScreen), "Nothing more $dir: that list is at its end. Use what is on screen, or another list or screen.")
                     } else act {
                         c.scroll(dir, list, actScreen, (DeviceArgs.num(args, "amount") ?: 0.6).toFloat())
@@ -787,13 +799,15 @@ object DeviceAgent {
                     val x1 = DeviceArgs.int(args, "x1"); val y1 = DeviceArgs.int(args, "y1")
                     val x2 = DeviceArgs.int(args, "x2"); val y2 = DeviceArgs.int(args, "y2")
                     if (x1 == null || y1 == null || x2 == null || y2 == null) ToolResult(false, "", "swipe needs x1, y1, x2, y2.")
-                    else act { if (c.swipe(x1, y1, x2, y2, DeviceArgs.int(args, "duration_ms")?.toLong() ?: 350)) "Swiped ($x1,$y1)→($x2,$y2)." else "The swipe failed." }
+                    else underKeyboard(x1, y1)
+                        ?: act { if (c.swipe(x1, y1, x2, y2, DeviceArgs.int(args, "duration_ms")?.toLong() ?: 350)) "Swiped ($x1,$y1)→($x2,$y2)." else "The swipe failed." }
                 }
                 "drag" -> {
                     val from = pointOf(target)
                     val to = pointOf(dragTo)
                     if (from == null || to == null) ToolResult(false, "", "drag needs from_index/to_index or x1,y1,x2,y2.")
-                    else act { if (c.drag(from.first, from.second, to.first, to.second)) "Dragged from $from to $to." else "The drag failed." }
+                    else underKeyboard(from.first, from.second)
+                        ?: act { if (c.drag(from.first, from.second, to.first, to.second)) "Dragged from $from to $to." else "The drag failed." }
                 }
                 "pinch" -> {
                     val x = DeviceArgs.int(args, "x") ?: screen.width / 2
@@ -970,8 +984,9 @@ object DeviceAgent {
             while (hit == null && scrolls < 10) {
                 val before = cur.signature
                 val target = list?.let { l -> cur.elements.firstOrNull { it.role == l.role && it.bounds == l.bounds } }
+                    ?: cur.listFor(direction)
                 // The list says there is nothing more this way: done, without a wasted scroll.
-                if ((target ?: cur.mainList())?.canScroll(direction) == false) { atEnd = true; break }
+                if (target?.canScroll(direction) == false) { atEnd = true; break }
                 phone.scroll(direction, target, cur, 0.7f)
                 phone.settle(quietMs = 250, maxMs = 1_500, minMs = 100)
                 cur = observe()

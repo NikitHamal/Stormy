@@ -37,7 +37,7 @@ class EmbeddedDevServer(
     companion object {
         private val STATUS_TEXT = mapOf(
             200 to "OK", 201 to "Created", 204 to "No Content", 400 to "Bad Request", 404 to "Not Found",
-            405 to "Method Not Allowed", 409 to "Conflict", 500 to "Internal Server Error"
+            405 to "Method Not Allowed", 409 to "Conflict", 413 to "Payload Too Large", 500 to "Internal Server Error"
         )
         private const val TAG = "EmbeddedDevServer"
         private const val DEFAULT_PORT_RANGE_START = 8080
@@ -217,10 +217,7 @@ class EmbeddedDevServer(
         val currentTime = System.currentTimeMillis()
         val changedFiles = mutableListOf<String>()
 
-        projectRoot.walkTopDown()
-            // db.json is data written by the mock API; reloading the page on
-            // every POST would wipe the app state the request just changed.
-            .filter { it.isFile && isServableFile(it) && !(it.name.startsWith("db.json") && it.parentFile == projectRoot) }
+        watchedFiles()
             .forEach { file ->
                 val relativePath = file.relativeTo(projectRoot).path
                 val lastModified = file.lastModified()
@@ -253,14 +250,22 @@ class EmbeddedDevServer(
         return hasChanges
     }
 
+    /**
+     * A port on the loopback interface only. Bound to all interfaces, anyone on
+     * the same Wi-Fi could read the project and its mock accounts and post
+     * files into it; the preview only ever loads from 127.0.0.1.
+     */
     private fun findAvailablePort(): ServerSocket? {
+        val loopback = java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
         for (port in DEFAULT_PORT_RANGE_START..DEFAULT_PORT_RANGE_END) {
+            val socket = ServerSocket()
             try {
-                return ServerSocket(port).also {
-                    it.reuseAddress = true
-                }
+                socket.reuseAddress = true
+                socket.bind(java.net.InetSocketAddress(loopback, port), 50)
+                return socket
             } catch (e: Exception) {
                 // Port in use, try next
+                runCatching { socket.close() }
             }
         }
         return null
@@ -313,16 +318,25 @@ class EmbeddedDevServer(
                 }
 
                 val rawTarget = parts[1]
+                val cors = sameOrigin(headers["origin"])
                 when {
                     path == "/__dev_changes__" -> handleChangesEndpoint(output)
                     path == "/__dev_reload__" -> handleReloadEndpoint(output)
-                    method == "OPTIONS" -> sendRaw(output, 204, "text/plain", ByteArray(0), emptyMap())
+                    method == "OPTIONS" -> sendRaw(output, 204, "text/plain", ByteArray(0), emptyMap(), cors)
                     MockApi.isApiPath(rawTarget.substringBefore('?')) &&
                         !(method == "GET" && File(projectRoot, path.substringBefore('?').trimStart('/')).isFile) -> {
-                        val length = headers["content-length"]?.toIntOrNull() ?: 0
-                        val body = if (length > 0) readBody(reader, length) else null
+                        val length = headers["content-length"]?.toLongOrNull() ?: 0L
+                        if (length > MockApi.MAX_BODY_BYTES) {
+                            // Answer before reading: a 20 MB photo as base64 would only be
+                            // cut short and then fail as "not valid JSON".
+                            drain(reader, length)
+                            val msg = "{\"error\": \"${MockApi.UPLOAD_LIMIT_MESSAGE}\"}"
+                            sendRaw(output, 413, "application/json; charset=utf-8", msg.toByteArray(), emptyMap(), cors)
+                            return@use
+                        }
+                        val body = if (length > 0) readBody(reader, length.toInt()) else null
                         val r = mockApi.handle(method, rawTarget, body, headers)
-                        sendRaw(output, r.status, "application/json; charset=utf-8", r.body.toByteArray(), r.headers)
+                        sendRaw(output, r.status, "application/json; charset=utf-8", r.body.toByteArray(), r.headers, cors)
                     }
                     method == "GET" -> handleGetRequest(path, output)
                     else -> sendError(output, HTTP_NOT_FOUND, "Not Found")
@@ -352,6 +366,19 @@ class EmbeddedDevServer(
         // Security: Prevent directory traversal
         if (!file.canonicalPath.startsWith(projectRoot.canonicalPath)) {
             sendError(output, HTTP_NOT_FOUND, "Not Found")
+            return
+        }
+        // Hidden folders (.oro holds app data, .git the repository) are never served.
+        if (normalizedPath.split('/').any { it.startsWith(".") && it != ".well-known" }) {
+            sendError(output, HTTP_NOT_FOUND, "Not Found")
+            return
+        }
+        // db.json is the mock API's data: pages that read it directly get it
+        // the way a deploy publishes it, without passwords or internal data.
+        if (normalizedPath == "db.json" && file.isFile) {
+            val text = runCatching { file.readText() }.getOrDefault("")
+            val clean = PublishFilter.sanitize(text) ?: text
+            sendRaw(output, 200, "application/json; charset=utf-8", clean.toByteArray(), emptyMap(), null)
             return
         }
 
@@ -1157,40 +1184,74 @@ class EmbeddedDevServer(
      * with non-ASCII text neither truncates nor blocks waiting for more.
      */
     private fun readBody(reader: BufferedReader, byteLength: Int): String {
-        val sb = StringBuilder()
+        val limit = byteLength.coerceAtMost(MockApi.MAX_BODY_BYTES)
+        val sb = StringBuilder(limit.coerceAtMost(1 shl 20))
+        val buf = CharArray(16 * 1024)
         var bytes = 0
-        while (bytes < byteLength.coerceAtMost(5_000_000)) {
-            val c = reader.read()
-            if (c < 0) break
-            val ch = c.toChar()
-            sb.append(ch)
-            bytes += when {
-                c < 0x80 -> 1
-                c < 0x800 -> 2
-                Character.isHighSurrogate(ch) -> 4
-                Character.isLowSurrogate(ch) -> 0
-                else -> 3
+        while (bytes < limit) {
+            // Never ask for more characters than bytes remain: each is at least one byte.
+            val n = reader.read(buf, 0, minOf(buf.size, limit - bytes))
+            if (n < 0) break
+            for (i in 0 until n) {
+                val ch = buf[i]
+                val c = ch.code
+                bytes += when {
+                    c < 0x80 -> 1
+                    c < 0x800 -> 2
+                    Character.isHighSurrogate(ch) -> 4
+                    Character.isLowSurrogate(ch) -> 0
+                    else -> 3
+                }
             }
+            sb.append(buf, 0, n)
         }
         return sb.toString()
     }
 
-    /** Response with any status and extra headers (the mock API needs 201/204/4xx). */
+    /** Reads and drops up to [byteLength] of a body we will not use, so the client sees our answer. */
+    private fun drain(reader: BufferedReader, byteLength: Long) {
+        var left = byteLength.coerceAtMost(64L * 1024 * 1024)
+        val buf = CharArray(64 * 1024)
+        while (left > 0) {
+            val n = runCatching { reader.read(buf, 0, minOf(buf.size.toLong(), left).toInt()) }.getOrDefault(-1)
+            if (n <= 0) break
+            left -= n
+        }
+    }
+
+    /**
+     * The Origin to echo in CORS headers: only this server's own. Other pages
+     * open in the phone's browser must not read the project's API (its
+     * accounts, its data) just because the preview is running.
+     */
+    private fun sameOrigin(origin: String?): String? {
+        val o = origin?.trimEnd('/') ?: return null
+        return o.takeIf { it == "http://127.0.0.1:$port" || it == "http://localhost:$port" }
+    }
+
+    /**
+     * Response with any status and extra headers (the mock API needs 201/204/4xx).
+     * CORS headers only for [corsOrigin], this server's own origin.
+     */
     private fun sendRaw(
         output: BufferedOutputStream,
         statusCode: Int,
         contentType: String,
         content: ByteArray,
-        extraHeaders: Map<String, String>
+        extraHeaders: Map<String, String>,
+        corsOrigin: String?
     ) {
         val statusText = STATUS_TEXT[statusCode] ?: "OK"
         val head = buildString {
             append("HTTP/1.1 $statusCode $statusText\r\n")
             append("Content-Type: $contentType\r\n")
             append("Content-Length: ${content.size}\r\n")
-            append("Access-Control-Allow-Origin: *\r\n")
-            append("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n")
-            append("Access-Control-Allow-Headers: *\r\n")
+            if (corsOrigin != null) {
+                append("Access-Control-Allow-Origin: $corsOrigin\r\n")
+                append("Vary: Origin\r\n")
+                append("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n")
+                append("Access-Control-Allow-Headers: Content-Type, Authorization\r\n")
+            }
             append("Cache-Control: no-store\r\n")
             extraHeaders.forEach { (k, v) -> append("$k: $v\r\n") }
             append("Connection: close\r\n\r\n")
@@ -1253,6 +1314,17 @@ class EmbeddedDevServer(
         return extension in listOf("js", "mjs", "jsx", "ts", "tsx", "vue", "svelte")
     }
 
+    /**
+     * Files whose changes reload the page: the project's own sources. Not the
+     * mock API's runtime data -- db.json and uploads/ change on every POST, and
+     * reloading then would wipe the app state the request just changed (an
+     * upload would reload the form before Save) -- and not hidden folders
+     * (.oro, .git).
+     */
+    private fun watchedFiles(): Sequence<File> = projectRoot.walkTopDown()
+        .onEnter { d -> d == projectRoot || !(d.name.startsWith(".") || (d.name == "uploads" && d.parentFile == projectRoot)) }
+        .filter { it.isFile && isServableFile(it) && !(it.name.startsWith("db.json") && it.parentFile == projectRoot) }
+
     private fun isServableFile(file: File): Boolean {
         val ext = file.extension.lowercase()
         return ext in listOf(
@@ -1264,8 +1336,7 @@ class EmbeddedDevServer(
     }
 
     private fun indexProjectFiles() {
-        projectRoot.walkTopDown()
-            .filter { it.isFile && isServableFile(it) }
+        watchedFiles()
             .forEach { file ->
                 val relativePath = file.relativeTo(projectRoot).path
                 fileModificationTimes[relativePath] = file.lastModified()

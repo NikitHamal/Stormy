@@ -20,7 +20,9 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 object RunLedger {
 
-    private const val MAX_CHARS = 3_000
+    internal const val MAX_CHARS = 3_000
+    private const val MAX_CHANGED = 15
+    private const val CLOSING = "\nContinue from the newest steps below; re-read a file before editing it."
 
     private val READS = setOf("read_file", "list_files", "glob", "grep", "search_project", "docs_lookup", "use_skill", "web_fetch")
     private val CHANGES = setOf("write_file", "edit_file", "multi_edit", "delete_file", "move_file", "add_ui_kit")
@@ -79,9 +81,10 @@ object RunLedger {
                 }
                 "tool" -> {
                     val content = m.content.orEmpty()
-                    val name = m.name ?: m.toolCallId?.let { callsById[it]?.name }
+                    val call = m.toolCallId?.let { callsById[it] }
+                    val name = m.name ?: call?.name
                     if (content.startsWith("Error:")) failure(name, content)
-                    if (content.startsWith("User answered:")) answers += content.removePrefix("User answered:").trim().lineSequence().first().take(140)
+                    answers += answersIn(content, call?.args)
                 }
                 "user" -> {
                     val content = m.content.orEmpty()
@@ -89,34 +92,78 @@ object RunLedger {
                         TEXT_RESULT.findAll(content).forEach { r ->
                             val body = r.groupValues[2].trim()
                             if (body.startsWith("Error:")) failure(r.groupValues[1], body)
-                            if (body.startsWith("User answered:")) answers += body.removePrefix("User answered:").trim().lineSequence().first().take(140)
+                            answers += answersIn(body, null)
                         }
                     }
                 }
             }
         }
 
+        // Most important first, so a cut never loses what the user said or the
+        // plan: the model would ask again or contradict its own decisions.
+        val sections = mutableListOf<String>()
+        if (answers.isNotEmpty()) sections += "- User answered: " + answers.takeLast(6).joinToString("; ")
+        plan?.let { sections += "- Plan: $it" }
+        if (changed.isNotEmpty()) {
+            val items = changed.entries.map { (path, verbs) ->
+                path + " (" + verbs.entries.joinToString(", ") { (v, n) -> if (n > 1) "$v ×$n" else v } + ")"
+            }
+            sections += "- Changed: " + capList(items, MAX_CHANGED)
+        }
+        if (failures.isNotEmpty()) {
+            sections += "- Failed (don't repeat as is): " +
+                failures.entries.toList().takeLast(6).joinToString("; ") { (k, n) -> if (n > 1) "$k (×$n)" else k }
+        }
+        if (read.isNotEmpty()) sections += "- Looked at: " + capList(read.toList(), 12)
+        if (other.isNotEmpty()) sections += "- Also ran: " + other.entries.joinToString(", ") { (n, c) -> if (c > 1) "$n ×$c" else n }
+        if (notes.isNotEmpty()) sections += "- Your notes: " + notes.takeLast(5).joinToString(" / ") { "\"$it\"" }
+
         val out = StringBuilder()
         out.append("[Oro: the first ").append(steps).append(if (steps == 1) " step" else " steps")
         out.append(" of this run were collapsed to fit the context window. What they did:]")
-        if (changed.isNotEmpty()) {
-            out.append("\n- Changed: ")
-            out.append(changed.entries.joinToString(", ") { (path, verbs) ->
-                path + " (" + verbs.entries.joinToString(", ") { (v, n) -> if (n > 1) "$v ×$n" else v } + ")"
-            })
+        val room = MAX_CHARS - CLOSING.length
+        for (section in sections) {
+            val line = "\n" + section
+            if (out.length + line.length <= room) { out.append(line); continue }
+            val left = room - out.length
+            if (left > 40) out.append(line.take(left - 1)).append('…')
+            break
         }
-        if (read.isNotEmpty()) out.append("\n- Looked at: ").append(capList(read.toList(), 12))
-        if (other.isNotEmpty()) out.append("\n- Also ran: ").append(other.entries.joinToString(", ") { (n, c) -> if (c > 1) "$n ×$c" else n })
-        if (failures.isNotEmpty()) {
-            out.append("\n- Failed (don't repeat as is): ")
-            out.append(failures.entries.toList().takeLast(6).joinToString("; ") { (k, n) -> if (n > 1) "$k (×$n)" else k })
-        }
-        if (answers.isNotEmpty()) out.append("\n- User answered: ").append(answers.takeLast(4).joinToString("; "))
-        plan?.let { out.append("\n- Plan: ").append(it) }
-        if (notes.isNotEmpty()) out.append("\n- Your notes: ").append(notes.takeLast(5).joinToString(" / ") { "\"$it\"" })
-        out.append("\nContinue from the newest steps below; re-read a file before editing it.")
-        return if (out.length > MAX_CHARS) out.substring(0, MAX_CHARS - 1) + "…" else out.toString()
+        out.append(CLOSING)
+        return out.toString()
     }
+
+    /**
+     * What the user answered in an ask_user result: one answer ("User
+     * answered: …"), a skipped one, or a batch ("The user answered 2 of 3
+     * questions: 1. … → …"). Each as "question → answer" when the question is
+     * known.
+     */
+    internal fun answersIn(result: String, args: JsonObject?): List<String> {
+        val t = result.trim()
+        return when {
+            t.startsWith("User answered:") ->
+                listOf(qa(questionOf(args), t.removePrefix("User answered:").trim().lineSequence().firstOrNull().orEmpty()))
+            t.startsWith("The user skipped this question") -> listOf(qa(questionOf(args), "skipped"))
+            t.startsWith("The user answered") -> MULTI_ANSWER.findAll(t).map { qa(it.groupValues[1], it.groupValues[2]) }.toList()
+            else -> emptyList()
+        }
+    }
+
+    private fun qa(question: String?, answer: String): String {
+        val a = answer.trim().let { if (it.startsWith("(skipped")) "skipped" else it.take(140) }
+        val q = question?.trim()?.lineSequence()?.firstOrNull()?.take(90)
+        return if (q.isNullOrBlank()) a else "$q → $a"
+    }
+
+    private fun questionOf(args: JsonObject?): String? {
+        args ?: return null
+        (args["question"] as? JsonPrimitive)?.content?.let { return it }
+        val first = (args["questions"] as? JsonArray)?.firstOrNull() ?: return null
+        return (first as? JsonPrimitive)?.content ?: ((first as? JsonObject)?.get("question") as? JsonPrimitive)?.content
+    }
+
+    private val MULTI_ANSWER = Regex("""(?m)^\s*\d+\.\s*(.+?)\s*\n\s*→\s*(.+?)\s*$""")
 
     private fun capList(items: List<String>, max: Int): String =
         if (items.size <= max) items.joinToString(", ") else items.take(max).joinToString(", ") + " +${items.size - max} more"

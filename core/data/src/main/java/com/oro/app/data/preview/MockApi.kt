@@ -38,8 +38,11 @@ import java.util.UUID
  *  - `POST /api/auth/register` and `/api/auth/login` (email or username +
  *    password) return `{token, user}`; `GET /api/auth/me` with
  *    `Authorization: Bearer <token>` returns the user; `POST /api/auth/logout`.
- *    Users live in the `users` collection with a salted password hash that is
- *    never sent back; sessions in a hidden `_sessions` object.
+ *    Users live in the `users` collection (profile fields only). Password
+ *    hashes (PBKDF2) and sessions live outside the project folder in
+ *    [authFile], so a deploy, a pull request or a `git push` of the project
+ *    can never publish them. A seeded user's plain `password` is accepted at
+ *    login once, then hashed and removed from db.json.
  *  - `POST /api/uploads` with `{name, dataUrl}` saves the file under the
  *    project's `uploads/` folder and returns `{id, url, name, type, size}`;
  *    the preview serves it at that url. DELETE removes the file too.
@@ -47,7 +50,11 @@ import java.util.UUID
  * Items get `createdAt` / `updatedAt` stamps when their collection already
  * uses those fields.
  */
-class MockApi(private val projectRoot: File) {
+class MockApi(
+    private val projectRoot: File,
+    /** Password hashes and sessions; never inside the project folder in the app (see [authDir]). */
+    private val authFile: File = defaultAuthFile(projectRoot),
+) {
 
     data class Response(val status: Int, val body: String, val headers: Map<String, String> = emptyMap())
 
@@ -72,7 +79,7 @@ class MockApi(private val projectRoot: File) {
         val query = parseQuery(rawPath.substringAfter('?', ""))
         val segments = pathPart.trim('/').split('/').filter { it.isNotEmpty() }.drop(1) // drop "api"
             .map { URLDecoder.decode(it, "UTF-8") }
-        val db = load()
+        val db = moveSecretsOut(load())
 
         if (segments.isEmpty()) {
             if (method != "GET") return error(405, "Use GET /api to list collections.")
@@ -122,6 +129,11 @@ class MockApi(private val projectRoot: File) {
                     var created = JsonObject(mapOf("id" to newId) + obj.filterKeys { it != "id" })
                     if ("createdAt" !in created && list.any { "createdAt" in it }) created = JsonObject(created + ("createdAt" to JsonPrimitive(now())))
                     if ("updatedAt" !in created && list.any { "updatedAt" in it }) created = JsonObject(created + ("updatedAt" to JsonPrimitive(now())))
+                    if (name == USERS) {
+                        // A new user never inherits the hash or sessions of a deleted one with the same id.
+                        forgetUser(newId)
+                        created = withoutPassword(created, setHash = true)
+                    }
                     save(db + (name to JsonArray(list + created)))
                     Response(201, json.encodeToString(JsonElement.serializer(), public(created)))
                 }
@@ -136,17 +148,26 @@ class MockApi(private val projectRoot: File) {
         return when (method) {
             "GET" -> ok(public(relate(item, query, name, db)))
             "PUT" -> {
-                var replaced = JsonObject(mapOf("id" to item["id"]!!) + parseObject(body).filterKeys { it != "id" })
-                replaced = keepSecrets(item, stamp(item, replaced))
+                val incoming = parseObject(body).filterKeys { it != "id" }
+                val replaced = if (name == USERS) {
+                    // A seeded plain password is hashed first; only a new one in the body replaces it.
+                    adoptSeededPassword(item)
+                    withoutPassword(stamp(item, JsonObject(mapOf("id" to item["id"]!!) + incoming)), setHash = true)
+                } else keepSecrets(item, stamp(item, JsonObject(mapOf("id" to item["id"]!!) + incoming)))
                 save(db + (name to JsonArray(list.toMutableList().also { it[index] = replaced })))
                 ok(public(replaced))
             }
             "PATCH" -> {
-                val merged = keepSecrets(item, stamp(item, JsonObject(item + parseObject(body).filterKeys { it != "id" })))
+                val incoming = parseObject(body).filterKeys { it != "id" }
+                val merged = if (name == USERS) {
+                    adoptSeededPassword(item)
+                    withoutPassword(stamp(item, JsonObject(item.filterKeys { it !in SECRET_FIELDS } + incoming)), setHash = true)
+                } else keepSecrets(item, stamp(item, JsonObject(item + incoming)))
                 save(db + (name to JsonArray(list.toMutableList().also { it[index] = merged })))
                 ok(public(merged))
             }
             "DELETE" -> {
+                if (name == USERS) item["id"]?.let { forgetUser(it) }
                 save(db + (name to JsonArray(list.filterIndexed { i, _ -> i != index })))
                 Response(204, "")
             }
@@ -155,12 +176,15 @@ class MockApi(private val projectRoot: File) {
     }
 
     private fun listResponse(all: List<JsonObject>, q: Map<String, String>, name: String, db: Map<String, JsonElement>): Response {
-        var items = all
+        // Search, filters and sort see exactly what the page may see: a
+        // secret can never be probed through ?passwordHash_like=, ?q= or the
+        // order of a sort, with X-Total-Count as the oracle.
+        var items = all.map { public(it) }
         q["q"]?.takeIf { it.isNotBlank() }?.let { term ->
             val t = term.lowercase()
             items = items.filter { obj -> obj.values.any { it.render().lowercase().contains(t) } }
         }
-        q.filterKeys { !it.startsWith("_") && it != "q" && it != "passwordHash" }.forEach { (field, value) ->
+        q.filterKeys { !it.startsWith("_") && it != "q" }.forEach { (field, value) ->
             val (key, op) = when {
                 field.endsWith("_like") -> field.removeSuffix("_like") to "like"
                 field.endsWith("_ne") -> field.removeSuffix("_ne") to "ne"
@@ -168,6 +192,7 @@ class MockApi(private val projectRoot: File) {
                 field.endsWith("_lte") -> field.removeSuffix("_lte") to "lte"
                 else -> field to "eq"
             }
+            if (!queryable(key)) return error(400, "\"$key\" cannot be filtered on.")
             items = items.filter { obj ->
                 val v = obj[key]?.render() ?: return@filter op == "ne"
                 when (op) {
@@ -180,6 +205,7 @@ class MockApi(private val projectRoot: File) {
             }
         }
         q["_sort"]?.let { field ->
+            if (!queryable(field)) return error(400, "\"$field\" cannot be sorted on.")
             items = items.sortedWith { a, b -> compareJson(a[field], b[field]) }
             if (q["_order"].equals("desc", true)) items = items.reversed()
         }
@@ -194,7 +220,7 @@ class MockApi(private val projectRoot: File) {
             limit != null -> items.take(limit)
             else -> items
         }
-        items = items.map { public(relate(it, q, name, db)) }
+        items = items.map { relate(it, q, name, db) }
         return Response(
             200, json.encodeToString(JsonElement.serializer(), JsonArray(items)),
             mapOf("X-Total-Count" to total.toString(), "Access-Control-Expose-Headers" to "X-Total-Count")
@@ -289,8 +315,9 @@ class MockApi(private val projectRoot: File) {
 
     /** "user" -> users, "category" -> categories, or the name as given. */
     private fun collection(db: Map<String, JsonElement>, name: String): List<JsonObject>? {
+        if (name.startsWith("_")) return null
         val candidates = listOf(name, name + "s", name + "es", name.removeSuffix("y") + "ies")
-        val key = candidates.firstOrNull { db[it] is JsonArray } ?: return null
+        val key = candidates.firstOrNull { !it.startsWith("_") && db[it] is JsonArray } ?: return null
         return (db[key] as JsonArray).mapNotNull { it as? JsonObject }
     }
 
@@ -304,8 +331,7 @@ class MockApi(private val projectRoot: File) {
     // ------------------------------------------------------------ accounts
 
     private fun auth(method: String, action: String?, body: String?, headers: Map<String, String>, db: Map<String, JsonElement>): Response {
-        val users = (db["users"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
-        val sessions = (db["_sessions"] as? JsonObject) ?: JsonObject(emptyMap())
+        val users = (db[USERS] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
         fun identity(obj: JsonObject): Pair<String, String>? {
             for (k in listOf("email", "username")) {
                 val v = (obj[k] as? JsonPrimitive)?.contentOrNull?.trim()
@@ -313,10 +339,11 @@ class MockApi(private val projectRoot: File) {
             }
             return null
         }
-        fun session(user: JsonObject, extraDb: Map<String, JsonElement>): Response {
+        fun session(user: JsonObject): Response {
             val token = UUID.randomUUID().toString().replace("-", "")
-            val s = JsonObject(sessions + (token to JsonObject(mapOf("userId" to user["id"]!!, "createdAt" to JsonPrimitive(now())))))
-            save(extraDb + ("_sessions" to s))
+            val store = authStore()
+            store.sessions[token] = JsonObject(mapOf("userId" to user["id"]!!, "createdAt" to JsonPrimitive(now())))
+            saveAuth(store)
             return Response(200, json.encodeToString(JsonElement.serializer(), JsonObject(mapOf("token" to JsonPrimitive(token), "user" to public(user)))))
         }
         return when (action) {
@@ -329,32 +356,39 @@ class MockApi(private val projectRoot: File) {
                 if (users.any { (it[field] as? JsonPrimitive)?.contentOrNull?.let { v -> if (field == "email") v.lowercase() else v } == value }) {
                     return error(409, "An account with that $field already exists.")
                 }
-                val salt = UUID.randomUUID().toString().take(12)
                 var user = JsonObject(
                     mapOf("id" to nextId(users), field to JsonPrimitive(value)) +
-                        obj.filterKeys { it !in SECRET_INPUTS && it != "id" && it != field } +
-                        mapOf("createdAt" to JsonPrimitive(now()), "passwordHash" to JsonPrimitive("sha256:$salt:${sha256(salt + password)}"))
+                        obj.filterKeys { it !in SECRET_FIELDS && it != "id" && it != field } +
+                        mapOf("createdAt" to JsonPrimitive(now()))
                 )
                 if (user["name"] == null) user = JsonObject(user + ("name" to JsonPrimitive(value.substringBefore('@'))))
-                val withUser = db + ("users" to JsonArray(users + user))
-                session(user, withUser).copy(status = 201)
+                setPassword(user["id"]!!, password)
+                save(db + (USERS to JsonArray(users + user)))
+                session(user).copy(status = 201)
             }
             "login", "signin" -> {
                 if (method != "POST") return error(405, "POST /api/auth/login {email, password}")
                 val obj = parseObject(body)
                 val (field, value) = identity(obj) ?: throw BadRequest("Log in with an email or a username.")
                 val password = (obj["password"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-                val user = users.firstOrNull { (it[field] as? JsonPrimitive)?.contentOrNull?.let { v -> if (field == "email") v.lowercase() else v } == value }
-                if (user == null || !passwordMatches(user, password)) return error(401, "Wrong $field or password.")
-                session(user, db)
+                val index = users.indexOfFirst { (it[field] as? JsonPrimitive)?.contentOrNull?.let { v -> if (field == "email") v.lowercase() else v } == value }
+                val user = users.getOrNull(index)
+                if (user == null || !checkPassword(user, password)) return error(401, "Wrong $field or password.")
+                // A seeded plain password has done its job: hashed, it leaves db.json.
+                if (user.keys.any { it in SECRET_FIELDS }) {
+                    val cleaned = JsonObject(user.filterKeys { it !in SECRET_FIELDS })
+                    save(db + (USERS to JsonArray(users.toMutableList().also { it[index] = cleaned })))
+                }
+                session(user)
             }
             "me" -> {
-                val user = currentUser(headers, users, sessions) ?: return error(401, "Not signed in: send Authorization: Bearer <token>.")
+                val user = currentUser(headers, users) ?: return error(401, "Not signed in: send Authorization: Bearer <token>.")
                 ok(public(user))
             }
             "logout", "signout" -> {
                 val token = bearer(headers)
-                if (token != null && token in sessions) save(db + ("_sessions" to JsonObject(sessions - token)))
+                val store = authStore()
+                if (token != null && store.sessions.remove(token) != null) saveAuth(store)
                 Response(204, "")
             }
             else -> error(404, "Auth routes: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me, POST /api/auth/logout.")
@@ -364,31 +398,132 @@ class MockApi(private val projectRoot: File) {
     private fun bearer(headers: Map<String, String>): String? =
         headers["authorization"]?.trim()?.takeIf { it.startsWith("Bearer ", ignoreCase = true) }?.substring(7)?.trim()?.takeIf { it.isNotEmpty() }
 
-    private fun currentUser(headers: Map<String, String>, users: List<JsonObject>, sessions: JsonObject): JsonObject? {
+    private fun currentUser(headers: Map<String, String>, users: List<JsonObject>): JsonObject? {
         val token = bearer(headers) ?: return null
-        val ref = (sessions[token] as? JsonObject)?.get("userId") ?: return null
+        val ref = (authStore().sessions[token] as? JsonObject)?.get("userId") ?: return null
         return users.firstOrNull { idEquals(it["id"], ref) }
     }
 
-    private fun passwordMatches(user: JsonObject, password: String): Boolean {
-        val stored = (user["passwordHash"] as? JsonPrimitive)?.contentOrNull ?: return false
-        val parts = stored.split(':')
-        if (parts.size != 3 || parts[0] != "sha256") return false
-        return sha256(parts[1] + password) == parts[2]
+    /**
+     * The stored hash when there is one (an old SHA-256 hash is upgraded on
+     * success); else a plain `password` seeded into db.json, compared in
+     * constant time and then hashed.
+     */
+    private fun checkPassword(user: JsonObject, password: String): Boolean {
+        val id = user["id"] ?: return false
+        val stored = authStore().hashes[key(id)]
+        if (stored != null) {
+            val ok = PasswordHash.verify(stored, password)
+            if (ok && PasswordHash.needsUpgrade(stored)) setPassword(id, password)
+            return ok
+        }
+        val seeded = (user["password"] as? JsonPrimitive)?.contentOrNull ?: return false
+        val ok = java.security.MessageDigest.isEqual(seeded.toByteArray(), password.toByteArray())
+        if (ok) setPassword(id, password)
+        return ok
     }
 
-    private fun sha256(text: String): String =
-        java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun setPassword(id: JsonElement, password: String) {
+        val store = authStore()
+        store.hashes[key(id)] = PasswordHash.create(password)
+        saveAuth(store)
+    }
+
+    /** A seeded plain password on [user] is hashed before a write replaces the record. */
+    private fun adoptSeededPassword(user: JsonObject) {
+        val id = user["id"] ?: return
+        val seeded = (user["password"] as? JsonPrimitive)?.contentOrNull ?: return
+        if (authStore().hashes[key(id)] == null) setPassword(id, seeded)
+    }
+
+    /**
+     * [user] as it is saved: a `password` it carries becomes the stored hash
+     * ([setHash]); every secret field leaves the record.
+     */
+    private fun withoutPassword(user: JsonObject, setHash: Boolean): JsonObject {
+        val id = user["id"]
+        val password = (user["password"] as? JsonPrimitive)?.contentOrNull
+        if (setHash && id != null && password != null) setPassword(id, password)
+        return if (user.keys.none { it in SECRET_FIELDS }) user else JsonObject(user.filterKeys { it !in SECRET_FIELDS })
+    }
+
+    /** A deleted user's hash and sessions go with it, so a later user with the same id inherits nothing. */
+    private fun forgetUser(id: JsonElement) {
+        val store = authStore()
+        val k = key(id)
+        val removed = store.hashes.remove(k) != null
+        val sessions = store.sessions.entries.filter { (_, s) -> (s as? JsonObject)?.get("userId")?.let { key(it) } == k }
+        sessions.forEach { store.sessions.remove(it.key) }
+        if (removed || sessions.isNotEmpty()) saveAuth(store)
+    }
+
+    /**
+     * Hashes and sessions written into db.json by earlier versions (a
+     * `passwordHash` on users, a `_sessions` object) move to [authFile] the
+     * first time the API sees them, so they stop being part of the project.
+     */
+    private fun moveSecretsOut(db: Map<String, JsonElement>): Map<String, JsonElement> {
+        val sessions = db["_sessions"] as? JsonObject
+        val users = db[USERS] as? JsonArray
+        val hashed = users?.any { (it as? JsonObject)?.containsKey("passwordHash") == true } == true
+        if (sessions == null && !hashed) return db
+        val store = authStore()
+        sessions?.forEach { (token, s) -> store.sessions.putIfAbsent(token, s) }
+        var out = db - "_sessions"
+        if (hashed && users != null) {
+            val cleaned = users.map { el ->
+                val u = el as? JsonObject
+                if (u == null || !u.containsKey("passwordHash")) el
+                else {
+                    val hash = (u["passwordHash"] as? JsonPrimitive)?.contentOrNull
+                    val id = u["id"]
+                    if (hash != null && id != null) store.hashes.putIfAbsent(key(id), hash)
+                    JsonObject(u - "passwordHash")
+                }
+            }
+            out = out + (USERS to JsonArray(cleaned))
+        }
+        saveAuth(store)
+        save(out)
+        return out
+    }
+
+    private class AuthStore(val hashes: MutableMap<String, String>, val sessions: MutableMap<String, JsonElement>)
+
+    private fun authStore(): AuthStore {
+        val el = runCatching { if (authFile.isFile) json.parseToJsonElement(authFile.readText()) else null }.getOrNull() as? JsonObject
+        val hashes = LinkedHashMap<String, String>()
+        (el?.get("hashes") as? JsonObject)?.forEach { (k, v) -> (v as? JsonPrimitive)?.contentOrNull?.let { hashes[k] = it } }
+        val sessions = LinkedHashMap<String, JsonElement>()
+        (el?.get("sessions") as? JsonObject)?.forEach { (k, v) -> sessions[k] = v }
+        return AuthStore(hashes, sessions)
+    }
+
+    private fun saveAuth(store: AuthStore) {
+        authFile.parentFile?.mkdirs()
+        // Newest sessions win; a long-lived preview does not grow this file forever.
+        val sessions = store.sessions.entries.toList().takeLast(MAX_SESSIONS).associate { it.key to it.value }
+        val body = JsonObject(mapOf("hashes" to JsonObject(store.hashes.mapValues { JsonPrimitive(it.value) }), "sessions" to JsonObject(sessions)))
+        val tmp = File(authFile.parentFile, authFile.name + ".tmp")
+        tmp.writeText(json.encodeToString(JsonElement.serializer(), body))
+        if (!tmp.renameTo(authFile)) { authFile.writeText(tmp.readText()); tmp.delete() }
+    }
+
+    /** Hash keys are ids as text, so 1 and "1" are the same user. */
+    private fun key(id: JsonElement): String = (id as? JsonPrimitive)?.contentOrNull ?: id.toString()
 
     /** Never send a password hash (or a stored password) to the page. */
     private fun public(obj: JsonObject): JsonObject =
         if (obj.keys.none { it in SECRET_FIELDS }) obj else JsonObject(obj.filterKeys { it !in SECRET_FIELDS })
 
-    /** A PUT/PATCH from the page cannot see or clear the hash, so it is carried over. */
+    /** A PUT/PATCH from the page cannot see or clear a secret field, so it is carried over. */
     private fun keepSecrets(old: JsonObject, new: JsonObject): JsonObject {
         val kept = old.filterKeys { it in SECRET_FIELDS }
         return if (kept.isEmpty()) new else JsonObject(new.filterKeys { it !in SECRET_FIELDS } + kept)
     }
+
+    /** A field the page may filter or sort on: not a secret, not internal. */
+    private fun queryable(field: String): Boolean = field.isNotEmpty() && !field.startsWith("_") && field !in SECRET_FIELDS
 
     private fun stamp(old: JsonObject, new: JsonObject): JsonObject =
         if ("updatedAt" in old) JsonObject(new + ("updatedAt" to JsonPrimitive(now()))) else new
@@ -406,7 +541,7 @@ class MockApi(private val projectRoot: File) {
         else (obj["type"] as? JsonPrimitive)?.contentOrNull ?: "application/octet-stream"
         val b64 = if (dataUrl.startsWith("data:")) dataUrl.substringAfter(",", "") else dataUrl
         val bytes = runCatching { java.util.Base64.getMimeDecoder().decode(b64) }.getOrElse { throw BadRequest("dataUrl is not base64 data.") }
-        if (bytes.size > MAX_UPLOAD_BYTES) return error(413, "Uploads are limited to ${MAX_UPLOAD_BYTES / 1_000_000} MB.")
+        if (bytes.size > MAX_UPLOAD_BYTES) return error(413, UPLOAD_LIMIT_MESSAGE)
         val list = (db["uploads"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
         val id = nextId(list)
         val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "-").trim('-').take(60).ifEmpty { "file" }
@@ -432,8 +567,38 @@ class MockApi(private val projectRoot: File) {
     companion object {
         fun isApiPath(path: String): Boolean = path == "/api" || path.startsWith("/api/") || path.startsWith("/api?")
 
-        private val SECRET_FIELDS = setOf("passwordHash")
-        private val SECRET_INPUTS = setOf("password", "confirmPassword", "passwordConfirm", "passwordHash")
-        private const val MAX_UPLOAD_BYTES = 3_000_000
+        /**
+         * Where every project's mock-account hashes and sessions are kept: app
+         * storage the app sets at startup (no backup, never in a project). Unset
+         * (unit tests), they go to the project's `.oro/`, which deploys and pull
+         * requests skip.
+         */
+        @Volatile var authDir: File? = null
+
+        fun defaultAuthFile(projectRoot: File): File {
+            val dir = authDir ?: return File(projectRoot, ".oro/mock-auth.json")
+            val id = java.security.MessageDigest.getInstance("SHA-1")
+                .digest(runCatching { projectRoot.canonicalPath }.getOrDefault(projectRoot.absolutePath).toByteArray())
+                .joinToString("") { "%02x".format(it) }.take(20)
+            return File(dir, "$id.json")
+        }
+
+        const val USERS = "users"
+
+        /** Never served, searched, sorted, embedded or published. */
+        val SECRET_FIELDS = setOf(
+            "passwordHash", "password", "confirmPassword", "passwordConfirm", "passwordConfirmation",
+            "password_confirmation", "confirm_password", "newPassword", "currentPassword", "oldPassword"
+        )
+
+        /** Largest file /api/uploads accepts: a phone photo fits. */
+        const val MAX_UPLOAD_BYTES = 8_000_000
+
+        /** Largest request body the API reads: an [MAX_UPLOAD_BYTES] file as a base64 data URL, plus slack. */
+        const val MAX_BODY_BYTES = MAX_UPLOAD_BYTES / 3 * 4 + 64_000
+
+        val UPLOAD_LIMIT_MESSAGE = "Uploads are limited to ${MAX_UPLOAD_BYTES / 1_000_000} MB."
+
+        private const val MAX_SESSIONS = 200
     }
 }

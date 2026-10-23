@@ -4,8 +4,10 @@ description: Sign up, log in, log out and private pages with Oro's built-in acco
 ---
 # Accounts in Oro apps
 
-Oro's preview has real accounts at `/api/auth/*` (users persist in `db.json`, passwords are salted
-hashes that are never sent back). Use them instead of faking a login with localStorage.
+Oro's preview has real accounts at `/api/auth/*`. Users persist in `db.json` (profile fields only);
+password hashes and sessions are kept by Oro outside the project, never sent back and never
+deployed. To seed demo accounts, give users a plain `"password"` in `db.json`: it works at login,
+is hashed then and removed from the file. Use them instead of faking a login with localStorage.
 
 | Call | Body | Returns |
 |---|---|---|
@@ -34,8 +36,9 @@ as `Authorization: Bearer …`.
 4. **Signed-in chrome** — header shows the user's name/avatar (initials fallback) with a menu:
    Profile, Settings, Log out. Log out → `await Oro.auth.logout()` → login page.
 5. **Private pages** — `require()` before rendering private data; show a skeleton meanwhile.
-6. **Profile** — edit name/avatar with `PATCH /api/users/:id` (the password hash is kept); avatar via
-   `await Oro.api.upload(file)` → store the returned `url`.
+6. **Profile** — edit name/avatar with `PATCH /api/users/:id` (the password stays as it was; send
+   `password` only to change it); avatar via `await Oro.api.upload(file)` (up to 8 MB) → store the
+   returned `url`.
 7. **Per-user data** — save `userId: me.id` on records and list with `?userId=${me.id}`.
 
 ## Quality bar
