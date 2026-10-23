@@ -1,5 +1,7 @@
 package com.oro.app.ui.screens.editor.chat
 
+import com.oro.app.ui.screens.editor.agent.RunTranscript
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -283,6 +285,15 @@ fun ChatTab(
                 val lastIndex = messages.size + agentSessions.size + trailingItems - 1
                 if (lastIndex > 0) listState.requestScrollToItem(lastIndex)
             }
+            // When a tool's row is already running with its own loader and the
+            // working indicator would only repeat it ("Writing index.html"
+            // twice), the row is the working state; a label that adds
+            // something (the phone's current step) still shows.
+            val lastMessage = messages.lastOrNull()
+            val runningSubject = remember(lastMessage?.id, lastMessage?.content) {
+                lastMessage?.takeIf { !it.isUser }?.content?.let(RunTranscript::runningSubject)
+            }
+            val repeatsRow = runningSubject != null && workingLabel?.contains(runningSubject) == true
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -331,10 +342,11 @@ fun ChatTab(
 
                 // While a turn is live there is always exactly one visible
                 // working state at the end of the list: the question the agent
-                // is waiting on, or Orobi's indicator with what it is doing.
+                // is waiting on, or Orobi's indicator with what it is doing
+                // (unless the running tool's row already says it; see above).
                 // It used to show only until the (empty) assistant message was
                 // added, then vanish for the rest of the run.
-                if (isLoading) {
+                if (isLoading && (pendingQuestion != null || !repeatsRow)) {
                     item(key = "run-status") {
                         if (pendingQuestion != null) {
                             AskUserCard(
@@ -347,7 +359,7 @@ fun ChatTab(
                             TypingIndicator(label = workingLabel ?: "Thinking")
                         }
                     }
-                } else if (runError != null) {
+                } else if (!isLoading && runError != null) {
                     item(key = "run-error") {
                         RunErrorCard(
                             error = runError,
@@ -476,20 +488,14 @@ private fun WelcomeMessage(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // One question, no tagline: the starters below say what Orobi does.
         Text(
             text = context.getString(R.string.chat_welcome_title),
             style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = context.getString(R.string.chat_welcome_message),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center
         )
+
 
         // Chat / Agent lives in the composer's settings sheet; a second
         // switch here only duplicated it.

@@ -230,8 +230,18 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
             SegmentType.TEXT -> processTextSegment(segment.content, blocks, streamingTail)
 
             SegmentType.TOOL_CALL -> {
-                val output = segment.toolOutput?.trimEnd()?.ifBlank { null }
+                val raw = segment.toolOutput?.trimEnd()?.ifBlank { null }
+                // The subject line is for the row, not for the detail sheet.
+                val subject = raw?.let { SUBJECT_LINE_REGEX.find(it)?.groupValues?.get(1)?.trim() }
+                val output = if (raw != null && subject != null) {
+                    raw.replaceFirst(SUBJECT_LINE_REGEX, "").trim('\n').ifBlank { null }
+                } else {
+                    raw
+                }
                 val filePath = output?.let { extractFilePath(segment.toolName.orEmpty(), it) }
+                    ?: subject
+                    // A running card's status line is its call's subject ("⏳ index.html").
+                    ?: segment.toolSummary?.takeIf { segment.toolStatus == ToolStatus.RUNNING && it != "Running" }
                 var (adds, dels) = STATS_REGEX.find(output.orEmpty())
                     ?.let { (it.groupValues[1].toIntOrNull() ?: 0) to (it.groupValues[2].toIntOrNull() ?: 0) }
                     ?: computeUnifiedDiffSummary(output)
@@ -279,7 +289,9 @@ private data class ContentSegment(
     val content: String,
     val toolName: String? = null,
     val toolStatus: ToolStatus? = null,
-    val toolOutput: String? = null
+    val toolOutput: String? = null,
+    /** The card's status line after its emoji: the call's subject while it runs, its result after. */
+    val toolSummary: String? = null
 )
 
 /**
@@ -366,7 +378,8 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
                 content = content.substring(toolStart, toolEndExclusive), // Store full raw segment
                 toolName = toolName.ifBlank { "Unknown Tool" },
                 toolStatus = status,
-                toolOutput = output
+                toolOutput = output,
+                toolSummary = match.groupValues.getOrNull(3)?.trim()?.ifBlank { null }
             )
         )
 
@@ -396,7 +409,7 @@ private val TOOL_HEADER_REGEX = Regex(
     // the assertion could never hold -- the pattern matched nothing, every
     // tool call fell through to the markdown renderer, and the transcript read
     // as "🔧 **List Files** ✅ Directory is empty" in plain text.
-    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)[^\r\n]*\r?\n?""",
+    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)[ \t]*([^\r\n]*)\r?\n?""",
     options = setOf(RegexOption.MULTILINE)
 )
 
@@ -649,6 +662,7 @@ private val WROTE_LINES_REGEX = Regex("""(?:Created|Overwrote) .* \((\d+) lines\
 
 /** RunTranscript's true counts for a diff it shortened, and a write's real line count. */
 private val STATS_REGEX = Regex("""(?m)^stats: \+(\d+) -(\d+)$""")
+private val SUBJECT_LINE_REGEX = Regex("""(?m)^subject: ([^\r\n]+)\r?\n?""")
 private val WRITTEN_LINES_REGEX = Regex("""(?m)^written: (\d+) lines$""")
 
 /** The "-" and "+" sides of a fenced mini diff, without its "… more lines" notes. */

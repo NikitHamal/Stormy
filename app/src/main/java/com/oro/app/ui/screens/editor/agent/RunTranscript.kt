@@ -136,12 +136,13 @@ class RunTranscript(initial: String = "") {
                 }
                 else -> result.output.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "Done"
             }
-            card.body = bodyFor(name, result.output) + writtenContent(name, call)
+            card.body = subjectLine(call, result.output) + bodyFor(name, result.output) + writtenContent(name, call)
         } else {
             card.status = "❌"
             card.summary = (result.error ?: "Failed").lineSequence().first().take(200)
             val rest = (result.error ?: "").lines().drop(1).joinToString("\n").trim()
-            card.body = listOf(rest, result.output.take(600)).filter { it.isNotBlank() }.joinToString("\n")
+            card.body = subjectLine(call, result.output) +
+                listOf(rest, result.output.take(600)).filter { it.isNotBlank() }.joinToString("\n")
         }
         card.rendered = null
         version++
@@ -317,6 +318,18 @@ class RunTranscript(initial: String = "") {
         return "\nwritten: $lines lines\nnew_content: ```\n$shown\n```"
     }
 
+    /**
+     * `subject: <what the call was about>` for a finished card whose output
+     * names no file, so its row still reads "Studied design-system" rather
+     * than a bare verb once the status line holds the result. File tools name
+     * their file in a `File:` line already.
+     */
+    private fun subjectLine(call: ToolCallResponse, output: String): String {
+        if (FILE_LINE.containsMatchIn(output)) return ""
+        val subject = subjectOf(call)?.lineSequence()?.firstOrNull()?.trim()?.take(120)
+        return if (subject.isNullOrEmpty()) "" else "subject: $subject\n"
+    }
+
     private fun bodyFor(name: String, output: String): String {
         val lines = output.lines()
         return when (name) {
@@ -416,7 +429,7 @@ class RunTranscript(initial: String = "") {
                 val more = paths.size - if (first == (paths.first() as? JsonPrimitive)?.content) 1 else 0
                 if (first != null) return if (more > 0) "$first +$more" else first
             }
-            for (key in listOf("question", "path", "file_path", "pattern", "url", "source", "action", "description", "query", "command", "task")) {
+            for (key in listOf("question", "path", "file_path", "pattern", "url", "source", "action", "description", "query", "command", "task", "name")) {
                 val v = (args[key] as? JsonPrimitive)?.content
                 if (!v.isNullOrBlank()) {
                     val dest = (args["destination"] as? JsonPrimitive)?.content
@@ -428,6 +441,22 @@ class RunTranscript(initial: String = "") {
             return null
         }
 
+        private val FILE_LINE = Regex("(?m)^File: ")
+        private val RUNNING_STATUS = Regex("""\n⏳[ \t]*([^\r\n]*)""")
+
+        /**
+         * The subject of the tool still running at the end of [content] (the
+         * "⏳ index.html" status line of the last card), or null when nothing is
+         * running or the card names no subject.
+         */
+        fun runningSubject(content: String): String? {
+            val card = content.lastIndexOf("🔧")
+            if (card < 0) return null
+            val status = RUNNING_STATUS.find(content, card) ?: return null
+            // The status line must belong to the last card: its header is one line.
+            if (content.indexOf("\n\n", card).let { it in card until status.range.first }) return null
+            return status.groupValues[1].trim().takeIf { it.isNotEmpty() && it != "Running" }
+        }
         private val THINK = Regex("(?is)<think>.*?(</think>|$)")
         private val TOOL_BLOCK = Regex("""(?m)^🔧\s*\*\*(.+?)\*\*[ \t]*\r?\n(✅|❌|⏳)[^\n]*(?:\n[^\n]+)*""")
         private val DIFF = Regex("(?s)```diff\\n.*?```")

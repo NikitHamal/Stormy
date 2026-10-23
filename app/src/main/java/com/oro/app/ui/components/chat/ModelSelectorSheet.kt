@@ -6,31 +6,22 @@ import androidx.compose.runtime.remember
 import com.oro.app.ui.brand.OrobiIdle
 import com.oro.app.ui.theme.OroCorners
 import com.oro.app.ui.theme.Space
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SmartToy
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,13 +33,17 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.oro.app.ui.components.expressive.ExpressiveLoadingIndicator
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiProvider
+import com.oro.app.ui.theme.Sizes
+import com.oro.app.ui.theme.ExpressiveShapes
+import com.oro.app.data.ai.displayName
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.navigationBarsPadding
 
 /**
  * Model selector bottom sheet, grouped by [ModelGroup].
@@ -72,118 +67,73 @@ fun ModelSelectorSheet(
     // Grouped by what it takes to use a model: recommended keyless picks,
     // other free tiers, unofficial community bridges, then keyed providers.
     val groups = remember(models) { ModelGroup.grouped(models) }
-    val sortedModels = remember(groups) { groups.flatMap { it.second } }
 
+    // The same sheet as chat settings: shape, colour and drag handle, so the
+    // two sheets the composer opens read as one family.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(40.dp)
-                    .height(4.dp)
-                    .clip(OroCorners.tiny)
-                    .background(MaterialTheme.colorScheme.outlineVariant)
-            )
-        },
+        shape = MaterialTheme.shapes.extraLarge,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp)
+                .navigationBarsPadding()
         ) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(start = Space.xl, end = Space.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "Select Model",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "${sortedModels.size} models available",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(
-                        onClick = onRefresh,
-                        enabled = !isRefreshing
-                    ) {
-                        if (isRefreshing) {
-                            ExpressiveLoadingIndicator(
-                                modifier = Modifier.size(18.dp)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Refresh",
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    IconButton(onClick = onManageModels) {
+                Text(
+                    text = "Models",
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onRefresh, enabled = !isRefreshing) {
+                    if (isRefreshing) {
+                        ExpressiveLoadingIndicator(modifier = Modifier.size(Sizes.icon))
+                    } else {
                         Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = "Settings",
-                            modifier = Modifier.size(20.dp),
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = "Refresh models",
+                            modifier = Modifier.size(Sizes.icon),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+                IconButton(onClick = onManageModels) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = "Manage models",
+                        modifier = Modifier.size(Sizes.icon),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                modifier = Modifier.padding(horizontal = 20.dp)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Model list - flat, no categories
-            if (sortedModels.isEmpty()) {
-                // Empty state
-                Box(
+            if (groups.isEmpty()) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(Space.xxl),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Space.sm)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OrobiIdle(
-                            look = false,
-                            contentDescription = null,
-                            modifier = Modifier.width(96.dp)
-                        )
-                        Text(
-                            text = "No models available",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "Tap refresh to load models",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
+                    OrobiIdle(
+                        look = false,
+                        contentDescription = null,
+                        modifier = Modifier.width(96.dp)
+                    )
+                    Text(
+                        text = "No models yet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
                 // Shown only for models that expose a reasoning budget. A disabled
@@ -197,27 +147,30 @@ fun ModelSelectorSheet(
                         levels = reasoningLevels,
                         onSelect = onPick,
                         modifier = Modifier.padding(
-                            horizontal = Space.lg,
-                            vertical = Space.md
+                            start = Space.xl,
+                            end = Space.xl,
+                            top = Space.sm,
+                            bottom = Space.xs
                         )
                     )
                 }
 
                 LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.sm)
                 ) {
                     groups.forEach { (group, groupModels) ->
-                        item(key = "header-${group.name}") {
+                        item(key = "header-${group.name}", contentType = "header") {
                             ModelGroupHeader(group)
                         }
                         items(
                             items = groupModels,
-                            key = { "${it.provider.name}/${it.id}" }
+                            key = { "${it.provider.name}/${it.id}" },
+                            contentType = { "model" }
                         ) { model ->
-                            CompactModelCard(
+                            ModelRow(
                                 model = model,
-                                isSelected = selectedModel != null && model.id == selectedModel.id,
+                                isSelected = selectedModel != null && model.id == selectedModel.id &&
+                                    model.provider == selectedModel.provider,
                                 onClick = { onModelSelected(model) }
                             )
                         }
@@ -228,136 +181,96 @@ fun ModelSelectorSheet(
     }
 }
 
+/** A section label in the same letterspaced small caps as the sheets' field labels. */
 @Composable
 private fun ModelGroupHeader(group: ModelGroup) {
-    Column(modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 2.dp)) {
-        Text(
-            text = group.title,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (group == ModelGroup.COMMUNITY) {
-                MaterialTheme.colorScheme.tertiary
-            } else {
-                MaterialTheme.colorScheme.primary
-            }
-        )
-        Text(
-            text = group.subtitle,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
+    Text(
+        text = group.title.uppercase(),
+        style = MaterialTheme.typography.labelSmallEmphasized.copy(letterSpacing = 1.2.sp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = Space.md, top = Space.lg, bottom = Space.xs)
+    )
 }
 
 /**
- * Compact model card - minimal design with provider indicator
+ * One model: its provider's mark, its name, and a caption with the provider,
+ * context and anything unusual about it. Rows are plain on the sheet; the
+ * selected one is filled, so the choice is the only block on the list.
  */
 @Composable
-private fun CompactModelCard(
+private fun ModelRow(
     model: AiModel,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val name = remember(model.id, model.name, model.provider) { model.displayName() }
+    val caption = remember(model.id, model.provider, model.contextLength) { ModelGroup.caption(model) }
     Surface(
         onClick = onClick,
-        shape = OroCorners.medium,
-        color = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
+        shape = OroCorners.large,
+        color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent,
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = Space.md, vertical = Space.sm),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(Space.md)
         ) {
-            // Provider indicator
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(getProviderColor(model.provider).copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = getProviderInitial(model.provider),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = getProviderColor(model.provider)
-                )
-            }
-
-            // Model name
+            ProviderMark(provider = model.provider, selected = isSelected)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = model.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary
+                    text = name,
+                    style = if (isSelected) {
+                        MaterialTheme.typography.bodyLargeEmphasized
                     } else {
-                        MaterialTheme.colorScheme.onSurface
+                        MaterialTheme.typography.bodyLarge
                     },
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = ModelGroup.caption(model),
-                    style = MaterialTheme.typography.labelSmall,
+                    text = caption,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-
-            // Selection check
             if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Check,
-                        contentDescription = "Selected",
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Outlined.Check,
+                    contentDescription = "Selected",
+                    modifier = Modifier.size(Sizes.icon),
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
     }
 }
 
 /**
- * Badge letter for a provider. Derived rather than mapped, so a new provider
- * does not need a branch here -- an exhaustive `when` over the enum made this a
- * compile error every time the provider list grew.
- */
-private fun getProviderInitial(provider: AiProvider): String =
-    provider.displayName.firstOrNull()?.uppercase() ?: "?"
-
-/**
- * Badge colour for a provider, picked deterministically from its ordinal so the
- * same provider always gets the same colour across launches.
+ * The provider's initial on an Expressive shape that is the provider's own
+ * (by ordinal), like the project marks on Home: in a monochrome palette the
+ * silhouette is what tells providers apart at a glance. Always legible --
+ * the old tinted circles were near-invisible for some providers.
  */
 @Composable
-private fun getProviderColor(provider: AiProvider): androidx.compose.ui.graphics.Color {
-    val palette = listOf(
-        MaterialTheme.colorScheme.primary,
-        MaterialTheme.colorScheme.tertiary,
-        MaterialTheme.colorScheme.secondary,
-        MaterialTheme.colorScheme.primaryContainer,
-        MaterialTheme.colorScheme.tertiaryContainer,
-        MaterialTheme.colorScheme.secondaryContainer
-    )
-    return palette[provider.ordinal % palette.size]
+private fun ProviderMark(provider: AiProvider, selected: Boolean) {
+    Surface(
+        modifier = Modifier.size(Sizes.avatar),
+        shape = ExpressiveShapes.forIndex(provider.ordinal),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = provider.displayName.firstOrNull()?.uppercase() ?: "?",
+                style = MaterialTheme.typography.labelMediumEmphasized,
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
 }

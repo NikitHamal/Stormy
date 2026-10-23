@@ -20,9 +20,8 @@
 
     <!-- Home Screen -->
     <string name="home_title">Projects</string>
-    <string name="home_empty_title">No Projects Yet</string>
-    <string name="home_empty_subtitle">Create your first web project and start building with Orobi</string>
-    <string name="home_create_project">New Project</string>
+    <string name="home_empty_title">No projects yet</string>
+    <string name="home_create_project">New project</string>
     <string name="home_search_hint">Search projects</string>
     <string name="home_delete_project_title">Delete Project</string>
     <string name="home_delete_project_message">Are you sure you want to delete \"%1$s\"? This action cannot be undone.</string>
@@ -58,8 +57,7 @@
     <!-- Chat -->
     <string name="chat_hint">Ask Orobi anything…</string>
     <string name="chat_hint_agent">Ask me to edit, create, or search files…</string>
-    <string name="chat_welcome_title">Hi, I\'m Orobi</string>
-    <string name="chat_welcome_message">Your AI coding assistant. Tell me what you want to build, and I\'ll help you create it.</string>
+    <string name="chat_welcome_title">What should we build?</string>
     <string name="chat_thinking">Thinking…</string>
     <string name="chat_error">Something went wrong. Please try again.</string>
 

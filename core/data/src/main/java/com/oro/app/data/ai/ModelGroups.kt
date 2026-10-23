@@ -62,3 +62,27 @@ fun AiModel.providerLabel(): String =
     } else {
         provider.displayName.removeSuffix(" (community)")
     }
+
+private val TRAILING_TAG = Regex("""\s*\(([^()]*)\)\s*$""")
+private val REDUNDANT_WORDS = listOf("community", "free", "no key", "keyless", "unofficial", "guest")
+
+/**
+ * The model's name as pickers show it: a gateway path dropped
+ * ("openai/gpt-5.5" -> "gpt-5.5"), and a trailing tag dropped when it only
+ * restates what the caption and the section already say -- the provider, or
+ * that the model is free, keyless or a community bridge ("Mercury 3
+ * (community)" -> "Mercury 3", "Qwen3.5 397B (free, no key)" -> "Qwen3.5
+ * 397B"). A tag that says something else ("(preview)") stays.
+ */
+fun AiModel.displayName(): String {
+    val base = name.substringAfterLast('/').ifBlank { name }.trim()
+    val tag = TRAILING_TAG.find(base) ?: return base
+    val inside = tag.groupValues[1].lowercase()
+    val provider = providerLabel().lowercase()
+    val providerWord = provider.substringBefore(' ')
+    val redundant = REDUNDANT_WORDS.any { it in inside } ||
+        (provider.isNotBlank() && (provider in inside || inside in provider)) ||
+        (providerWord.length >= 3 && providerWord in inside)
+    val stripped = base.substring(0, tag.range.first).trim()
+    return if (redundant && stripped.isNotEmpty()) stripped else base
+}

@@ -89,6 +89,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oro.app.data.ai.AiModel
+import com.oro.app.data.ai.displayName
 import com.oro.app.domain.model.FileTreeNode
 
 /**
@@ -529,7 +530,7 @@ private fun ModelChip(
             // Model name. Weighted so it is the part that gives way: the
             // chevron stays visible however long the name is.
             Text(
-                text = model.shortName(),
+                text = model.displayName(),
                 modifier = Modifier.weight(1f, fill = false),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
@@ -645,9 +646,3 @@ private fun InputActionButton(
     }
 }
 
-/**
- * The name to show in the compact chip. Model ids from routers carry an
- * owner prefix ("meta-llama/") that tells the user nothing at this size.
- */
-private fun AiModel.shortName(): String =
-    name.substringAfterLast('/').ifBlank { name }

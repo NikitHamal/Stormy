@@ -126,4 +126,42 @@ class RunTranscriptTest {
         assertThat(r).contains("1. Framework? — **React**")
         assertThat(r).contains("2. Name? — _skipped_")
     }
+
+    @Test
+    fun `rows keep their subject when the output names no file`() {
+        val t = RunTranscript()
+        val skill = call("s", "use_skill", """{"name":"design-system"}""")
+        t.toolStarted(skill)
+        t.toolFinished(skill, ToolResult(true, "Skill design-system (97 lines)\nTokens and motion."))
+        val write = call("w", "write_file", """{"path":"index.html","content":"<p>hi</p>"}""")
+        t.toolStarted(write)
+        val blocks = parseAiMessageContent(t.render(), isStreaming = true)
+            .filterIsInstance<MessageContentBlock.ToolCallBlock>()
+        assertThat(blocks.map { it.filePath }).containsExactly("design-system", "index.html").inOrder()
+        // The subject line is for the row; the detail sheet shows the real output.
+        assertThat(blocks.first().output.orEmpty()).doesNotContain("subject:")
+    }
+
+    @Test
+    fun `file tools are not given a second subject`() {
+        val t = RunTranscript()
+        val read = call("r", "read_file", """{"path":"a.css"}""")
+        t.toolStarted(read)
+        t.toolFinished(read, ToolResult(true, "File: a.css (3 lines)\n1|a"))
+        assertThat(t.render()).doesNotContain("subject:")
+    }
+
+    @Test
+    fun `the running tool's subject is read from the last card`() {
+        val t = RunTranscript()
+        val read = call("r", "read_file", """{"path":"a.css"}""")
+        t.toolStarted(read)
+        t.toolFinished(read, ToolResult(true, "File: a.css (3 lines)\n1|a"))
+        assertThat(RunTranscript.runningSubject(t.render())).isNull()
+        val write = call("w", "write_file", """{"path":"index.html","content":"x"}""")
+        t.toolStarted(write)
+        assertThat(RunTranscript.runningSubject(t.render())).isEqualTo("index.html")
+        t.toolFinished(write, ToolResult(true, "Created index.html (1 lines).\nFile: index.html"))
+        assertThat(RunTranscript.runningSubject(t.render())).isNull()
+    }
 }

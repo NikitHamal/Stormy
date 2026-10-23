@@ -30,7 +30,6 @@ import com.oro.app.ui.theme.Sizes
 import com.oro.app.ui.theme.Elevation
 import com.oro.app.ui.theme.ExpressiveShapes
 import com.oro.app.ui.components.expressive.expressivePress
-import com.oro.app.ui.components.agent.AgentVisuals
 import androidx.compose.material3.ripple
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Surface
@@ -302,27 +301,7 @@ fun HomeScreen(
                                 onClick = { filterPanelOpen = !filterPanelOpen }
                             )
                         },
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Orobi as the app mark, alive but quiet: it
-                                // breathes and blinks, it does not glance about.
-                                OrobiIdle(
-                                    look = false,
-                                    showShadow = false,
-                                    contentDescription = null,
-                                    modifier = Modifier.width(34.dp)
-                                )
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    text = context.getString(R.string.home_title),
-                                    style = MaterialTheme.typography.headlineSmall.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        letterSpacing = (-0.4).sp
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        },
+                        title = { HomeTitle() },
                         actions = {
                             DeviceAgentButton(onClick = onDeviceAgentClick)
                             FlowerIconButton(
@@ -558,8 +537,33 @@ private fun SearchBar(
     )
 }
 
+/** Orobi as the app mark beside the app's name, as Home's top bar shows it. */
 @Composable
-private fun EmptyState(
+internal fun HomeTitle() {
+    val context = LocalContext.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // Orobi as the app mark, alive but quiet: it breathes and blinks, it
+        // does not glance about.
+        OrobiIdle(
+            look = false,
+            showShadow = false,
+            contentDescription = null,
+            modifier = Modifier.width(34.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(
+            text = context.getString(R.string.home_title),
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.4).sp
+            ),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Composable
+internal fun EmptyState(
     onCreateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -567,7 +571,8 @@ private fun EmptyState(
     ExpressiveEmptyState(
         icon = Icons.Outlined.Code,
         title = context.getString(R.string.home_empty_title),
-        description = context.getString(R.string.home_empty_subtitle),
+        // No tagline: Orobi, the title and the button say it all.
+        description = "",
         shape = EmptyStateShape.Cookie,
         actionLabel = context.getString(R.string.home_create_project),
         onAction = onCreateClick,
@@ -593,7 +598,7 @@ private fun EmptySearchState(
 }
 
 @Composable
-private fun ProjectsList(
+internal fun ProjectsList(
     projects: List<Project>,
     sessionCounts: Map<String, Int>,
     onProjectClick: (Project) -> Unit,
@@ -809,17 +814,19 @@ private fun SwipeableProjectCard(
                     val accentSlot = remember(project.id) {
                         (project.id.hashCode().mod(ProjectAccentCount))
                     }
-                    val accent = AgentVisuals.accent(accentSlot)
+                    // The silhouette is the project's identity; the fill is one
+                    // legible tone. The accent containers were near the card's
+                    // own tone in light mode, so some marks all but vanished.
                     Surface(
                         modifier = Modifier.size(Sizes.avatarLarge),
                         shape = ExpressiveShapes.forIndex(accentSlot),
-                        color = accent.container
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
                                 text = project.name.firstOrNull()?.uppercase() ?: "?",
                                 style = MaterialTheme.typography.titleMediumEmphasized,
-                                color = accent.onContainer
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -899,7 +906,7 @@ private fun SwipeableProjectCard(
  * running flag is observed, so a live run does not recompose the home screen.
  */
 @Composable
-private fun DeviceAgentButton(onClick: () -> Unit) {
+internal fun DeviceAgentButton(onClick: () -> Unit) {
     val running by remember {
         com.oro.app.device.DeviceAgent.state
             .map { it.running }
@@ -924,10 +931,7 @@ private fun DeviceAgentButton(onClick: () -> Unit) {
     }
 }
 
-/**
- * Number of distinct project marks. Matches the palette and shape lists in
- * AgentVisuals/ExpressiveShapes so colour and silhouette stay paired.
- */
+/** Number of distinct project mark silhouettes (see ExpressiveShapes.forIndex). */
 private const val ProjectAccentCount = 5
 
 /** Backdrop blur behind the open speed dial, in dp. */

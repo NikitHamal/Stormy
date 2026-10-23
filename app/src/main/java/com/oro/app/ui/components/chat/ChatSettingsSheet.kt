@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Handyman
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -45,8 +44,11 @@ import com.oro.app.ui.theme.Space
  *
  * Options that do not apply to the selected model are *hidden*, not disabled.
  * A permanently greyed row teaches the user to ignore that part of the sheet,
- * and the absence already says the model cannot do it -- there is a line at
- * the bottom explaining why the set changes.
+ * and the absence already says the model cannot do it.
+ *
+ * Agent mode is offered for every model: one without native function calling
+ * runs tools through the text protocol, so "this model cannot use tools" was
+ * never true -- and it greyed out agent mode on Mercury 3, the default.
  */
 @Composable
 fun ChatSettingsSheet(
@@ -90,13 +92,9 @@ fun ChatSettingsSheet(
                 // Describes the consequence, not the feature. "Enable
                 // autonomous coding workflow" tells the user nothing about what
                 // will happen to their files.
-                subtitle = if (currentModel?.supportsToolCalls == false) {
-                    "This model cannot use tools"
-                } else {
-                    "Let the assistant read and edit files on its own"
-                },
+                subtitle = "Orobi reads and edits your files",
                 checked = agentMode,
-                enabled = currentModel?.supportsToolCalls != false,
+                enabled = true,
                 onCheckedChange = onAgentModeChange
             )
 
@@ -119,10 +117,9 @@ fun ChatSettingsSheet(
                         Text(
                             text = when (autonomy) {
                                 com.oro.app.data.ai.agent.AutonomyMode.LEASHED ->
-                                    "Orobi shows each change (write, edit, delete, move, MCP action) and waits for your OK."
+                                    "Asks before every change"
                                 com.oro.app.data.ai.agent.AutonomyMode.UNLEASHED ->
-                                    "Orobi works on its own. It still asks before deleting folders, touching secrets " +
-                                        "or running risky MCP actions. Checkpoints let you undo any run."
+                                    "Works on its own, asks before risky steps"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -136,7 +133,7 @@ fun ChatSettingsSheet(
             SettingToggle(
                 icon = Icons.Outlined.AutoAwesome,
                 title = "Rich answers",
-                subtitle = "Orobi can answer with interactive cards, tables, charts and choices",
+                subtitle = "Cards, tables and charts in replies",
                 checked = richUi,
                 enabled = true,
                 onCheckedChange = onRichUiChange
@@ -146,32 +143,6 @@ fun ChatSettingsSheet(
             currentModel?.takeIf { it.supportsReasoningEffort }?.let { model ->
                 Spacer(Modifier.height(Space.lg))
                 ReasoningPicker(model = model, levels = reasoningLevels, onSelect = onReasoningLevelChange)
-            }
-
-            Spacer(Modifier.height(Space.lg))
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = OroCorners.medium,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh
-            ) {
-                Row(
-                    modifier = Modifier.padding(Space.md),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        Icons.Outlined.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(Sizes.iconSmall)
-                    )
-                    Spacer(Modifier.width(Space.sm))
-                    Text(
-                        text = "Which options appear depends on the model you have selected.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
 
             Spacer(Modifier.height(Space.xl))

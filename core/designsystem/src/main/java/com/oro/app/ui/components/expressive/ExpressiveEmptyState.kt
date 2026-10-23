@@ -197,13 +197,17 @@ fun ExpressiveEmptyState(
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(Space.sm))
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+            // A blank description means none: screens that need no
+            // explanation should not get an empty gap where one would be.
+            if (description.isNotBlank()) {
+                Spacer(Modifier.height(Space.sm))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         if (actionLabel != null && onAction != null) {
