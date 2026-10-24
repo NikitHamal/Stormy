@@ -9,8 +9,14 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.oro.app.data.ai.AiProvider
-import com.oro.app.data.ai.ReasoningEffort
+import com.oro.app.data.ai.ReasoningControls
+import com.oro.app.data.ai.AiHttp
+import com.oro.app.data.ai.providers.ApiKeyEntry
+import com.oro.app.data.ai.providers.CustomProviderRegistry
+import com.oro.app.data.ai.providers.ProviderSettings
+import com.oro.app.data.ai.providers.ProviderSettingsMigration
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -37,7 +43,21 @@ class PreferencesRepository(private val context: Context) {
             stringPreferencesKey("${provider.name.lowercase()}_api_key")
 
         val CUSTOM_BASE_URL = stringPreferencesKey("custom_base_url")
+        /** [ProviderSettings] as JSON: custom providers and multi-key lists. */
+        val PROVIDER_SETTINGS = stringPreferencesKey("provider_settings_v1")
+        /** MCP servers as JSON ([com.oro.app.data.ai.mcp.McpSettings]). */
+        val MCP_SETTINGS = stringPreferencesKey("mcp_servers_v1")
+        val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
+        val AUTONOMY = stringPreferencesKey("autonomy_mode")
+        val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
+        val RICH_UI = booleanPreferencesKey("rich_ui")
+        val ASK_BEFORE_BUILDING = booleanPreferencesKey("ask_before_building")
+        /** The old app-wide Low/Balanced/Deep choice; read once into [REASONING_LEVELS]. */
         val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
+        /** JSON map model id -> the provider's own level value (see ReasoningControls). */
+        val REASONING_LEVELS = stringPreferencesKey("reasoning_levels")
+        /** Last applied one-time model migration (see ModelMigrations). */
+        val MODEL_MIGRATION = androidx.datastore.preferences.core.intPreferencesKey("model_migration")
 
         // AI Provider and Model settings
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -49,13 +69,34 @@ class PreferencesRepository(private val context: Context) {
 
         // Beta Features
         val DEBUG_LOGS_ENABLED = booleanPreferencesKey("debug_logs_enabled")
+
+        // Performance
+        val LITE_MODE = stringPreferencesKey("lite_mode")
     }
 
+    // distinctUntilChanged: every DataStore edit re-emits the whole
+    // Preferences object, so without it an unrelated write (an API key, the
+    // font size slider) would push a "new" theme through the activity root.
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { preferences ->
         try {
             ThemeMode.valueOf(preferences[PreferenceKeys.THEME_MODE] ?: ThemeMode.SYSTEM.name)
         } catch (e: IllegalArgumentException) {
             ThemeMode.SYSTEM
+        }
+    }.distinctUntilChanged()
+
+    /**
+     * Lite mode: trades decorative effects (backdrop blur, idle loops, springy
+     * motion) for smoothness. [LiteMode.AUTO] lets the app decide from the
+     * device's RAM class; see `isLowEndDevice` in the design system.
+     */
+    val liteMode: Flow<LiteMode> = context.dataStore.data.map { preferences ->
+        LiteMode.fromName(preferences[PreferenceKeys.LITE_MODE])
+    }.distinctUntilChanged()
+
+    suspend fun setLiteMode(mode: LiteMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.LITE_MODE] = mode.name
         }
     }
 
@@ -155,8 +196,17 @@ class PreferencesRepository(private val context: Context) {
     }
 
     suspend fun setApiKeyForProvider(provider: AiProvider, key: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.apiKey(provider)] = key.trim()
+        // Single-key callers edit the first key and leave any others alone.
+        updateProviderSettings { settings ->
+            val list = settings.builtInKeys[provider.name].orEmpty()
+            val trimmed = key.trim()
+            val next = when {
+                list.isEmpty() && trimmed.isEmpty() -> list
+                list.isEmpty() -> listOf(ApiKeyEntry(java.util.UUID.randomUUID().toString(), trimmed))
+                trimmed.isEmpty() -> list.drop(1)
+                else -> listOf(list[0].copy(key = trimmed)) + list.drop(1)
+            }
+            settings.copy(builtInKeys = settings.builtInKeys + (provider.name to next))
         }
     }
 
@@ -193,13 +243,116 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
-    /** Keys for every provider at once, for building an AiProviderManager. */
+    /**
+     * The first usable key of every provider, for code that only needs "is
+     * there a key" or one key to try. Requests rotate through every key via
+     * [providerSettings].
+     */
     val apiKeys: Flow<Map<AiProvider, String>> = context.dataStore.data.map { preferences ->
+        val settings = readProviderSettings(preferences)
         AiProvider.entries.associateWith { provider ->
             // The pre-per-provider "api_key" belonged to DeepInfra, which has
             // been removed; there is no provider left to migrate it to, and
             // handing one provider's key to another would silently 401.
-            preferences[PreferenceKeys.apiKey(provider)] ?: ""
+            settings.builtInKeys[provider.name]?.firstOrNull { it.enabled && it.key.isNotBlank() }?.key
+                ?: preferences[PreferenceKeys.apiKey(provider)] ?: ""
+        }
+    }
+
+    /** Custom providers and every provider's key list, legacy settings folded in. */
+    val providerSettings: Flow<ProviderSettings> = context.dataStore.data
+        .map { readProviderSettings(it) }
+        .distinctUntilChanged()
+
+    private fun readProviderSettings(preferences: Preferences): ProviderSettings {
+        val stored = preferences[PreferenceKeys.PROVIDER_SETTINGS]?.let { raw ->
+            runCatching { AiHttp.json.decodeFromString(ProviderSettings.serializer(), raw) }.getOrNull()
+        } ?: ProviderSettings()
+        val merged = ProviderSettingsMigration.withLegacy(
+            stored = stored,
+            legacyKeys = AiProvider.entries.associate { it.name to (preferences[PreferenceKeys.apiKey(it)] ?: "") },
+            legacyCustomBaseUrl = preferences[PreferenceKeys.CUSTOM_BASE_URL].orEmpty()
+        )
+        CustomProviderRegistry.update(merged)
+        return merged
+    }
+
+    val mcpSettings: Flow<com.oro.app.data.ai.mcp.McpSettings> = context.dataStore.data.map { p ->
+        p[PreferenceKeys.MCP_SETTINGS]?.let { raw ->
+            runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.mcp.McpSettings.serializer(), raw) }.getOrNull()
+        } ?: com.oro.app.data.ai.mcp.McpSettings()
+    }.distinctUntilChanged()
+
+    val autonomyMode: Flow<com.oro.app.data.ai.agent.AutonomyMode> = context.dataStore.data
+        .map { com.oro.app.data.ai.agent.AutonomyMode.fromName(it[PreferenceKeys.AUTONOMY]) }.distinctUntilChanged()
+
+    suspend fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
+        context.dataStore.edit { it[PreferenceKeys.AUTONOMY] = mode.name }
+    }
+
+    /** Orobi checks its own changes (render, syntax, preview errors) before finishing. */
+
+    /** Whether replies may contain UI blocks (generative UI, rendered natively). */
+    val richUi: Flow<Boolean> = context.dataStore.data.map { it[PreferenceKeys.RICH_UI] ?: true }.distinctUntilChanged()
+
+    suspend fun setRichUi(on: Boolean) {
+        context.dataStore.edit { it[PreferenceKeys.RICH_UI] = on }
+    }
+
+    /**
+     * Whether Orobi asks a few one-tap questions before building from a vague
+     * request (on, "Smart") or decides everything itself (off, "Never").
+     */
+    val askBeforeBuilding: Flow<Boolean> =
+        context.dataStore.data.map { it[PreferenceKeys.ASK_BEFORE_BUILDING] ?: true }.distinctUntilChanged()
+
+    suspend fun setAskBeforeBuilding(on: Boolean) {
+        context.dataStore.edit { it[PreferenceKeys.ASK_BEFORE_BUILDING] = on }
+    }
+
+
+    /** "SYSTEM" or "WHISTLE" (the app's DictationEngine names). */
+    val dictationEngineName: Flow<String> = context.dataStore.data
+        .map { it[PreferenceKeys.DICTATION_ENGINE] ?: "SYSTEM" }.distinctUntilChanged()
+
+    suspend fun setDictationEngineName(name: String) {
+        context.dataStore.edit { it[PreferenceKeys.DICTATION_ENGINE] = name }
+    }
+
+    val netlifyToken: Flow<String> = context.dataStore.data.map { it[PreferenceKeys.NETLIFY_TOKEN].orEmpty() }.distinctUntilChanged()
+
+    suspend fun setNetlifyToken(token: String) {
+        context.dataStore.edit { it[PreferenceKeys.NETLIFY_TOKEN] = token.trim() }
+    }
+
+    suspend fun updateMcpSettings(transform: (com.oro.app.data.ai.mcp.McpSettings) -> com.oro.app.data.ai.mcp.McpSettings) {
+        context.dataStore.edit { p ->
+            val current = p[PreferenceKeys.MCP_SETTINGS]?.let { raw ->
+                runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.mcp.McpSettings.serializer(), raw) }.getOrNull()
+            } ?: com.oro.app.data.ai.mcp.McpSettings()
+            p[PreferenceKeys.MCP_SETTINGS] = AiHttp.json.encodeToString(com.oro.app.data.ai.mcp.McpSettings.serializer(), transform(current))
+        }
+    }
+
+    /** Atomically edit provider settings. */
+    suspend fun updateProviderSettings(transform: (ProviderSettings) -> ProviderSettings) {
+        context.dataStore.edit { preferences ->
+            val next = transform(readProviderSettings(preferences))
+            preferences[PreferenceKeys.PROVIDER_SETTINGS] =
+                AiHttp.json.encodeToString(ProviderSettings.serializer(), next)
+            // Keep the single-key preferences in step with the lists: other
+            // code (and a downgrade) still reads them.
+            AiProvider.entries.forEach { provider ->
+                next.builtInKeys[provider.name]?.let { list ->
+                    preferences[PreferenceKeys.apiKey(provider)] =
+                        list.firstOrNull { it.enabled && it.key.isNotBlank() }?.key.orEmpty()
+                }
+            }
+            // The legacy custom server was deleted: stop re-importing it.
+            if (next.customById(ProviderSettingsMigration.LEGACY_CUSTOM_ID) == null) {
+                preferences.remove(PreferenceKeys.CUSTOM_BASE_URL)
+            }
+            CustomProviderRegistry.update(next)
         }
     }
 
@@ -207,15 +360,39 @@ class PreferencesRepository(private val context: Context) {
         preferences[PreferenceKeys.CUSTOM_BASE_URL] ?: ""
     }
 
-    /** Reasoning budget, for models that expose one. */
-    val reasoningEffort: Flow<ReasoningEffort> = context.dataStore.data.map { preferences ->
-        ReasoningEffort.fromName(preferences[PreferenceKeys.REASONING_EFFORT])
+    /**
+     * Reasoning level per model, as the provider names it ("high", "xhigh",
+     * "instant"...). Until the user picks one, an old app-wide Low/Deep choice
+     * rides along under [ReasoningControls.LEGACY_KEY].
+     */
+    val reasoningLevels: Flow<Map<String, String>> = context.dataStore.data.map { preferences ->
+        reasoningLevelsOf(preferences[PreferenceKeys.REASONING_LEVELS], preferences[PreferenceKeys.REASONING_EFFORT])
+    }.distinctUntilChanged()
+
+    suspend fun setReasoningLevel(modelId: String, level: String) {
+        context.dataStore.edit { preferences ->
+            val current = reasoningLevelsOf(preferences[PreferenceKeys.REASONING_LEVELS], preferences[PreferenceKeys.REASONING_EFFORT])
+            preferences[PreferenceKeys.REASONING_LEVELS] = encodeLevels(current + (modelId to level))
+        }
     }
 
-    suspend fun setReasoningEffort(effort: ReasoningEffort) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.REASONING_EFFORT] = effort.name
+    /** Last applied one-time model migration, 0 before any. */
+    suspend fun modelMigration(): Int = context.dataStore.data.first()[PreferenceKeys.MODEL_MIGRATION] ?: 0
+
+    suspend fun setModelMigration(version: Int) {
+        context.dataStore.edit { it[PreferenceKeys.MODEL_MIGRATION] = version }
+    }
+
+    private fun encodeLevels(levels: Map<String, String>): String =
+        kotlinx.serialization.json.JsonObject(levels.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()
+
+    private fun reasoningLevelsOf(raw: String?, legacy: String?): Map<String, String> {
+        if (raw == null) {
+            return ReasoningControls.legacyLevel(legacy)?.let { mapOf(ReasoningControls.LEGACY_KEY to it) } ?: emptyMap()
         }
+        val obj = runCatching { AiHttp.json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+            ?: return emptyMap()
+        return obj.mapNotNull { (k, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { k to it } }.toMap()
     }
 
     suspend fun getApiKeyForProvider(provider: AiProvider): String = apiKeys.first()[provider] ?: ""
@@ -241,4 +418,24 @@ enum class ThemeMode {
     SYSTEM,
     LIGHT,
     DARK
+}
+
+/** User choice for [PreferencesRepository.liteMode]. */
+enum class LiteMode {
+    /** On for low-RAM / low-memory-class devices, off otherwise. */
+    AUTO,
+    ON,
+    OFF;
+
+    /** Resolves the choice against the device classification. */
+    fun isEnabled(lowEndDevice: Boolean): Boolean = when (this) {
+        AUTO -> lowEndDevice
+        ON -> true
+        OFF -> false
+    }
+
+    companion object {
+        fun fromName(value: String?): LiteMode =
+            entries.find { it.name == value } ?: AUTO
+    }
 }

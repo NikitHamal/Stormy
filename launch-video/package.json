@@ -9,6 +9,7 @@
     "render": "node scripts/render.mjs",
     "render:vertical": "node scripts/render.mjs --format vertical",
     "render:all": "node scripts/render.mjs --format landscape && node scripts/render.mjs --format vertical && node scripts/stills.mjs --poster",
+    "audio": "node scripts/audio.mjs",
     "preview": "node scripts/serve.mjs",
     "stills": "node scripts/stills.mjs",
     "contact": "node scripts/stills.mjs --every 0.5 --contact"

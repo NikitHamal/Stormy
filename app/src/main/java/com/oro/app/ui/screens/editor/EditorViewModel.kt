@@ -3,7 +3,6 @@ package com.oro.app.ui.screens.editor
 import com.oro.app.data.ai.context.ContextCompactor
 import com.oro.app.data.ai.context.ContextBreakdownBuilder
 import com.oro.app.data.ai.context.ContextBreakdown
-import com.oro.app.data.ai.ReasoningEffort
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CompletableDeferred
 import com.oro.app.ui.components.agent.PendingApproval
@@ -69,6 +68,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -76,6 +78,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.oro.app.data.ai.agent.AgentLoop
 import com.oro.app.data.ai.agent.AgentLoopConfig
 import com.oro.app.data.ai.agent.AgentLoopListener
@@ -85,13 +89,27 @@ import com.oro.app.data.ai.agent.AgentRunResult
 import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentToolRunner
 import com.oro.app.data.ai.agent.HistoryPruner
+import com.oro.app.data.ai.craft.QualityGate
 import com.oro.app.data.ai.agent.TokenEstimator
 import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.ToolAliases
+import com.oro.app.data.ai.tools.QuestionOption
+import com.oro.app.data.ai.tools.UserQuestion
+import com.oro.app.data.ai.tools.UserQuestions
 import com.oro.app.data.ai.Tool
 import com.oro.app.ui.components.agent.PendingQuestion
+import com.oro.app.agent.AgentNotifications
+import com.oro.app.agent.BackgroundRuns
 import com.oro.app.ui.components.agent.RunError
 import com.oro.app.ui.screens.editor.agent.RunTranscript
+import com.oro.app.ui.screens.editor.sessions.ChatSessionsUiState
+import com.oro.app.domain.model.DeletedSessionSnapshot
+import com.oro.app.domain.model.SessionTitles
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
+import com.oro.app.ui.components.message.ParsedBlocksCache
+import com.oro.app.ui.components.message.SYNC_PARSE_LIMIT
 
 /**
  * Represents an open file tab in the editor
@@ -160,7 +178,8 @@ data class EditorUiState(
     val agentPlan: com.oro.app.data.ai.agents.AgentPlan? = null,
     /** Delegated work, live and recently finished. */
     val agentSessions: List<com.oro.app.data.ai.agents.AgentSession> = emptyList(),
-    val reasoningEffort: ReasoningEffort = ReasoningEffort.DEFAULT,
+    /** Saved reasoning level per model id, in each provider's own vocabulary. */
+    val reasoningLevels: Map<String, String> = emptyMap(),
     /** Where the context window is going, for the context sheet. */
     val contextBreakdown: ContextBreakdown = ContextBreakdown.Empty,
     val isCompacting: Boolean = false,
@@ -230,6 +249,15 @@ class EditorViewModel(
 
     private var approvalAnswer: CompletableDeferred<Boolean>? = null
 
+    /**
+     * Calls that change something take turns, from approval to undo entry.
+     * AgentLoop runs calls on different files side by side, but the approval
+     * sheet and the undo group each hold one call at a time: a second
+     * approval would be declined unasked, and a second group would swallow
+     * the first one's changes.
+     */
+    private val changeTurn = Mutex()
+
     private val delegationHandler = DelegationHandler(
         orchestrator = subagentOrchestrator,
         runner = DelegationHandler.SubagentRunner { session -> launchSubagent(session) }
@@ -278,8 +306,16 @@ class EditorViewModel(
     private var _aiGenerationJob: Job? = null
     private val _runStatus = MutableStateFlow<AgentStatus?>(null)
     private val _pendingQuestion = MutableStateFlow<PendingQuestion?>(null)
-    @Volatile private var questionAnswer: CompletableDeferred<String?>? = null
+    @Volatile private var questionAnswer: CompletableDeferred<List<String?>?>? = null
     private val _runError = MutableStateFlow<RunError?>(null)
+
+    /**
+     * History text per stored transcript, so a re-emitted or reopened chat
+     * does not run the transcript regexes over every message again.
+     */
+    private val historyTextCache = object : LinkedHashMap<String, String>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
+    }
 
     /** Transcript of the run in progress, rendered into the last assistant message. */
     @Volatile private var transcript: RunTranscript? = null
@@ -294,87 +330,239 @@ class EditorViewModel(
     /** Set when the provider rejected native tools; the run then uses text tool calls. */
     @Volatile private var forceTextTools = false
 
+    /**
+     * Set for a run whose request the brief check found vague (and the user
+     * lets Orobi ask): if the model asks its questions as prose instead of
+     * calling ask_user, the run turns them into the same one-tap card.
+     */
+    @Volatile private var intakeArmed = false
+
+    // ---- Chat sessions ------------------------------------------------------
+    //
+    // A project has many chat sessions; exactly one is on screen. Everything
+    // conversational -- _messages, _messageHistory (what the agent sees), the
+    // run, clear and export -- is scoped to it.
+    //
+    // Switching is refused while a run is live rather than cancelling it or
+    // letting it continue in the background. The run is bound to the screen,
+    // not just to a session id: its streaming transcript is written into the
+    // last on-screen message, and its ask_user question and approvals are
+    // shown in this chat and suspend the run until answered. A background run
+    // would block on a question nobody can see; a silent cancel would throw
+    // away work the user did not ask to stop. So the switcher says a run is in
+    // progress and offers Stop, and the user decides.
+
+    /** The session on screen; null for a fresh chat not yet sent. */
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+
+    /** Photos attached to the next message (base64 JPEG, downscaled). */
+    private val _attachedImages = MutableStateFlow<List<String>>(emptyList())
+    val attachedImages: StateFlow<List<String>> = _attachedImages
+
+    /** Attach a photo (design reference); downscaled to 1280 px, JPEG. */
+    fun attachImage(uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val resolver = com.oro.app.OroApplication.getInstance().contentResolver
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1280) sample *= 2
+                val bmp = resolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                } ?: error("Could not read the photo")
+                val scale = minOf(1f, 1280f / maxOf(bmp.width, bmp.height))
+                val scaled = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
+                val out = java.io.ByteArrayOutputStream()
+                scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
+                if (scaled !== bmp) scaled.recycle()
+                bmp.recycle()
+                val b64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                _attachedImages.value = (_attachedImages.value + b64).takeLast(3)
+            }
+        }
+    }
+
+    fun clearAttachedImages() { _attachedImages.value = emptyList() }
+
+    /** User messages of the current chat whose run left a file checkpoint. */
+    private val _checkpointMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    val checkpointMessageIds: StateFlow<Set<String>> = _checkpointMessageIds
+
+    private fun checkpoints(): com.oro.app.data.ai.checkpoint.Checkpoints? =
+        _project.value?.rootPath?.let { com.oro.app.data.ai.checkpoint.Checkpoints(File(it)) }
+
+    private fun refreshCheckpoints() {
+        val sid = _currentSessionId.value
+        viewModelScope.launch(Dispatchers.IO) {
+            _checkpointMessageIds.value = if (sid == null) emptySet() else checkpoints()?.messageIds(sid).orEmpty()
+        }
+    }
+
+    /** The user published the site; Orobi should know where it lives. */
+    fun onDeployed(url: String) {
+        if (_isAiProcessing.value) return
+        _messageHistory += ChatRequestMessage(role = "user", content = HistoryPruner.appNote("the user published this project. It is live at $url"))
+    }
+
+    /** Put every file back to how it was before [messageId]'s run (and all later runs). */
+    fun restoreCheckpoint(messageId: String) {
+        val sid = _currentSessionId.value ?: return
+        if (_isAiProcessing.value) return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { checkpoints()?.restoreFrom(sid, messageId) }
+            if (result != null && result.files.isNotEmpty()) {
+                loadFileTree()
+                // Refresh the open editor if it shows a restored file and holds no edits of the user's.
+                val open = _currentFile.value
+                val root = _project.value?.rootPath
+                if (open != null && root != null && open.path in result.files &&
+                    _fileContent.value == _originalFileContent.value
+                ) {
+                    val text = withContext(Dispatchers.IO) { File(root, open.path).takeIf { it.isFile }?.readText().orEmpty() }
+                    _fileContent.value = text
+                    _originalFileContent.value = text
+                }
+                val n = result.files.size
+                _messageHistory += ChatRequestMessage(
+                    role = "user",
+                    content = HistoryPruner.appNote(
+                        "the user restored $n file${if (n == 1) "" else "s"} to their state before an earlier " +
+                            "message: ${result.files.take(12).joinToString(", ")}. Re-read files before editing them."
+                    )
+                )
+            }
+            refreshCheckpoints()
+        }
+    }
+
+    // Token / cost meter, per chat session, persisted in the project.
+    private var usageStore: com.oro.app.data.ai.usage.UsageStore? = null
+    private val usageBySession = MutableStateFlow<Map<String, com.oro.app.data.ai.usage.SessionUsage>>(emptyMap())
+    /** Usage of the chat on screen. */
+    val sessionUsage: StateFlow<com.oro.app.data.ai.usage.SessionUsage> =
+        combine(usageBySession, _currentSessionId) { all, id ->
+            id?.let { all[it] } ?: com.oro.app.data.ai.usage.SessionUsage()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.oro.app.data.ai.usage.SessionUsage())
+    private val _isSessionLoading = MutableStateFlow(true)
+    /** False until the last-opened session has been restored at startup. */
+    @Volatile private var sessionRestored = false
+    /** Set on a switch so the context sheet is recomputed for the new history. */
+    private var breakdownStale = false
+
+    private class PendingUndo(val snapshot: DeletedSessionSnapshot, val wasCurrent: Boolean)
+    private val _pendingUndo = MutableStateFlow<PendingUndo?>(null)
+    private var undoExpiryJob: Job? = null
+
+    /** Unsent input per session, so switching away does not lose a half-typed prompt. */
+    private val inputDrafts = HashMap<String, String>()
+
+    val sessionsState: StateFlow<ChatSessionsUiState> = combine(
+        chatRepository.observeSessions(projectId),
+        _currentSessionId,
+        _isSessionLoading,
+        _pendingUndo
+    ) { sessions, currentId, loading, undo ->
+        ChatSessionsUiState(
+            sessions = sessions,
+            currentSessionId = currentId,
+            currentTitle = sessions.firstOrNull { it.id == currentId }?.title
+                ?: SessionTitles.DEFAULT_TITLE,
+            isLoadingSession = loading,
+            undoTitle = undo?.snapshot?.title
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ChatSessionsUiState()
+    )
+
+    /**
+     * Dirty flag, derived on its own: it used to be an O(file size) string
+     * compare inside the state combine, so it ran on every streamed chat
+     * token even though neither string had changed. Reference equality first
+     * makes the common "nothing typed since load" case free.
+     */
+    private val _isFileModified = combine(_fileContent, _originalFileContent) { current, original ->
+        current !== original && current != original
+    }.distinctUntilChanged()
+
+    /**
+     * True while this screen's run is live, or a run this project started
+     * from an earlier editor instance is still finishing in the background:
+     * either way the composer must not start a second one.
+     */
+    private val _isProcessingAnywhere = combine(_isAiProcessing, BackgroundRuns.active) { own, runs ->
+        own || (projectId in runs && _aiGenerationJob?.isActive != true)
+    }.distinctUntilChanged()
+
+    /** Recomputed only when the context breakdown changes, as before. */
+    private val _compactableCount = _contextBreakdown.map {
+        contextCompactor.partition(_messages.value).older.size
+    }.distinctUntilChanged()
+
+    /**
+     * One combine over every source, building the state once per emission.
+     *
+     * This was a chain of ~30 `.combine` stages: every streamed chunk went
+     * through each stage in turn -- a suspended coroutine hop and a full
+     * EditorUiState copy per stage -- about thirty copies of a large object
+     * per token on the main path. A single stage does it in one.
+     */
     val uiState: StateFlow<EditorUiState> = combine(
-        _project,
-        _selectedTab,
-        _fileTree,
-        _expandedFolders,
-        _openFiles,
-        _currentFileIndex,
-        _currentFile,
-        _fileContent,
-        _messages
-    ) { values ->
+        listOf<Flow<Any?>>(
+            _project, _selectedTab, _fileTree, _expandedFolders, _openFiles, _currentFileIndex,
+            _currentFile, _fileContent, _messages, _isFileModified, _chatInput, _isProcessingAnywhere,
+            _agentMode, _currentModel, _availableModels, _isRefreshingModels,
+            preferencesRepository.lineNumbers, preferencesRepository.wordWrap, preferencesRepository.fontSize,
+            _contextTokenCount, _contextMaxTokens, _contextUsageLevel, delegationHandler.plan,
+            subagentOrchestrator.sessions, preferencesRepository.reasoningLevels, _contextBreakdown,
+            _compactableCount, _isCompacting, _lastCompactionSavedPercent, undoRedoManager.state,
+            _taskList, _largeFileWarning, _fileLoadProgress, _isCurrentFileReadOnly, _runStatus,
+            _pendingQuestion, _runError
+        )
+    ) { v ->
         @Suppress("UNCHECKED_CAST")
         EditorUiState(
-            project = values[0] as Project?,
-            selectedTab = values[1] as EditorTab,
-            fileTree = values[2] as List<FileTreeNode>,
-            expandedFolders = values[3] as Set<String>,
-            openFiles = values[4] as List<OpenFileTab>,
-            currentFileIndex = values[5] as Int,
-            currentFile = values[6] as FileTreeNode.FileNode?,
-            fileContent = values[7] as String,
-            isFileModified = values[7] as String != _originalFileContent.value,
-            messages = values[8] as List<ChatMessage>
+            project = v[0] as Project?,
+            selectedTab = v[1] as EditorTab,
+            fileTree = v[2] as List<FileTreeNode>,
+            expandedFolders = v[3] as Set<String>,
+            openFiles = v[4] as List<OpenFileTab>,
+            currentFileIndex = v[5] as Int,
+            currentFile = v[6] as FileTreeNode.FileNode?,
+            fileContent = v[7] as String,
+            messages = v[8] as List<ChatMessage>,
+            isFileModified = v[9] as Boolean,
+            chatInput = v[10] as String,
+            isAiProcessing = v[11] as Boolean,
+            agentMode = v[12] as Boolean,
+            currentModel = v[13] as AiModel?,
+            availableModels = v[14] as List<AiModel>,
+            isRefreshingModels = v[15] as Boolean,
+            showLineNumbers = v[16] as Boolean,
+            wordWrap = v[17] as Boolean,
+            fontSize = v[18] as Float,
+            contextTokenCount = v[19] as Int,
+            contextMaxTokens = v[20] as Int,
+            contextUsageLevel = v[21] as ContextUsageLevel,
+            // Null rather than an empty plan, so the UI can omit the strip.
+            agentPlan = (v[22] as com.oro.app.data.ai.agents.AgentPlan).takeIf { !it.isEmpty },
+            agentSessions = v[23] as List<com.oro.app.data.ai.agents.AgentSession>,
+            reasoningLevels = v[24] as Map<String, String>,
+            contextBreakdown = v[25] as ContextBreakdown,
+            compactableMessageCount = v[26] as Int,
+            isCompacting = v[27] as Boolean,
+            lastCompactionSavedPercent = v[28] as Int?,
+            undoRedoState = v[29] as UndoRedoState,
+            taskList = v[30] as List<TodoItem>,
+            largeFileWarning = v[31] as LargeFileWarning?,
+            fileLoadProgress = v[32] as Float,
+            isCurrentFileReadOnly = v[33] as Boolean,
+            runStatus = v[34] as AgentStatus?,
+            pendingQuestion = v[35] as PendingQuestion?,
+            runError = v[36] as RunError?
         )
-    }.combine(_chatInput) { state, chatInput ->
-        state.copy(chatInput = chatInput)
-    }.combine(_isAiProcessing) { state, isProcessing ->
-        state.copy(isAiProcessing = isProcessing)
-    }.combine(_agentMode) { state, agentMode ->
-        state.copy(agentMode = agentMode)
-    }.combine(_currentModel) { state, currentModel ->
-        state.copy(currentModel = currentModel)
-    }.combine(_availableModels) { state, availableModels ->
-        state.copy(availableModels = availableModels)
-    }.combine(_isRefreshingModels) { state, isRefreshingModels ->
-        state.copy(isRefreshingModels = isRefreshingModels)
-    }.combine(preferencesRepository.lineNumbers) { state, lineNumbers ->
-        state.copy(showLineNumbers = lineNumbers)
-    }.combine(preferencesRepository.wordWrap) { state, wordWrap ->
-        state.copy(wordWrap = wordWrap)
-    }.combine(preferencesRepository.fontSize) { state, fontSize ->
-        state.copy(fontSize = fontSize)
-    }.combine(_contextTokenCount) { state, tokenCount ->
-        state.copy(contextTokenCount = tokenCount)
-    }.combine(_contextMaxTokens) { state, maxTokens ->
-        state.copy(contextMaxTokens = maxTokens)
-    }.combine(_contextUsageLevel) { state, usageLevel ->
-        state.copy(contextUsageLevel = usageLevel)
-    }.combine(delegationHandler.plan) { state, plan ->
-        // Null rather than an empty plan, so the UI can omit the strip entirely
-        // instead of rendering an empty container.
-        state.copy(agentPlan = plan.takeIf { !it.isEmpty })
-    }.combine(subagentOrchestrator.sessions) { state, sessions ->
-        state.copy(agentSessions = sessions)
-    }.combine(preferencesRepository.reasoningEffort) { state, effort ->
-        state.copy(reasoningEffort = effort)
-    }.combine(_contextBreakdown) { state, breakdown ->
-        state.copy(
-            contextBreakdown = breakdown,
-            compactableMessageCount = contextCompactor.partition(_messages.value).older.size
-        )
-    }.combine(_isCompacting) { state, compacting ->
-        state.copy(isCompacting = compacting)
-    }.combine(_lastCompactionSavedPercent) { state, saved ->
-        state.copy(lastCompactionSavedPercent = saved)
-    }.combine(undoRedoManager.state) { state, undoRedoState ->
-        state.copy(undoRedoState = undoRedoState)
-    }.combine(_taskList) { state, taskList ->
-        state.copy(taskList = taskList)
-    }.combine(_largeFileWarning) { state, warning ->
-        state.copy(largeFileWarning = warning)
-    }.combine(_fileLoadProgress) { state, progress ->
-        state.copy(fileLoadProgress = progress)
-    }.combine(_isCurrentFileReadOnly) { state, isReadOnly ->
-        state.copy(isCurrentFileReadOnly = isReadOnly)
-    }.combine(_runStatus) { state, status ->
-        state.copy(runStatus = status)
-    }.combine(_pendingQuestion) { state, question ->
-        state.copy(pendingQuestion = question)
-    }.combine(_runError) { state, error ->
-        state.copy(runError = error)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -384,7 +572,17 @@ class EditorViewModel(
     // Debug logging state
     private val _debugLogsEnabled = MutableStateFlow(false)
 
+    /** The project root the file tree was first loaded for. */
+    private var treeLoadedFor: String? = null
+    private var treeRefreshJob: Job? = null
+
     init {
+        // Rewind markers follow the chat on screen (and appear once the project loads).
+        viewModelScope.launch {
+            combine(_currentSessionId, _project) { sid, project -> sid to project?.rootPath }
+                .distinctUntilChanged()
+                .collect { refreshCheckpoints() }
+        }
         loadProject()
         loadChatHistory()
         loadAvailableModels()
@@ -488,9 +686,34 @@ class EditorViewModel(
                 _project.value = project
                 if (project != null) {
                     toolExecutor.setProjectPath(File(project.rootPath))
-                    loadFileTree()
+                    if (usageStore == null) {
+                        val store = com.oro.app.data.ai.usage.UsageStore(File(project.rootPath))
+                        usageStore = store
+                        usageBySession.value = withContext(Dispatchers.IO) { store.load() }
+                    }
+                    if (project.rootPath != treeLoadedFor) {
+                        treeLoadedFor = project.rootPath
+                        loadFileTree()
+                    } else {
+                        scheduleTreeRefresh()
+                    }
                 }
             }
+        }
+    }
+
+    /**
+     * Every file write bumps the project's updatedAt, so the project row
+     * re-emits once per write. Rebuilding the whole tree on each of those
+     * walked the project twice per agent edit (the run also refreshes it after
+     * every tool). A burst of writes now costs one walk, once it settles;
+     * operations that change the tree's shape still refresh it themselves.
+     */
+    private fun scheduleTreeRefresh() {
+        treeRefreshJob?.cancel()
+        treeRefreshJob = viewModelScope.launch {
+            delay(TREE_REFRESH_DEBOUNCE_MS)
+            loadFileTree()
         }
     }
 
@@ -500,7 +723,12 @@ class EditorViewModel(
     private fun setupToolInteractionCallback() {
         toolExecutor.interactionCallback = object : ToolInteractionCallback {
             override suspend fun askUser(question: String, options: List<String>?): String? =
-                awaitAnswer(question, options.orEmpty())
+                awaitAnswers(
+                    listOf(UserQuestion(question, options = options.orEmpty().map { QuestionOption(it) }))
+                )?.firstOrNull()
+
+            override suspend fun askQuestions(questions: List<UserQuestion>): List<String?>? =
+                awaitAnswers(questions)
 
             override suspend fun onTaskFinished(summary: String) {
                 // Clear task list when task is finished
@@ -551,45 +779,127 @@ class EditorViewModel(
     /**
      * Load persisted chat history from database
      * Uses a simpler approach: database is always the source of truth when not streaming
+     *
+     * Restores the session the user was last in first, then follows whichever
+     * session is current: a switch re-points the message Flow, so the
+     * transcript and the agent's history are always those of one session.
      */
     private fun loadChatHistory() {
         viewModelScope.launch {
-            chatRepository.getMessagesForProject(projectId).collect { dbMessages ->
-                // Only update from database if we're not currently processing AI response
-                // During AI processing, the in-memory state is managed by streaming logic
-                if (!_isAiProcessing.value) {
-                    // Database is the source of truth when not streaming
-                    // Use distinctBy to prevent any duplicate IDs just in case
-                    _messages.value = dbMessages.distinctBy { it.id }
+            val restored = runCatching { chatRepository.getLastOpenedSessionId(projectId) }.getOrNull()
+            // compareAndSet: never override a choice made while this ran.
+            _currentSessionId.compareAndSet(null, restored)
+            sessionRestored = true
 
-                    // Rebuild message history for AI context
-                    rebuildMessageHistoryFromMessages(_messages.value)
+            _currentSessionId
+                .flatMapLatest { sessionId ->
+                    if (sessionId == null) {
+                        flowOf<Pair<String?, List<ChatMessage>>>(null to emptyList())
+                    } else {
+                        chatRepository.getMessagesForSession(sessionId)
+                            // Tagged with its session: a switch while an
+                            // emission is being prepared must never put one
+                            // chat's messages (or history) under another.
+                            .map<List<ChatMessage>, Pair<String?, List<ChatMessage>>> { sessionId to it }
+                            // A chat that cannot be read must never take the
+                            // app down with it; the repository already repairs
+                            // rows too big to read, so this is the last resort.
+                            .catch { e ->
+                                _error.value = "This chat could not be loaded: ${e.message ?: e.javaClass.simpleName}"
+                                emit(sessionId to emptyList())
+                            }
+                    }
                 }
-            }
+                .collect { (sessionId, dbMessages) ->
+                    // Only update from database if we're not currently processing AI response
+                    // During AI processing, the in-memory state is managed by streaming logic
+                    if (!_isAiProcessing.value) {
+                        // Off the main thread: a long chat is megabytes of
+                        // transcript, and turning each into history text is a
+                        // handful of regex passes. On Main this froze the
+                        // screen every time a long chat opened. The newest
+                        // long transcripts are parsed here too, while the chat
+                        // still shows its loading state, so they appear at full
+                        // height instead of growing out of a placeholder.
+                        val (unique, history) = withContext(Dispatchers.Default) {
+                            val distinct = dbMessages.distinctBy { it.id }
+                            ParsedBlocksCache.prefetch(longTranscripts(distinct), limit = LOAD_PREFETCH)
+                            distinct to buildMessageHistory(distinct)
+                        }
+                        // The user moved to another chat meanwhile: this one is stale.
+                        if (_currentSessionId.value != sessionId) return@collect
+                        if (!_isAiProcessing.value) {
+                            // Database is the source of truth when not streaming
+                            _messages.value = unique
+                            _messageHistory.clear()
+                            _messageHistory.addAll(history)
+                            if (breakdownStale) {
+                                breakdownStale = false
+                                refreshContextBreakdown()
+                            }
+                            prefetchLongMessages(unique)
+                        }
+                    }
+                    // Loaded only once the transcript and the history the next
+                    // send builds on are both in place; until then the chat
+                    // shows its loading state and sendMessage waits.
+                    if (_currentSessionId.value == sessionId) _isSessionLoading.value = false
+                }
+        }
+    }
+
+    /** Long, finished assistant transcripts of [messages], newest first, for the parse cache. */
+    private fun longTranscripts(messages: List<ChatMessage>): Sequence<Pair<String, String>> =
+        messages.asReversed().asSequence()
+            .filter { it.isAssistant && it.status != MessageStatus.STREAMING && it.content.length > SYNC_PARSE_LIMIT }
+            .map { it.id to it.content }
+
+    private var prefetchJob: Job? = null
+
+    /**
+     * Parses the rest of the chat's long transcripts into the shared cache, in
+     * the background, so scrolling back through a long chat never shows a
+     * placeholder that then grows and pushes away what the user was reading.
+     */
+    private fun prefetchLongMessages(messages: List<ChatMessage>) {
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch(Dispatchers.Default) {
+            ParsedBlocksCache.prefetch(longTranscripts(messages))
         }
     }
 
     /**
-     * Rebuild the AI message history from persisted messages
+     * The model's history for persisted [messages]: user turns as written,
+     * assistant transcripts reduced to their history text. Pure apart from the
+     * cache; safe on any thread.
      */
-    private fun rebuildMessageHistoryFromMessages(messages: List<ChatMessage>) {
-        _messageHistory.clear()
+    private fun buildMessageHistory(messages: List<ChatMessage>): List<ChatRequestMessage> {
+        val history = ArrayList<ChatRequestMessage>(messages.size)
         for (message in messages) {
             when {
                 message.isUser -> {
-                    _messageHistory.add(aiRepository.createUserMessage(message.content))
+                    history.add(aiRepository.createUserMessage(message.content))
                 }
                 message.isAssistant && message.status != MessageStatus.STREAMING -> {
                     // Reasoning and tool-card markup are display-only; sending
                     // them back wastes context and teaches the model to write
                     // fake tool cards.
-                    val text = RunTranscript.toHistoryText(message.content)
+                    val text = historyTextOf(message)
                     if (text.isNotBlank()) {
-                        _messageHistory.add(ChatRequestMessage(role = "assistant", content = text))
+                        history.add(ChatRequestMessage(role = "assistant", content = text))
                     }
                 }
             }
         }
+        return history
+    }
+
+    private fun historyTextOf(message: ChatMessage): String {
+        val key = message.id + ':' + message.content.length + ':' + message.content.hashCode()
+        synchronized(historyTextCache) { historyTextCache[key]?.let { return it } }
+        val text = RunTranscript.toHistoryText(message.content)
+        synchronized(historyTextCache) { historyTextCache[key] = text }
+        return text
     }
 
     private suspend fun loadFileTree() {
@@ -1140,19 +1450,87 @@ class EditorViewModel(
         _chatInput.value = input
     }
 
-    fun sendMessage() {
-        val content = _chatInput.value.trim()
-        if (content.isEmpty() || _isAiProcessing.value) return
+    /**
+     * A reply chosen in a UI block (a button, a suggestion). Sent right away
+     * when Orobi is idle; while a run is going it goes into the composer
+     * instead, so nothing the user tapped is lost.
+     */
+    fun sendText(text: String) {
+        if (text.isBlank()) return
+        _chatInput.value = text
+        if (!_isAiProcessing.value) sendMessage()
+    }
 
-        val userMessage = ChatMessage.createUserMessage(projectId, content)
+    fun sendMessage() {
+        val images = _attachedImages.value
+        val content = _chatInput.value.trim().ifEmpty {
+            if (images.isNotEmpty()) "Build this design as a page in the project." else ""
+        }
+        // Before the last session is restored there is no telling which
+        // session this would belong to; that window is a few milliseconds.
+        // While a chat is still loading, its history is not in place yet: a
+        // send then would run without it (the text stays in the composer).
+        if (content.isEmpty() || _isAiProcessing.value || !sessionRestored || _isSessionLoading.value) return
+        if (projectId in BackgroundRuns.active.value) return
+
+        // The first message of a fresh chat creates its session, titled from
+        // that message, so an abandoned "new chat" never leaves an empty row.
+        val existingSessionId = _currentSessionId.value
+        val sessionId = existingSessionId ?: java.util.UUID.randomUUID().toString()
+        val userMessage = ChatMessage.createUserMessage(
+            projectId, if (images.isEmpty()) content else "📷 " + content, sessionId = sessionId
+        )
         _messages.value = _messages.value + userMessage
         _chatInput.value = ""
-        _messageHistory.add(aiRepository.createUserMessage(content))
+        inputDrafts.remove(existingSessionId ?: DRAFT_KEY)
+        // Design from a photo: the picture goes with this turn to vision
+        // models; other models are told plainly that they cannot see it.
+        val vision = _currentModel.value?.let { com.oro.app.data.ai.VisionSupport.supports(it) } == true
+        _messageHistory.add(
+            when {
+                images.isEmpty() -> aiRepository.createUserMessage(content)
+                vision -> aiRepository.createUserMessage(
+                    content + "\n\n(The attached photo is the visual reference: match its layout, hierarchy, " +
+                        "spacing and colours as closely as the web allows; use real text from it where readable.)"
+                ).copy(images = images)
+                else -> aiRepository.createUserMessage(
+                    content + "\n\n(The user attached a photo, but the current model cannot see images. Say so " +
+                        "and suggest switching to a vision model, then do what you can from the text.)"
+                )
+            }
+        )
+        _attachedImages.value = emptyList()
         // A new request gets a new plan; the previous one is finished business.
         delegationHandler.resetPlan()
 
-        startRun {
-            chatRepository.saveMessage(userMessage)
+        // Persisted independently of the run, so the message is kept even if
+        // the run never starts (no model selected).
+        val persisted = viewModelScope.launch {
+            try {
+                if (existingSessionId == null) {
+                    chatRepository.createSession(sessionId, projectId, content)
+                }
+                chatRepository.saveMessage(userMessage)
+                // Only now does the draft become the session. Switching
+                // earlier would point the message Flow at a session with no
+                // rows yet and blank the message just shown.
+                if (existingSessionId == null) {
+                    _currentSessionId.compareAndSet(null, sessionId)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Could not save message", e)
+            }
+        }
+
+        // Brief check: a vague request for something new gets a note to ask first.
+        val intakeText = content.takeIf { images.isEmpty() && _agentMode.value }
+        val intakeTextMode = _currentModel.value?.supportsToolCalls == false
+        intakeArmed = false
+        startRun(sessionId) {
+            persisted.join()
+            intakeText?.let { applyIntake(it, intakeTextMode) }
             if (_agentMode.value) {
                 // Learning is best-effort and must never block or break a run.
                 runCatching {
@@ -1165,29 +1543,90 @@ class EditorViewModel(
     /** Resume after a failed or limited run, from the history as it stands. */
     fun retryRun() {
         if (_isAiProcessing.value) return
+        val sessionId = _currentSessionId.value ?: return
         if (_messageHistory.none { it.role == "user" }) return
         // After a run the history is rebuilt from the saved transcript and
         // ends with Orobi's partial reply; ask it to pick up from there.
         if (_messageHistory.lastOrNull()?.role != "user") {
+            // An app note, so the pruner keeps anchoring on the user's real request.
             _messageHistory.add(
                 aiRepository.createUserMessage(
-                    "Continue from where you stopped. Check the current state of the files first if unsure."
+                    HistoryPruner.appNote("continue from where you stopped. Check the current state of the files first if unsure.")
                 )
             )
         }
-        startRun()
+        startRun(sessionId)
     }
 
     fun dismissRunError() {
         _runError.value = null
     }
 
-    /** The user answered the agent's ask_user question. */
-    fun answerQuestion(answer: String) {
+    /**
+     * The brief check for the turn just sent (see BriefCheck): on a vague
+     * request for something new in a fresh project, the user's turn gets a
+     * short note telling the model to ask first (or, with "Ask before
+     * building" off, to decide and say so). In the user turn rather than the
+     * system prompt, so provider prompt caches keep the stable prefix.
+     */
+    private suspend fun applyIntake(content: String, textMode: Boolean) {
+        val project = _project.value ?: return
+        val fresh = withContext(Dispatchers.IO) { projectIsFresh(File(project.rootPath), project.createdAt) }
+        val verdict = com.oro.app.data.ai.agent.BriefCheck.check(content, fresh)
+        val ask = preferencesRepository.askBeforeBuilding.first()
+        logDebugToProject("BRIEF", "${verdict.reason} -> ${if (verdict.vague) (if (ask) "ask first" else "decide") else "build"}")
+        val note = com.oro.app.data.ai.agent.BriefCheck.note(verdict, ask, textMode) ?: return
+        val index = _messageHistory.indexOfLast { it.role == "user" && it.content == content }
+        if (index < 0) return
+        _messageHistory[index] = _messageHistory[index].copy(content = content + "\n\n" + note)
+        intakeArmed = ask
+    }
+
+    /**
+     * Nothing of the user's in the project yet: no files, or only the ones it
+     * was created with (a template), untouched since. A big imported tree
+     * counts as work.
+     */
+    private fun projectIsFresh(root: File, createdAt: Long): Boolean {
+        var count = 0
+        var newest = 0L
+        root.walkTopDown()
+            .onEnter { it == root || (!it.name.startsWith(".") && it.name != "node_modules") }
+            .filter { it.isFile && !it.name.startsWith(".") }
+            .forEach { f ->
+                count++
+                newest = maxOf(newest, f.lastModified())
+                if (count > 30) return false
+            }
+        return count == 0 || newest <= createdAt + 120_000
+    }
+
+    /**
+     * When the model asked its intake questions as prose instead of calling
+     * ask_user, show them as the one-tap card and hand the answers back; null
+     * when the last reply holds no questions for a card.
+     */
+    private suspend fun askProseQuestions(run: RunTranscript): String? {
+        val reply = _messageHistory.lastOrNull()?.takeIf { it.role == "assistant" }?.content ?: return null
+        val questions = UserQuestions.fromProse(reply)
+        if (questions.isEmpty()) return null
+        _runStatus.value = AgentStatus(AgentStatus.Kind.WAITING_FOR_USER, "Waiting for your answer")
+        val answers = awaitAnswers(questions)
+        run.note(UserQuestions.quote(questions, answers))
+        pushTranscript(force = true)
+        return if (answers == null) {
+            UserQuestions.DECIDE_RESULT + " Build it now."
+        } else {
+            UserQuestions.formatAnswers(questions, answers) + "\nBuild it now with these answers; don't ask again."
+        }
+    }
+
+    /** The user answered the agent's ask_user questions (null = skipped). */
+    fun answerQuestion(answers: List<String?>) {
         val pending = questionAnswer ?: return
         _pendingQuestion.value = null
         questionAnswer = null
-        pending.complete(answer)
+        pending.complete(answers)
     }
 
     /** The user declined to answer; the agent proceeds on its own judgement. */
@@ -1205,15 +1644,19 @@ class EditorViewModel(
      * success with "Waiting for user response...", and the run ended -- so the
      * user saw a green "Ask User" card and was never asked anything.
      */
-    private suspend fun awaitAnswer(question: String, options: List<String>): String? {
-        // One question at a time; a second concurrent ask is answered as skipped.
+    private suspend fun awaitAnswers(questions: List<UserQuestion>): List<String?>? {
+        // One call at a time; a second concurrent ask is answered as skipped.
         if (questionAnswer != null) return null
-        val deferred = CompletableDeferred<String?>()
+        val deferred = CompletableDeferred<List<String?>?>()
         questionAnswer = deferred
         _pendingQuestion.value = PendingQuestion(
             id = java.util.UUID.randomUUID().toString(),
-            question = question,
-            options = options
+            questions = questions
+        )
+        AgentNotifications.update(
+            com.oro.app.OroApplication.getInstance(), projectId,
+            "Orobi has a question",
+            questions.first().question + if (questions.size > 1) " (+${questions.size - 1} more)" else ""
         )
         return try {
             deferred.await()
@@ -1229,7 +1672,11 @@ class EditorViewModel(
      * open question or approval.
      */
     fun stopGeneration() {
-        if (!_isAiProcessing.value) return
+        if (!_isAiProcessing.value) {
+            // A run this screen did not start (the editor was reopened while it ran).
+            BackgroundRuns.cancel(projectId)
+            return
+        }
         _aiGenerationJob?.cancel()
         // The job's finally block records the stop in the transcript and
         // resets state; nothing else to do here.
@@ -1242,7 +1689,7 @@ class EditorViewModel(
      * rendering used to execute on Main, with a string concatenation per
      * token, which is what made long replies stutter.
      */
-    private fun startRun(beforeRun: suspend () -> Unit = {}) {
+    private fun startRun(sessionId: String, beforeRun: suspend () -> Unit = {}) {
         val model = _currentModel.value
         if (model == null) {
             _runError.value = RunError("Select a model first (tap the model name below the input).", actionLabel = "Retry")
@@ -1256,22 +1703,31 @@ class EditorViewModel(
         val assistantMessage = ChatMessage.createAssistantMessage(
             projectId = projectId,
             content = "",
-            status = MessageStatus.STREAMING
+            status = MessageStatus.STREAMING,
+            sessionId = sessionId
         )
         _messages.value = _messages.value + assistantMessage
         val run = RunTranscript()
         transcript = run
         lastPushedRevision = -1L
 
-        _aiGenerationJob = viewModelScope.launch(Dispatchers.Default) {
+        // Application scope, not viewModelScope: leaving the editor must not
+        // kill a run halfway through a multi-file edit. BackgroundRuns keeps a
+        // foreground service up while it lives and notifies when it ends.
+        val app = com.oro.app.OroApplication.getInstance()
+        _aiGenerationJob = app.applicationScope.launch(Dispatchers.Default, start = kotlinx.coroutines.CoroutineStart.LAZY) {
             var finalStatus = MessageStatus.SENT
+            var notice: Pair<String, String>? = null
+            val projectName = _project.value?.name ?: "your project"
             try {
                 beforeRun()
                 HistoryPruner.closeDanglingToolCalls(_messageHistory)
                 val result = runAgent(model, run)
                 when (result) {
-                    is AgentRunResult.Completed -> Unit
+                    is AgentRunResult.Completed -> notice = "Orobi finished in $projectName" to
+                        (result.finalText.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "The run is done.")
                     is AgentRunResult.Failed -> {
+                        notice = "Orobi stopped in $projectName" to result.message.take(160)
                         finalStatus = MessageStatus.ERROR
                         if (run.render().isBlank()) run.note("⚠️ ${result.message}")
                         _runError.value = RunError(
@@ -1280,10 +1736,11 @@ class EditorViewModel(
                             actionLabel = "Retry"
                         )
                     }
+                    // Runs have no step cap; this only fires if a caller sets one.
                     is AgentRunResult.IterationLimit -> {
-                        run.note("_Paused after ${result.iterations} steps._")
+                        run.note("_Paused._")
                         _runError.value = RunError(
-                            message = "Orobi paused after ${result.iterations} steps to check in. Continue to let it keep working.",
+                            message = "Orobi paused. Continue to let it keep working.",
                             actionLabel = "Continue",
                             isNotice = true
                         )
@@ -1309,8 +1766,14 @@ class EditorViewModel(
                     questionAnswer = null
                     _isAiProcessing.value = false
                     loadFileTree()
+                    BackgroundRuns.end(app, projectId)
+                    notice?.let { (title, text) -> AgentNotifications.update(app, projectId, title, text) }
                 }
             }
+        }
+        _aiGenerationJob?.let { job ->
+            BackgroundRuns.begin(app, BackgroundRuns.Run(projectId, sessionId, _project.value?.name ?: "your project", job))
+            job.start()
         }
     }
 
@@ -1318,7 +1781,22 @@ class EditorViewModel(
     private suspend fun runAgent(model: AiModel, run: RunTranscript): AgentRunResult {
         val isAgentMode = _agentMode.value
         val nativeTools = model.supportsToolCalls
-        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() else emptyList()
+        // How this model is driven: output style, checks, timeouts (see ModelProfiles).
+        val profile = com.oro.app.data.ai.agent.ModelProfiles.forModel(model)
+        pushBaseMs = profile.streamPushMs
+        // MCP servers' tools join the built-ins for this run (listing is cached).
+        val mcp = if (isAgentMode) preferencesRepository.mcpSettings.first() else com.oro.app.data.ai.mcp.McpSettings()
+        toolExecutor.mcpSettings = mcp
+        toolExecutor.skillsDir = File(com.oro.app.OroApplication.getInstance().filesDir, "skills")
+        toolExecutor.githubToken = {
+            runCatching { com.oro.app.OroApplication.getInstance().gitCredentialsManager.getCredentialsForHost("github.com")?.password }.getOrNull()
+        }
+        val mcpTools = if (mcp.servers.any { it.enabled }) {
+            runCatching {
+                kotlinx.coroutines.withTimeout(15_000) { com.oro.app.data.ai.mcp.McpRegistry.tools(mcp) }
+            }.getOrDefault(emptyList()).map { it.asTool() }
+        } else emptyList()
+        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() + phoneTools() + mcpTools else emptyList()
         val knownTools = offeredTools.map { it.function.name }.toSet()
 
         // Context that does not change during a run, computed once.
@@ -1334,17 +1812,57 @@ class EditorViewModel(
             }.getOrDefault("")
         } else ""
         val preferencesContext = userPreferencesLearner.getPreferencesContext(projectId)
+        val instructions = _project.value?.rootPath?.let { root ->
+            withContext(Dispatchers.IO) {
+                com.oro.app.data.ai.context.ProjectInstructions.section(
+                    com.oro.app.data.ai.context.ProjectInstructions.load(File(root))
+                )
+            }
+        }.orEmpty() +
+            // No automatic checks are injected here: Orobi decides when to look
+            // (get_preview_errors, check_syntax, screenshot_preview).
+            // Generative UI: how to answer with a ```ui block the chat renders natively.
+            (if (preferencesRepository.richUi.first()) com.oro.app.data.ai.genui.GenUi.PROMPT else "") +
+            // Skill names + descriptions only; bodies load through use_skill.
+            (if (isAgentMode) withContext(Dispatchers.IO) {
+                com.oro.app.data.ai.skills.Skills.catalogue(
+                    com.oro.app.data.ai.skills.Skills.all(
+                        File(com.oro.app.OroApplication.getInstance().filesDir, "skills"),
+                        _project.value?.rootPath?.let { File(it) }
+                    )
+                )
+            } else "")
 
+        // The project context is snapshotted once per run, so the system
+        // prompt is byte-identical on every turn and providers' prompt caches
+        // (Anthropic, OpenAI, DeepSeek, Gemini...) stay warm for the whole
+        // run. Rebuilding it per turn changed the file tree after every
+        // write and re-billed the full prompt each time.
+        var runContext: String? = null
+        // A small project whole, for models whose profile can take it (no reading turns).
+        val inlinedFiles = if (isAgentMode && profile.inlineProjectChars > 0) {
+            _project.value?.rootPath?.let { root ->
+                withContext(Dispatchers.IO) {
+                    runCatching { com.oro.app.data.ai.context.ProjectSnapshot.inline(File(root), profile.inlineProjectChars) }.getOrDefault("")
+                }
+            }.orEmpty()
+        } else ""
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, pressure ->
             val textMode = !nativeTools || forceTextTools
+            val context = runContext
+                ?: (buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext) + instructions + inlinedFiles)
+                    .also { runContext = it }
             val system = aiRepository.createSystemMessage(
-                projectContext = buildProjectContext(isAgentMode, memoryContext, semanticContext, preferencesContext),
+                projectContext = context,
                 agentMode = isAgentMode,
                 nativeTools = !textMode,
-                toolList = offeredTools
+                toolList = offeredTools,
+                profile = profile
             )
             val tools = if (isAgentMode && !textMode) offeredTools else null
-            val window = contextWindowManager.getAvailableTokens(model)
+            val window = contextWindowManager.getAvailableTokens(model).let { w ->
+                profile.contextBudgetTokens?.let { minOf(w, it) } ?: w
+            }
             val fixed = TokenEstimator.estimate(system) + toolTokens(tools)
             val share = when (pressure) { 0 -> 0.9; 1 -> 0.6; else -> 0.35 }
             val budget = ((window * share).toInt() - fixed).coerceAtLeast(2_000)
@@ -1365,6 +1883,7 @@ class EditorViewModel(
                     messages = request.messages,
                     tools = request.tools,
                     temperature = 0.5f,
+                    maxTokens = profile.maxOutputTokens,
                     onRateLimitWait = onRateLimitWait
                 )
                 return if (request.tools == null) stream else detectToolRejection(stream)
@@ -1372,6 +1891,10 @@ class EditorViewModel(
         }
 
         val runner = AgentToolRunner { call -> runTool(call) }
+
+        // Files written during this run: the quality gate reports only on
+        // these, so the agent is never sent to fix code it did not touch.
+        val touched = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
         val listener = object : AgentLoopListener {
             override fun onStatus(status: AgentStatus) {
@@ -1405,7 +1928,10 @@ class EditorViewModel(
             override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
                 run.toolFinished(call, result)
                 pushTranscript(force = true)
+                // The model asked through the tool: no second round from its prose.
+                if (ToolAliases.canonicalName(call.function.name) == "ask_user") intakeArmed = false
                 if (ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly) {
+                    if (result.success) touched += QualityGate.touchedPaths(call)
                     viewModelScope.launch { loadFileTree() }
                 }
             }
@@ -1413,15 +1939,82 @@ class EditorViewModel(
                 // The provider's own count beats the estimate when it gives one.
                 if (promptTokens > 0) _contextTokenCount.value = promptTokens
             }
+
+            override fun onUsage(promptTokens: Int, completionTokens: Int, cachedTokens: Int) {
+                onUsage(promptTokens, completionTokens)
+                val session = _currentSessionId.value ?: return
+                usageBySession.update { all ->
+                    all + (session to (all[session] ?: com.oro.app.data.ai.usage.SessionUsage())
+                        .plus(model, promptTokens, completionTokens, cachedTokens))
+                }
+            }
         }
 
         logDebugToProject("RUN", "Model: ${model.id} (${model.provider.displayName}) agent=$isAgentMode nativeTools=$nativeTools")
         val loop = AgentLoop(
             client = client,
             tools = runner,
-            config = AgentLoopConfig(maxIterations = MAX_AGENT_ITERATIONS)
+            // No step cap: long builds run to the end. AgentLoop's stuck
+            // detection ends genuinely hopeless loops instead.
+            config = AgentLoopConfig(
+                attachImages = com.oro.app.data.ai.VisionSupport.supports(model),
+                // MCP and use_phone schemas, so raw text-protocol values get their real types.
+                toolSchemas = AgentTools.schemasOf(offeredTools),
+                idleTimeoutMs = profile.idleTimeoutMs,
+                // A prose intake question uses one final-check pass; the quality gate keeps its own.
+                maxQualityPasses = profile.qualityPasses + (if (intakeArmed && isAgentMode) 1 else 0),
+                roundNote = if (isAgentMode && profile.previewEachRound && previewEachRoundAllowed()) {
+                    { calls, results -> previewRoundNote(calls, results) }
+                } else null
+            )
         )
-        val result = loop.run(_messageHistory, knownTools, listener, prepare)
+        toolExecutor.checkpoint = run {
+            val sid = _currentSessionId.value
+            val userMsg = _messages.value.lastOrNull { it.isUser }
+            if (sid != null && userMsg != null) checkpoints()?.begin(sid, userMsg.id, userMsg.content) else null
+        }
+        val result = try {
+            val root = _project.value?.rootPath?.let { File(it) }
+            val gate: (suspend () -> String?)? = if (isAgentMode && root != null) {
+                {
+                    withContext(Dispatchers.IO) { QualityGate.review(root, touched.toSet()) }
+                        ?: if (profile.visualFinalCheck) {
+                            // The visual half: hard layout defects of the changed pages on a phone.
+                            // Phone and desktop: some defects show at one width only (a header
+                            // button folded into the phone menu shows on desktop).
+                            com.oro.app.data.ai.craft.VisualGate.review(
+                                renderPages(
+                                    root, com.oro.app.data.ai.craft.VisualGate.pagesFor(touched) { File(root, it).isFile },
+                                    com.oro.app.data.preview.Device.entries.filter { it != com.oro.app.data.preview.Device.TABLET }
+                                )
+                            )
+                        } else null
+                }
+            } else null
+            // Intake questions written as prose (before anything was built) become the
+            // card, once; an ask_user call in the run disarms it (see onToolFinished).
+            val finalCheck: (suspend () -> String?)? = if (!(intakeArmed && isAgentMode)) gate else {
+                {
+                    val asked = if (intakeArmed && touched.isEmpty()) askProseQuestions(run) else null
+                    intakeArmed = false
+                    asked ?: gate?.invoke()
+                }
+            }
+            loop.run(_messageHistory, knownTools, listener, finalCheck, prepare)
+        } finally {
+            intakeArmed = false
+            val recorder = toolExecutor.checkpoint
+            toolExecutor.checkpoint = null
+            if (recorder != null) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { recorder.finish() } }
+                refreshCheckpoints()
+            }
+            // Persist the meter once per run, even when it was stopped.
+            usageStore?.let { store ->
+                val snapshot = usageBySession.value
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { store.save(snapshot) }
+            }
+        }
         logDebugToProject("RUN_END", result.toString().take(500))
         refreshContextBreakdown()
         return result
@@ -1446,8 +2039,30 @@ class EditorViewModel(
     }
 
     /** Execute one tool call for the main agent. */
-    private suspend fun runTool(call: ToolCallResponse): ToolResult {
+    private suspend fun runTool(call: ToolCallResponse): ToolResult =
+        if (com.oro.app.data.ai.agent.AutonomyPolicy.isChange(call.function.name)) changeTurn.withLock { runToolInTurn(call) }
+        else runToolInTurn(call)
+
+    private suspend fun runToolInTurn(call: ToolCallResponse): ToolResult {
         val name = ToolAliases.canonicalName(call.function.name)
+        // The leash: Leashed asks before every change; Unleashed only before
+        // the risky ones. Declining is an answer the model can work with.
+        if (com.oro.app.data.ai.agent.AutonomyPolicy.isChange(name)) {
+            val mode = preferencesRepository.autonomyMode.first()
+            val danger = com.oro.app.data.ai.agent.AutonomyPolicy.dangerReason(
+                name, call.function.arguments, _project.value?.rootPath?.let { File(it) }
+            )
+            if (mode == com.oro.app.data.ai.agent.AutonomyMode.LEASHED || danger != null) {
+                val (action, detail) = com.oro.app.data.ai.agent.AutonomyPolicy.describe(name, call.function.arguments)
+                if (!awaitApproval(danger ?: action, detail)) {
+                    return ToolResult(
+                        true,
+                        "The user declined this step (${danger ?: action}). Nothing was changed. Do not retry it; " +
+                            "continue with what you can do, or ask the user how they want it done."
+                    )
+                }
+            }
+        }
         return when {
             name == "request_approval" -> {
                 val args = DelegationHandler.parseArgs(call.function.arguments)
@@ -1474,11 +2089,11 @@ class EditorViewModel(
                 // The handler used to answer "it will report back" and nothing
                 // ever did: the summary landed on a card the model never saw,
                 // and the run often finished before the subagent did.
-                val before = subagentOrchestrator.sessions.value.map { it.id }.toSet()
-                val started = delegationHandler.execute(name, args)
+                // The spawn names its own session: with read-only subagents
+                // running side by side, "the new one" could be another call's.
+                val (started, spawned) = delegationHandler.startSubagent(args)
                 if (!started.success) return started
-                val sessionId = subagentOrchestrator.sessions.value.firstOrNull { it.id !in before }?.id
-                    ?: return started
+                val sessionId = spawned ?: return started
                 val done = subagentOrchestrator.sessions
                     .first { list -> list.none { it.id == sessionId } || list.first { it.id == sessionId }.let { !it.isLive } }
                     .firstOrNull { it.id == sessionId }
@@ -1492,11 +2107,14 @@ class EditorViewModel(
                     )
                 }
             }
+            name == com.oro.app.data.ai.tools.DeviceDelegationTools.USE_PHONE_NAME -> runPhoneTask(call)
             delegationHandler.handles(name) -> {
                 val args = DelegationHandler.parseArgs(call.function.arguments)
                     ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
                 delegationHandler.execute(name, args)
             }
+            // Reads change nothing and may run beside a write: they keep out of its undo group.
+            name in AgentTools.readOnly -> toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
             else -> {
                 undoRedoManager.beginChangeGroup("AI: ${RunTranscript.titleFor(name)}")
                 try {
@@ -1505,6 +2123,102 @@ class EditorViewModel(
                     undoRedoManager.endChangeGroup()
                 }
             }
+        }
+    }
+
+    /**
+     * The chat run in which the user stopped a phone task, if any: within that
+     * run use_phone is refused, so the coding agent cannot take the phone back
+     * right after the user took it away (Unleashed would not even ask).
+     */
+    @Volatile private var phoneStoppedInRun: RunTranscript? = null
+
+    /** use_phone is offered only while the device agent's accessibility service is connected. */
+    private fun phoneTools(): List<Tool> =
+        if (com.oro.app.device.OroAccessibilityService.instance.value != null) {
+            listOf(com.oro.app.data.ai.tools.DeviceDelegationTools.USE_PHONE)
+        } else emptyList()
+
+    /**
+     * use_phone: the coding agent hands a task to the device agent mid-run and
+     * gets back what it did and found.
+     *
+     * The phone task runs with the chat's model and the user's device
+     * settings (approvals, touch display, ad skipping); Leashed mode asks
+     * before the phone is taken over at all. While it runs, the chat's status
+     * line follows the device agent's current step, and stopping the chat run
+     * stops the phone task too. When it ends Oro comes back to this chat.
+     */
+    private suspend fun runPhoneTask(call: ToolCallResponse): ToolResult {
+        val args = DelegationHandler.parseArgs(call.function.arguments)
+            ?: return ToolResult(false, "", "Could not parse the arguments for use_phone as JSON.")
+        fun str(key: String): String? = (args[key] as? kotlinx.serialization.json.JsonPrimitive)?.content
+            ?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
+        val task = str("task") ?: str("goal") ?: str("description")
+            ?: return ToolResult(false, "", "task is required: say what to do on the phone and what counts as done.")
+        val report = str("report")
+        val openPreview = str("open_preview").equals("true", ignoreCase = true)
+        val model = _currentModel.value ?: return ToolResult(false, "", "No model is selected.")
+        val app = OroApplication.getInstance()
+        val thisRun = transcript
+        if (thisRun != null && phoneStoppedInRun === thisRun) {
+            return ToolResult(
+                false, "",
+                "The user stopped your earlier phone task in this run. Do not use the phone again unless the user asks you to; continue without it."
+            )
+        }
+        if (com.oro.app.device.OroAccessibilityService.instance.value == null) {
+            return ToolResult(
+                false, "",
+                "Oro Device Agent is off. Ask the user to turn it on (Settings › Accessibility › Oro Device Agent), or continue without the phone."
+            )
+        }
+        if (com.oro.app.device.DeviceAgent.state.value.running) {
+            return ToolResult(false, "", "The phone is busy with another device task. Continue without it, or try again when it finishes.")
+        }
+        if (preferencesRepository.autonomyMode.first() == com.oro.app.data.ai.agent.AutonomyMode.LEASHED &&
+            !awaitApproval("Use your phone", task)
+        ) {
+            return ToolResult(true, "The user declined the phone task. Do not retry it; continue without it or ask how they want it done.")
+        }
+        val previewUrl = if (openPreview) {
+            _project.value?.rootPath?.let { root ->
+                com.oro.app.data.preview.PreviewServerManager.getInstance().startServerForProject(root)
+            } ?: return ToolResult(false, "", "The live preview could not be started, so there is nothing to open on the phone.")
+        } else null
+        val brief = buildString {
+            if (previewUrl != null) {
+                append("First open ").append(previewUrl)
+                append(" with open_url: it is the live preview of the site the user is building in Oro.\n\n")
+            }
+            append(task)
+            if (report != null) append("\n\nWhen you finish, report: ").append(report)
+        }
+        // The chat's status line follows the phone: what it is doing right now.
+        val statusFollower = viewModelScope.launch {
+            com.oro.app.device.DeviceAgent.state.collect { s ->
+                if (s.running && s.origin == com.oro.app.device.DeviceAgent.Origin.CHAT) {
+                    val step = s.steps.lastOrNull { it.kind != com.oro.app.device.DeviceAgent.StepKind.THOUGHT }?.title ?: s.status
+                    // Paused, or waiting while the user has Oro open: say so rather than the last step.
+                    val label = if (s.paused || s.status.startsWith("Waiting")) s.status else step
+                    _runStatus.value = AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "On the phone: ${label.take(60)}")
+                }
+            }
+        }
+        val result = try {
+            com.oro.app.device.DeviceAgent.runForResult(
+                app, brief, model, aiRepository, com.oro.app.device.DeviceSettingsStore.load(app)
+            )
+        } finally {
+            statusFollower.cancel()
+        }
+        if (result.stoppedByUser) phoneStoppedInRun = thisRun
+        val text = result.forModel()
+        return when {
+            result.success -> ToolResult(true, text)
+            // The report already says what to do; an error line would read as a fault to retry.
+            result.stoppedByUser -> ToolResult(false, text, "The user stopped the phone task. Do not use the phone again unless they ask.")
+            else -> ToolResult(false, text, result.error ?: "The phone task was not completed.")
         }
     }
 
@@ -1545,22 +2259,85 @@ class EditorViewModel(
         val run = transcript ?: return
         if (run.revision == lastPushedRevision) return
         val now = System.currentTimeMillis()
-        if (force || now - lastPushAt >= STREAMING_UPDATE_INTERVAL_MS) {
+        val interval = pushIntervalMs()
+        if (force || now - lastPushAt >= interval) {
             pushJob?.cancel()
             lastPushAt = now
             lastPushedRevision = run.revision
-            updateLastAssistantMessageDirect(run.render(), MessageStatus.STREAMING)
+            updateLastAssistantMessageDirect(run.render().also { lastRenderedLength = it.length }, MessageStatus.STREAMING)
         } else if (pushJob?.isActive != true) {
             pushJob = viewModelScope.launch(Dispatchers.Default) {
-                delay(STREAMING_UPDATE_INTERVAL_MS)
+                delay(interval)
                 transcript?.let {
                     lastPushAt = System.currentTimeMillis()
                     lastPushedRevision = it.revision
-                    updateLastAssistantMessageDirect(it.render(), MessageStatus.STREAMING)
+                    updateLastAssistantMessageDirect(it.render().also { r -> lastRenderedLength = r.length }, MessageStatus.STREAMING)
                 }
             }
         }
     }
+
+    /** Length of the last pushed transcript; longer runs push less often. */
+    @Volatile private var lastRenderedLength = 0
+
+    /**
+     * Every push re-renders the run and the chat re-parses it, so the cost of
+     * one push grows with the run. Spacing pushes out as the transcript grows
+     * keeps the work per second flat: 80 ms for a short run, up to half a
+     * second for a very long one -- still live, never a stutter.
+     */
+    private fun pushIntervalMs(): Long =
+        (pushBaseMs + lastRenderedLength / 400L).coerceAtMost(MAX_STREAMING_UPDATE_INTERVAL_MS)
+
+    /** Base push cadence for the current run (its model profile); fast models stream in big bursts. */
+    @Volatile private var pushBaseMs = STREAMING_UPDATE_INTERVAL_MS
+
+    /**
+     * Renders [pages] with the app's previewer at each of [devices]: a label
+     * ("index.html", or "index.html (desktop)" past the first device) -> the
+     * metrics text screenshot_preview reports. Empty when rendering is
+     * unavailable; a page that does not render in time maps to "".
+     */
+    private suspend fun renderPages(
+        root: File,
+        pages: List<String>,
+        devices: List<com.oro.app.data.preview.Device> = listOf(com.oro.app.data.preview.Device.PHONE)
+    ): Map<String, String> {
+        val previewer = com.oro.app.data.preview.PagePreviewers.instance ?: return emptyMap()
+        val out = LinkedHashMap<String, String>()
+        for (page in pages) for ((i, device) in devices.withIndex()) {
+            val label = if (i == 0) page else "$page (${device.label})"
+            out[label] = try {
+                kotlinx.coroutines.withTimeoutOrNull(PAGE_RENDER_TIMEOUT_MS) {
+                    previewer.capture(root, page, listOf(device)).firstOrNull()?.metrics
+                }.orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ""
+            }
+        }
+        return out
+    }
+
+    /**
+     * After a round that changed pages, styles or scripts: how the changed
+     * pages render on a phone, for the model to read with the tool results.
+     */
+    private suspend fun previewRoundNote(calls: List<ToolCallResponse>, results: List<ToolResult>): String? {
+        val root = _project.value?.rootPath?.let { File(it) } ?: return null
+        val changed = calls.zip(results)
+            .filter { (call, result) -> result.success && ToolAliases.canonicalName(call.function.name) !in AgentTools.readOnly }
+            .flatMap { (call, _) -> QualityGate.touchedPaths(call) }
+        val pages = com.oro.app.data.ai.craft.VisualGate.pagesFor(changed) { File(root, it).isFile }
+        if (pages.isEmpty()) return null
+        return com.oro.app.data.ai.craft.VisualGate.roundNote(renderPages(root, pages))
+    }
+
+    /** Rendering after every round costs a low-end phone visible frames; there the final check renders alone. */
+    private fun previewEachRoundAllowed(): Boolean =
+        com.oro.app.data.preview.PagePreviewers.instance != null &&
+            !com.oro.app.ui.theme.DevicePerformance.isLowEndDevice(OroApplication.getInstance())
 
     /**
      * Build a compact file tree context string for the AI
@@ -1618,7 +2395,9 @@ class EditorViewModel(
             val lastMessage = currentMessages.last()
             if (!lastMessage.isUser) {
                 val finalContent = if (status != MessageStatus.STREAMING) {
-                    sanitizeAiResponseContent(content)
+                    // Bounded before it is stored: a stored message must load
+                    // back fast and always fit in a cursor window.
+                    com.oro.app.data.ai.text.TranscriptCompactor.compact(sanitizeAiResponseContent(content))
                 } else {
                     content
                 }
@@ -1627,7 +2406,10 @@ class EditorViewModel(
                 _messages.value = currentMessages
 
                 if (status != MessageStatus.STREAMING) {
-                    viewModelScope.launch {
+                    // The run lives in the application scope (it survives the
+                    // user leaving the editor), so its reply is saved there
+                    // too: viewModelScope is gone by then and the save with it.
+                    com.oro.app.OroApplication.getInstance().applicationScope.launch {
                         if (updatedMessage.content.isBlank()) {
                             // Nothing to keep: an empty assistant row would
                             // render as a blank bubble after reload.
@@ -1713,6 +2495,7 @@ class EditorViewModel(
         return result
     }
 
+    /** Clear the current session's messages; the session itself stays. */
     fun clearChat() {
         if (_isAiProcessing.value) stopGeneration()
         _messages.value = emptyList()
@@ -1720,20 +2503,125 @@ class EditorViewModel(
         _runError.value = null
 
         // Clear persisted messages
+        val sessionId = _currentSessionId.value ?: return
         viewModelScope.launch {
-            chatRepository.clearChatHistory(projectId)
+            chatRepository.clearChatHistory(sessionId)
         }
     }
 
     /**
-     * Export chat history to markdown file
+     * Export the current session to a markdown file
      */
     fun exportChatHistory(onResult: (Result<java.io.File>) -> Unit) {
         val projectName = _project.value?.name ?: "Unknown"
+        val sessionId = _currentSessionId.value
+        if (sessionId == null) {
+            onResult(Result.failure(IllegalStateException("No messages to export")))
+            return
+        }
+        val title = sessionsState.value.currentTitle
         viewModelScope.launch {
-            val result = chatRepository.exportToMarkdown(projectId, projectName)
+            val result = chatRepository.exportToMarkdown(sessionId, projectName, title)
             onResult(result)
         }
+    }
+
+    // ---- Chat sessions ------------------------------------------------------
+
+    /** Switch to another session of this project. Refused while a run is live. */
+    fun openSession(sessionId: String) {
+        if (_isAiProcessing.value || sessionId == _currentSessionId.value) return
+        switchToSession(sessionId)
+        viewModelScope.launch { chatRepository.markSessionOpened(sessionId) }
+    }
+
+    /**
+     * Start a fresh chat. Nothing is written until its first message is
+     * sent, so tapping New chat and backing out leaves no empty session.
+     */
+    fun startNewChat() {
+        if (_isAiProcessing.value) return
+        if (_currentSessionId.value == null && _messages.value.isEmpty()) return
+        switchToSession(null)
+    }
+
+    fun renameSession(sessionId: String, title: String) {
+        viewModelScope.launch { chatRepository.renameSession(sessionId, title) }
+    }
+
+    fun setSessionPinned(sessionId: String, pinned: Boolean) {
+        viewModelScope.launch { chatRepository.setSessionPinned(sessionId, pinned) }
+    }
+
+    /**
+     * Delete a session, offering undo for [UNDO_WINDOW_MS]. Deleting the
+     * session on screen lands in a fresh chat rather than in some other old
+     * thread, which is predictable when tidying up several in a row.
+     */
+    fun deleteSession(sessionId: String) {
+        val wasCurrent = sessionId == _currentSessionId.value
+        if (wasCurrent && _isAiProcessing.value) return
+        viewModelScope.launch {
+            if (wasCurrent && _currentSessionId.value == sessionId) {
+                switchToSession(null)
+            }
+            inputDrafts.remove(sessionId)
+            val snapshot = chatRepository.deleteSession(sessionId) ?: return@launch
+            _pendingUndo.value = PendingUndo(snapshot, wasCurrent)
+            undoExpiryJob?.cancel()
+            undoExpiryJob = viewModelScope.launch {
+                delay(UNDO_WINDOW_MS)
+                _pendingUndo.value = null
+            }
+        }
+    }
+
+    fun undoDeleteSession() {
+        val pending = _pendingUndo.value ?: return
+        _pendingUndo.value = null
+        undoExpiryJob?.cancel()
+        viewModelScope.launch {
+            chatRepository.restoreSession(pending.snapshot)
+            // Back into it, if the user was in it and has not moved on since.
+            if (pending.wasCurrent &&
+                !_isAiProcessing.value &&
+                _currentSessionId.value == null &&
+                _messages.value.isEmpty()
+            ) {
+                switchToSession(pending.snapshot.id)
+            }
+        }
+    }
+
+    fun dismissSessionUndo() {
+        _pendingUndo.value = null
+        undoExpiryJob?.cancel()
+    }
+
+    /**
+     * Point the chat at [sessionId] (null: a fresh chat), resetting
+     * everything that belonged to the previous conversation. The message
+     * Flow follows [_currentSessionId] and refills the transcript and the
+     * agent's history.
+     */
+    private fun switchToSession(sessionId: String?) {
+        val leaving = _currentSessionId.value ?: DRAFT_KEY
+        val unsent = _chatInput.value
+        if (unsent.isNotBlank()) inputDrafts[leaving] = unsent else inputDrafts.remove(leaving)
+        _chatInput.value = inputDrafts.remove(sessionId ?: DRAFT_KEY).orEmpty()
+
+        // Blank rather than showing the previous conversation under the new
+        // title; the chat shows neither it nor the welcome until rows arrive.
+        _isSessionLoading.value = sessionId != null
+        _messages.value = emptyList()
+        _messageHistory.clear()
+        _runError.value = null
+        _taskList.value = emptyList()
+        _lastCompactionSavedPercent.value = null
+        delegationHandler.resetPlan()
+        subagentOrchestrator.clearCompleted()
+        breakdownStale = true
+        _currentSessionId.value = sessionId
     }
 
     fun setModel(model: AiModel) {
@@ -1843,10 +2731,21 @@ class EditorViewModel(
     }
 
     companion object {
-        private const val MAX_AGENT_ITERATIONS = 40
         private const val OPEN_FILE_CONTEXT_CHARS = 12_000
+        /** Quiet time before a project-row change refreshes the file tree. */
+        private const val TREE_REFRESH_DEBOUNCE_MS = 600L
         /** At most this often is a streaming transcript pushed to the UI. */
         private const val STREAMING_UPDATE_INTERVAL_MS = 80L
+        /** Longest wait for one page render in the automatic checks. */
+        private const val PAGE_RENDER_TIMEOUT_MS = 12_000L
+        /** Long transcripts parsed while a chat loads, newest first; the rest follow in the background. */
+        private const val LOAD_PREFETCH = 2
+        /** Slowest push cadence, for very long runs; see pushIntervalMs. */
+        private const val MAX_STREAMING_UPDATE_INTERVAL_MS = 500L
+        /** How long a deleted session can be restored. */
+        private const val UNDO_WINDOW_MS = 6_000L
+        /** inputDrafts key for the fresh, unsaved chat. */
+        private const val DRAFT_KEY = ""
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -2127,8 +3026,31 @@ class EditorViewModel(
         }
     }
 
-    fun setReasoningEffort(effort: ReasoningEffort) {
-        viewModelScope.launch { preferencesRepository.setReasoningEffort(effort) }
+    val autonomyMode: StateFlow<com.oro.app.data.ai.agent.AutonomyMode> = preferencesRepository.autonomyMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.oro.app.data.ai.agent.AutonomyMode.DEFAULT)
+
+
+    val richUi: StateFlow<Boolean> = preferencesRepository.richUi
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setRichUi(on: Boolean) {
+        viewModelScope.launch { preferencesRepository.setRichUi(on) }
+    }
+
+    /** "Ask before building": a few one-tap questions on vague requests (on) or none (off). */
+    val askBeforeBuilding: StateFlow<Boolean> = preferencesRepository.askBeforeBuilding
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    fun setAskBeforeBuilding(on: Boolean) {
+        viewModelScope.launch { preferencesRepository.setAskBeforeBuilding(on) }
+    }
+
+    fun setAutonomyMode(mode: com.oro.app.data.ai.agent.AutonomyMode) {
+        viewModelScope.launch { preferencesRepository.setAutonomyMode(mode) }
+    }
+
+    fun setReasoningLevel(modelId: String, level: String) {
+        viewModelScope.launch { preferencesRepository.setReasoningLevel(modelId, level) }
     }
 
     /**
@@ -2169,6 +3091,7 @@ class EditorViewModel(
         val partition = contextCompactor.partition(_messages.value)
         if (!partition.canCompact) return
 
+        val sessionAtStart = _currentSessionId.value
         viewModelScope.launch {
             _isCompacting.value = true
             try {
@@ -2185,6 +3108,9 @@ class EditorViewModel(
                 }
 
                 val summary = completion.choices.firstOrNull()?.message?.content.orEmpty()
+                // The user switched chats while this ran: the summary is of a
+                // conversation that is no longer the agent's history.
+                if (_currentSessionId.value != sessionAtStart) return@launch
                 val applied = contextCompactor.applySummary(_messages.value, summary)
                 if (applied == null) {
                     _error.value = "Compaction produced no summary; nothing was changed."

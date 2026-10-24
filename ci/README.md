@@ -39,3 +39,19 @@ Against the eleven annotations reported on the original run:
 - Triggers on branch pushes only (no `pull_request` trigger, so PRs from a
   branch in this repo no longer run the build twice); release APK only — the
   debug APK build and the separate lint job were removed.
+
+## Screenshots (`screenshots.yml.txt`)
+
+JVM screenshots of the device agent's island and screens (Robolectric +
+Roborazzi, `app/src/test/java/com/oro/app/screenshots/`). Two ways to run them:
+
+- **Push to a `shots/**` branch** (or `ci/shots`). The normal Android CI then
+  runs only the screenshot tests in its unit-test step and prints every PNG as
+  base64 in the job log, every line prefixed `ORO|` (see
+  `app/build.gradle.kts`). Works with no workflow change, so it is what agents
+  use through the connector.
+- **Install `screenshots.yml.txt`** as `.github/workflows/screenshots.yml` for a
+  manual "UI screenshots" button that also uploads the PNGs as an artifact.
+
+Locally: `./gradlew :app:testDebugUnitTest -Poro.screenshots=true`, images in
+`app/build/outputs/roborazzi/`.

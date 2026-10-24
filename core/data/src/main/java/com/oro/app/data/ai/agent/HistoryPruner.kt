@@ -59,49 +59,136 @@ object HistoryPruner {
     fun prune(messages: List<ChatRequestMessage>, budgetTokens: Int): List<ChatRequestMessage> {
         if (TokenEstimator.estimate(messages) <= budgetTokens) return messages
 
-        val lastUser = messages.indexOfLast { it.role == "user" }.coerceAtLeast(0)
         val protectFrom = protectedStart(messages)
 
-        // 1 + 2: shrink old tool traffic.
-        val shrunk = messages.mapIndexed { i, m ->
-            if (i >= protectFrom) return@mapIndexed m
-            when {
-                m.role == "tool" && (m.content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length ->
-                    m.copy(content = PRUNED_TOOL_OUTPUT)
-                m.role == "assistant" && m.toolCalls != null ->
-                    m.copy(toolCalls = m.toolCalls.map { shrinkCall(it) })
-                else -> m
-            }
-        }
+        // 1 + 2: shrink old tool traffic -- native messages, and the same
+        // traffic written as text by models on the text tool protocol.
+        val shrunk = messages.mapIndexed { i, m -> if (i >= protectFrom) m else shrinkMessage(m) }
         if (TokenEstimator.estimate(shrunk) <= budgetTokens) return shrunk
 
-        // 3: drop whole exchanges from the front.
-        val units = splitIntoUnits(shrunk)
-        val keepFromUnit = units.indexOfFirst { unit -> unit.any { it === shrunk.getOrNull(lastUser) } }
-            .let { if (it < 0) units.lastIndex else it }
-        var start = 0
-        fun assembled(from: Int): List<ChatRequestMessage> {
-            val kept = units.drop(from).flatten()
-            return if (from > 0) listOf(ChatRequestMessage(role = "user", content = OMITTED_NOTE)) + kept else kept
-        }
-        while (start < keepFromUnit && TokenEstimator.estimate(assembled(start)) > budgetTokens) start++
-        var result = assembled(start)
+        // Exchanges as index ranges; the same indexes address the originals,
+        // which the run ledger reads (their tool outputs are still whole).
+        val units = unitRanges(shrunk)
+        val task = taskIndex(shrunk)
+        val anchorUnit = units.indexOfFirst { task in it }.let { if (it < 0) units.lastIndex else it }
+        val firstRun = anchorUnit + 1
 
-        // Still over with only the current exchange left: shrink its oldest
-        // tool outputs too, newest kept intact as long as possible.
-        if (TokenEstimator.estimate(result) > budgetTokens) {
-            val mutable = result.toMutableList()
-            for (i in mutable.indices) {
-                if (TokenEstimator.estimate(mutable) <= budgetTokens) break
-                val m = mutable[i]
-                if (m.role == "tool" && (m.content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length) {
-                    mutable[i] = m.copy(content = PRUNED_TOOL_OUTPUT)
-                }
+        // Every unit's size once; each candidate cut below is arithmetic on
+        // these, so a long run costs one pass instead of one per candidate
+        // (and the ledger is summarised once, not once per fold step).
+        val size = LongArray(units.size) { u -> units[u].sumOf { TokenEstimator.estimate(shrunk[it]).toLong() } }
+        val tail = LongArray(units.size + 1).also { t -> for (u in units.indices.reversed()) t[u] = t[u + 1] + size[u] }
+        val omitted = TokenEstimator.estimate(ChatRequestMessage(role = "user", content = OMITTED_NOTE)).toLong()
+        fun total(pre: Int, collapsed: Int): Long =
+            (if (pre > 0) omitted else 0L) + (tail[pre] - tail[anchorUnit]) + size[anchorUnit] +
+                (if (collapsed > 0) LEDGER_RESERVE_TOKENS else 0L) + tail[firstRun + collapsed]
+
+        // 3: drop whole exchanges from before the task, oldest first.
+        var pre = 0
+        while (pre < anchorUnit && total(pre, 0) > budgetTokens) pre++
+
+        // 4: an unlimited run can outgrow any window on its own. Fold its
+        // oldest exchanges into a ledger appended to the task message --
+        // whole exchanges, so tool calls and results stay paired. Never the
+        // newest assistant step (and so nothing after it): the model must see
+        // what it just did, and a results message must keep its call. The
+        // fold grows [COLLAPSE_CHUNK] exchanges at a time, so as the run goes
+        // on the boundary (and with it the prompt prefix: task + ledger) stays
+        // put for several turns and providers' prompt caches keep hitting.
+        val lastAssistant = (units.lastIndex downTo firstRun).firstOrNull { shrunk[units[it].first].role == "assistant" }
+        val maxCollapse = if (lastAssistant == null) 0 else lastAssistant - firstRun
+        var collapsed = 0
+        if (total(pre, 0) > budgetTokens && maxCollapse > 0) {
+            while (collapsed < maxCollapse && total(pre, collapsed) > budgetTokens) {
+                collapsed = (collapsed + COLLAPSE_CHUNK).coerceAtMost(maxCollapse)
             }
-            result = mutable
+            // The run resumes on the model's own turn, never on an orphaned result or note.
+            while (collapsed < maxCollapse && shrunk[units[firstRun + collapsed].first].role != "assistant") collapsed++
         }
-        return result
+
+        val ledger = if (collapsed > 0) {
+            RunLedger.summarize(units.subList(firstRun, firstRun + collapsed).flatMap { r -> r.map { messages[it] } })
+        } else null
+        val out = ArrayList<ChatRequestMessage>(shrunk.size)
+        if (pre > 0) out += ChatRequestMessage(role = "user", content = OMITTED_NOTE)
+        for (u in pre until anchorUnit) units[u].forEach { out += shrunk[it] }
+        units[anchorUnit].forEach { i ->
+            val m = shrunk[i]
+            out += if (i == task && ledger != null) m.copy(content = (m.content ?: "").trimEnd() + "\n\n" + ledger) else m
+        }
+        val runStart = out.size
+        for (u in firstRun + collapsed until units.size) units[u].forEach { out += shrunk[it] }
+
+        // Still over with only the newest steps left: shrink their tool traffic
+        // too, oldest first, so the newest step stays whole as long as possible.
+        var tokens = TokenEstimator.estimate(out).toLong()
+        var i = runStart
+        while (tokens > budgetTokens && i < out.size) {
+            val before = out[i]
+            val after = shrinkMessage(before)
+            if (after !== before) {
+                out[i] = after
+                tokens += TokenEstimator.estimate(after) - TokenEstimator.estimate(before)
+            }
+            i++
+        }
+        return out
     }
+
+    /**
+     * [m] with its bulk replaced by stubs: a tool output, a call's large
+     * arguments, text-protocol results and raw parameter values. The same
+     * message object when there is nothing to shrink.
+     */
+    private fun shrinkMessage(m: ChatRequestMessage): ChatRequestMessage {
+        val content = m.content
+        return when {
+            m.role == "tool" && (content?.length ?: 0) > PRUNED_TOOL_OUTPUT.length ->
+                m.copy(content = PRUNED_TOOL_OUTPUT)
+            m.role == "assistant" && m.toolCalls != null && m.toolCalls.any { it.function.arguments.length > LARGE_ARGUMENT_CHARS } ->
+                m.copy(toolCalls = m.toolCalls.map { shrinkCall(it) })
+            m.role == "user" && content != null && content.startsWith(TEXT_RESULTS_HEADER) ->
+                shrinkTextResults(content).let { if (it == content) m else m.copy(content = it) }
+            m.role == "assistant" && content != null && content.length > LARGE_ARGUMENT_CHARS &&
+                content.contains("<parameter=") -> shrinkTextCalls(content).let { if (it == content) m else m.copy(content = it) }
+            else -> m
+        }
+    }
+
+    /** The ledger is capped at [RunLedger.MAX_CHARS]; this much is set aside for it when deciding the fold. */
+    private val LEDGER_RESERVE_TOKENS = (RunLedger.MAX_CHARS / 4 + 8).toLong()
+
+    /** `[Oro: …]`: a note the app adds to the conversation, never mistaken for the user's task. */
+    fun appNote(text: String): String = "[Oro: ${text.trim()}]"
+
+    /** Exchanges folded into the run ledger at a time (see step 4). */
+    private const val COLLAPSE_CHUNK = 8
+
+    /**
+     * The message that states the task: the last user turn the user wrote.
+     * Text-protocol results and the harness's own notes are user messages too,
+     * and must not count -- otherwise the task itself is pruned first.
+     */
+    internal fun taskIndex(messages: List<ChatRequestMessage>): Int {
+        val genuine = messages.indexOfLast { it.role == "user" && !isHarnessMessage(it) }
+        if (genuine >= 0) return genuine
+        return messages.indexOfLast { it.role == "user" }.coerceAtLeast(0)
+    }
+
+    internal fun isHarnessMessage(m: ChatRequestMessage): Boolean {
+        val c = m.content?.trimStart() ?: return false
+        return HARNESS_PREFIXES.any { c.startsWith(it) }
+    }
+
+    /** How the agent loop, the quality gate and this pruner open the user messages they add. */
+    private val HARNESS_PREFIXES = listOf(
+        "Tool results:", "Your previous reply was cut off", "Your reply ended in the middle of",
+        "Your last reply contained a tool call", "The screenshots your last tool call captured",
+        "Automatic quality review (by the Oro app", "[Oro:", "[Earlier parts of this conversation",
+        "If the task is complete, call finish_task",
+        // Notes the editor wrote before they carried the [Oro: prefix (see appNote).
+        "Continue from where you stopped", "[The user published this project", "[The user restored "
+    )
 
     /**
      * Give every assistant tool call a result.
@@ -160,17 +247,34 @@ object HistoryPruner {
         return i
     }
 
-    /** user | assistant(+ its tool results) | other single messages. */
-    private fun splitIntoUnits(messages: List<ChatRequestMessage>): List<List<ChatRequestMessage>> {
-        val units = mutableListOf<MutableList<ChatRequestMessage>>()
-        for (m in messages) {
-            if (m.role == "tool" && units.isNotEmpty() && units.last().first().role == "assistant") {
-                units.last().add(m)
+    /** Index ranges of: user | assistant(+ its tool results) | other single messages. */
+    private fun unitRanges(messages: List<ChatRequestMessage>): List<IntRange> {
+        val units = mutableListOf<IntRange>()
+        for ((i, m) in messages.withIndex()) {
+            val last = units.lastOrNull()
+            if (m.role == "tool" && last != null && messages[last.first].role == "assistant" && last.last == i - 1) {
+                units[units.lastIndex] = last.first..i
             } else {
-                units.add(mutableListOf(m))
+                units += i..i
             }
         }
         return units
+    }
+
+    /** How the agent loop opens a text-protocol results message. */
+    internal const val TEXT_RESULTS_HEADER = "Tool results:"
+    private val TEXT_RESULT = Regex("""(?s)(<tool_result name="[^"]*">\n?)(.*?)(\n?</tool_result>)""")
+    private val TEXT_PARAMETER = Regex("""(?s)(<parameter=[\w.\-]+>)(.*?)(</parameter>)""")
+
+    private fun shrinkTextResults(content: String): String = TEXT_RESULT.replace(content) { m ->
+        if (m.groupValues[2].length > PRUNED_TOOL_OUTPUT.length) m.groupValues[1] + PRUNED_TOOL_OUTPUT + m.groupValues[3]
+        else m.value
+    }
+
+    /** Large raw parameter values (whole files) in an old text-protocol call. */
+    private fun shrinkTextCalls(content: String): String = TEXT_PARAMETER.replace(content) { m ->
+        val value = m.groupValues[2]
+        if (value.length > 200) m.groupValues[1] + "[${value.length} characters omitted]" + m.groupValues[3] else m.value
     }
 
     private fun shrinkCall(call: ToolCallRequest): ToolCallRequest {

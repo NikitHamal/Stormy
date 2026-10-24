@@ -32,7 +32,11 @@ data class TextChangeRequest(
     val oldText: String,
     val newText: String,
     val elementHtml: String,
-    val selectorIsUnique: Boolean = true
+    val selectorIsUnique: Boolean = true,
+    /** Where the picked text sits in the page, for writing it back to that one place. */
+    val target: SourceTextEdit.Target? = null,
+    /** The page's location.pathname, naming the HTML file the text is in. */
+    val pagePath: String? = null
 )
 
 /**
@@ -61,7 +65,17 @@ data class InspectorElementData(
     /** Page-computed, document-verified selector. See [SelectorBuilder]. */
     val selector: String = "",
     /** False when no selector matching exactly one node could be produced. */
-    val selectorIsUnique: Boolean = false
+    val selectorIsUnique: Boolean = false,
+    /** The element's own text, when it holds exactly one run of it. */
+    val ownText: String = "",
+    /** How many separate runs of text the element holds directly. */
+    val ownTextNodes: Int = 0,
+    /** Where [ownText] sits in the page; null when it can't be edited in place. */
+    val textTarget: SourceTextEdit.Target? = null,
+    /** location.pathname of the page the element is on. */
+    val pagePath: String = "",
+    val hasParent: Boolean = false,
+    val hasChild: Boolean = false
 )
 
 /**

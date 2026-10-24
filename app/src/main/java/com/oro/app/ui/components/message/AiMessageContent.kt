@@ -33,12 +33,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
@@ -55,6 +60,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import com.oro.app.ui.theme.OroTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,6 +132,127 @@ sealed class MessageContentBlock {
 
 enum class ToolStatus { RUNNING, SUCCESS, ERROR }
 
+/** Inputs of one parse; see AiMessageContent. */
+private data class ParseInput(val content: String, val isStreaming: Boolean)
+
+/** Messages up to this many characters parse synchronously on first composition. */
+internal const val SYNC_PARSE_LIMIT = 16_000
+
+/** Grouped blocks composed at first for one message, and how many more each tap shows. */
+internal const val MESSAGE_WINDOW = 40
+internal const val MESSAGE_WINDOW_STEP = 60
+
+/**
+ * Which grouped blocks of a long message are composed.
+ *
+ * The window's start is an anchor, not "the newest N": blocks a live run
+ * appends extend the window instead of shifting it, so the text being read
+ * stays put and every block keeps its key (and its expanded state). Only a
+ * live run that has put more than twice [MESSAGE_WINDOW] blocks on screen
+ * moves the anchor, in one step, so composition stays bounded. "Show earlier"
+ * is the only other thing that moves it.
+ */
+internal object MessageWindow {
+    /** Not anchored yet: the first parse decides. */
+    const val UNSET = -1
+
+    /** The first composed block for [total] blocks, given the current [anchor]. */
+    fun start(total: Int, anchor: Int, streaming: Boolean): Int {
+        if (total <= 0) return if (anchor == UNSET) UNSET else 0
+        var start = if (anchor == UNSET) (total - MESSAGE_WINDOW).coerceAtLeast(0) else anchor
+        // The message got shorter (compacted when the run ended): show its end.
+        if (start >= total) start = (total - MESSAGE_WINDOW).coerceAtLeast(0)
+        if (streaming && total - start > 2 * MESSAGE_WINDOW) start = total - MESSAGE_WINDOW
+        return start
+    }
+
+    /** The anchor after "Show earlier". */
+    fun earlier(start: Int): Int = (start - MESSAGE_WINDOW_STEP).coerceAtLeast(0)
+
+    /**
+     * Rows a still-parsing message will roughly take, from its tool cards, so
+     * its stand-in is about as tall as the message and the list barely moves
+     * when it arrives. Counting stops early; this runs on a tap's budget.
+     */
+    fun estimatedRows(content: String): Int {
+        var cards = 0
+        var i = content.indexOf("🔧")
+        while (i >= 0 && cards < 4 * MESSAGE_WINDOW) {
+            cards++
+            i = content.indexOf("🔧", i + 2)
+        }
+        // Consecutive calls fold into one group row; text sits between groups.
+        return (cards / 2 + 2).coerceIn(3, MESSAGE_WINDOW)
+    }
+}
+
+/**
+ * Parsed blocks of recently shown messages, shared by every bubble: scrolling
+ * back to a message, reopening a chat or recomposing a list reuses the parse.
+ * Keyed by the message's id and validated against its exact content, so an
+ * edited or still-streaming message never gets stale blocks. Bounded by
+ * total characters, not entries: one long transcript can outweigh a hundred
+ * short replies.
+ */
+internal object ParsedBlocksCache {
+    private const val MAX_CHARS = 1_200_000
+    private class Entry(val length: Int, val hash: Int, val streaming: Boolean, val blocks: List<MessageContentBlock>)
+    private val entries = LinkedHashMap<String, Entry>(64, 0.75f, true)
+    private var chars = 0
+
+    fun get(key: String?, content: String, streaming: Boolean): List<MessageContentBlock>? {
+        if (key == null) return null
+        synchronized(this) {
+            val e = entries[key] ?: return null
+            return if (e.length == content.length && e.streaming == streaming && e.hash == content.hashCode()) e.blocks else null
+        }
+    }
+
+    /**
+     * Parses the long, finished messages in [messages] (id to content, in the
+     * order given) that are not cached yet, until [limit] messages or [budget]
+     * characters. Called off the main thread after a chat loads, newest first,
+     * so a long transcript scrolled into view draws at its full height at once
+     * instead of growing out of a placeholder and pushing the list around.
+     */
+    suspend fun prefetch(messages: Sequence<Pair<String, String>>, limit: Int = Int.MAX_VALUE, budget: Int = MAX_CHARS / 2) {
+        var count = 0
+        var spent = 0
+        for ((key, content) in messages) {
+            if (count >= limit || spent >= budget) break
+            if (content.length <= SYNC_PARSE_LIMIT || content.length > MAX_CHARS / 2) continue
+            kotlinx.coroutines.yield()
+            count++
+            if (get(key, content, false) != null) continue
+            put(key, content, false, parseAiMessageContent(content, false))
+            spent += content.length
+        }
+    }
+
+    fun put(key: String?, content: String, streaming: Boolean, blocks: List<MessageContentBlock>) {
+        if (key == null || content.length > MAX_CHARS / 2) return
+        synchronized(this) {
+            entries.remove(key)?.let { chars -= it.length }
+            entries[key] = Entry(content.length, content.hashCode(), streaming, blocks)
+            chars += content.length
+            val it = entries.entries.iterator()
+            while (chars > MAX_CHARS && it.hasNext()) {
+                val eldest = it.next()
+                if (eldest.key == key) continue
+                chars -= eldest.value.length
+                it.remove()
+            }
+        }
+    }
+}
+
+/** The synchronous first parse, reused if the inputs come back unchanged. */
+private class FirstParse(
+    val content: String,
+    val isStreaming: Boolean,
+    val blocks: List<MessageContentBlock>
+)
+
 /**
  * Fold runs of two or more adjacent tool calls into a single block.
  *
@@ -163,10 +299,35 @@ fun parseAiMessageContent(content: String, isStreaming: Boolean = false): List<M
             SegmentType.TEXT -> processTextSegment(segment.content, blocks, streamingTail)
 
             SegmentType.TOOL_CALL -> {
-                val output = segment.toolOutput?.trimEnd()?.ifBlank { null }
+                val raw = segment.toolOutput?.trimEnd()?.ifBlank { null }
+                // The subject line is for the row, not for the detail sheet.
+                val subject = raw?.let { SUBJECT_LINE_REGEX.find(it)?.groupValues?.get(1)?.trim() }
+                val output = if (raw != null && subject != null) {
+                    raw.replaceFirst(SUBJECT_LINE_REGEX, "").trim('\n').ifBlank { null }
+                } else {
+                    raw
+                }
                 val filePath = output?.let { extractFilePath(segment.toolName.orEmpty(), it) }
-                val (adds, dels) = computeUnifiedDiffSummary(output)
-                val (oldC, newC) = output?.let(::extractOldNewContent) ?: (null to null)
+                    ?: subject
+                    // A running card's status line is its call's subject ("⏳ index.html").
+                    ?: segment.toolSummary?.takeIf { segment.toolStatus == ToolStatus.RUNNING && it != "Running" }
+                var (adds, dels) = STATS_REGEX.find(output.orEmpty())
+                    ?.let { (it.groupValues[1].toIntOrNull() ?: 0) to (it.groupValues[2].toIntOrNull() ?: 0) }
+                    ?: computeUnifiedDiffSummary(output)
+                var (oldC, newC) = output?.let(::extractOldNewContent) ?: (null to null)
+                val canonical = com.oro.app.data.ai.tools.ToolAliases.canonicalName(segment.toolName.orEmpty().lowercase(Locale.ROOT).replace(' ', '_'))
+                if (canonical == "write_file" && output != null) {
+                    // A write's card carries the written text; show it as all-new lines.
+                    if (newC != null && oldC == null) oldC = ""
+                    if (adds == 0) WRITTEN_LINES_REGEX.find(output)?.groupValues?.get(1)?.toIntOrNull()?.let { adds = it }
+                    if (adds == 0) WROTE_LINES_REGEX.find(output)?.groupValues?.get(1)?.toIntOrNull()?.let { adds = it }
+                    // Count the written lines here, once, so the row never
+                    // has to diff the whole file to show "+N".
+                    if (adds == 0) newC?.let { written -> adds = written.count { c -> c == '\n' } + 1 }
+                } else if (oldC == null && newC == null && output != null) {
+                    // Edits print a short "-old / +new" diff; turn it into before/after so the sheet draws a real diff.
+                    miniDiffSides(output)?.let { (o, n) -> oldC = o; newC = n }
+                }
 
                 blocks.add(
                     MessageContentBlock.ToolCallBlock(
@@ -197,7 +358,9 @@ private data class ContentSegment(
     val content: String,
     val toolName: String? = null,
     val toolStatus: ToolStatus? = null,
-    val toolOutput: String? = null
+    val toolOutput: String? = null,
+    /** The card's status line after its emoji: the call's subject while it runs, its result after. */
+    val toolSummary: String? = null
 )
 
 /**
@@ -216,6 +379,12 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
 
     val segments = mutableListOf<ContentSegment>()
     var cursor = 0
+    // Every reasoning tag's position, found once. Searching from each card
+    // header instead scanned to the end of the message for every card when no
+    // tag followed -- quadratic in a long run, and the main cost of opening
+    // a chat with a big transcript.
+    val tagStarts = OPEN_TAG_REGEX.findAll(content).map { it.range.first }.toList()
+    var tagIdx = 0
 
     matches.forEachIndexed { idx, match ->
         val toolStart = match.range.first
@@ -226,11 +395,12 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
         val nextToolStart = matches.getOrNull(idx + 1)?.range?.first ?: content.length
         
         // Look for thinking/reasoning tags that might appear before the next tool
-        val tagMatch = OPEN_TAG_REGEX.find(content, headerEndExclusive)
-        
+        while (tagIdx < tagStarts.size && tagStarts[tagIdx] < headerEndExclusive) tagIdx++
+        val tagStart = tagStarts.getOrNull(tagIdx)
+
         // If we found a tag, and it's before the next tool, that's our effective end
-        val tagEnd = if (tagMatch != null && tagMatch.range.first < nextToolStart) {
-            tagMatch.range.first
+        val tagEnd = if (tagStart != null && tagStart < nextToolStart) {
+            tagStart
         } else {
             nextToolStart
         }
@@ -277,7 +447,8 @@ private fun splitByToolCalls(content: String): List<ContentSegment> {
                 content = content.substring(toolStart, toolEndExclusive), // Store full raw segment
                 toolName = toolName.ifBlank { "Unknown Tool" },
                 toolStatus = status,
-                toolOutput = output
+                toolOutput = output,
+                toolSummary = match.groupValues.getOrNull(3)?.trim()?.ifBlank { null }
             )
         )
 
@@ -307,7 +478,7 @@ private val TOOL_HEADER_REGEX = Regex(
     // the assertion could never hold -- the pattern matched nothing, every
     // tool call fell through to the markdown renderer, and the transcript read
     // as "🔧 **List Files** ✅ Directory is empty" in plain text.
-    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)[^\r\n]*\r?\n?""",
+    pattern = """(?m)^\s*🔧\s*(?:\*\*)?([^*✅❌⏳\r\n]+?)(?:\*\*)?\s*(?:\r?\n|[ \t]+)(✅|❌|⏳)[ \t]*([^\r\n]*)\r?\n?""",
     options = setOf(RegexOption.MULTILINE)
 )
 
@@ -320,6 +491,10 @@ private val CLOSE_THINKING_REGEX = Regex("""(?i)</\s*(thinking|think)\s*>""")
 private val CLOSE_REASONING_REGEX = Regex("""(?i)</\s*(reasoning|reason)\s*>""")
 
 // Code-fence start: at line-start, optional indentation, then ``` or ~~~, optional language, then newline.
+private val FENCE_END_REGEXES: Map<String, Regex> = listOf("```", "~~~").associateWith { fence ->
+    Regex("""(?m)^\s*${Regex.escape(fence)}\s*$""")
+}
+
 private val FENCE_START_REGEX = Regex("""(?m)^\s*(```|~~~)\s*([\w.+-]+)?\s*\r?\n""")
 
 private fun processTextSegment(
@@ -339,9 +514,26 @@ private fun processTextSegment(
         }
     }
 
+    // The next fence / tag match at or after i, cached. The loop used to call
+    // find(content, i) for both patterns at *every character*, and each call
+    // scans ahead to the next match (or the end of the message) -- quadratic
+    // in the message length, re-run on every streamed chunk, and the main
+    // source of chat lag on long replies. A match found from an earlier
+    // position is still the first match at or after i as long as it starts at
+    // or after i, so it only needs refreshing once i moves past it.
+    var nextFence: MatchResult? = FENCE_START_REGEX.find(content, 0)
+    var nextOpen: MatchResult? = OPEN_TAG_REGEX.find(content, 0)
+
     while (i < content.length) {
+        if (nextFence != null && nextFence.range.first < i) {
+            nextFence = FENCE_START_REGEX.find(content, i)
+        }
+        if (nextOpen != null && nextOpen.range.first < i) {
+            nextOpen = OPEN_TAG_REGEX.find(content, i)
+        }
+
         // 1) Code fences (outside thinking/reasoning only)
-        val fenceStart = FENCE_START_REGEX.find(content, i)
+        val fenceStart = nextFence
         if (fenceStart != null && fenceStart.range.first == i) {
             flushText()
 
@@ -349,7 +541,8 @@ private fun processTextSegment(
             val language = fenceStart.groupValues.getOrNull(2)?.trim()?.takeIf { it.isNotBlank() }
             val codeStart = fenceStart.range.last + 1
 
-            val fenceEndRegex = Regex("""(?m)^\s*${Regex.escape(fence)}\s*$""")
+            val fenceEndRegex = FENCE_END_REGEXES[fence]
+                ?: Regex("""(?m)^\s*${Regex.escape(fence)}\s*$""")
             val fenceEnd = fenceEndRegex.find(content, codeStart)
 
             if (fenceEnd == null) {
@@ -371,7 +564,7 @@ private fun processTextSegment(
         }
 
         // 2) <thinking>/<reasoning> tags
-        val open = OPEN_TAG_REGEX.find(content, i)
+        val open = nextOpen
         if (open != null && open.range.first == i) {
             val tag = open.groupValues[1].lowercase(Locale.ROOT)
             val kind = when (tag) {
@@ -411,9 +604,15 @@ private fun processTextSegment(
             }
         }
 
-        // 3) Default: consume one char
-        buf.append(content[i])
-        i++
+        // 3) Default: plain text up to the next possible fence/tag start.
+        // Neither cached match starts at i here, and both start after i, so
+        // this always advances.
+        val stop = minOf(
+            fenceStart?.range?.first ?: content.length,
+            open?.range?.first ?: content.length
+        )
+        buf.append(content, i, stop)
+        i = stop
     }
 
     flushText()
@@ -450,18 +649,43 @@ private fun coalesceTextBlocks(blocks: List<MessageContentBlock>): List<MessageC
     return out
 }
 
+// Compiled once. These used to be built inside the extract* helpers, i.e.
+// recompiled for every tool call of every message on every streamed chunk.
+private val TOOL_NAME_SEPARATORS_REGEX = Regex("""[_\-\s]+""")
+private val FILE_TOOL_NAMES = listOf(
+    "readfile", "writefile", "createfile", "deletefile", "patchfile", "editfile", "modifyfile", "updatefile"
+)
+private val EXPLICIT_PATH_REGEX = Regex("""(?im)^\s*(?:file|path)\s*[:=]\s*([^\s]+)\s*$""")
+/** read_file's header, "File: path (N lines)": the file that was read, not one its code mentions. */
+private val READ_HEADER_PATH_REGEX = Regex("""(?m)^\s*File:\s*(\S+)\s+\((?:\d+ lines|lines \d+-\d+ of \d+)\)""")
+private val DIFF_PATH_REGEX = Regex("""(?m)^\s*(?:\+\+\+|---)\s+[ab]/([^\s]+)\s*$""")
+private val PATH_CANDIDATE_REGEXES = listOf(
+    Regex("""["']([^"'\r\n]+\.[a-zA-Z0-9]{1,10})["']"""),
+    Regex("""`([^`\r\n]+\.[a-zA-Z0-9]{1,10})`"""),
+    Regex("""(?i)(?:^|[\s:(])([a-z0-9_\-./\\]+?\.[a-z0-9]{1,10})(?:$|[\s),.])""")
+)
+private val FENCED_DIFF_REGEX = Regex("""(?is)```diff\s*\r?\n(.*?)\r?\n```""")
+private val LABELLED_CONTENT_REGEXES: Map<String, Regex> =
+    listOf("old", "before", "original", "new", "after", "updated").associateWith { label ->
+        Regex(
+            pattern = """(?is)\b$label(?:_content)?\b\s*[:=]\s*```[^\n]*\r?\n(.*?)\r?\n```""",
+            options = setOf(RegexOption.IGNORE_CASE)
+        )
+    }
+private val STREAM_FENCE_REGEX = Regex("""```(\w+)?\n([\s\S]*?)```""")
+private val STREAM_UNCLOSED_FENCE_REGEX = Regex("""```(\w+)?\n([\s\S]*)$""")
+
 /**
  * Best-effort extraction of a file path referenced by a file-related tool call.
  * Also tries unified-diff headers (---/+++).
  */
 private fun extractFilePath(toolName: String, output: String): String? {
-    val normalized = toolName.lowercase(Locale.ROOT).replace(Regex("""[_\-\s]+"""), "")
-    val fileTools = listOf(
-        "readfile", "writefile", "createfile", "deletefile", "patchfile", "editfile", "modifyfile", "updatefile"
-    )
-    val looksLikeFileTool = fileTools.any { normalized.contains(it) }
+    val normalized = toolName.lowercase(Locale.ROOT).replace(TOOL_NAME_SEPARATORS_REGEX, "")
+    val looksLikeFileTool = FILE_TOOL_NAMES.any { normalized.contains(it) }
 
-    val explicitPath = Regex("""(?im)^\s*(?:file|path)\s*[:=]\s*([^\s]+)\s*$""")
+    READ_HEADER_PATH_REGEX.find(output)?.groupValues?.getOrNull(1)?.let { return it }
+
+    val explicitPath = EXPLICIT_PATH_REGEX
         .find(output)
         ?.groupValues
         ?.getOrNull(1)
@@ -470,7 +694,7 @@ private fun extractFilePath(toolName: String, output: String): String? {
 
     if (explicitPath != null) return explicitPath
 
-    val diffPath = Regex("""(?m)^\s*(?:\+\+\+|---)\s+[ab]/([^\s]+)\s*$""")
+    val diffPath = DIFF_PATH_REGEX
         .find(output)
         ?.groupValues
         ?.getOrNull(1)
@@ -480,13 +704,7 @@ private fun extractFilePath(toolName: String, output: String): String? {
     if (diffPath != null) return diffPath
     if (!looksLikeFileTool) return null
 
-    val candidates = listOf(
-        Regex("""["']([^"'\r\n]+\.[a-zA-Z0-9]{1,10})["']"""),
-        Regex("""`([^`\r\n]+\.[a-zA-Z0-9]{1,10})`"""),
-        Regex("""(?i)(?:^|[\s:(])([a-z0-9_\-./\\]+?\.[a-z0-9]{1,10})(?:$|[\s),.])""")
-    )
-
-    return candidates.asSequence()
+    return PATH_CANDIDATE_REGEXES.asSequence()
         .mapNotNull { rx -> rx.find(output)?.groupValues?.getOrNull(1)?.trim() }
         .firstOrNull { it.isNotBlank() && !it.startsWith("http", ignoreCase = true) }
 }
@@ -509,8 +727,31 @@ private fun computeUnifiedDiffSummary(output: String?): Pair<Int, Int> {
     return adds to dels
 }
 
+private val WROTE_LINES_REGEX = Regex("""(?:Created|Overwrote) .* \((\d+) lines\)""")
+
+/** RunTranscript's true counts for a diff it shortened, and a write's real line count. */
+private val STATS_REGEX = Regex("""(?m)^stats: \+(\d+) -(\d+)$""")
+private val SUBJECT_LINE_REGEX = Regex("""(?m)^subject: ([^\r\n]+)\r?\n?""")
+private val WRITTEN_LINES_REGEX = Regex("""(?m)^written: (\d+) lines$""")
+
+/** The "-" and "+" sides of a fenced mini diff, without its "… more lines" notes. */
+private fun miniDiffSides(output: String): Pair<String, String>? {
+    val diff = FENCED_DIFF_REGEX.find(output)?.groupValues?.getOrNull(1) ?: return null
+    if (diff.contains("\n@@") || diff.startsWith("@@")) return null
+    val old = StringBuilder(); val new = StringBuilder()
+    diff.lineSequence().forEach { line ->
+        when {
+            line.startsWith("-… ") || line.startsWith("+… ") -> Unit
+            line.startsWith("-") -> old.append(line.substring(1)).append('\n')
+            line.startsWith("+") -> new.append(line.substring(1)).append('\n')
+        }
+    }
+    if (old.isEmpty() && new.isEmpty()) return null
+    return old.toString().trimEnd('\n') to new.toString().trimEnd('\n')
+}
+
 private fun extractDiffText(output: String): String? {
-    val fenced = Regex("""(?is)```diff\s*\r?\n(.*?)\r?\n```""")
+    val fenced = FENCED_DIFF_REGEX
         .find(output)
         ?.groupValues
         ?.getOrNull(1)
@@ -527,15 +768,14 @@ private fun extractDiffText(output: String): String? {
  */
 private fun extractOldNewContent(output: String): Pair<String?, String?> {
     fun extract(label: String): String? {
-        val rx = Regex(
-            pattern = """(?is)\b$label(?:_content)?\b\s*[:=]\s*```[^\n]*\r?\n(.*?)\r?\n```""",
-            options = setOf(RegexOption.IGNORE_CASE)
-        )
+        val rx = LABELLED_CONTENT_REGEXES.getValue(label)
         return rx.find(output)?.groupValues?.getOrNull(1)?.trim()
     }
 
     val old = extract("old") ?: extract("before") ?: extract("original")
-    val new = extract("new") ?: extract("after") ?: extract("updated")
+    // Inside a card, blank lines travel as a single space (a blank line ends the card).
+    val new = (extract("new") ?: extract("after") ?: extract("updated"))
+        ?.lines()?.joinToString("\n") { if (it == " ") "" else it }
     return old to new
 }
 
@@ -553,40 +793,88 @@ fun AiMessageContent(
      * does, so the label can say "Running edit_file" or "Waiting for your
      * answer"); avoids two loaders on screen.
      */
-    showWorkingIndicator: Boolean = true
+    showWorkingIndicator: Boolean = true,
+    /**
+     * Stable identity of the message (its id), for the shared parse cache:
+     * a message scrolled back into view is not parsed again.
+     */
+    cacheKey: String? = null
 ) {
-    // During streaming, use simpler parsing to reduce lag
-    // Full parsing is only done when content length changes significantly or streaming stops
-    // Always parse fully.
-    //
-    // The old guard fell back to a lighter parser once a streaming message
-    // passed 500 characters -- which is most of them -- so tool calls rendered
-    // as raw text for the entire length of any real agent run and only
-    // snapped into cards once streaming stopped. The parse is memoised on
-    // content, so it runs once per emitted chunk rather than per frame.
-    val shouldDoFullParsing = true
-
-    val parsedBlocks = remember(content, isStreaming, shouldDoFullParsing) {
-        if (shouldDoFullParsing) {
-            parseAiMessageContent(content, isStreaming)
-        } else {
-            // During streaming with large content, just do minimal parsing
-            parseStreamingContent(content)
+    // Parsing is a dozen regex passes over the whole message. Rules that keep
+    // a long chat smooth:
+    //  - Small messages parse synchronously on first composition, so they
+    //    appear fully formed with their final height and the list does not
+    //    jump.
+    //  - Anything already parsed comes from the shared cache, keyed by the
+    //    message and its exact content.
+    //  - A big message that is not cached is never parsed in composition: a
+    //    light placeholder stands in while Dispatchers.Default parses it.
+    //    (Opening a chat whose last run was a long transcript parsed it on the
+    //    main thread and froze the screen until Android closed the app.)
+    //  - Later changes (each streamed chunk) parse off the main thread with
+    //    conflation: if chunks arrive faster than a parse finishes, the newest
+    //    content is parsed next rather than every parse being cancelled.
+    val firstParse = remember {
+        val cached = ParsedBlocksCache.get(cacheKey, content, isStreaming)
+        when {
+            cached != null -> FirstParse(content, isStreaming, cached)
+            content.length <= SYNC_PARSE_LIMIT ->
+                FirstParse(content, isStreaming, parseAiMessageContent(content, isStreaming).also {
+                    ParsedBlocksCache.put(cacheKey, content, isStreaming, it)
+                })
+            else -> null
         }
     }
+    var parsedBlocks by remember { mutableStateOf(firstParse?.blocks) }
+    val latestInput = rememberUpdatedState(ParseInput(content, isStreaming))
+    LaunchedEffect(Unit) {
+        snapshotFlow { latestInput.value }
+            .conflate()
+            .collect { input ->
+                parsedBlocks = if (
+                    firstParse != null && input.content == firstParse.content && input.isStreaming == firstParse.isStreaming
+                ) {
+                    firstParse.blocks
+                } else {
+                    ParsedBlocksCache.get(cacheKey, input.content, input.isStreaming)
+                        ?: withContext(Dispatchers.Default) {
+                            parseAiMessageContent(input.content, input.isStreaming).also {
+                                ParsedBlocksCache.put(cacheKey, input.content, input.isStreaming, it)
+                            }
+                        }
+                }
+            }
+    }
 
-    // Check if content is empty/minimal (only show generating indicator when truly empty)
-    val hasSubstantialContent = content.trim().length > 10 || parsedBlocks.isNotEmpty()
+    val blocks = parsedBlocks
+    // Whether there is anything to show yet. No trim(): that copied the whole
+    // message on every recomposition.
+    val hasSubstantialContent = !blocks.isNullOrEmpty() ||
+        remember(content) { content.length > 10 && content.any { !it.isWhitespace() } }
 
+    // Lite mode drops the size animation: while streaming it restarts on
+    // every chunk, so the message re-measures on every frame of the reply.
+    val sizeAnimation = if (OroTheme.liteMode) {
+        Modifier
+    } else {
+        Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+            .then(sizeAnimation),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Show minimal generating indicator only when streaming with no substantial content
         if (isStreaming && showWorkingIndicator && !hasSubstantialContent) {
             MinimalGeneratingIndicator()
+        }
+
+        if (blocks == null) {
+            // A big message still parsing: a quiet stand-in about as tall as
+            // the message will be, never a frozen frame.
+            val rows = remember(content.length) { MessageWindow.estimatedRows(content) }
+            ParsingPlaceholder(rows)
         }
 
         // Consecutive tool calls collapse into one group.
@@ -595,59 +883,99 @@ fun AiMessageContent(
         // transcript and push the assistant's actual answer off screen. Runs
         // are detected here rather than in the parser so the parser stays a
         // pure text-to-blocks function.
-        val grouped = remember(parsedBlocks) { groupConsecutiveToolCalls(parsedBlocks) }
+        val grouped = remember(blocks) { blocks?.let { groupConsecutiveToolCalls(it) } ?: emptyList() }
 
-        grouped.forEach { block ->
-            when (block) {
-                is MessageContentBlock.ToolRunBlock -> {
-                    ToolCallGroup(
-                        entries = block.calls.map { call ->
-                            ToolCallEntry(
-                                toolName = call.toolName,
-                                subject = call.filePath,
-                                status = call.status.toToolCallStatus(),
-                                additions = call.additions,
-                                deletions = call.deletions,
-                                // Carried through rather than dropped: these
-                                // are what each card opens to show.
-                                output = call.output,
-                                oldContent = call.oldContent,
-                                newContent = call.newContent
-                            )
-                        },
-                        // Expanded while anything is still running, so the user
-                        // can watch; collapsed once the run finishes, so the
-                        // answer is what remains on screen.
-                        initiallyExpanded = block.calls.any {
-                            it.status == ToolStatus.RUNNING
-                        }
-                    )
+        // A run of hundreds of steps is not composed all at once: a window of
+        // groups shows, and the earlier ones wait behind one control. The
+        // window's start is anchored (see MessageWindow), and each block is
+        // keyed by its position in the whole message, so a live run never
+        // shifts what is on screen or collapses a group the user opened.
+        val anchor = remember { mutableIntStateOf(MessageWindow.UNSET) }
+        val start = MessageWindow.start(grouped.size, anchor.intValue, isStreaming)
+        if (start != anchor.intValue) SideEffect { anchor.intValue = start }
+        val hidden = start.coerceAtLeast(0)
+        if (hidden > 0) {
+            val hiddenCalls = remember(grouped, hidden) {
+                grouped.subList(0, hidden).sumOf { b ->
+                    when (b) {
+                        is MessageContentBlock.ToolRunBlock -> b.calls.size
+                        is MessageContentBlock.ToolCallBlock -> 1
+                        else -> 0
+                    }
                 }
+            }
+            EarlierStepsButton(hiddenCalls = hiddenCalls, onClick = { anchor.intValue = MessageWindow.earlier(hidden) })
+        }
 
-                is MessageContentBlock.TextBlock ->
-                    ResponseSection(markdown = block.content)
+        for (index in hidden until grouped.size) {
+            val block = grouped[index]
+            key(index) {
+                when (block) {
+                    is MessageContentBlock.ToolRunBlock -> {
+                        // Mapped once per block rather than on every recomposition
+                        // of the message, so the group can skip when unchanged.
+                        val entries = remember(block) { block.calls.map { call ->
+                                ToolCallEntry(
+                                    toolName = call.toolName,
+                                    subject = call.filePath,
+                                    status = call.status.toToolCallStatus(),
+                                    additions = call.additions,
+                                    deletions = call.deletions,
+                                    // Carried through rather than dropped: these
+                                    // are what each card opens to show.
+                                    output = call.output,
+                                    oldContent = call.oldContent,
+                                    newContent = call.newContent
+                                )
+                            } }
+                        ToolCallGroup(
+                            entries = entries,
+                            // Expanded while anything is still running, so the user
+                            // can watch; collapsed once the run finishes, so the
+                            // answer is what remains on screen.
+                            initiallyExpanded = block.calls.any {
+                                it.status == ToolStatus.RUNNING
+                            }
+                        )
+                    }
 
-                is MessageContentBlock.CodeBlock ->
-                    CodeSection(code = block.code, language = block.language, isActive = block.isActive && isStreaming)
+                    is MessageContentBlock.TextBlock ->
+                        if (com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.content)) {
+                            // A UI block the model forgot to fence.
+                            com.oro.app.ui.genui.GenUiBlock(source = block.content.trim(), streaming = false)
+                        } else {
+                            ResponseSection(markdown = block.content)
+                        }
 
-                is MessageContentBlock.ThinkingBlock ->
-                    ThinkingSection(content = block.content, isActive = block.isActive && isStreaming)
+                    is MessageContentBlock.CodeBlock ->
+                        if (com.oro.app.data.ai.genui.GenUi.isUiFence(block.language) ||
+                            (com.oro.app.data.ai.genui.GenUi.mayHoldUi(block.language) && com.oro.app.data.ai.genui.GenUi.looksLikeUi(block.code))
+                        ) {
+                            // A UI block: rendered as native components (A2UI), not as code.
+                            com.oro.app.ui.genui.GenUiBlock(source = block.code, streaming = block.isActive && isStreaming)
+                        } else {
+                            CodeSection(code = block.code, language = block.language, isActive = block.isActive && isStreaming)
+                        }
 
-                is MessageContentBlock.ReasoningBlock ->
-                    ReasoningSection(content = block.content, isActive = block.isActive && isStreaming)
+                    is MessageContentBlock.ThinkingBlock ->
+                        ThinkingSection(content = block.content, isActive = block.isActive && isStreaming)
 
-                is MessageContentBlock.ToolCallBlock ->
-                    ToolCallSection(
-                        toolName = block.toolName,
-                        status = block.status,
-                        output = block.output,
-                        filePath = block.filePath,
-                        isActive = block.isActive && isStreaming,
-                        additions = block.additions,
-                        deletions = block.deletions,
-                        oldContent = block.oldContent,
-                        newContent = block.newContent
-                    )
+                    is MessageContentBlock.ReasoningBlock ->
+                        ReasoningSection(content = block.content, isActive = block.isActive && isStreaming)
+
+                    is MessageContentBlock.ToolCallBlock ->
+                        ToolCallSection(
+                            toolName = block.toolName,
+                            status = block.status,
+                            output = block.output,
+                            filePath = block.filePath,
+                            isActive = block.isActive && isStreaming,
+                            additions = block.additions,
+                            deletions = block.deletions,
+                            oldContent = block.oldContent,
+                            newContent = block.newContent
+                        )
+                }
             }
         }
 
@@ -666,6 +994,54 @@ fun AiMessageContent(
 }
 
 /**
+ * Stands in for a long message while it is parsed off the main thread: about
+ * [rows] rows tall (see MessageWindow.estimatedRows), so the list moves little
+ * when the real blocks replace it.
+ */
+@Composable
+private fun ParsingPlaceholder(rows: Int) {
+    Column(
+        modifier = Modifier.heightIn(min = (rows * PLACEHOLDER_ROW_DP).dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        repeat(3) { i ->
+            Box(
+                Modifier
+                    .fillMaxWidth(if (i == 2) 0.55f else 0.9f)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            )
+        }
+    }
+}
+
+/** Height of one row of a long transcript (a tool group or a short paragraph), for the stand-in. */
+private const val PLACEHOLDER_ROW_DP = 44
+
+/** "Show 160 earlier tool calls": the hidden start of a very long run. */
+@Composable
+private fun EarlierStepsButton(hiddenCalls: Int, onClick: () -> Unit) {
+    androidx.compose.material3.TextButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Outlined.ExpandLess,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = when (hiddenCalls) {
+                0 -> "Show earlier messages"
+                1 -> "Show 1 earlier tool call"
+                else -> "Show $hiddenCalls earlier tool calls"
+            },
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1
+        )
+    }
+}
+
+/**
  * Simplified parsing for streaming content to reduce CPU usage during streaming.
  * Only performs basic text/code fence detection without heavy regex parsing.
  */
@@ -674,10 +1050,9 @@ private fun parseStreamingContent(content: String): List<MessageContentBlock> {
     val blocks = mutableListOf<MessageContentBlock>()
 
     // Simple check for code fences
-    val fencePattern = Regex("""```(\w+)?\n([\s\S]*?)```""")
     var lastEnd = 0
 
-    fencePattern.findAll(content).forEach { match ->
+    STREAM_FENCE_REGEX.findAll(content).forEach { match ->
         // Add text before code block
         if (match.range.first > lastEnd) {
             val text = content.substring(lastEnd, match.range.first).trim()
@@ -699,7 +1074,7 @@ private fun parseStreamingContent(content: String): List<MessageContentBlock> {
         val remaining = content.substring(lastEnd).trim()
         if (remaining.isNotEmpty()) {
             // Check if we have an unclosed code fence (streaming)
-            val unclosedFence = Regex("""```(\w+)?\n([\s\S]*)$""").find(remaining)
+            val unclosedFence = STREAM_UNCLOSED_FENCE_REGEX.find(remaining)
             if (unclosedFence != null) {
                 val textBefore = remaining.substring(0, unclosedFence.range.first).trim()
                 if (textBefore.isNotEmpty()) {
@@ -746,8 +1121,10 @@ private fun ActiveLoader(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ResponseSection(markdown: String, modifier: Modifier = Modifier) {
+    // Escaped replies (literal \n, \u2014, &#39;) are repaired before rendering.
+    val text = remember(markdown) { com.oro.app.data.ai.text.DisplayText.clean(markdown) }
     MarkdownText(
-        markdown = markdown,
+        markdown = text,
         modifier = modifier.fillMaxWidth(),
         textColor = MaterialTheme.colorScheme.onSurface,
         linkColor = MaterialTheme.colorScheme.primary
@@ -861,39 +1238,55 @@ private fun CodeSection(
     modifier: Modifier = Modifier
 ) {
     val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(1_500); copied = false } }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = OroCorners.large,
-        color = MaterialTheme.colorScheme.surfaceContainer
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
         Column(Modifier.fillMaxWidth()) {
+            // Header: language in the app's font, a compact copy action.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(start = 14.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = language?.uppercase(Locale.ROOT) ?: "CODE",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = language?.lowercase(Locale.ROOT)?.ifBlank { null } ?: "code",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isActive) {
-                        ActiveLoader()
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    IconButton(onClick = { clipboard.setText(AnnotatedString(code)) }) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy code")
-                    }
+                if (isActive) {
+                    ActiveLoader()
+                    Spacer(Modifier.width(8.dp))
+                }
+                androidx.compose.material3.TextButton(
+                    onClick = { clipboard.setText(AnnotatedString(code)); copied = true },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(
+                        if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (copied) "Copied" else "Copy",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-
+            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             SelectionContainer {
+                // Code scrolls sideways rather than wrapping, so indentation stays readable.
                 Text(
                     text = code,
                     style = MaterialTheme.typography.bodySmall,
@@ -901,7 +1294,10 @@ private fun CodeSection(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
-                    modifier = Modifier.padding(12.dp)
+                    softWrap = false,
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(14.dp)
                 )
             }
         }

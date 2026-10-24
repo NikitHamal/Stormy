@@ -16,7 +16,9 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.State
+import com.oro.app.ui.theme.LocalLiteMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import com.oro.app.ui.theme.ExpressiveShapes
@@ -90,7 +92,10 @@ fun AgentBadge(
     val accent = AgentVisuals.accent(accentIndex)
     val shape = AgentVisuals.shape(accentIndex)
 
-    val pulse = if (active) {
+    // A State read inside graphicsLayer {} rather than a Float read here, so
+    // the pulse redraws the badge's layer without recomposing it every frame.
+    // Lite mode keeps the badge still; colour still signals "working".
+    val pulse: State<Float>? = if (active && !LocalLiteMode.current) {
         val transition = rememberInfiniteTransition(label = "agentPulse")
         transition.animateFloat(
             initialValue = 1f,
@@ -103,9 +108,9 @@ fun AgentBadge(
                 repeatMode = RepeatMode.Reverse
             ),
             label = "agentPulseScale"
-        ).value
+        )
     } else {
-        1f
+        null
     }
 
     val container by animateColorAsState(
@@ -116,7 +121,16 @@ fun AgentBadge(
     Surface(
         modifier = modifier
             .size(size)
-            .scale(pulse),
+            .then(
+                if (pulse != null) {
+                    Modifier.graphicsLayer {
+                        scaleX = pulse.value
+                        scaleY = pulse.value
+                    }
+                } else {
+                    Modifier
+                }
+            ),
         shape = shape,
         color = container
     ) {

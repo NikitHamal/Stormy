@@ -35,7 +35,7 @@ class AiProviderTest {
     }
 
     @Test
-    fun `every provider except custom has a base url`() {
+    fun `every network provider except custom has a base url`() {
         val missing = AiProvider.entries
             .filter { it != AiProvider.CUSTOM && it.baseUrl.isBlank() }
             .map { it.name }
@@ -121,72 +121,5 @@ class AiProviderManagerTest {
     fun `a set key configures the provider`() {
         val manager = AiProviderManager(apiKeys = mapOf(AiProvider.GROQ to "gsk_test"))
         assertThat(manager.isProviderConfigured(AiProvider.GROQ)).isTrue()
-    }
-}
-
-/**
- * Reasoning-effort support is matched on model id, so these pin the families
- * that must and must not receive the parameter. Being wrong in the permissive
- * direction costs a 400 on every request to that model.
- */
-class ReasoningEffortTest {
-
-    @Test
-    fun `default is balanced`() {
-        assertThat(ReasoningEffort.DEFAULT).isEqualTo(ReasoningEffort.BALANCED)
-    }
-
-    @Test
-    fun `wire values are the OpenAI-compatible vocabulary`() {
-        assertThat(ReasoningEffort.LOW.wireValue).isEqualTo("low")
-        assertThat(ReasoningEffort.BALANCED.wireValue).isEqualTo("medium")
-        assertThat(ReasoningEffort.DEEP.wireValue).isEqualTo("high")
-    }
-
-    @Test
-    fun `fromName is lenient and falls back to the default`() {
-        assertThat(ReasoningEffort.fromName("deep")).isEqualTo(ReasoningEffort.DEEP)
-        assertThat(ReasoningEffort.fromName("DEEP")).isEqualTo(ReasoningEffort.DEEP)
-        assertThat(ReasoningEffort.fromName(null)).isEqualTo(ReasoningEffort.DEFAULT)
-        assertThat(ReasoningEffort.fromName("nonsense")).isEqualTo(ReasoningEffort.DEFAULT)
-    }
-
-    @Test
-    fun `reasoning families are recognised`() {
-        listOf(
-            "gpt-5.4", "o3-mini", "gpt-5.1-codex", "gemini-3.8-flash",
-            "gemini-2.5-pro", "claude-opus-5", "grok-4.5", "qwen3.8-max",
-            "deepseek-v4-pro", "glm-5.3", "nvidia/nemotron-3-super-120b-a12b"
-        ).forEach { id ->
-            assertThat(ReasoningEffortSupport.supports(id)).isTrue()
-        }
-    }
-
-    @Test
-    fun `non-reasoning and lite tiers are excluded`() {
-        listOf(
-            "gpt-4o", "openai-fast", "mistral-large-4",
-            // Lite tiers drop the budget even though the family matches.
-            "gemini-3.5-flash-lite", "gpt-5.4-nano"
-        ).forEach { id ->
-            assertThat(ReasoningEffortSupport.supports(id)).isFalse()
-        }
-    }
-}
-
-/** DeepInfra was removed; nothing should still reference it. */
-class RemovedProviderTest {
-
-    @Test
-    fun `deepinfra is gone from the provider set`() {
-        assertThat(AiProvider.entries.map { it.name }).doesNotContain("DEEPINFRA")
-        assertThat(AiProvider.entries.map { it.displayName }).doesNotContain("DeepInfra")
-    }
-
-    @Test
-    fun `an unknown provider name still resolves to the keyless default`() {
-        // Existing installs may have "DEEPINFRA" saved as their provider.
-        assertThat(AiProvider.fromString("DEEPINFRA")).isEqualTo(AiProvider.DEFAULT)
-        assertThat(AiProvider.DEFAULT.worksWithoutKey).isTrue()
     }
 }

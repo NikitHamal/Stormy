@@ -77,7 +77,8 @@ class ProjectSchemaMigrationTest {
         )
         assertThat(source).contains("Migration(3, 4)")
         assertThat(source).contains("Migration(4, 5)")
-        assertThat(source).contains("version = 5")
+        assertThat(source).contains("Migration(5, 6)")
+        assertThat(source).contains("version = 6")
     }
 
     @Test

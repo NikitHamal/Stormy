@@ -1,0 +1,9 @@
+{
+  "name": "oro-soundtrack",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Oro — Original Soundtrack: five instrumental tracks synthesised from code",
+  "type": "module",
+  "scripts": { "render": "node render.mjs", "render:one": "node render.mjs" },
+  "dependencies": { "ffmpeg-static": "^5.2.0" }
+}

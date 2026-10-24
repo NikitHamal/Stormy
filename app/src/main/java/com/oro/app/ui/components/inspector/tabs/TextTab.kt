@@ -52,7 +52,9 @@ fun TextTab(
 ) {
     val styles = element.computedStyles
     val selector = InspectorUtils.buildSelector(element)
-    val textContent = InspectorUtils.extractTextContent(element.innerHTML)
+    // Only the element's own run of text is edited in place, and only when
+    // the page could say where it is in the source.
+    val ownText = element.ownText.takeIf { element.textTarget != null }.orEmpty()
 
     Column(
         modifier = Modifier
@@ -60,31 +62,39 @@ fun TextTab(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Text content editor - only show if element has text
-        if (textContent.isNotEmpty()) {
+        if (ownText.isNotEmpty()) {
             InspectorSection(
                 title = "Content",
                 icon = Icons.Outlined.TextFields
             ) {
-                var editedText by remember(textContent) { mutableStateOf(textContent) }
+                var editedText by remember(ownText) { mutableStateOf(ownText) }
 
                 TextContentEditor(
                     value = editedText,
                     onValueChange = { editedText = it },
                     onApply = {
-                        if (editedText != textContent) {
+                        if (editedText != ownText) {
                             onTextChange(
                                 TextChangeRequest(
                                     selector = selector,
-                                    oldText = textContent,
+                                    oldText = ownText,
                                     newText = editedText,
-                                    elementHtml = element.outerHTML
+                                    elementHtml = element.outerHTML,
+                                    selectorIsUnique = element.selectorIsUnique,
+                                    target = element.textTarget,
+                                    pagePath = element.pagePath.ifBlank { null }
                                 )
                             )
                         }
                     }
                 )
             }
+        } else if (element.ownTextNodes > 1) {
+            Text(
+                text = "Mixed styles: tap one part to edit its text.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         // Typography section

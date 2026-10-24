@@ -42,6 +42,8 @@ export default {
     const sub = maskedWords(type, sc.subline, 'subline on-light');
     css(sub.root, { left: px(g.head.x), top: px(subY), width: px(g.head.w), textAlign: g.head.align });
     const legend = box(type, 'legend', { left: px(g.head.x), top: px(subY + 70), width: px(g.head.w), justifyContent: g.head.align === 'center' ? 'center' : 'flex-start' });
+    // Vertical: the groups carry their own labels, so the legend would only repeat them.
+    if (g.grid) css(legend, { display: 'none' });
     legend.innerHTML = `<span><i class="lg-free"></i>${sc.freeLabel}</span><span><i class="lg-byo"></i>${sc.byoLabel}</span>`;
     const chips = [
       ...sc.free.map((s, i, a) => ({ s, ring: 0, i, count: a.length, free: true })),
@@ -51,8 +53,26 @@ export default {
       n.innerHTML = c.free ? `<span>${c.s}</span>` : `${KEY}<span>${c.s}</span>`;
       return { ...c, n };
     });
+    // Vertical grid slots: a label then rows of chips per group, centred.
+    const labels = [];
+    if (g.grid) {
+      const G = g.grid;
+      let y = G.top;
+      [[sc.freeLabel, sc.free.length, 2], [sc.byoLabel, sc.byo.length, 3]].forEach(([text, count, cols], gi) => {
+        const lab = box(main, 'grp-label', { left: px(g.c.x), top: px(y) });
+        lab.textContent = text;
+        labels.push({ n: lab, gi });
+        y += G.label;
+        const rows = Math.ceil(count / cols);
+        chips.filter((c) => c.ring === gi).forEach((c) => {
+          const r = Math.floor(c.i / cols), inRow = Math.min(cols, count - r * cols), col = c.i % cols;
+          c.slot = { x: g.c.x + (col - (inRow - 1) / 2) * G.colW[gi], y: y + r * G.rowH + G.rowH / 2 };
+        });
+        y += rows * G.rowH + G.groupGap;
+      });
+    }
     const sheet = box(fore, 'sheet');
-    return { roots: [type, main, fore], lines, sub, legend, chips, sheet };
+    return { roots: [type, main, fore], lines, sub, legend, chips, sheet, labels };
   },
   render(t, ctx, sc, R) {
     const { L, W, H, P } = ctx;
@@ -97,6 +117,30 @@ export default {
     };
     if (t >= T.takeoff - 0.15) o = { ...o, ...handoff(t - T.takeoff, L) };
     ctx.o = o;
+
+    // --- Vertical: chips spring out of Orobi into their group slots, and back in on the way out.
+    if (g.grid) {
+      R.labels.forEach(({ n, gi }) => {
+        const a = ease.emph(prog(t, T.chips + gi * 0.18, T.chips + gi * 0.18 + 0.45));
+        const z = ease.emphIn(prog(t, T.out, T.out + 0.3));
+        css(n, { opacity: String(r2(a * (1 - z))), transform: `translateX(-50%) translateY(${r2((1 - a) * 18 - z * 12)}px)` });
+      });
+      R.chips.forEach((c) => {
+        const order = c.ring * sc.free.length + c.i;
+        const t0 = T.chips + 0.08 + order * 0.045;
+        const kin = ease.back(prog(t, t0, t0 + 0.5), 1.5);
+        const kout = ease.emphIn(prog(t, T.out + order * 0.012, T.out + 0.32 + order * 0.012));
+        const m = clamp(kin) * (1 - kout);
+        const x = lerp(g.c.x, c.slot.x, kin - kout * kin);
+        const y = lerp(g.c.y, c.slot.y, kin - kout * kin);
+        css(c.n, {
+          transform: `translate(${r2(x)}px, ${r2(y)}px) translate(-50%, -50%) scale(${r2(0.35 + 0.65 * Math.max(0, kin) * (1 - 0.4 * kout))})`,
+          opacity: String(r2(clamp(prog(t, t0, t0 + 0.1)) * (1 - kout))),
+          zIndex: '8', display: t < t0 || kout >= 1 || m <= 0 && t > t0 + 0.5 ? 'none' : '',
+        });
+      });
+      return;
+    }
 
     // --- Orbiting provider chips
     R.chips.forEach((c) => {

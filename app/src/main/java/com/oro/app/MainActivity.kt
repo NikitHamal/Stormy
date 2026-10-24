@@ -11,10 +11,13 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
+import com.oro.app.data.repository.LiteMode
 import com.oro.app.data.repository.ThemeMode
+import com.oro.app.ui.theme.DevicePerformance
 import com.oro.app.ui.navigation.OroNavGraph
 import com.oro.app.ui.navigation.Screen
 import com.oro.app.ui.theme.OroTheme
@@ -23,6 +26,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    /** Set when the device agent brings Oro forward (question or finished task). */
+    private val openDeviceAgent = mutableStateOf(false)
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(com.oro.app.device.DeviceAgent.EXTRA_OPEN_DEVICE_AGENT, false)) openDeviceAgent.value = true
+    }
 
     private val preferencesRepository by lazy {
         (application as OroApplication).preferencesRepository
@@ -39,6 +51,7 @@ class MainActivity : ComponentActivity() {
         // Backed by snapshot state so that setContent below actually recomposes
         // when the read lands; a plain captured var would never notify Compose.
         val startDestination = mutableStateOf<String?>(null)
+        if (intent?.getBooleanExtra(com.oro.app.device.DeviceAgent.EXTRA_OPEN_DEVICE_AGENT, false) == true) openDeviceAgent.value = true
         splashScreen.setKeepOnScreenCondition { startDestination.value == null }
 
         lifecycleScope.launch {
@@ -74,20 +87,37 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
 
-            OroTheme(darkTheme = darkTheme) {
+            // Lite mode: AUTO resolves against the device class (computed once
+            // per process), so budget phones get the cheaper rendering path
+            // without the user having to find the setting.
+            val liteModeChoice by preferencesRepository.liteMode.collectAsStateWithLifecycle(
+                initialValue = LiteMode.AUTO
+            )
+            val lowEndDevice = remember { DevicePerformance.isLowEndDevice(applicationContext) }
+            val liteMode = liteModeChoice.isEnabled(lowEndDevice)
+
+            OroTheme(darkTheme = darkTheme, liteMode = liteMode) {
                 // Null only while the splash screen is still covering us.
-                startDestination.value?.let { MainContent(startDestination = it) }
+                startDestination.value?.let {
+                    MainContent(
+                        startDestination = it,
+                        openDeviceAgent = openDeviceAgent.value,
+                        onDeviceAgentOpened = { openDeviceAgent.value = false }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MainContent(startDestination: String) {
+private fun MainContent(startDestination: String, openDeviceAgent: Boolean, onDeviceAgentOpened: () -> Unit) {
     val navController = rememberNavController()
 
     OroNavGraph(
         navController = navController,
-        startDestination = startDestination
+        startDestination = startDestination,
+        openDeviceAgent = openDeviceAgent,
+        onDeviceAgentOpened = onDeviceAgentOpened
     )
 }

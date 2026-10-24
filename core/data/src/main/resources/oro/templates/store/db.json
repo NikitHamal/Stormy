@@ -1,0 +1,100 @@
+{
+ "products": [
+  {
+   "id": 1,
+   "name": "Tide bowl",
+   "category": "Bowls",
+   "price": 34,
+   "art": "bowl",
+   "tone": "#7aa7a1",
+   "glaze": "Sea-salt celadon",
+   "rating": 4.9,
+   "stock": 12,
+   "new": true
+  },
+  {
+   "id": 2,
+   "name": "Ember mug",
+   "category": "Mugs",
+   "price": 26,
+   "art": "mug",
+   "tone": "#c56a3e",
+   "glaze": "Iron ember",
+   "rating": 4.8,
+   "stock": 30,
+   "new": false
+  },
+  {
+   "id": 3,
+   "name": "Dune vase",
+   "category": "Vases",
+   "price": 58,
+   "art": "vase",
+   "tone": "#d8b88c",
+   "glaze": "Raw sandstone",
+   "rating": 4.7,
+   "stock": 4,
+   "new": true
+  },
+  {
+   "id": 4,
+   "name": "Moss plate",
+   "category": "Plates",
+   "price": 29,
+   "art": "plate",
+   "tone": "#8a9a5b",
+   "glaze": "Moss matte",
+   "rating": 4.6,
+   "stock": 18,
+   "new": false
+  },
+  {
+   "id": 5,
+   "name": "Night mug",
+   "category": "Mugs",
+   "price": 26,
+   "art": "mug",
+   "tone": "#2f3a4f",
+   "glaze": "Midnight speckle",
+   "rating": 4.9,
+   "stock": 0,
+   "new": false
+  },
+  {
+   "id": 6,
+   "name": "Bloom vase",
+   "category": "Vases",
+   "price": 64,
+   "art": "vase",
+   "tone": "#c98b9a",
+   "glaze": "Rose quartz",
+   "rating": 4.8,
+   "stock": 7,
+   "new": false
+  },
+  {
+   "id": 7,
+   "name": "Harvest bowl",
+   "category": "Bowls",
+   "price": 38,
+   "art": "bowl",
+   "tone": "#b5833f",
+   "glaze": "Honey amber",
+   "rating": 4.7,
+   "stock": 9,
+   "new": false
+  },
+  {
+   "id": 8,
+   "name": "Chalk plate",
+   "category": "Plates",
+   "price": 27,
+   "art": "plate",
+   "tone": "#e8e1d6",
+   "glaze": "Chalk white",
+   "rating": 4.5,
+   "stock": 25,
+   "new": false
+  }
+ ]
+}

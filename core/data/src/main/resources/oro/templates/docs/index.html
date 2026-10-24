@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lumen Docs · Getting started</title>
+  <meta name="description" content="Lumen is a tiny charting library for the web. Install it, draw your first chart and theme it in minutes.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="oro-ui/oro.css">
+  <link rel="stylesheet" href="css/site.css">
+  <script src="oro-ui/oro.js" defer></script>
+  <script src="js/site.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <button class="btn btn-ghost btn-icon menu-btn" id="menu-btn" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <a class="brand" href="#"><span class="logo" aria-hidden="true"></span>Lumen <span class="version">v3.2</span></a>
+      <label class="doc-search"><span class="sr">Search the docs</span>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="doc-search" placeholder="Search docs" autocomplete="off">
+        <kbd>/</kbd>
+      </label>
+      <button class="btn btn-ghost btn-icon" data-theme-toggle aria-label="Switch theme">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar-nav" id="sidebar" aria-label="Documentation">
+      <p class="nav-group">Getting started</p>
+      <a href="#introduction" class="doc-link">Introduction</a>
+      <a href="#installation" class="doc-link">Installation</a>
+      <a href="#first-chart" class="doc-link">Your first chart</a>
+      <p class="nav-group">Guides</p>
+      <a href="#data" class="doc-link">Shaping data</a>
+      <a href="#theming" class="doc-link">Theming</a>
+      <a href="#accessibility" class="doc-link">Accessibility</a>
+      <p class="nav-group">Reference</p>
+      <a href="#api" class="doc-link">API</a>
+      <p class="no-results" id="no-results" hidden>No pages match.</p>
+    </nav>
+
+    <main class="content" id="content">
+      <article class="prose">
+        <p class="crumbs">Getting started</p>
+        <h1 id="introduction">Introduction</h1>
+        <p class="lead">Lumen is a 9&nbsp;KB charting library for the web. It draws crisp, accessible SVG charts from plain arrays, with no build step and no dependencies.</p>
+        <div class="callout tip"><strong>New in 3.2</strong><p>Charts now announce their summary to screen readers automatically. See <a href="#accessibility">Accessibility</a>.</p></div>
+
+        <h2 id="installation">Installation</h2>
+        <p>Add Lumen from a CDN, or install it with your package manager.</p>
+        <div class="code"><div class="code-head"><span>HTML</span><button class="copy" type="button">Copy</button></div>
+<pre><code>&lt;script src="https://cdn.example.com/lumen@3.2/lumen.min.js"&gt;&lt;/script&gt;</code></pre></div>
+        <div class="code"><div class="code-head"><span>Terminal</span><button class="copy" type="button">Copy</button></div>
+<pre><code>npm install lumen-charts</code></pre></div>
+
+        <h2 id="first-chart">Your first chart</h2>
+        <p>Give Lumen an element and your data. Labels and values are plain arrays.</p>
+        <div class="code"><div class="code-head"><span>JavaScript</span><button class="copy" type="button">Copy</button></div>
+<pre><code>const chart = Lumen.bar('#sales', {
+  labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+  values: [12, 19, 8, 24, 16],
+  format: (v) =&gt; v + ' orders'
+});</code></pre></div>
+        <figure class="demo" aria-label="A bar chart of orders from Monday to Friday">
+          <div class="chart" id="demo-chart"></div>
+        </figure>
+        <div class="callout warn"><strong>Heads up</strong><p>The element needs a height. Lumen fills its container, so a zero-height box draws nothing.</p></div>
+
+        <h2 id="data">Shaping data</h2>
+        <p>Lumen expects one value per label. Group and sum your records first — a small reducer is usually enough.</p>
+        <div class="code"><div class="code-head"><span>JavaScript</span><button class="copy" type="button">Copy</button></div>
+<pre><code>const byDay = orders.reduce((acc, o) =&gt; {
+  acc[o.day] = (acc[o.day] || 0) + o.total;
+  return acc;
+}, {});</code></pre></div>
+
+        <h2 id="theming">Theming</h2>
+        <p>Every colour is a CSS custom property, so charts follow your design system and dark mode for free.</p>
+        <table class="table props">
+          <thead><tr><th>Property</th><th>Default</th><th>Controls</th></tr></thead>
+          <tbody>
+            <tr><td><code>--lumen-bar</code></td><td><code>#6d5dfc</code></td><td>Bar and line colour</td></tr>
+            <tr><td><code>--lumen-grid</code></td><td><code>#e2e8f0</code></td><td>Grid lines</td></tr>
+            <tr><td><code>--lumen-text</code></td><td><code>currentColor</code></td><td>Axis labels</td></tr>
+          </tbody>
+        </table>
+
+        <h2 id="accessibility">Accessibility</h2>
+        <p>Each chart renders a hidden data table and a one-sentence summary. Keyboard users can step through points with the arrow keys.</p>
+
+        <h2 id="api">API</h2>
+        <p><code>Lumen.bar(target, options)</code> and <code>Lumen.line(target, options)</code> return a chart with <code>update(data)</code> and <code>destroy()</code>.</p>
+
+        <nav class="pager" aria-label="Pagination">
+          <a class="card card-hover" href="#installation"><span class="muted">Next</span><strong>Installation →</strong></a>
+        </nav>
+      </article>
+
+      <aside class="toc" aria-label="On this page">
+        <p class="nav-group">On this page</p>
+        <a href="#installation">Installation</a>
+        <a href="#first-chart">Your first chart</a>
+        <a href="#data">Shaping data</a>
+        <a href="#theming">Theming</a>
+        <a href="#accessibility">Accessibility</a>
+        <a href="#api">API</a>
+      </aside>
+    </main>
+  </div>
+  <div class="scrim" id="scrim" hidden></div>
+</body>
+</html>

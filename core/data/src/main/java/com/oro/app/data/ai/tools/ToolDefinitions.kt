@@ -17,7 +17,10 @@ import kotlinx.serialization.json.jsonPrimitive
 data class ToolResult(
     val success: Boolean,
     val output: String,
-    val error: String? = null
+    val error: String? = null,
+    /** Images the tool produced (base64 JPEG), shown to vision models in a follow-up message. */
+    @kotlinx.serialization.Transient
+    val images: List<String> = emptyList()
 )
 
 /**

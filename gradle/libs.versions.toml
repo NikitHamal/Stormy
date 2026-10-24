@@ -33,9 +33,13 @@ kotlinxCoroutines = "1.11.0"
 # --- Third party -----------------------------------------------------------
 okhttp = "5.5.0"
 coil = "3.6.3"
+# Google's A2UI renderer for Compose: agent-generated native UI in chat replies.
+a2ui = "1.0.0-alpha01"
 soraEditor = "0.23.6"
 markwon = "4.6.2"
-jgit = "7.8.0.202609011348-r"
+# 5.13 is the last JGit line built for Java 8. 6.x and 7.x call Java 11 APIs
+# (InputStream.readNBytes) that Android only has from API 33, so clone crashed on older phones.
+jgit = "5.13.5.202508271544-r"
 
 # --- Test ------------------------------------------------------------------
 junit = "4.13.2"
@@ -45,6 +49,8 @@ truth = "1.4.5"
 turbine = "1.2.1"
 mockk = "1.14.9"
 robolectric = "4.17"
+# JVM screenshots of Compose UI (test-only; never in the APK). Run with -Poro.screenshots=true.
+roborazzi = "1.77.0"
 
 [libraries]
 # --- AndroidX core ---------------------------------------------------------
@@ -92,6 +98,8 @@ okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit4" }
 
 # --- Images ----------------------------------------------------------------
+a2ui-compose-runtime = { group = "androidx.a2ui.compose", name = "compose-runtime", version.ref = "a2ui" }
+a2ui-compose-ui = { group = "androidx.a2ui.compose", name = "compose-ui", version.ref = "a2ui" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-svg = { group = "io.coil-kt.coil3", name = "coil-svg", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
@@ -122,6 +130,8 @@ truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

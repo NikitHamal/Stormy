@@ -3,9 +3,10 @@ package com.oro.app.data.repository
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.AiModels
 import com.oro.app.data.ai.AiProvider
-import com.oro.app.data.ai.ReasoningEffortSupport
+import com.oro.app.data.ai.providers.ModelIds
 import com.oro.app.data.ai.ModelCapabilities
 import com.oro.app.data.ai.GeminiModelService
+import com.oro.app.data.ai.KeylessFallback
 import com.oro.app.data.ai.OpenAiCompatibleModelService
 import com.oro.app.data.local.dao.AiModelDao
 import com.oro.app.data.local.entity.AiModelEntity
@@ -25,18 +26,23 @@ class AiModelRepository(
 
     fun observeAllModels(): Flow<List<AiModel>> {
         return aiModelDao.observeAllModels().map { entities ->
-            entities.map { it.toAiModel() }
+            entities.mapNotNull { it.toAiModel() }
         }
     }
 
     fun observeEnabledModels(): Flow<List<AiModel>> {
         return aiModelDao.observeEnabledModels().map { entities ->
-            entities.map { it.toAiModel() }
+            entities.mapNotNull { it.toAiModel() }.also(::noteEnabled)
         }
     }
 
     suspend fun getEnabledModels(): List<AiModel> {
-        return aiModelDao.getEnabledModels().map { it.toAiModel() }
+        return aiModelDao.getEnabledModels().mapNotNull { it.toAiModel() }.also(::noteEnabled)
+    }
+
+    /** The keyless fallback never hands a request to a model the user switched off. */
+    private fun noteEnabled(models: List<AiModel>) {
+        KeylessFallback.enabledIds = models.mapTo(HashSet()) { it.id }
     }
 
     suspend fun getModelById(id: String): AiModel? {
@@ -67,6 +73,10 @@ class AiModelRepository(
         val failures = mutableListOf<String>()
 
         for (provider in AiProvider.entries) {
+            // Custom providers refresh one by one from their own screen
+            // (refreshCustomProvider); a blanket delete-by-provider here would
+            // wipe every one of their catalogues.
+            if (provider == AiProvider.CUSTOM) continue
             val key = apiKeys[provider].orEmpty()
             if (provider.requiresApiKey && key.isBlank()) {
                 continue
@@ -130,11 +140,14 @@ class AiModelRepository(
             onSuccess = { fetchedModels ->
                 val existingModels = aiModelDao.getAllModels()
                 val existingMap = existingModels.associateBy { it.id }
+                val seedIds = AiModels.getAllModels().map { it.id }.toSet()
 
                 val newEntities = fetchedModels.map { model ->
                     val existing = existingMap[model.id]
                     model.toEntity().copy(
-                        isEnabled = existing?.isEnabled ?: true,
+                        // New models arrive switched off; only the shipped
+                        // seeds (the ones that work out of the box) start on.
+                        isEnabled = existing?.isEnabled ?: seedIds.contains(model.id),
                         isFavorite = existing?.isFavorite ?: false,
                         alias = existing?.alias,
                         lastUsed = existing?.lastUsed,
@@ -188,11 +201,43 @@ class AiModelRepository(
      * the user already has (enabled state, aliases, favourites).
      */
     private suspend fun addMissingKeylessSeeds() {
-        val existing = aiModelDao.getAllModels().map { it.id }.toSet()
+        // Rows that never worked without a key (LLM7's paid tier was listed
+        // anonymously) or were another model under a different name (Ptero
+        // re-routes most of its ids to qwen3.7-flash). Removed so the picker
+        // only offers keyless models that answer.
+        RETIRED_KEYLESS.forEach { aiModelDao.deleteModelById(it) }
+        RETIRED_SEEDS.forEach { (provider, id) ->
+            if (aiModelDao.getModelById(id)?.provider == provider.name) aiModelDao.deleteModelById(id)
+        }
+        // Providers that no longer exist (too limited for agent runs, 2026-10-23):
+        // their rows are dropped by name, since the enum constants are gone.
+        REMOVED_PROVIDERS.forEach { aiModelDao.deleteModelsByProvider(it) }
+        val rows = aiModelDao.getAllModels()
+        val existing = rows.map { it.id }.toSet()
         val missing = AiModels.getAllModels()
             .filter { it.provider.worksWithoutKey && it.id !in existing }
             .map { it.toEntity().copy(isEnabled = true, addedAt = System.currentTimeMillis()) }
         if (missing.isNotEmpty()) aiModelDao.insertModels(missing)
+        // Seeded rows keep the window they were inserted with; correct the ones
+        // the catalogue now documents differently -- but only while a row still
+        // holds a value Oro seeded. A window a provider refresh reported (its
+        // /models) is live and stays, so a launch never undoes a refresh.
+        val seeds = AiModels.getAllModels().associateBy { it.id }
+        rows.filter { !it.isCustom }.forEach { row ->
+            val documented = seeds[row.id]?.takeIf { it.provider.name == row.provider }?.reportedContextLength ?: return@forEach
+            if (shouldCorrectSeedContext(row.id, row.reportedContextLength, documented)) {
+                aiModelDao.updateSeedContext(row.id, documented)
+            }
+        }
+    }
+
+    /**
+     * Drops [provider]'s catalogue rows (hand-added models stay). Used once
+     * when a provider's anonymous tier stopped being offered: the rows it
+     * seeded and listed without a key would only fail now.
+     */
+    suspend fun retireProviderRows(provider: AiProvider) {
+        aiModelDao.deleteModelsByProvider(provider.name)
     }
 
     /** Enable or disable every model from one provider. */
@@ -251,6 +296,57 @@ class AiModelRepository(
         }
     }
 
+    /** Models of one custom provider, hand-added first. */
+    fun observeCustomProviderModels(providerId: String): Flow<List<AiModel>> =
+        aiModelDao.observeModelsWithPrefix(ModelIds.prefixFor(providerId))
+            .map { rows -> rows.mapNotNull { it.toAiModel() } }
+
+    /**
+     * Replace a custom provider's fetched catalogue, keeping per-model state
+     * (enabled, favourite, alias, usage) and every hand-added model.
+     */
+    suspend fun replaceCustomProviderModels(providerId: String, fetched: List<AiModel>): Int =
+        withContext(Dispatchers.IO) {
+            val existing = aiModelDao.getAllModels().associateBy { it.id }
+            val manual = existing.values.filter { it.isCustom && it.id.startsWith(ModelIds.prefixFor(providerId)) }
+                .map { it.id }.toSet()
+            val rows = fetched.filter { it.id !in manual }.map { model ->
+                val old = existing[model.id]
+                model.toEntity().copy(
+                    // Off until the user picks it: a big catalogue must not flood the picker.
+                    isEnabled = old?.isEnabled ?: false,
+                    isFavorite = old?.isFavorite ?: false,
+                    alias = old?.alias,
+                    lastUsed = old?.lastUsed,
+                    usageCount = old?.usageCount ?: 0,
+                    addedAt = old?.addedAt ?: System.currentTimeMillis()
+                )
+            }
+            aiModelDao.deleteFetchedModelsWithPrefix(ModelIds.prefixFor(providerId))
+            aiModelDao.insertModels(rows)
+            rows.size
+        }
+
+    suspend fun addCustomProviderModel(
+        providerId: String,
+        upstreamId: String,
+        name: String,
+        contextLength: Int,
+        supportsToolCalls: Boolean,
+        isThinkingModel: Boolean
+    ): Result<Unit> = addCustomModel(
+        id = ModelIds.of(providerId, upstreamId.trim()),
+        name = name.ifBlank { upstreamId }.trim(),
+        provider = AiProvider.CUSTOM,
+        contextLength = contextLength,
+        supportsToolCalls = supportsToolCalls,
+        isThinkingModel = isThinkingModel
+    )
+
+    suspend fun deleteCustomProviderModels(providerId: String) = withContext(Dispatchers.IO) {
+        aiModelDao.deleteAllModelsWithPrefix(ModelIds.prefixFor(providerId))
+    }
+
     suspend fun deleteModel(modelId: String): Result<Unit> {
         return try {
             val model = aiModelDao.getModelById(modelId)
@@ -273,11 +369,16 @@ class AiModelRepository(
         return aiModelDao.getEnabledModelCount()
     }
 
-    private fun AiModelEntity.toAiModel(): AiModel {
+    /**
+     * The domain model of a row, or null when its provider no longer exists
+     * (a row from a removed provider must not pass as the default provider's).
+     */
+    private fun AiModelEntity.toAiModel(): AiModel? {
+        val known = AiProvider.entries.firstOrNull { it.name == provider } ?: return null
         return AiModel(
             id = id,
             name = alias ?: name,
-            provider = AiProvider.fromString(provider),
+            provider = known,
             // Resolved on read rather than trusted from the row: a stored
             // figure that came from an older capability table (Agnes 3.0 Flash
             // was metered at 128k this way) would otherwise never be corrected.
@@ -291,11 +392,9 @@ class AiModelRepository(
             supportsStreaming = supportsStreaming,
             supportsToolCalls = supportsToolCalls,
             isThinkingModel = isThinkingModel,
-            // Derived rather than stored: capability comes from the model id,
-            // so persisting it would just be a column that can go stale
-            // against the detection table.
-            supportsReasoningEffort = ReasoningEffortSupport.supports(id),
-            isEnabled = isEnabled
+            isEnabled = isEnabled,
+            inputPricePerToken = inputPricePerToken,
+            outputPricePerToken = outputPricePerToken
         )
     }
 
@@ -310,14 +409,70 @@ class AiModelRepository(
             supportsToolCalls = supportsToolCalls,
             isThinkingModel = isThinkingModel,
             isEnabled = true,
-            isCustom = false
+            isCustom = false,
+            inputPricePerToken = inputPricePerToken,
+            outputPricePerToken = outputPricePerToken
         )
     }
 
     companion object {
+        /**
+         * Windows earlier versions of Oro seeded, per id (from the seed lists'
+         * history). A row still holding one of these was never refreshed, so
+         * it follows the catalogue; any other value came from the provider.
+         * When a seed's window changes, add its old value here.
+         */
+        private val PREVIOUS_SEED_CONTEXT: Map<String, Set<Int>> = mapOf(
+            "k2:IFM/K2-Horizon-375B-A23B" to setOf(131_072),
+            "mercury:mercury-3" to setOf(131_072),
+            "mistral-large-latest" to setOf(131_072),
+            "deepseek-ai/deepseek-v4.1-flash" to setOf(163_840),
+            "nvidia/nemotron-3-super-120b-a12b" to setOf(131_072),
+            "nvidia/nemotron-3.5-lightning-30b-a3b" to setOf(131_072),
+            "claude-sonnet-5-5" to setOf(200_000),
+            "gpt-5.4" to setOf(400_000),
+            "qwen3.8-max" to setOf(262_144),
+            "qwen:qwen3.8-max" to setOf(262_144)
+        )
+
+        /**
+         * Whether a seeded row's window should move to the catalogue's
+         * [documented] one: only while it is unset or still an earlier seed
+         * value, never over a window a provider refresh reported.
+         */
+        internal fun shouldCorrectSeedContext(id: String, current: Int?, documented: Int): Boolean =
+            current != documented && (current == null || current in PREVIOUS_SEED_CONTEXT[id].orEmpty())
+
+        private val RETIRED_KEYLESS = listOf(
+            "ptero:mercury-2.5:free", "ptero:deepseek-v4-flash-0731:free", "ptero:gpt-oss-20b:free",
+            "ptero:nemotron-3.5-lightning:free", "fast", "pro",
+            // Mercury 3's effort is now its reasoning setting (ModelMigrations moves its users).
+            "mercury:mercury-3-instant",
+            // LLM7 answers these with 400 "model currently unavailable" (2026-10-22).
+            "DeepSeek-V4-Flash-0731", "GLM-5.3-Flash",
+            // Cloudflare's GLM-4.7 Flash: its text tool calls are unreliable, so it
+            // could not stand in for anything in an agent run (2026-10-23).
+            "cfai:@cf/zai-org/glm-4.7-flash"
+        )
+
+        /**
+         * Providers removed because their keyless capacity could not carry an
+         * agent run (~20-60 model calls in 5-15 minutes, 2026-10-23):
+         * Pollinations (about one reply per 30 s), VLM Run (30 requests an
+         * hour, 100 a day), OpenBMB's MiniCPM demo (four requests at a time
+         * across all visitors, and it logs conversations).
+         */
+        internal val REMOVED_PROVIDERS = listOf("POLLINATIONS", "VLM_RUN", "MINICPM")
+
+        /** Retired upstream, removed only from the provider that dropped them (the ids live on elsewhere). */
+        private val RETIRED_SEEDS = listOf(
+            AiProvider.GROQ to "qwen/qwen3-32b",          // Groq, August 2026
+            AiProvider.CEREBRAS to "qwen-3-coder-480b"    // Cerebras deprecation
+        )
         private val OPENROUTER_HEADERS = mapOf(
             "HTTP-Referer" to "https://github.com/oro/app",
             "X-Title" to "Oro"
         )
     }
+
 }

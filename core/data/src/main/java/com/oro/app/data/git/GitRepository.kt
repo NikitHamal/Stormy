@@ -1107,9 +1107,7 @@ private class JGitProgressMonitor(
 
     override fun isCancelled(): Boolean = false
 
-    /**
-     * Added in JGit 7. We surface progress through [callback] rather than
-     * JGit's own textual output, so there is no duration to toggle.
-     */
-    override fun showDuration(enabled: Boolean) = Unit
+    /** Not overridden: JGit 5.13's ProgressMonitor has no showDuration (it came in 6.x). */
+    @Suppress("unused")
+    fun showDuration(enabled: Boolean) = Unit
 }

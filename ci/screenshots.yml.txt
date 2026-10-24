@@ -1,0 +1,97 @@
+name: UI screenshots
+
+# Renders Compose UI previews on the JVM (Robolectric + Roborazzi) so the
+# device agent's island and screens can be looked at without a phone, as a
+# button in the Actions tab. (Pushing to a shots/** branch already renders them
+# through android.yml; see app/build.gradle.kts.) The images come out as an
+# artifact (base64 text, lines prefixed ORO|) and as plain PNGs.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '21'
+  GRADLE_OPTS: '-Dorg.gradle.daemon=false'
+
+jobs:
+  shots:
+    name: Render UI screenshots
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v6
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+          cache-overwrite-existing: true
+          validate-wrappers: true
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Render screenshots
+        id: render
+        continue-on-error: true
+        run: ./gradlew --stacktrace :app:testDebugUnitTest -Poro.screenshots=true
+
+      - name: Show test failures
+        if: steps.render.outcome == 'failure'
+        run: |
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            if grep -q "<failure" "$f"; then
+              echo "=== $f"
+              sed -n '/<failure/,/<\/failure>/p' "$f" | head -80
+            fi
+          done || true
+
+      - name: Bundle images as text
+        run: |
+          python3 - <<'EOF'
+          import base64, pathlib
+          out = pathlib.Path("app/build/outputs/roborazzi")
+          pngs = sorted(out.glob("*.png")) if out.exists() else []
+          with open("shots.b64.txt", "w") as f:
+              f.write(f"ORO|SHOTS {len(pngs)}\n")
+              for p in pngs:
+                  data = base64.b64encode(p.read_bytes()).decode()
+                  f.write(f"ORO|FILE {p.name} {p.stat().st_size}\n")
+                  for i in range(0, len(data), 4000):
+                      f.write("ORO|" + data[i:i + 4000] + "\n")
+              f.write("ORO|END\n")
+          print(f"{len(pngs)} images: " + ", ".join(p.name for p in pngs))
+          EOF
+
+      - name: Upload text bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: shots-text
+          path: shots.b64.txt
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload PNGs
+        uses: actions/upload-artifact@v7
+        with:
+          name: shots-png
+          path: app/build/outputs/roborazzi/*.png
+          if-no-files-found: warn
+
+      - name: Fail when rendering failed
+        if: steps.render.outcome == 'failure'
+        run: exit 1

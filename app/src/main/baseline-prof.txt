@@ -1,0 +1,86 @@
+# Hand-written Baseline Profile for Oro.
+#
+# Shipped through androidx.profileinstaller: on install (or on first launch for
+# sideloaded APKs) ART AOT-compiles the methods matched here instead of
+# interpreting/JIT-ing them, which is most noticeable on low-end phones where
+# the JIT warms up slowly. AGP rewrites these rules through the R8 mapping, so
+# they keep working on minified release builds.
+#
+# The AndroidX/Compose libraries ship their own profiles; this file only covers
+# Oro's code on the cold-start path and the screens/components that are hot
+# while the user works (home list, editor, chat, file tree, diffs, markdown).
+#
+# Syntax: H = hot, S = startup, P = post-startup. `pkg/**->**(**)**` matches
+# every method of every class under pkg (any depth); `pkg/*->` only the
+# classes directly in pkg. Exact classes use the `Lpkg/Name;->` form.
+
+# --- Process + activity start ------------------------------------------------
+HSPLcom/oro/app/OroApplication;->**(**)**
+Lcom/oro/app/OroApplication;
+HSPLcom/oro/app/MainActivity;->**(**)**
+Lcom/oro/app/MainActivity;
+HSPLcom/oro/app/MainActivityKt;->**(**)**
+HSPLcom/oro/app/crash/CrashHandler;->**(**)**
+HSPLcom/oro/app/ui/navigation/**->**(**)**
+
+# --- Data layer used before the first frame ----------------------------------
+HSPLcom/oro/app/data/repository/**->**(**)**
+HSPLcom/oro/app/data/local/**->**(**)**
+HSPLcom/oro/app/domain/model/**->**(**)**
+
+# --- Design system (theme, brand mascot, expressive components) -------------
+HSPLcom/oro/app/ui/theme/**->**(**)**
+HSPLcom/oro/app/ui/brand/**->**(**)**
+HSPLcom/oro/app/ui/components/expressive/**->**(**)**
+HSPLcom/oro/app/ui/components/agent/**->**(**)**
+
+# --- Home (start destination) -------------------------------------------------
+HSPLcom/oro/app/ui/screens/home/**->**(**)**
+
+# --- Onboarding (start destination on first launch) --------------------------
+HSPLcom/oro/app/ui/screens/onboarding/**->**(**)**
+
+# --- Editor: code tab, Sora wrapper, chat, file tree, assets ----------------
+HSPLcom/oro/app/ui/screens/editor/*->**(**)**
+HSPLcom/oro/app/ui/screens/editor/code/**->**(**)**
+HSPLcom/oro/app/ui/screens/editor/chat/**->**(**)**
+HSPLcom/oro/app/ui/screens/editor/agent/**->**(**)**
+HSPLcom/oro/app/ui/screens/editor/filetree/**->**(**)**
+PLcom/oro/app/ui/screens/editor/assets/**->**(**)**
+
+# --- Chat rendering: markdown, AI message content, diffs, chat input --------
+HSPLcom/oro/app/ui/components/*->**(**)**
+HSPLcom/oro/app/ui/components/message/**->**(**)**
+HSPLcom/oro/app/ui/components/chat/**->**(**)**
+HSPLcom/oro/app/ui/components/diff/**->**(**)**
+
+# --- Agent runs: the loop, stream and tool-call parsing, providers, tools ----
+# Not startup, but hot on every message: without these the first turns after
+# install run interpreted while the JIT warms up, which is slowest exactly on
+# the phones Oro targets.
+HPLcom/oro/app/data/ai/**->**(**)**
+HPLcom/oro/app/data/preview/**->**(**)**
+HPLcom/oro/app/ui/screens/editor/sessions/**->**(**)**
+
+# --- Device agent: screen reading, gestures, the island and its screen -----
+HPLcom/oro/app/device/**->**(**)**
+HPLcom/oro/app/ui/screens/device/**->**(**)**
+
+# --- Settings / secondary screens (post-startup) ----------------------------
+PLcom/oro/app/ui/screens/settings/**->**(**)**
+PLcom/oro/app/ui/screens/git/**->**(**)**
+PLcom/oro/app/ui/screens/memories/**->**(**)**
+PLcom/oro/app/ui/screens/aimodels/**->**(**)**
+PLcom/oro/app/ui/screens/providers/**->**(**)**
+PLcom/oro/app/ui/screens/preview/**->**(**)**
+
+# --- Third-party hot paths not covered by AndroidX profiles -----------------
+HSPLio/github/rosemoe/sora/widget/CodeEditor;->**(**)**
+HSPLio/github/rosemoe/sora/text/**->**(**)**
+HSPLio/github/rosemoe/sora/graphics/**->**(**)**
+HSPLio/github/rosemoe/sora/widget/rendering/**->**(**)**
+HSPLio/noties/markwon/**->**(**)**
+HSPLorg/commonmark/**->**(**)**
+HSPLkotlinx/serialization/json/**->**(**)**
+HSPLkotlinx/coroutines/**->**(**)**
+HSPLokhttp3/**->**(**)**

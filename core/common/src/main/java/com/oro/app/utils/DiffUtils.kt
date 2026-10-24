@@ -133,51 +133,99 @@ object DiffUtils {
     }
 
     /**
-     * Compute diff using Longest Common Subsequence (LCS) algorithm
+     * Upper bound on the LCS table, in cells (4 bytes each): 2M cells is 8 MB.
+     * The table is (old lines x new lines) of the *changed middle* only, but a
+     * wholesale rewrite of a 3,000-line file used to allocate ~36 MB here --
+     * on the main thread, inside composition -- which is an OOM on a budget
+     * phone. Past this bound the middle is shown as a block replacement:
+     * still a correct diff, just not a minimal one.
+     */
+    private const val MAX_LCS_CELLS = 2_000_000L
+
+    /**
+     * Compute diff using Longest Common Subsequence (LCS) algorithm.
+     *
+     * The common prefix and suffix are stripped first, so the quadratic table
+     * only covers the region that actually changed -- for a typical agent
+     * edit that is a handful of lines instead of the whole file.
      */
     private fun computeLCSDiff(
         oldLines: List<String>,
         newLines: List<String>
     ): List<DiffLine> {
-        val m = oldLines.size
-        val n = newLines.size
+        val oldSize = oldLines.size
+        val newSize = newLines.size
 
-        // Compute LCS length matrix
-        val dp = Array(m + 1) { IntArray(n + 1) }
-        for (i in 1..m) {
-            for (j in 1..n) {
-                if (oldLines[i - 1] == newLines[j - 1]) {
-                    dp[i][j] = dp[i - 1][j - 1] + 1
-                } else {
-                    dp[i][j] = maxOf(dp[i - 1][j], dp[i][j - 1])
-                }
-            }
+        var prefix = 0
+        while (prefix < oldSize && prefix < newSize && oldLines[prefix] == newLines[prefix]) {
+            prefix++
+        }
+        var suffix = 0
+        while (suffix < oldSize - prefix && suffix < newSize - prefix &&
+            oldLines[oldSize - 1 - suffix] == newLines[newSize - 1 - suffix]
+        ) {
+            suffix++
         }
 
-        // Backtrack to find the diff
-        val result = mutableListOf<DiffLine>()
-        var i = m
-        var j = n
+        val m = oldSize - prefix - suffix
+        val n = newSize - prefix - suffix
+        val result = ArrayList<DiffLine>(prefix + suffix + m + n)
 
-        while (i > 0 || j > 0) {
-            when {
-                i > 0 && j > 0 && oldLines[i - 1] == newLines[j - 1] -> {
-                    // Lines are the same
-                    result.add(0, DiffLine.Unchanged(oldLines[i - 1], i, j))
-                    i--
-                    j--
-                }
-                j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) -> {
-                    // Addition
-                    result.add(0, DiffLine.Addition(newLines[j - 1], j))
-                    j--
-                }
-                i > 0 && (j == 0 || dp[i][j - 1] < dp[i - 1][j]) -> {
-                    // Deletion
-                    result.add(0, DiffLine.Deletion(oldLines[i - 1], i))
-                    i--
+        for (k in 0 until prefix) {
+            result.add(DiffLine.Unchanged(oldLines[k], k + 1, k + 1))
+        }
+
+        if (m.toLong() * n.toLong() > MAX_LCS_CELLS) {
+            for (k in 0 until m) {
+                result.add(DiffLine.Deletion(oldLines[prefix + k], prefix + k + 1))
+            }
+            for (k in 0 until n) {
+                result.add(DiffLine.Addition(newLines[prefix + k], prefix + k + 1))
+            }
+        } else if (m > 0 || n > 0) {
+            // LCS length matrix over the changed middle only.
+            val dp = Array(m + 1) { IntArray(n + 1) }
+            for (i in 1..m) {
+                val oldLine = oldLines[prefix + i - 1]
+                for (j in 1..n) {
+                    if (oldLine == newLines[prefix + j - 1]) {
+                        dp[i][j] = dp[i - 1][j - 1] + 1
+                    } else {
+                        dp[i][j] = maxOf(dp[i - 1][j], dp[i][j - 1])
+                    }
                 }
             }
+
+            // Backtrack, collecting in reverse and flipping once at the end
+            // (inserting at index 0 each step was quadratic on its own).
+            val middle = ArrayList<DiffLine>(m + n)
+            var i = m
+            var j = n
+            while (i > 0 || j > 0) {
+                when {
+                    i > 0 && j > 0 && oldLines[prefix + i - 1] == newLines[prefix + j - 1] -> {
+                        middle.add(DiffLine.Unchanged(oldLines[prefix + i - 1], prefix + i, prefix + j))
+                        i--
+                        j--
+                    }
+                    j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) -> {
+                        middle.add(DiffLine.Addition(newLines[prefix + j - 1], prefix + j))
+                        j--
+                    }
+                    else -> {
+                        middle.add(DiffLine.Deletion(oldLines[prefix + i - 1], prefix + i))
+                        i--
+                    }
+                }
+            }
+            middle.reverse()
+            result.addAll(middle)
+        }
+
+        for (k in 0 until suffix) {
+            val oldIndex = oldSize - suffix + k
+            val newIndex = newSize - suffix + k
+            result.add(DiffLine.Unchanged(oldLines[oldIndex], oldIndex + 1, newIndex + 1))
         }
 
         return result
@@ -192,23 +240,25 @@ object DiffUtils {
     ): List<DiffLine> {
         if (contextLines < 0 || lines.isEmpty()) return lines
 
-        // Mark indices that should be shown
-        val showIndices = mutableSetOf<Int>()
+        // Mark indices that should be shown. A flag array rather than a
+        // boxed Set<Int> + sort: this runs over every line of the file.
+        val show = BooleanArray(lines.size)
+        var anyShown = false
 
         lines.forEachIndexed { index, line ->
             if (line is DiffLine.Addition || line is DiffLine.Deletion) {
                 // Add this line and surrounding context
-                for (offset in -contextLines..contextLines) {
-                    val contextIndex = index + offset
-                    if (contextIndex in lines.indices) {
-                        showIndices.add(contextIndex)
-                    }
+                val from = maxOf(0, index - contextLines)
+                val to = minOf(lines.lastIndex, index + contextLines)
+                for (contextIndex in from..to) {
+                    show[contextIndex] = true
                 }
+                anyShown = true
             }
         }
 
         // If no changes, return empty (or show message)
-        if (showIndices.isEmpty()) {
+        if (!anyShown) {
             return emptyList()
         }
 
@@ -216,7 +266,8 @@ object DiffUtils {
         val result = mutableListOf<DiffLine>()
         var lastShownIndex = -1
 
-        for (index in showIndices.sorted()) {
+        for (index in lines.indices) {
+            if (!show[index]) continue
             // Add ellipsis if there's a gap
             if (lastShownIndex >= 0 && index - lastShownIndex > 1) {
                 // Gap exists - could add a separator here if needed

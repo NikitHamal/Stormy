@@ -1,0 +1,28 @@
+{
+  "key": "F major",
+  "bpm": 120,
+  "music": "synth",
+  "sfx": { "engine": "auto", "kit": "audio/kit.json", "python": null },
+  "chords": ["Dm9", "Bbmaj9", "Fmaj9", "C", "Dm9", "Bbmaj9", "C7sus4", "Fadd9", "C/E", "Dm9", "Bbmaj9", "Fadd9", "C", "Dm9", "Bbmaj9 C7sus4", "Fmaj9", "Fadd9", "-"],
+  "sections": [
+    { "bars": [1, 2], "style": "intro" },
+    { "bars": [3, 5], "style": "breakdown", "level": 0.75 },
+    { "bars": [6, 7], "style": "build" },
+    { "bars": [8, 8], "style": "resolve" },
+    { "bars": [9, 10], "style": "groove" },
+    { "bars": [11, 11], "style": "drive", "level": 0.85 },
+    { "bars": [12, 13], "style": "groove", "level": 0.9 },
+    { "bars": [14, 15], "style": "build", "level": 0.9 },
+    { "bars": [16, 16], "style": "breakdown", "level": 0.7 },
+    { "bars": [17, 17], "style": "resolve", "level": 0.6, "layers": { "drums": 0 } },
+    { "bars": [18, 18], "style": "hold" }
+  ],
+  "signature": { "tick": "F6", "tock": "C6", "motif": [0, 7], "rhythm": [0, 0.5] },
+  "drops": [{ "at": "@open", "silence": 6, "suck": 0.2 }],
+  "silences": [{ "from": "@freeze", "to": "@implode" }],
+  "progress": { "match": "check", "kind": "bell" },
+  "typing": "auto",
+  "payoff": "@open",
+  "mix": { "music": 1.0, "sfx": 1.0, "reverb": 1.0, "sidechain": 0.55, "duck_db": 3, "typing_duck_db": 10 },
+  "master": { "ceiling": 0.77, "fade": 1.3 }
+}

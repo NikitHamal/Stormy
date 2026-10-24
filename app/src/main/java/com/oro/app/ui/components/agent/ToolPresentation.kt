@@ -1,6 +1,7 @@
 package com.oro.app.ui.components.agent
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.automirrored.outlined.ListAlt
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material.icons.outlined.Troubleshoot
@@ -84,6 +86,31 @@ data class ToolPresentation(
 object ToolPresentations {
 
     private val map: Map<String, ToolPresentation> = mapOf(
+        "search_project" to ToolPresentation(
+            "Searching the project", "Searched the project", Icons.Outlined.BugReport,
+            subjectIsPath = false, detail = ToolDetailKind.Listing
+        ),
+        "open_pull_request" to ToolPresentation(
+            "Opening a pull request", "Opened a pull request", Icons.AutoMirrored.Outlined.MergeType,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "docs_lookup" to ToolPresentation(
+            "Checking the docs", "Checked the docs", Icons.Outlined.BugReport,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "screenshot_preview" to ToolPresentation(
+            "Looking at the preview", "Looked at the preview", Icons.Outlined.BugReport,
+            subjectIsPath = true, detail = ToolDetailKind.Terminal
+        ),
+        "audit_page" to ToolPresentation(
+            "Auditing", "Audited", Icons.Outlined.BugReport,
+            subjectIsPath = true, detail = ToolDetailKind.Terminal
+        ),
+        "get_preview_errors" to ToolPresentation(
+            "Checking preview", "Checked preview", Icons.Outlined.BugReport,
+            subjectIsPath = false, detail = ToolDetailKind.Terminal
+        ),
+
         // --- Reading ------------------------------------------------------
         "read_file" to ToolPresentation(
             "Reading", "Read", Icons.Outlined.Description, detail = ToolDetailKind.Code
@@ -202,6 +229,12 @@ object ToolPresentations {
         ),
         "request_approval" to ToolPresentation(
             "Asking you", "Asked you", Icons.AutoMirrored.Outlined.LiveHelp,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        // The coding agent handing a task to the device agent: the detail is
+        // the phone run's report (what it did, what it found), read as prose.
+        "use_phone" to ToolPresentation(
+            "Using the phone", "Used the phone", Icons.Outlined.PhoneAndroid,
             subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
 

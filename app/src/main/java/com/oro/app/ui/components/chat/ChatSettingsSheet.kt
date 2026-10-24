@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Handyman
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.QuestionAnswer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -27,7 +29,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.selection.toggleable
 import com.oro.app.data.ai.AiModel
-import com.oro.app.data.ai.ReasoningEffort
 import com.oro.app.ui.components.expressive.PickerOption
 import com.oro.app.ui.components.expressive.SegmentedPicker
 import com.oro.app.ui.theme.OroCorners
@@ -44,17 +45,27 @@ import com.oro.app.ui.theme.Space
  *
  * Options that do not apply to the selected model are *hidden*, not disabled.
  * A permanently greyed row teaches the user to ignore that part of the sheet,
- * and the absence already says the model cannot do it -- there is a line at
- * the bottom explaining why the set changes.
+ * and the absence already says the model cannot do it.
+ *
+ * Agent mode is offered for every model: one without native function calling
+ * runs tools through the text protocol, so "this model cannot use tools" was
+ * never true -- and it greyed out agent mode on Mercury 3, the default.
  */
 @Composable
 fun ChatSettingsSheet(
     agentMode: Boolean,
     onAgentModeChange: (Boolean) -> Unit,
-    reasoningEffort: ReasoningEffort,
-    onReasoningEffortChange: (ReasoningEffort) -> Unit,
+    /** Saved reasoning level per model id (see ReasoningPicker). */
+    reasoningLevels: Map<String, String>,
+    onReasoningLevelChange: (modelId: String, level: String) -> Unit,
     currentModel: AiModel?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    autonomy: com.oro.app.data.ai.agent.AutonomyMode = com.oro.app.data.ai.agent.AutonomyMode.DEFAULT,
+    onAutonomyChange: (com.oro.app.data.ai.agent.AutonomyMode) -> Unit = {},
+    richUi: Boolean = true,
+    onRichUiChange: (Boolean) -> Unit = {},
+    askBeforeBuilding: Boolean = true,
+    onAskBeforeBuildingChange: (Boolean) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -84,51 +95,66 @@ fun ChatSettingsSheet(
                 // Describes the consequence, not the feature. "Enable
                 // autonomous coding workflow" tells the user nothing about what
                 // will happen to their files.
-                subtitle = if (currentModel?.supportsToolCalls == false) {
-                    "This model cannot use tools"
-                } else {
-                    "Let the assistant read and edit files on its own"
-                },
+                subtitle = "Orobi reads and edits your files",
                 checked = agentMode,
-                enabled = currentModel?.supportsToolCalls != false,
+                enabled = true,
                 onCheckedChange = onAgentModeChange
             )
 
-            // Only for models that expose a budget; see the note on the file.
-            if (currentModel?.supportsReasoningEffort == true) {
+            // The leash. Only meaningful when Orobi can act at all.
+            if (agentMode) {
                 Spacer(Modifier.height(Space.lg))
-                SegmentedPicker(
-                    label = "Reasoning effort",
-                    options = ReasoningEffort.entries.map { PickerOption(it, it.label) },
-                    selected = reasoningEffort,
-                    onSelect = onReasoningEffortChange
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = OroCorners.large,
+                    color = MaterialTheme.colorScheme.surfaceContainer
+                ) {
+                    Column(Modifier.padding(Space.md)) {
+                        SegmentedPicker(
+                            label = "Autonomy",
+                            options = com.oro.app.data.ai.agent.AutonomyMode.entries.map { PickerOption(it, it.label) },
+                            selected = autonomy,
+                            onSelect = onAutonomyChange
+                        )
+                        Spacer(Modifier.height(Space.sm))
+                        Text(
+                            text = when (autonomy) {
+                                com.oro.app.data.ai.agent.AutonomyMode.LEASHED ->
+                                    "Asks before every change"
+                                com.oro.app.data.ai.agent.AutonomyMode.UNLEASHED ->
+                                    "Works on its own, asks before risky steps"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(Modifier.height(Space.md))
+                SettingToggle(
+                    icon = Icons.Outlined.QuestionAnswer,
+                    title = "Ask before building",
+                    subtitle = "Quick questions when a request is vague",
+                    checked = askBeforeBuilding,
+                    enabled = true,
+                    onCheckedChange = onAskBeforeBuildingChange
                 )
             }
 
-            Spacer(Modifier.height(Space.lg))
 
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = OroCorners.medium,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh
-            ) {
-                Row(
-                    modifier = Modifier.padding(Space.md),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        Icons.Outlined.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(Sizes.iconSmall)
-                    )
-                    Spacer(Modifier.width(Space.sm))
-                    Text(
-                        text = "Which options appear depends on the model you have selected.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            Spacer(Modifier.height(Space.md))
+            SettingToggle(
+                icon = Icons.Outlined.AutoAwesome,
+                title = "Rich answers",
+                subtitle = "Cards, tables and charts in replies",
+                checked = richUi,
+                enabled = true,
+                onCheckedChange = onRichUiChange
+            )
+
+            // Only for models whose provider has a reasoning control; see the note on the file.
+            currentModel?.takeIf { it.supportsReasoningEffort }?.let { model ->
+                Spacer(Modifier.height(Space.lg))
+                ReasoningPicker(model = model, levels = reasoningLevels, onSelect = onReasoningLevelChange)
             }
 
             Spacer(Modifier.height(Space.xl))

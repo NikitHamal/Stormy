@@ -22,6 +22,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
         try {
             val crashLog = buildCrashLog(thread, throwable)
+            application?.let { CrashReports.save(it, crashLog) }
             launchCrashActivity(crashLog)
         } catch (e: Exception) {
             defaultHandler?.uncaughtException(thread, throwable)
@@ -38,7 +39,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         printWriter.println("=== CRASH REPORT ===")
         printWriter.println()
         printWriter.println("Thread: ${thread.name}")
-        printWriter.println("Time: ${System.currentTimeMillis()}")
+        printWriter.println("Time: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", java.util.Locale.US).format(java.util.Date())}")
         printWriter.println()
         printWriter.println("=== EXCEPTION ===")
         throwable.printStackTrace(printWriter)
@@ -65,6 +66,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
         val maxMemory = runtime.maxMemory() / 1024 / 1024
         printWriter.println("Used: ${usedMemory}MB / Max: ${maxMemory}MB")
+        printWriter.println("ABI: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
 
         printWriter.flush()
         return stringWriter.toString()

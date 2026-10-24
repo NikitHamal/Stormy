@@ -44,10 +44,20 @@ class WorkspaceTools(private val root: File) {
         const val DEFAULT_READ_LIMIT = 2_000
         const val MAX_LINE_CHARS = 2_000
         const val MAX_LIST_ENTRIES = 400
+
+        /** Budget for list_files(symbols=true) outlines, in characters. */
+        const val MAX_OUTLINE_CHARS = 16_000
+        private const val OUTLINE_BUDGET_NANOS = 4_000_000_000L
         const val MAX_GLOB_RESULTS = 200
         const val MAX_GREP_MATCHES = 200
         const val MAX_SEARCH_FILE_BYTES = 1_000_000L
         const val DEFAULT_FETCH_CHARS = 20_000
+        /** Files one read_file call may return with `paths`. */
+        const val MAX_BATCH_READ = 8
+
+        /** A batch read stops adding files past this many characters (tool results are capped at 60k). */
+        const val MAX_BATCH_CHARS = 50_000
+        const val MAX_GREP_CONTEXT = 5
 
         /** Folders never worth walking into for search. */
         private val SKIPPED_DIRS = setOf("node_modules", ".git", ".oro", ".gradle", "build", "dist", ".cache")
@@ -103,19 +113,80 @@ class WorkspaceTools(private val root: File) {
     // ------------------------------------------------------------------ read
 
     fun readFile(args: JsonObject): ToolOutcome = guarded {
-        val file = resolve(args.str("path"))
+        val first = args.str("path")?.trim()?.takeIf { it.isNotEmpty() }
+        val all = (listOfNotNull(first) + pathList(args)).distinct()
+        if (all.size > 1) {
+            // An offset belongs to one file: in a batch it would silently be ignored.
+            if ((args.int("offset") ?: 1) > 1) {
+                return@guarded fail("offset applies to one file. Call read_file with a single path and offset/limit, or drop offset to read the start of each file.")
+            }
+            return@guarded readMany(all, args)
+        }
+        readOne(all.firstOrNull(), args.int("offset"), args.int("limit"))
+    }
+
+    /** `paths` as a JSON array, or one string of paths separated by commas or newlines. */
+    private fun pathList(args: JsonObject): List<String> {
+        val raw = args["paths"] ?: return emptyList()
+        val items = when (raw) {
+            is JsonArray -> raw.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            is JsonPrimitive -> raw.contentOrNull.orEmpty().let { text ->
+                runCatching { (AiHttp.json.parseToJsonElement(text) as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } }
+                    .getOrNull() ?: text.split(',', '\n')
+            }
+            else -> emptyList()
+        }
+        return items.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    }
+
+    /**
+     * Several files in one call: one round trip instead of one per file. Each
+     * file keeps the single-read format; a missing file is reported inline
+     * without failing the others.
+     */
+    private fun readMany(paths: List<String>, args: JsonObject): ToolOutcome {
+        val limit = args.int("limit")
+        val candidates = paths.take(MAX_BATCH_READ)
+        val parts = mutableListOf<String>()
+        var size = 0
+        var anyOk = false
+        // Stop before the result outgrows what one tool result may hold, and
+        // say which files are left: a batch cut mid-file is useless to retry.
+        val unread = mutableListOf<String>()
+        for (p in candidates) {
+            if (unread.isNotEmpty()) { unread += p; continue }
+            val one = guarded { readOne(p, null, limit) }.result
+            val part = if (one.success) one.output else "Error reading $p: ${one.error ?: "failed"}"
+            if (parts.isNotEmpty() && size + part.length > MAX_BATCH_CHARS) {
+                unread += p
+                continue
+            }
+            parts += part
+            size += part.length + 2
+            if (one.success) anyOk = true
+        }
+        val notes = buildList {
+            if (unread.isNotEmpty()) add("[Not read, to keep this result small: ${unread.joinToString(", ")}. Read them in another call.]")
+            if (paths.size > candidates.size) add("[${paths.size - candidates.size} more paths not read; at most $MAX_BATCH_READ per call.]")
+        }
+        val body = (parts + notes).joinToString("\n\n")
+        return if (anyOk) ok(body) else fail(body)
+    }
+
+    private fun readOne(rawPath: String?, offsetArg: Int?, limitArg: Int?): ToolOutcome {
+        val file = resolve(rawPath)
         val path = rel(file)
-        if (!file.exists()) return@guarded fail(notFound(path))
-        if (file.isDirectory) return@guarded fail("$path is a folder. Use list_files to see its contents.")
-        if (isBinary(file)) return@guarded ok("$path is a binary file (${file.length()} bytes); it cannot be shown as text.")
+        if (!file.exists()) return fail(notFound(path))
+        if (file.isDirectory) return fail("$path is a folder. Use list_files to see its contents.")
+        if (isBinary(file)) return ok("$path is a binary file (${file.length()} bytes); it cannot be shown as text.")
 
         val lines = file.readText().split("\n")
         // A trailing newline produces an empty last element that is not a line.
         val total = if (lines.size > 1 && lines.last().isEmpty()) lines.size - 1 else lines.size
-        val offset = (args.int("offset") ?: 1).coerceAtLeast(1)
-        val limit = (args.int("limit") ?: DEFAULT_READ_LIMIT).coerceIn(1, 10_000)
-        if (total == 0 || (total == 1 && lines[0].isEmpty())) return@guarded ok("$path is empty.")
-        if (offset > total) return@guarded fail("offset $offset is past the end of $path, which has $total lines.")
+        val offset = (offsetArg ?: 1).coerceAtLeast(1)
+        val limit = (limitArg ?: DEFAULT_READ_LIMIT).coerceIn(1, 10_000)
+        if (total == 0 || (total == 1 && lines[0].isEmpty())) return ok("$path is empty.")
+        if (offset > total) return fail("offset $offset is past the end of $path, which has $total lines.")
 
         val end = (offset - 1 + limit).coerceAtMost(total)
         val width = end.toString().length
@@ -130,7 +201,7 @@ class WorkspaceTools(private val root: File) {
         val header = if (offset == 1 && end == total) "File: $path ($total lines)\n"
         else "File: $path (lines $offset-$end of $total)\n"
         val footer = if (end < total) "\n[${total - end} more lines. Call read_file with offset=${end + 1} to continue.]" else ""
-        ok(header + body.trimEnd('\n') + footer)
+        return ok(header + body.trimEnd('\n') + footer)
     }
 
     // ----------------------------------------------------------------- write
@@ -141,6 +212,7 @@ class WorkspaceTools(private val root: File) {
         val content = args.str("content") ?: return@guarded fail("Missing required argument: content")
         if (file.isDirectory) return@guarded fail("$path is a folder; give a file path.")
         val old = if (file.exists()) file.readText() else null
+        if (args.bool("append")) return@guarded appendTo(file, path, old, content)
         if (old == content) return@guarded ok("$path already has exactly this content; nothing changed.")
         file.parentFile?.mkdirs()
         file.writeText(content)
@@ -148,6 +220,28 @@ class WorkspaceTools(private val root: File) {
         val type = if (old == null) FileChangeType.CREATED else FileChangeType.MODIFIED
         val verb = if (old == null) "Created" else "Overwrote"
         ok("$verb $path ($lineCount lines).\nFile: $path", listOf(FileChange(path, type, old, content)))
+    }
+
+    /**
+     * The next part of a file written in parts. A part that does not start a
+     * new line goes on a new line: the text protocol drops a value's trailing
+     * newline, and gluing `// comment` onto the next part's first line would
+     * silently comment it out.
+     */
+    private fun appendTo(file: File, path: String, old: String?, part: String): ToolOutcome {
+        if (part.isEmpty()) return ok("Nothing to append to $path.")
+        val before = old.orEmpty()
+        val joiner = if (before.isNotEmpty() && !before.endsWith("\n") && !part.startsWith("\n")) "\n" else ""
+        val updated = before + joiner + part
+        file.parentFile?.mkdirs()
+        file.writeText(updated)
+        val added = part.count { it == '\n' } + if (part.endsWith("\n")) 0 else 1
+        val total = updated.count { it == '\n' } + if (updated.endsWith("\n")) 0 else 1
+        val type = if (old == null) FileChangeType.CREATED else FileChangeType.MODIFIED
+        return ok(
+            "Appended $added lines to $path (now $total lines).\nFile: $path",
+            listOf(FileChange(path, type, old, updated))
+        )
     }
 
     // ------------------------------------------------------------------ edit
@@ -214,8 +308,14 @@ class WorkspaceTools(private val root: File) {
         if (!dir.exists()) return@guarded fail(notFound(path))
         if (!dir.isDirectory) return@guarded ok("$path is a file (${dir.length()} bytes).")
         val depth = (args.int("depth") ?: 3).coerceIn(1, 8)
+        val symbols = args.bool("symbols")
         var count = 0
         var truncated = false
+        var outlineChars = 0
+        var outlinesCut = false
+        // Outlines read files; on a huge project they stop at a time budget
+        // rather than hold the run (and Stop) for minutes.
+        val outlineDeadline = System.nanoTime() + OUTLINE_BUDGET_NANOS
         val sb = StringBuilder()
         fun walk(d: File, level: Int) {
             val children = d.listFiles()?.filter { AgentPathPolicy.isVisible(it.name) }
@@ -232,14 +332,27 @@ class WorkspaceTools(private val root: File) {
                         if (level + 1 < depth) walk(c, level + 1)
                     }
                 } else {
-                    sb.append(indent).append(c.name).append('\n')
+                    sb.append(indent).append(c.name)
+                    if (symbols && !outlinesCut && System.nanoTime() > outlineDeadline) outlinesCut = true
+                    if (symbols && !outlinesCut) {
+                        val outline = ProjectOutline.of(c)
+                        if (outline != null) {
+                            if (outlineChars + outline.length > MAX_OUTLINE_CHARS) outlinesCut = true
+                            else { sb.append(" — ").append(outline); outlineChars += outline.length }
+                        }
+                    }
+                    sb.append('\n')
                 }
             }
         }
         walk(dir, 0)
         if (count == 0) return@guarded ok("$path is empty.")
         val head = if (path == ".") "Project root:\n" else "$path/\n"
-        ok(head + sb.toString().trimEnd() + if (truncated) "\n[Listing truncated at $MAX_LIST_ENTRIES entries; list a subfolder.]" else "")
+        ok(
+            head + sb.toString().trimEnd() +
+                (if (truncated) "\n[Listing truncated at $MAX_LIST_ENTRIES entries; list a subfolder.]" else "") +
+                (if (outlinesCut) "\n[Outlines stop here to keep this short; list a subfolder with symbols=true for the rest.]" else "")
+        )
     }
 
     // ------------------------------------------------------------ glob / grep
@@ -289,31 +402,53 @@ class WorkspaceTools(private val root: File) {
             }
         }
         val include = args.str("include")?.takeIf { it.isNotBlank() }?.let { Glob.toRegex(it.removePrefix("./")) }
+        val context = (args.int("context") ?: 0).coerceIn(0, MAX_GREP_CONTEXT)
         val files = if (base.isFile) sequenceOf(base) else walkFiles(base)
         val out = StringBuilder()
         var matches = 0
         var truncated = false
+        fun clip(line: String) = line.trim().let { if (it.length > 200) it.take(200) + "…" else it }
         for (f in files) {
             if (include != null) {
                 val r = rel(f)
                 if (!include.matches(r) && !include.matches(f.name)) continue
             }
             if (f.length() > MAX_SEARCH_FILE_BYTES || isBinary(f)) continue
-            f.useLines { lines ->
-                lines.forEachIndexed { i, line ->
-                    if (truncated) return@forEachIndexed
-                    if (regex.containsMatchIn(line)) {
-                        if (matches >= MAX_GREP_MATCHES) { truncated = true; return@forEachIndexed }
-                        matches++
-                        val text = line.trim().let { if (it.length > 200) it.take(200) + "…" else it }
-                        out.append(rel(f)).append(':').append(i + 1).append(": ").append(text).append('\n')
+            if (context == 0) {
+                f.useLines { lines ->
+                    lines.forEachIndexed { i, line ->
+                        if (truncated) return@forEachIndexed
+                        if (regex.containsMatchIn(line)) {
+                            if (matches >= MAX_GREP_MATCHES) { truncated = true; return@forEachIndexed }
+                            matches++
+                            out.append(rel(f)).append(':').append(i + 1).append(": ").append(clip(line)).append('\n')
+                        }
                     }
                 }
+            } else {
+                // Matches with surrounding lines, ripgrep style: "path:12: match",
+                // "path-11- context", "--" between separate groups.
+                val lines = f.readLines()
+                val hits = lines.indices.filter { regex.containsMatchIn(lines[it]) }
+                var lastPrinted = -2
+                for (i in hits) {
+                    if (matches >= MAX_GREP_MATCHES) { truncated = true; break }
+                    matches++
+                    val from = maxOf(0, i - context, lastPrinted + 1)
+                    val to = minOf(lines.lastIndex, i + context)
+                    if (lastPrinted >= 0 && from > lastPrinted + 1) out.append("--\n")
+                    for (k in from..to) {
+                        val sep = if (k == i || regex.containsMatchIn(lines[k])) ':' else '-'
+                        out.append(rel(f)).append(sep).append(k + 1).append(sep).append(' ').append(clip(lines[k])).append('\n')
+                    }
+                    lastPrinted = maxOf(lastPrinted, to)
+                }
+                if (hits.isNotEmpty() && !truncated) out.append("--\n")
             }
             if (truncated) break
         }
         if (matches == 0) return@guarded ok(note + "No matches for $pattern.")
-        ok(note + out.toString().trimEnd() + if (truncated) "\n[Stopped at $MAX_GREP_MATCHES matches; narrow the search.]" else "")
+        ok(note + out.toString().trimEnd().removeSuffix("--").trimEnd() + if (truncated) "\n[Stopped at $MAX_GREP_MATCHES matches; narrow the search.]" else "")
     }
 
     // --------------------------------------------------------- delete / move
@@ -380,6 +515,7 @@ class WorkspaceTools(private val root: File) {
                 if (!response.isSuccessful) {
                     return@withContext fail("HTTP ${response.code} from $url" + raw.take(200).let { if (it.isBlank()) "" else ": $it" })
                 }
+                if (ImageSearch.isOpenverse(url)) ImageSearch.format(raw)?.let { return@withContext ok("URL: $url\n\n$it") }
                 val text = if (type.contains("html", true) || raw.trimStart().startsWith("<")) HtmlText.toText(raw) else raw
                 val body = if (text.length > maxChars) text.take(maxChars) + "\n[Truncated at $maxChars characters.]" else text
                 ok("URL: $url\nContent-Type: ${type.ifBlank { "unknown" }}\n\n$body")

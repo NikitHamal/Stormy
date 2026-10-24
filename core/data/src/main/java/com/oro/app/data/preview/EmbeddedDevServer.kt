@@ -35,12 +35,19 @@ class EmbeddedDevServer(
     private val frameworkType: FrameworkType = FrameworkType.VANILLA
 ) {
     companion object {
+        private val STATUS_TEXT = mapOf(
+            200 to "OK", 201 to "Created", 204 to "No Content", 400 to "Bad Request", 404 to "Not Found",
+            405 to "Method Not Allowed", 409 to "Conflict", 413 to "Payload Too Large", 500 to "Internal Server Error"
+        )
         private const val TAG = "EmbeddedDevServer"
         private const val DEFAULT_PORT_RANGE_START = 8080
         private const val DEFAULT_PORT_RANGE_END = 8180
         private const val HTTP_OK = 200
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500
+
+        /** Change batches kept for "what changed since" questions from pages. */
+        private const val CHANGE_LOG_SIZE = 32
 
         // Pre-compiled regex patterns for performance
         // React/JS transformations
@@ -74,8 +81,6 @@ class EmbeddedDevServer(
 
         // HTML transformations
         private val HEAD_CLOSE_REGEX = Regex("</head>", RegexOption.IGNORE_CASE)
-        private val BODY_CLOSE_REGEX = Regex("</body>", RegexOption.IGNORE_CASE)
-        private val HTML_CLOSE_REGEX = Regex("</html>", RegexOption.IGNORE_CASE)
         private val MODULE_SCRIPT_JSX_REGEX = Regex("""<script\s+type=['"]module['"]\s+src=['"]([^'"]+\.jsx)['"]\s*>""", RegexOption.IGNORE_CASE)
         private val MODULE_SCRIPT_VUE_REGEX = Regex("""<script\s+type=['"]module['"]\s+src=['"]/?src/main\.js['"]\s*>\s*</script>""", RegexOption.IGNORE_CASE)
 
@@ -127,6 +132,14 @@ class EmbeddedDevServer(
     // Track file modification times for hot reload
     private val fileModificationTimes = mutableMapOf<String, Long>()
     private var lastChangeTimestamp = System.currentTimeMillis()
+
+    /**
+     * Recent batches of changed files, newest last, so a page can ask what
+     * changed since it last looked: a stylesheet-only change is swapped in
+     * place instead of reloading. Before [changeLogFloor] nothing is known.
+     */
+    private val changeLog = ArrayDeque<Pair<Long, List<String>>>()
+    private var changeLogFloor = lastChangeTimestamp
 
     // Response cache for static assets (cleared on file changes)
     private val responseCache = mutableMapOf<String, CachedResponse>()
@@ -208,13 +221,13 @@ class EmbeddedDevServer(
      * Check if files have changed since last check
      * Clears the response cache when changes are detected
      */
+    @Synchronized
     fun checkForChanges(): Boolean {
         var hasChanges = false
         val currentTime = System.currentTimeMillis()
         val changedFiles = mutableListOf<String>()
 
-        projectRoot.walkTopDown()
-            .filter { it.isFile && isServableFile(it) }
+        watchedFiles()
             .forEach { file ->
                 val relativePath = file.relativeTo(projectRoot).path
                 val lastModified = file.lastModified()
@@ -229,6 +242,10 @@ class EmbeddedDevServer(
 
         if (hasChanges) {
             lastChangeTimestamp = currentTime
+            changeLog.addLast(currentTime to changedFiles.toList())
+            while (changeLog.size > CHANGE_LOG_SIZE) {
+                changeLogFloor = changeLog.removeFirstOrNull()?.first ?: changeLogFloor
+            }
             // Clear cache for changed files (or all if many changed)
             if (changedFiles.size > 5) {
                 responseCache.clear()
@@ -247,14 +264,22 @@ class EmbeddedDevServer(
         return hasChanges
     }
 
+    /**
+     * A port on the loopback interface only. Bound to all interfaces, anyone on
+     * the same Wi-Fi could read the project and its mock accounts and post
+     * files into it; the preview only ever loads from 127.0.0.1.
+     */
     private fun findAvailablePort(): ServerSocket? {
+        val loopback = java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
         for (port in DEFAULT_PORT_RANGE_START..DEFAULT_PORT_RANGE_END) {
+            val socket = ServerSocket()
             try {
-                return ServerSocket(port).also {
-                    it.reuseAddress = true
-                }
+                socket.reuseAddress = true
+                socket.bind(java.net.InetSocketAddress(loopback, port), 50)
+                return socket
             } catch (e: Exception) {
                 // Port in use, try next
+                runCatching { socket.close() }
             }
         }
         return null
@@ -306,9 +331,28 @@ class EmbeddedDevServer(
                     }
                 }
 
+                val rawTarget = parts[1]
+                val cors = sameOrigin(headers["origin"])
                 when {
-                    path == "/__dev_changes__" -> handleChangesEndpoint(output)
+                    path.substringBefore('?') == "/__dev_changes__" ->
+                        handleChangesEndpoint(output, path.substringAfter("since=", "").substringBefore('&').toLongOrNull())
                     path == "/__dev_reload__" -> handleReloadEndpoint(output)
+                    method == "OPTIONS" -> sendRaw(output, 204, "text/plain", ByteArray(0), emptyMap(), cors)
+                    MockApi.isApiPath(rawTarget.substringBefore('?')) &&
+                        !(method == "GET" && File(projectRoot, path.substringBefore('?').trimStart('/')).isFile) -> {
+                        val length = headers["content-length"]?.toLongOrNull() ?: 0L
+                        if (length > MockApi.MAX_BODY_BYTES) {
+                            // Answer before reading: a 20 MB photo as base64 would only be
+                            // cut short and then fail as "not valid JSON".
+                            drain(reader, length)
+                            val msg = "{\"error\": \"${MockApi.UPLOAD_LIMIT_MESSAGE}\"}"
+                            sendRaw(output, 413, "application/json; charset=utf-8", msg.toByteArray(), emptyMap(), cors)
+                            return@use
+                        }
+                        val body = if (length > 0) readBody(reader, length.toInt()) else null
+                        val r = mockApi.handle(method, rawTarget, body, headers)
+                        sendRaw(output, r.status, "application/json; charset=utf-8", r.body.toByteArray(), r.headers, cors)
+                    }
                     method == "GET" -> handleGetRequest(path, output)
                     else -> sendError(output, HTTP_NOT_FOUND, "Not Found")
                 }
@@ -337,6 +381,19 @@ class EmbeddedDevServer(
         // Security: Prevent directory traversal
         if (!file.canonicalPath.startsWith(projectRoot.canonicalPath)) {
             sendError(output, HTTP_NOT_FOUND, "Not Found")
+            return
+        }
+        // Hidden folders (.oro holds app data, .git the repository) are never served.
+        if (normalizedPath.split('/').any { it.startsWith(".") && it != ".well-known" }) {
+            sendError(output, HTTP_NOT_FOUND, "Not Found")
+            return
+        }
+        // db.json is the mock API's data: pages that read it directly get it
+        // the way a deploy publishes it, without passwords or internal data.
+        if (normalizedPath == "db.json" && file.isFile) {
+            val text = runCatching { file.readText() }.getOrDefault("")
+            val clean = PublishFilter.sanitize(text) ?: text
+            sendRaw(output, 200, "application/json; charset=utf-8", clean.toByteArray(), emptyMap(), null)
             return
         }
 
@@ -472,10 +529,33 @@ class EmbeddedDevServer(
         return result
     }
 
-    private fun handleChangesEndpoint(output: BufferedOutputStream) {
+    private fun handleChangesEndpoint(output: BufferedOutputStream, since: Long?) {
         val hasChanges = checkForChanges()
-        val json = """{"hasChanges":$hasChanges,"timestamp":$lastChangeTimestamp}"""
+        val changed = since?.let { changedSince(it) }
+            ?.joinToString(",", "[", "]") { jsonString(it) }
+            ?: "null"
+        val json = """{"hasChanges":$hasChanges,"timestamp":$lastChangeTimestamp,"changed":$changed}"""
         sendResponse(output, HTTP_OK, "application/json", json.toByteArray())
+    }
+
+    /** Files changed after [since], or null when that's further back than the log goes. */
+    @Synchronized
+    private fun changedSince(since: Long): List<String>? {
+        if (since < changeLogFloor) return null
+        return changeLog.filter { it.first > since }.flatMap { it.second }.distinct()
+    }
+
+    private fun jsonString(value: String): String = buildString(value.length + 2) {
+        append('"')
+        for (c in value) {
+            when {
+                c == '"' -> append("\\\"")
+                c == '\\' -> append("\\\\")
+                c < ' ' -> append(String.format("\\u%04x", c.code))
+                else -> append(c)
+            }
+        }
+        append('"')
     }
 
     private fun handleReloadEndpoint(output: BufferedOutputStream) {
@@ -1064,29 +1144,80 @@ class EmbeddedDevServer(
      * Inject hot reload script into HTML
      */
     private fun injectHotReload(html: String): String {
+        // Polls for changes. A change to stylesheets only is swapped in place
+        // (new <link> loads, then the old one goes: no flash, no lost state);
+        // anything else reloads, and the page comes back scrolled where it was.
         val hotReloadScript = """
             |<script>
             |(function() {
-            |  let lastTimestamp = 0;
-            |  const checkInterval = 1000; // Check every second
+            |  var last = 0;
+            |  var key = 'oro-scroll:' + location.pathname;
+            |
+            |  try {
+            |    var saved = JSON.parse(sessionStorage.getItem(key) || 'null');
+            |    sessionStorage.removeItem(key);
+            |    if (saved && Date.now() - saved.t < 10000) {
+            |      var restore = function() { if (window.scrollY < 4) window.scrollTo(saved.x, saved.y); };
+            |      restore();
+            |      window.addEventListener('load', function() {
+            |        restore();
+            |        setTimeout(restore, 300);
+            |        setTimeout(restore, 1000);
+            |      });
+            |    }
+            |  } catch (e) {}
+            |
+            |  function reload() {
+            |    try {
+            |      sessionStorage.setItem(key, JSON.stringify({ x: window.scrollX, y: window.scrollY, t: Date.now() }));
+            |    } catch (e) {}
+            |    location.reload();
+            |  }
+            |
+            |  function isCss(path) {
+            |    return path.slice(-4).toLowerCase() === '.css';
+            |  }
+            |
+            |  function swapStyles(changed) {
+            |    var links = document.querySelectorAll('link[rel~="stylesheet"]');
+            |    var swapped = 0;
+            |    for (var i = 0; i < links.length; i++) {
+            |      var link = links[i];
+            |      var url = new URL(link.href, location.href);
+            |      if (url.origin !== location.origin) continue;
+            |      var path = decodeURIComponent(url.pathname);
+            |      if (path.charAt(0) === '/') path = path.slice(1);
+            |      if (changed.indexOf(path) < 0) continue;
+            |      url.searchParams.set('v', String(Date.now()));
+            |      var next = link.cloneNode();
+            |      next.href = url.toString();
+            |      next.onload = next.onerror = (function(old) { return function() { old.remove(); }; })(link);
+            |      link.parentNode.insertBefore(next, link.nextSibling);
+            |      swapped++;
+            |    }
+            |    return swapped;
+            |  }
             |
             |  async function checkForChanges() {
             |    try {
-            |      const response = await fetch('/__dev_changes__');
+            |      const response = await fetch('/__dev_changes__?since=' + last, { cache: 'no-store' });
             |      const data = await response.json();
             |
-            |      if (lastTimestamp > 0 && data.timestamp > lastTimestamp) {
+            |      if (last > 0 && data.timestamp > last) {
+            |        last = data.timestamp;
+            |        var changed = data.changed;
+            |        if (changed && changed.length && changed.every(isCss) && swapStyles(changed) > 0) return;
             |        console.log('[DevServer] Changes detected, reloading...');
-            |        location.reload();
+            |        reload();
+            |        return;
             |      }
-            |      lastTimestamp = data.timestamp;
+            |      last = data.timestamp;
             |    } catch (e) {
             |      // Server might be restarting
             |    }
             |  }
             |
-            |  // Start checking for changes
-            |  setInterval(checkForChanges, checkInterval);
+            |  setInterval(checkForChanges, 1000);
             |  checkForChanges();
             |
             |  console.log('[DevServer] Hot reload enabled');
@@ -1094,11 +1225,13 @@ class EmbeddedDevServer(
             |</script>
         """.trimMargin()
 
-        // Insert before closing body tag, or at end (using pre-compiled regex)
-        return if (html.contains("</body>", ignoreCase = true)) {
-            html.replace(BODY_CLOSE_REGEX, "$hotReloadScript\n</body>")
-        } else if (html.contains("</html>", ignoreCase = true)) {
-            html.replace(HTML_CLOSE_REGEX, "$hotReloadScript\n</html>")
+        // Inserted as-is before the last closing body (or html) tag. Not with
+        // Regex.replace, whose replacement text treats $ and \ as syntax, and
+        // which also hit any "</body>" quoted inside the page's own scripts.
+        val at = html.lastIndexOf("</body>", ignoreCase = true).takeIf { it >= 0 }
+            ?: html.lastIndexOf("</html>", ignoreCase = true).takeIf { it >= 0 }
+        return if (at != null) {
+            html.substring(0, at) + hotReloadScript + "\n" + html.substring(at)
         } else {
             "$html\n$hotReloadScript"
         }
@@ -1122,7 +1255,7 @@ class EmbeddedDevServer(
             appendLine("Content-Type: $contentType")
             appendLine("Content-Length: ${content.size}")
             appendLine("Access-Control-Allow-Origin: *")
-            appendLine("Access-Control-Allow-Methods: GET, POST, OPTIONS")
+            appendLine("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS")
             appendLine("Access-Control-Allow-Headers: *")
             appendLine("Cache-Control: no-cache, no-store, must-revalidate")
             appendLine("Connection: close")
@@ -1130,6 +1263,91 @@ class EmbeddedDevServer(
         }
 
         output.write(headers.toByteArray())
+        output.write(content)
+        output.flush()
+    }
+
+    private val mockApi by lazy { MockApi(projectRoot) }
+
+    /**
+     * Reads exactly [byteLength] bytes of body through the character reader
+     * the headers were read with, counting UTF-8 bytes per char so a body
+     * with non-ASCII text neither truncates nor blocks waiting for more.
+     */
+    private fun readBody(reader: BufferedReader, byteLength: Int): String {
+        val limit = byteLength.coerceAtMost(MockApi.MAX_BODY_BYTES)
+        val sb = StringBuilder(limit.coerceAtMost(1 shl 20))
+        val buf = CharArray(16 * 1024)
+        var bytes = 0
+        while (bytes < limit) {
+            // Never ask for more characters than bytes remain: each is at least one byte.
+            val n = reader.read(buf, 0, minOf(buf.size, limit - bytes))
+            if (n < 0) break
+            for (i in 0 until n) {
+                val ch = buf[i]
+                val c = ch.code
+                bytes += when {
+                    c < 0x80 -> 1
+                    c < 0x800 -> 2
+                    Character.isHighSurrogate(ch) -> 4
+                    Character.isLowSurrogate(ch) -> 0
+                    else -> 3
+                }
+            }
+            sb.append(buf, 0, n)
+        }
+        return sb.toString()
+    }
+
+    /** Reads and drops up to [byteLength] of a body we will not use, so the client sees our answer. */
+    private fun drain(reader: BufferedReader, byteLength: Long) {
+        var left = byteLength.coerceAtMost(64L * 1024 * 1024)
+        val buf = CharArray(64 * 1024)
+        while (left > 0) {
+            val n = runCatching { reader.read(buf, 0, minOf(buf.size.toLong(), left).toInt()) }.getOrDefault(-1)
+            if (n <= 0) break
+            left -= n
+        }
+    }
+
+    /**
+     * The Origin to echo in CORS headers: only this server's own. Other pages
+     * open in the phone's browser must not read the project's API (its
+     * accounts, its data) just because the preview is running.
+     */
+    private fun sameOrigin(origin: String?): String? {
+        val o = origin?.trimEnd('/') ?: return null
+        return o.takeIf { it == "http://127.0.0.1:$port" || it == "http://localhost:$port" }
+    }
+
+    /**
+     * Response with any status and extra headers (the mock API needs 201/204/4xx).
+     * CORS headers only for [corsOrigin], this server's own origin.
+     */
+    private fun sendRaw(
+        output: BufferedOutputStream,
+        statusCode: Int,
+        contentType: String,
+        content: ByteArray,
+        extraHeaders: Map<String, String>,
+        corsOrigin: String?
+    ) {
+        val statusText = STATUS_TEXT[statusCode] ?: "OK"
+        val head = buildString {
+            append("HTTP/1.1 $statusCode $statusText\r\n")
+            append("Content-Type: $contentType\r\n")
+            append("Content-Length: ${content.size}\r\n")
+            if (corsOrigin != null) {
+                append("Access-Control-Allow-Origin: $corsOrigin\r\n")
+                append("Vary: Origin\r\n")
+                append("Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n")
+                append("Access-Control-Allow-Headers: Content-Type, Authorization\r\n")
+            }
+            append("Cache-Control: no-store\r\n")
+            extraHeaders.forEach { (k, v) -> append("$k: $v\r\n") }
+            append("Connection: close\r\n\r\n")
+        }
+        output.write(head.toByteArray())
         output.write(content)
         output.flush()
     }
@@ -1187,6 +1405,17 @@ class EmbeddedDevServer(
         return extension in listOf("js", "mjs", "jsx", "ts", "tsx", "vue", "svelte")
     }
 
+    /**
+     * Files whose changes reload the page: the project's own sources. Not the
+     * mock API's runtime data -- db.json and uploads/ change on every POST, and
+     * reloading then would wipe the app state the request just changed (an
+     * upload would reload the form before Save) -- and not hidden folders
+     * (.oro, .git).
+     */
+    private fun watchedFiles(): Sequence<File> = projectRoot.walkTopDown()
+        .onEnter { d -> d == projectRoot || !(d.name.startsWith(".") || (d.name == "uploads" && d.parentFile == projectRoot)) }
+        .filter { it.isFile && isServableFile(it) && !(it.name.startsWith("db.json") && it.parentFile == projectRoot) }
+
     private fun isServableFile(file: File): Boolean {
         val ext = file.extension.lowercase()
         return ext in listOf(
@@ -1198,8 +1427,7 @@ class EmbeddedDevServer(
     }
 
     private fun indexProjectFiles() {
-        projectRoot.walkTopDown()
-            .filter { it.isFile && isServableFile(it) }
+        watchedFiles()
             .forEach { file ->
                 val relativePath = file.relativeTo(projectRoot).path
                 fileModificationTimes[relativePath] = file.lastModified()

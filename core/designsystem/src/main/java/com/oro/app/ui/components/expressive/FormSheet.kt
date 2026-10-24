@@ -144,16 +144,19 @@ fun FormSheet(
                 // Cancel first and lower-emphasis, so the irreversible choice
                 // is neither under the thumb's resting position nor the one
                 // that looks expected.
+                // A long confirm label gets the room it needs instead of
+                // wrapping onto two lines inside a pill.
+                val confirmWeight = if (confirmLabel.length > 12) 1.7f else 1f
                 TextButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(cancelLabel)
+                    Text(cancelLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Button(
                     onClick = onConfirm,
                     enabled = confirmEnabled,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(confirmWeight),
                     shape = MaterialTheme.shapes.large,
                     colors = if (destructive) {
                         ButtonDefaults.buttonColors(
@@ -174,7 +177,12 @@ fun FormSheet(
                         )
                         Spacer(Modifier.width(Space.sm))
                     }
-                    Text(confirmLabel, style = MaterialTheme.typography.labelLargeEmphasized)
+                    Text(
+                        confirmLabel,
+                        style = MaterialTheme.typography.labelLargeEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 

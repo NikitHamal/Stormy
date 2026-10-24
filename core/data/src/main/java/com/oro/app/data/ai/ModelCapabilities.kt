@@ -50,6 +50,9 @@ object ModelCapabilities {
         "gemma" to 8 * K,
 
         // --- OpenAI ---------------------------------------------------------
+        // GPT-5.4 and 5.5: 1,050,000 (model pages); earlier GPT-5.x: 400,000.
+        "gpt-5.5" to 1_050_000,
+        "gpt-5.4" to 1_050_000,
         "gpt-6" to 400_000,
         "gpt-5" to 400_000,
         "codex" to 400_000,
@@ -61,10 +64,29 @@ object ModelCapabilities {
         "o1" to 200_000,
 
         // --- Anthropic ------------------------------------------------------
+        // 1M on every current model -- Fable 5/5.1, Mythos, Opus 4.6 to 5.5,
+        // Sonnet 4.6 to 5.5, Haiku 5.5 -- and 200K on Haiku 4.5 and older
+        // (Anthropic's model docs, October 2026). Gateways write versions with
+        // dots, Anthropic with dashes.
+        "claude-fable" to 1_000_000,
+        "claude-mythos" to 1_000_000,
+        "claude-opus-5" to 1_000_000,
+        "claude-opus-4-8" to 1_000_000,
+        "claude-opus-4.8" to 1_000_000,
+        "claude-opus-4-7" to 1_000_000,
+        "claude-opus-4.7" to 1_000_000,
+        "claude-opus-4-6" to 1_000_000,
+        "claude-opus-4.6" to 1_000_000,
+        "claude-sonnet-5" to 1_000_000,
+        "claude-sonnet-4-6" to 1_000_000,
+        "claude-sonnet-4.6" to 1_000_000,
+        "claude-haiku-5" to 1_000_000,
         "claude" to 200_000,
 
         // --- Qwen -----------------------------------------------------------
         "qwen3-coder" to 262_144,
+        // Hosted Qwen3.8 Max: 983,616 input tokens in thinking mode (991,808 without).
+        "qwen3.8-max" to 983_616,
         "qwen3.8" to 262_144,
         "qwen3.6" to 262_144,
         "qwen3.5" to 262_144,
@@ -77,7 +99,8 @@ object ModelCapabilities {
         "qwen" to 32 * K,
 
         // --- DeepSeek -------------------------------------------------------
-        "deepseek-v4" to 163_840,
+        // V4 and V4.1: 1M (DeepSeek's release notes, NVIDIA's V4.1 Flash card).
+        "deepseek-v4" to 1_048_576,
         "deepseek-v3" to 163_840,
         "deepseek-r1" to 163_840,
         "deepseek" to 65_536,
@@ -90,14 +113,16 @@ object ModelCapabilities {
         "llama-3" to 8 * K,
 
         // --- NVIDIA Nemotron ------------------------------------------------
-        "nemotron-3.5" to 1_000_000,
+        // The models reach 1M, but hosted endpoints (NIM, OpenRouter) serve 256K.
+        "nemotron-3.5" to 262_144,
         "nemotron-3-ultra" to 1_000_000,
         "nemotron-3" to 262_144,
         "nemotron" to 131_072,
 
         // --- Mistral --------------------------------------------------------
-        "mistral-large" to 131_072,
-        "mistral-medium" to 131_072,
+        // mistral-large-latest is Large 3 and mistral-medium-latest Medium 3.5: 256K.
+        "mistral-large" to 262_144,
+        "mistral-medium" to 262_144,
         "mistral-small-3" to 131_072,
         "mistral-nemo" to 131_072,
         "magistral" to 131_072,
@@ -113,13 +138,23 @@ object ModelCapabilities {
         "agnes-2.5" to 524_288,
         "agnes" to 131_072,
 
+        // --- Inception ------------------------------------------------------
+        "mercury-3" to 1_000_000,
+        "mercury-2.5" to 260_000,
+        "mercury" to 128_000,
+
         // --- Others ---------------------------------------------------------
-        "kimi-k3" to 262_144,
+        "k2-horizon" to 524_288,
+        "kimi-k3" to 1_048_576,
         "kimi-k2" to 262_144,
+        // GLM-5.2 and 5.3 (incl. Flash): 1M; GLM-5 and 5.1: 200K (Z.ai docs).
+        "glm-5.3" to 1_000_000,
+        "glm-5.2" to 1_000_000,
         "glm-5" to 200_000,
         "glm-4.6" to 200_000,
         "glm-4" to 131_072,
         "minimax-m" to 1_000_000,
+        "grok-4.3" to 1_000_000,
         "grok-4" to 256_000,
         "grok-code" to 256_000,
         "grok" to 131_072,
@@ -222,7 +257,9 @@ data class RateLimit(
     /** Tokens per minute, usually the binding constraint rather than RPM. */
     val tokensPerMinute: Int,
     /** Requests per day, 0 when the provider publishes none. */
-    val requestsPerDay: Int = 0
+    val requestsPerDay: Int = 0,
+    /** Requests per hour, 0 when the provider publishes none. */
+    val requestsPerHour: Int = 0
 ) {
     /** Minimum spacing between requests to stay under [requestsPerMinute]. */
     val minIntervalMs: Long
@@ -246,14 +283,46 @@ object RateLimits {
         AiProvider.MISTRAL to RateLimit(requestsPerMinute = 10, tokensPerMinute = 50_000),
         AiProvider.NVIDIA to RateLimit(requestsPerMinute = 38, tokensPerMinute = 100_000),
         AiProvider.OPENROUTER to RateLimit(requestsPerMinute = 18, tokensPerMinute = 50_000, requestsPerDay = 950),
-        // Anonymous tiers, measured 2026-10-17. Pollinations answers about one
-        // request per 30 s per IP (402 FREE_LIMIT beyond that); OVH allows 2
-        // requests/min per model; Kilo's free pool about 200/hour.
-        AiProvider.POLLINATIONS to RateLimit(requestsPerMinute = 2, tokensPerMinute = 100_000),
-        AiProvider.OVHCLOUD to RateLimit(requestsPerMinute = 2, tokensPerMinute = 200_000),
-        AiProvider.KILOCODE to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000, requestsPerDay = 4_000)
+        // Kilo's anonymous free pool: about 200 requests an hour per IP (2026-10-17).
+        // OVHcloud and LLM7 are key-only now (their anonymous tiers, 2/min and
+        // ~100k tokens a day, could not carry an agent run); keyed tiers are not paced.
+        AiProvider.KILOCODE to RateLimit(requestsPerMinute = 8, tokensPerMinute = 200_000, requestsPerDay = 4_000),
+        // Ptero: 30/min per guest token (rotated).
+        AiProvider.PTERO to RateLimit(requestsPerMinute = 20, tokensPerMinute = 300_000),
+        // Unpublished guest limits: paced so one phone never looks like a scraper.
+        AiProvider.UNIKEY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
+        AiProvider.MERCURY to RateLimit(requestsPerMinute = 20, tokensPerMinute = 600_000),
+        // Inception's free tier: 1,000 requests and 1M input tokens a minute.
+        AiProvider.INCEPTION to RateLimit(requestsPerMinute = 900, tokensPerMinute = 900_000),
+        // Labs' public demos (2026-10-23): shared with every visitor, so paced gently.
+        // Hy3's Space runs 64 requests at a time; Laguna's rides a free OpenRouter
+        // route; Cloudflare caps each model per minute across its playground.
+        AiProvider.HY3 to RateLimit(requestsPerMinute = 15, tokensPerMinute = 600_000),
+        AiProvider.LAGUNA to RateLimit(requestsPerMinute = 6, tokensPerMinute = 300_000),
+        AiProvider.CLOUDFLARE_PLAYGROUND to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */
     operator fun get(provider: AiProvider): RateLimit? = limits[provider]
+}
+
+/** Which model families accept images. Matched on id; wrong-but-permissive costs a 400. */
+object VisionSupport {
+    private val PATTERNS = listOf(
+        "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "claude", "gemini", "gemma-3", "llama-4", "pixtral",
+        "mistral-medium", "mistral-small-3", "qwen-vl", "qwen2.5-vl", "qwen3-vl", "vl-", "-vl", "vision",
+        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "nemotron-nano-vl"
+    )
+    fun supports(modelId: String): Boolean {
+        val id = modelId.lowercase()
+        return PATTERNS.any { it in id }
+    }
+
+    /**
+     * Whether images actually reach [model]. Community web bridges carry text
+     * only, so a vision-capable id behind one (UniKey's Claude, say) would get
+     * the caption and never the picture.
+     */
+    fun supports(model: AiModel): Boolean =
+        !model.provider.isCommunity && supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
 }

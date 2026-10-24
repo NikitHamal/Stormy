@@ -144,4 +144,61 @@ class WorkspaceToolsTest {
         assertThat(text).contains("- one")
         assertThat(text).doesNotContain("bad()")
     }
+
+    @Test
+    fun `read_file reads several files in one call and reports missing ones inline`() {
+        val out = tools.readFile(args("path" to "index.html", "paths" to JsonArray(listOf(JsonPrimitive("css/style.css"), JsonPrimitive("nope.js"))))).result
+        assertThat(out.success).isTrue()
+        assertThat(out.output).contains("File: index.html (30 lines)")
+        assertThat(out.output).contains("File: css/style.css (1 lines)")
+        assertThat(out.output).contains("Error reading nope.js")
+        // A comma-separated string works too (text-protocol models send that).
+        val csv = tools.readFile(args("paths" to "css/style.css, js/app.js")).result
+        assertThat(csv.output).contains("File: js/app.js")
+        assertThat(csv.output).contains("File: css/style.css")
+    }
+
+    @Test
+    fun `write_file append builds a file in parts without gluing lines`() {
+        tools.writeFile(args("path" to "big.js", "content" to "// part one"))
+        val second = tools.writeFile(args("path" to "big.js", "content" to "const x = 1;", "append" to true))
+        assertThat(second.result.success).isTrue()
+        assertThat(second.result.output).contains("now 2 lines")
+        assertThat(File(root, "big.js").readText()).isEqualTo("// part one\nconst x = 1;")
+        assertThat(second.changes.single().oldContent).isEqualTo("// part one")
+        // Appending to a file that does not exist yet creates it.
+        val fresh = tools.writeFile(args("path" to "new.css", "content" to "a{}", "append" to true))
+        assertThat(fresh.changes.single().type).isEqualTo(FileChangeType.CREATED)
+    }
+
+    @Test
+    fun `grep shows context lines around matches`() {
+        val out = tools.grep(args("pattern" to "line 15$", "path" to "index.html", "context" to 1)).result
+        assertThat(out.output).contains("index.html-14- line 14")
+        assertThat(out.output).contains("index.html:15: line 15")
+        assertThat(out.output).contains("index.html-16- line 16")
+        assertThat(out.output).doesNotContain("line 17")
+    }
+
+
+    @Test
+    fun `a batch read stops before it outgrows one result and names what is left`() {
+        val big = (1..900).joinToString("\n") { "const value$it = '${"x".repeat(30)}';" }
+        File(root, "a.js").writeText(big)
+        File(root, "b.js").writeText(big)
+        File(root, "c.js").writeText(big)
+        val out = tools.readFile(args("paths" to JsonArray(listOf(JsonPrimitive("a.js"), JsonPrimitive("b.js"), JsonPrimitive("c.js"))))).result
+        assertThat(out.success).isTrue()
+        assertThat(out.output.length).isAtMost(WorkspaceTools.MAX_BATCH_CHARS + 2_000)
+        assertThat(out.output).contains("File: a.js")
+        assertThat(out.output).contains("Not read")
+        assertThat(out.output).contains("c.js")
+    }
+
+    @Test
+    fun `offset with several paths is refused clearly`() {
+        val out = tools.readFile(args("path" to "index.html", "paths" to "css/style.css", "offset" to 10)).result
+        assertThat(out.success).isFalse()
+        assertThat(out.error).contains("offset applies to one file")
+    }
 }

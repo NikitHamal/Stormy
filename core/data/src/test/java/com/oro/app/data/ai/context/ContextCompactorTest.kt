@@ -165,7 +165,7 @@ class ContextBreakdownTest {
     private val model = AiModel(
         id = "test-model",
         name = "Test",
-        provider = AiProvider.POLLINATIONS,
+        provider = AiProvider.KILOCODE,
         contextLength = 32_000
     )
 

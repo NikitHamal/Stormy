@@ -7,9 +7,11 @@ import com.oro.app.data.ai.ChatRequestMessage
 import com.oro.app.data.ai.ChatStreamParser
 import com.oro.app.data.ai.ProviderProtocol
 import com.oro.app.data.ai.StreamEvent
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
@@ -38,20 +40,58 @@ import okhttp3.Response
  */
 interface CommunityChatClient {
     fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent>
+
+    /**
+     * With the model's reasoning level ([com.oro.app.data.ai.ReasoningControls]),
+     * for sites that have one; the rest ignore it.
+     */
+    fun stream(model: AiModel, messages: List<ChatRequestMessage>, reasoningLevel: String?): Flow<StreamEvent> =
+        stream(model, messages)
+
+    /**
+     * Whether this site takes OpenAI tool definitions for [provider] (native
+     * function calling, e.g. Tencent's Hy3 Space). The rest use the text
+     * protocol. Per provider: one client may serve several sites.
+     */
+    fun takesTools(provider: AiProvider): Boolean = false
+
+    /** With the request's tools, for sites that [takesTools]; the rest ignore them. */
+    fun stream(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        reasoningLevel: String?,
+        tools: List<com.oro.app.data.ai.Tool>?
+    ): Flow<StreamEvent> = stream(model, messages, reasoningLevel)
 }
 
 object CommunityClients {
     private val clients: Map<ProviderProtocol, CommunityChatClient> by lazy {
         mapOf(
-            ProviderProtocol.K2_GUEST to K2GuestClient()
+            ProviderProtocol.K2_GUEST to K2GuestClient(),
+            ProviderProtocol.QWEN_WEB to QwenWebClient(),
+            ProviderProtocol.PTERO_GUEST to PteroClient(),
+            ProviderProtocol.MERCURY_WEB to MercuryWebClient(),
+            ProviderProtocol.UNIKEY_GUEST to UnikeyClient(),
+            ProviderProtocol.HF_SPACE to HfSpaceClient(),
+            ProviderProtocol.CF_PLAYGROUND to CloudflarePlaygroundClient()
         )
     }
 
     fun forProvider(provider: AiProvider): CommunityChatClient? = clients[provider.protocol]
 
-    fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent> =
-        forProvider(model.provider)?.stream(model, messages)
-            ?: flowOf(StreamEvent.Error("${model.provider.displayName} has no community client"))
+    fun stream(
+        model: AiModel,
+        messages: List<ChatRequestMessage>,
+        reasoningLevel: String? = null,
+        tools: List<com.oro.app.data.ai.Tool>? = null
+    ): Flow<StreamEvent> =
+        forProvider(model.provider)?.let { client ->
+            if (tools != null && client.takesTools(model.provider)) client.stream(model, messages, reasoningLevel, tools)
+            else client.stream(model, messages, reasoningLevel)
+        } ?: flowOf(StreamEvent.Error("${model.provider.displayName} has no community client"))
+
+    /** Whether [provider]'s bridge takes native tool definitions (see [CommunityChatClient.takesTools]). */
+    fun takesTools(provider: AiProvider): Boolean = forProvider(provider)?.takesTools(provider) == true
 
     /** Upstream model id: the seed id minus its "provider:" namespace. */
     fun upstreamId(model: AiModel): String = model.id.substringAfter(':', model.id)
@@ -73,20 +113,24 @@ internal object CommunityHeaders {
  * Plain-text view of a conversation, for sites without roles or tool messages.
  *
  * Native tool traffic (assistant `tool_calls`, `tool` results) is rendered in
- * the same `<tool_call>` / `<tool_result>` text the agent uses in text mode, so
- * a conversation started on another model stays intelligible here.
+ * the same `<tool_call>` / `<tool_result>` text the agent uses in text mode --
+ * the raw-parameter format [com.oro.app.data.ai.agent.TextToolProtocol] teaches
+ * -- so a conversation started on another model stays intelligible here, and
+ * the history the model imitates matches its instructions. A site whose model
+ * was trained on another call format passes its own [formatCall].
  */
 internal object Transcript {
 
     data class Turn(val role: String, val text: String)
 
-    fun turns(messages: List<ChatRequestMessage>): List<Turn> = messages.mapNotNull { m ->
+    fun turns(
+        messages: List<ChatRequestMessage>,
+        formatCall: (name: String, argumentsJson: String) -> String = com.oro.app.data.ai.agent.TextToolProtocol::formatCall
+    ): List<Turn> = messages.mapNotNull { m ->
         when (m.role) {
             "system", "user" -> m.content?.takeIf { it.isNotBlank() }?.let { Turn(m.role, it) }
             "assistant" -> {
-                val calls = m.toolCalls.orEmpty().joinToString("\n") { c ->
-                    "<tool_call>\n{\"name\": \"${c.function.name}\", \"arguments\": ${c.function.arguments.ifBlank { "{}" }}}\n</tool_call>"
-                }
+                val calls = m.toolCalls.orEmpty().joinToString("\n") { c -> formatCall(c.function.name, c.function.arguments) }
                 listOfNotNull(m.content?.takeIf { it.isNotBlank() }, calls.takeIf { it.isNotBlank() })
                     .joinToString("\n").takeIf { it.isNotBlank() }?.let { Turn("assistant", it) }
             }
@@ -128,18 +172,36 @@ internal object CommunityHttp {
         }
     }
 
-    /** Run a call, cancelling it if the collecting coroutine is cancelled. */
+    /**
+     * Run a call, cancelling it the moment the collecting coroutine is
+     * cancelled.
+     *
+     * The thread is blocked inside execute() or a body read, so it cannot
+     * notice cancellation by itself, and a completion handler would only fire
+     * once it returned -- Stop used to leave a silent stream open until bytes
+     * arrived or the read timed out. A watcher child, started before the call
+     * and resumed on another thread when the scope is cancelled, cancels the
+     * call, which makes the blocked read throw at once.
+     */
     suspend fun <T> execute(
         request: Request,
         client: okhttp3.OkHttpClient = AiHttp.streaming,
         block: suspend (Response) -> T
     ): T {
         val call: Call = client.newCall(request)
-        val handle = currentCoroutineContext()[Job]?.invokeOnCompletion { call.cancel() }
-        try {
-            return call.execute().use { block(it) }
-        } finally {
-            handle?.dispose()
+        return coroutineScope {
+            val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    awaitCancellation()
+                } finally {
+                    call.cancel()
+                }
+            }
+            try {
+                call.execute().use { block(it) }
+            } finally {
+                watcher.cancel()
+            }
         }
     }
 

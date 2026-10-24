@@ -63,26 +63,32 @@ class DelegationHandler(
         args: JsonObject,
         parentSessionId: String? = null
     ): ToolResult = when (toolName) {
-        "spawn_subagent" -> spawnSubagent(args, parentSessionId)
+        "spawn_subagent" -> startSubagent(args, parentSessionId).first
         "update_plan" -> updatePlan(args)
         "request_approval" -> requestApproval(args, parentSessionId)
         else -> ToolResult(false, "", "Unknown delegation tool: $toolName")
     }
 
-    private fun spawnSubagent(args: JsonObject, parentSessionId: String?): ToolResult {
+    /**
+     * Starts a subagent and returns the result with the new session's id
+     * (null when it did not start), so a caller waits on exactly that one:
+     * looking for "the session that appeared" picked another call's when two
+     * spawns ran side by side.
+     */
+    fun startSubagent(args: JsonObject, parentSessionId: String? = null): Pair<ToolResult, String?> {
         val typeId = args.str("agent_type")
-            ?: return ToolResult(false, "", "agent_type is required")
+            ?: return ToolResult(false, "", "agent_type is required") to null
         val description = args.str("description")
-            ?: return ToolResult(false, "", "description is required")
+            ?: return ToolResult(false, "", "description is required") to null
         val prompt = args.str("prompt")
-            ?: return ToolResult(false, "", "prompt is required")
+            ?: return ToolResult(false, "", "prompt is required") to null
 
         val definition = Subagents[typeId]
             ?: return ToolResult(
                 false, "",
                 "Unknown agent_type '$typeId'. Available: " +
                     Subagents.all.joinToString(", ") { it.id }
-            )
+            ) to null
 
         val session = orchestrator.spawn(
             definition = definition,
@@ -95,7 +101,7 @@ class DelegationHandler(
             // the work itself instead of retrying the same call.
             "Cannot delegate from here: the nesting limit of ${Subagents.MAX_DEPTH} " +
                 "levels is reached, or this agent type may not delegate. Do the work directly."
-        )
+        ) to null
 
         runner.start(session)
 
@@ -105,7 +111,7 @@ class DelegationHandler(
                 append("Started ${definition.label} agent \"$description\" (id ${session.id}). ")
                 append("It runs in its own context; its summary is returned when it finishes.")
             }
-        )
+        ) to session.id
     }
 
     private fun updatePlan(args: JsonObject): ToolResult {

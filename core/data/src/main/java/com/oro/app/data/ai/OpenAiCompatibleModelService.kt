@@ -53,7 +53,20 @@ internal data class OpenAiModelInfo(
     val pricing: Pricing? = null,
     val isFree: Boolean? = null,
     /** Pollinations: `"tools": true`. */
-    val tools: Boolean? = null
+    val tools: Boolean? = null,
+    /** LLM7: true for models that need a token (paid usage); the rest work anonymously. */
+    @SerialName("usage_based_only")
+    val usageBasedOnly: Boolean? = null,
+    /** LLM7: "chat", "image", "video", ... */
+    @SerialName("model_type")
+    val modelType: String? = null,
+    @SerialName("tools_calling")
+    val toolsCalling: Boolean? = null,
+    /** LLM7: "pro" models need a balance even with a token; "turbo" ones are free. */
+    val tier: String? = null,
+    /** Inception: `["chat.completions"]`, or `["decisions"]` for a model chat cannot use. */
+    @SerialName("supported_endpoints")
+    val supportedEndpoints: List<String>? = null
 ) {
     @Serializable
     internal data class TopProvider(
@@ -93,42 +106,7 @@ internal data class OpenAiModelInfo(
 
     /** Null when the provider does not say. */
     val reportsToolSupport: Boolean?
-        get() = supportedParameters?.contains("tools") ?: tools
-}
-
-/**
- * Which model families accept a reasoning-effort parameter.
- *
- * Matched on the id rather than asked for, because the OpenAI-compatible
- * `/models` response carries no capability field -- it returns ids and little
- * else. Being wrong in the permissive direction costs a 400 on every request,
- * so the list is deliberately restricted to families known to accept it.
- */
-object ReasoningEffortSupport {
-
-    private val patterns = listOf(
-        Regex("""^o[1-9]"""),                 // OpenAI o-series
-        Regex("""gpt-5"""),
-        Regex("""gpt-6"""),
-        Regex("""codex"""),
-        Regex("""gemini-[3-9]"""),            // Gemini 3+ exposes a budget
-        Regex("""gemini-2\.5"""),
-        Regex("""claude-(opus|sonnet)-[4-9]"""),
-        Regex("""grok-[4-9]"""),
-        Regex("""deepseek-(r|v[4-9])"""),
-        Regex("""qwen3"""),
-        Regex("""nemotron"""),
-        Regex("""glm-[5-9]"""),
-        Regex("""minimax-m""")
-    )
-
-    fun supports(modelId: String): Boolean {
-        val id = modelId.lowercase()
-        // Lite/mini/flash-lite tiers in these families generally drop the
-        // budget even though the family name matches.
-        if (id.contains("flash-lite") || id.contains("-nano")) return false
-        return patterns.any { it.containsMatchIn(id) }
-    }
+        get() = supportedParameters?.contains("tools") ?: tools ?: toolsCalling
 }
 
 /**
@@ -195,10 +173,15 @@ class OpenAiCompatibleModelService {
     internal fun parseModels(provider: AiProvider, body: String, hasKey: Boolean): List<AiModel> {
         val parsed = json.decodeFromString<OpenAiModelsResponse>(body)
         val keylessGateway = !hasKey && provider == AiProvider.KILOCODE
+        // Without a token LLM7 serves only its anonymous tier; the rest answer 401.
+        val llm7Anonymous = !hasKey && provider == AiProvider.LLM7
         return parsed.data
             .asSequence()
             .filter { isValidChatModel(it.id) }
+            .filter { it.modelType == null || it.modelType == "chat" }
+            .filter { it.supportedEndpoints == null || "chat.completions" in it.supportedEndpoints }
             .filter { !keylessGateway || it.isFreeModel }
+            .filter { !llm7Anonymous || (it.usageBasedOnly != true && it.tier != "pro") }
             .map { mapToAiModel(provider, it) }
             .distinctBy { it.id }
             .sortedBy { it.name }
@@ -238,8 +221,9 @@ class OpenAiCompatibleModelService {
             reportedContextLength = reported,
             supportsStreaming = true,
             supportsToolCalls = supportsToolCalls,
-            supportsReasoningEffort = ReasoningEffortSupport.supports(info.id),
-            isThinkingModel = isThinkingModel
+            isThinkingModel = isThinkingModel,
+            inputPricePerToken = info.pricing?.prompt?.toDoubleOrNull()?.takeIf { it >= 0 },
+            outputPricePerToken = info.pricing?.completion?.toDoubleOrNull()?.takeIf { it >= 0 }
         )
     }
 

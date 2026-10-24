@@ -116,11 +116,31 @@ class AgentLoopTest {
     @Test
     fun `empty replies are retried then reported`() = runTest {
         val empty = { flowOf(StreamEvent.Started, StreamEvent.ReasoningDelta("hmm"), StreamEvent.Completed) }
-        val model = ScriptedModel(empty, empty, empty)
+        // Three empty replies earn one nudge; three more after it end the run.
+        val model = ScriptedModel(empty, empty, empty, empty, empty, empty)
         val rec = Recorder()
         val result = loop(model) { ToolResult(true, "") }.go(mutableListOf(), rec)
         assertThat((result as AgentRunResult.Failed).message).contains("empty response")
-        assertThat(rec.discarded).hasSize(2)
+        assertThat(rec.discarded).hasSize(4)
+    }
+
+    @Test
+    fun `a model that only reasons is told once to answer, and then does`() = runTest {
+        val empty = { flowOf(StreamEvent.Started, StreamEvent.ReasoningDelta("thinking..."), StreamEvent.Completed) }
+        val model = ScriptedModel(empty, empty, empty, { text("Here is the answer.") })
+        val history = mutableListOf(ChatRequestMessage(role = "user", content = "explain"))
+        val result = loop(model) { ToolResult(true, "") }.go(history)
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Here is the answer."))
+        assertThat(model.requests.last().messages.last().content).isEqualTo(AgentLoop.REASONING_ONLY_NUDGE)
+    }
+
+    @Test
+    fun `a reply with nothing at all, not even reasoning, is not nudged`() = runTest {
+        val blank = { flowOf(StreamEvent.Started, StreamEvent.ContentDelta("  "), StreamEvent.Completed) }
+        val model = ScriptedModel(blank, blank, blank)
+        val result = loop(model) { ToolResult(true, "") }.go(mutableListOf())
+        assertThat((result as AgentRunResult.Failed).message).isEqualTo("The model returned an empty response.")
+        assertThat(model.requests).hasSize(3)
     }
 
     @Test
@@ -222,7 +242,263 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `calls on different files start together and the indicator counts them`() = runTest {
+        val model = ScriptedModel(
+            {
+                tools(
+                    call("a", "write_file", """{"path":"a.html","content":"x"}"""),
+                    call("b", "write_file", """{"path":"b.css","content":"y"}"""),
+                    call("q", "ask_user", """{"question":"Ship it?"}""")
+                )
+            },
+            { text("ok") }
+        )
+        val events = mutableListOf<String>()
+        val listener = object : AgentLoopListener {
+            override fun onStatus(status: AgentStatus) {
+                if (status.kind == AgentStatus.Kind.RUNNING_TOOL || status.kind == AgentStatus.Kind.WAITING_FOR_USER) events += status.label
+            }
+            override fun onToolStarted(call: ToolCallResponse) { events += "start ${call.id}" }
+            override fun onToolFinished(call: ToolCallResponse, result: ToolResult) { events += "finish ${call.id}" }
+        }
+        loop(model) { c -> events += "run ${c.id}"; ToolResult(true, "") }.go(mutableListOf(), listener)
+
+        assertThat(events).containsExactly(
+            "start a", "start b", "Running 2 tools", "run a", "run b", "finish a", "finish b",
+            "start q", "Waiting for your answer", "run q", "finish q"
+        ).inOrder()
+    }
+
+    @Test
     fun `think blocks are not sent back as history`() {
         assertThat(AgentLoop.stripThinking("<think>secret plan</think>Answer")).isEqualTo("Answer")
+    }
+
+    // ------------------------------------------------------------- no cap, stuck detection
+
+    @Test
+    fun `runs have no step cap by default`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> =
+                if (n < 80) tools(call("c${n++}", "grep", """{"pattern":"p$n"}""")) else text("All done.")
+        }
+        var ran = 0
+        val result = loop(model) { ran++; ToolResult(true, "match $ran") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("All done."))
+        assertThat(ran).isEqualTo(80)
+    }
+
+    @Test
+    fun `a streak of failures earns a nudge and then ends the run`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            val sent = mutableListOf<AgentRequest>()
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> {
+                sent += request
+                return tools(call("c${n++}", "edit_file", """{"path":"a","old_string":"x$n","new_string":"y"}"""))
+            }
+        }
+        val result = loop(model) { ToolResult(false, "", "old_string not found") }.go(mutableListOf())
+        assertThat(result).isInstanceOf(AgentRunResult.Failed::class.java)
+        assertThat((result as AgentRunResult.Failed).message).contains("stuck")
+        assertThat(result.message).contains("old_string not found")
+        // The nudge reached the model before the run gave up.
+        val toolTexts = model.sent.last().messages.filter { it.role == "tool" }.mapNotNull { it.content }
+        assertThat(toolTexts.any { it.contains("tool rounds all failed") }).isTrue()
+        assertThat(model.n).isEqualTo(AgentLoopConfig().stuckStopAfter)
+    }
+
+    @Test
+    fun `the same call with the same result over and over ends the run`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> =
+                tools(call("c${n++}", "read_file", """{"path":"index.html"}"""))
+        }
+        val result = loop(model) { ToolResult(true, "<h1>same</h1>") }.go(mutableListOf())
+        assertThat((result as AgentRunResult.Failed).message).contains("repeating")
+        assertThat(model.n).isEqualTo(AgentLoopConfig().repeatStopAfter)
+    }
+
+    // --------------------------------------------------------------- truncation and early stop
+
+    @Test
+    fun `a text call cut off by the output limit is not run and is asked for again`() = runTest {
+        val cut = "<tool_call>\n<function=write_file>\n<parameter=path>index.html</parameter>\n<parameter=content>\n<html><body><main>"
+        val whole = "<tool_call>\n<function=write_file>\n<parameter=path>index.html</parameter>\n" +
+            "<parameter=content>\n<html></html>\n</parameter>\n</function>\n</tool_call>"
+        val model = ScriptedModel(
+            { flowOf(StreamEvent.Started, StreamEvent.ContentDelta(cut), StreamEvent.FinishReason("length"), StreamEvent.Completed) },
+            { text(whole) },
+            { text("Done.") }
+        )
+        val written = mutableListOf<String>()
+        val result = loop(model) { c -> written += c.function.arguments; ToolResult(true, "ok") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+        assertThat(written).hasSize(1)
+        assertThat(written.single()).contains("<html></html>")
+        val nudge = model.requests[1].messages.last()
+        assertThat(nudge.role).isEqualTo("user")
+        assertThat(nudge.content).contains("output limit")
+        assertThat(nudge.content).contains("append=true")
+        // The half file is not kept in history for the model to imitate.
+        assertThat(model.requests[1].messages.none { it.content?.contains("<main>") == true }).isTrue()
+    }
+
+    @Test
+    fun `a native call whose arguments were cut off is not run`() = runTest {
+        val truncated = call("w", "write_file", """{"path":"index.html","content":"<html><bo""")
+        val model = ScriptedModel(
+            { flowOf(StreamEvent.Started, StreamEvent.ToolCalls(listOf(truncated)), StreamEvent.FinishReason("length"), StreamEvent.Completed) },
+            { text("Sorry, done now.") }
+        )
+        var ran = 0
+        val result = loop(model) { ran++; ToolResult(true, "") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Sorry, done now."))
+        assertThat(ran).isEqualTo(0)
+        assertThat(model.requests[1].messages.last().content).contains("write_file")
+        assertThat(model.requests[1].messages.none { it.toolCalls != null }).isTrue()
+    }
+
+    @Test
+    fun `text mode stops reading when the model invents a tool result`() = runTest {
+        val callText = "<tool_call>\n<function=read_file>\n<parameter=path>a.html</parameter>\n</function>\n</tool_call>"
+        val model = ScriptedModel(
+            {
+                flowOf(
+                    StreamEvent.Started,
+                    StreamEvent.ContentDelta("Reading.\n$callText\n<tool_res"),
+                    StreamEvent.ContentDelta("ult name=\"read_file\">invented</tool_result>\nGreat, all done!"),
+                    StreamEvent.Completed
+                )
+            },
+            { text("Real answer.") }
+        )
+        val result = loop(model) { ToolResult(true, "<p>real</p>") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Real answer."))
+        val history = model.requests[1].messages
+        assertThat(history.none { it.content?.contains("invented") == true }).isTrue()
+        assertThat(history.last().content).contains("<p>real</p>")
+    }
+
+    @Test
+    fun `a reply looping on one paragraph is cut to its first copy`() {
+        val para = "I've retrieved your latest HDFC Bank notification from Messages. It says Rs.2,450.00 was debited " +
+            "to SWIGGY, leaving Rs.18,320.55. The task is complete.\n"
+        val looped = "Here it is.\n" + para + para + para + para.take(90)
+        val cut = AgentLoop.repetitionCut(looped)
+        assertThat(looped.substring(0, cut)).isEqualTo("Here it is.\n" + para)
+        // A passage quoted three times with other words between is not a loop; neither is a short reply.
+        val quote = "x".repeat(10) + para
+        assertThat(AgentLoop.repetitionCut("A: $quote\nB: other words here.\n$quote\nC: and more.\n$quote")).isEqualTo(-1)
+        assertThat(AgentLoop.repetitionCut(para + para)).isEqualTo(-1)
+        assertThat(AgentLoop.repetitionCut(".".repeat(2_000))).isEqualTo(-1)
+    }
+
+    @Test
+    fun `with cutRepetition the loop stops reading a looping reply`() = runTest {
+        val para = "The notification says Rs.2,450.00 was debited to SWIGGY on 22 October, leaving Rs.18,320.55 in " +
+            "your account. The task is complete and nothing else is needed.\n"
+        val model = ScriptedModel({
+            flow {
+                emit(StreamEvent.Started)
+                repeat(40) { emit(StreamEvent.ContentDelta(para)) }
+                emit(StreamEvent.Completed)
+            }
+        })
+        val result = loop(model, AgentLoopConfig(cutRepetition = true)) { ToolResult(true, "") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed(para.trim()))
+    }
+
+    @Test
+    fun `tool calls that stay unreadable end the run honestly`() = runTest {
+        val broken = { text("Fixing it.\n<tool_call>{\"name\": \"format_disk\", \"arguments\": {}}</tool_call>") }
+        val model = ScriptedModel(broken, broken, broken)
+        var ran = 0
+        val result = loop(model) { ran++; ToolResult(true, "") }.go(mutableListOf())
+        assertThat(result).isInstanceOf(AgentRunResult.Failed::class.java)
+        assertThat((result as AgentRunResult.Failed).message).contains("could not read")
+        assertThat(ran).isEqualTo(0)
+        assertThat(model.requests).hasSize(3)
+    }
+
+
+    // --------------------------------------------------------------- review round: budgets, salvage, verify loops
+
+    @Test
+    fun `an unclosed read-only call after an explicit stop still runs`() = runTest {
+        val model = ScriptedModel(
+            {
+                flowOf(
+                    StreamEvent.Started,
+                    StreamEvent.ContentDelta("Checking.\n<tool_call>\n<function=read_file>\n<parameter=path>a.html"),
+                    StreamEvent.FinishReason("stop"),
+                    StreamEvent.Completed
+                )
+            },
+            { text("Looks good.") }
+        )
+        val ran = mutableListOf<String>()
+        val result = loop(model) { c -> ran += c.function.arguments; ToolResult(true, "<p>x</p>") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Looks good."))
+        assertThat(ran.single()).contains("a.html")
+    }
+
+    @Test
+    fun `retry budgets reset once calls run`() = runTest {
+        val cut = "<tool_call>\n<function=write_file>\n<parameter=path>a.html</parameter>\n<parameter=content>\n<html><bo"
+        val cutTurn = { flowOf(StreamEvent.Started, StreamEvent.ContentDelta(cut), StreamEvent.FinishReason("length"), StreamEvent.Completed) }
+        fun read(n: Int) = { text("<tool_call>\n<function=read_file>\n<parameter=path>part$n.html</parameter>\n</function>\n</tool_call>") }
+        val model = ScriptedModel(
+            cutTurn, read(1), cutTurn, read(2), cutTurn, read(3), cutTurn, read(4), { text("Done.") }
+        )
+        val result = loop(model) { ToolResult(true, "ok") }.go(mutableListOf())
+        // Four cut-offs in one run, but never more than one in a row: the run goes on.
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+    }
+
+    @Test
+    fun `an unclosed file write is not run when the provider gives no finish reason`() = runTest {
+        val open = "<tool_call>\n<function=write_file>\n<parameter=path>a.html</parameter>\n" +
+            "<parameter=content>\n<html></html>\n</parameter>"
+        val model = ScriptedModel({ text(open) }, { text("Done.") })
+        var ran = 0
+        val result = loop(model) { ran++; ToolResult(true, "") }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+        assertThat(ran).isEqualTo(0)
+        assertThat(model.requests[1].messages.last().content).contains("never closed")
+    }
+
+    @Test
+    fun `a verify loop that reads the same text after each edit is not a repeat`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> =
+                if (n < 8) {
+                    n++
+                    tools(
+                        call("e$n", "edit_file", """{"path":"a.css","old_string":"v${n - 1}","new_string":"v$n"}"""),
+                        call("c$n", "check_syntax", "{}")
+                    )
+                } else text("Done.")
+        }
+        val result = loop(model) { c ->
+            if (c.function.name == "check_syntax") ToolResult(true, "No issues found in 3 files.") else ToolResult(true, "Edited a.css")
+        }.go(mutableListOf())
+        assertThat(result).isEqualTo(AgentRunResult.Completed("Done."))
+    }
+
+    @Test
+    fun `the same append over and over is caught although its reply changes`() = runTest {
+        val model = object : AgentModelClient {
+            var n = 0
+            override suspend fun stream(request: AgentRequest): Flow<StreamEvent> =
+                tools(call("w${n++}", "write_file", """{"path":"a.js","append":true,"content":"x();"}"""))
+        }
+        var lines = 0
+        val result = loop(model) { ToolResult(true, "Appended 1 line to a.js (now ${++lines} lines).") }.go(mutableListOf())
+        assertThat((result as AgentRunResult.Failed).message).contains("repeating")
+        assertThat(model.n).isEqualTo(AgentLoopConfig().repeatStopAfter)
     }
 }

@@ -8,7 +8,9 @@ import androidx.lifecycle.viewModelScope
 import com.oro.app.OroApplication
 import com.oro.app.data.git.GitManager
 import com.oro.app.data.git.GitOperationResult
+import com.oro.app.data.local.entity.ProjectSessionStats
 import com.oro.app.data.local.entity.ProjectTemplate
+import com.oro.app.data.repository.ChatRepository
 import com.oro.app.data.repository.ProjectRepository
 import com.oro.app.domain.model.Project
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -18,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -53,8 +57,22 @@ data class HomeUiState(
 
 class HomeViewModel(
     private val projectRepository: ProjectRepository,
-    private val gitManager: GitManager? = null
+    private val gitManager: GitManager? = null,
+    private val chatRepository: ChatRepository? = null
 ) : ViewModel() {
+
+    /**
+     * Chat count per project id, for the project cards.
+     *
+     * Its own flow rather than a field of HomeUiState: it changes whenever
+     * any chat is created or deleted, and one grouped query over the small
+     * sessions table is cheap, but there is no reason for that to rebuild
+     * the whole home state.
+     */
+    val sessionCounts: StateFlow<Map<String, Int>> =
+        (chatRepository?.observeProjectSessionStats() ?: flowOf(emptyMap<String, ProjectSessionStats>()))
+            .map { stats -> stats.mapValues { it.value.sessionCount } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _searchQuery = MutableStateFlow("")
     private val _isLoading = MutableStateFlow(false)
@@ -346,7 +364,8 @@ class HomeViewModel(
                 val application = OroApplication.getInstance()
                 return HomeViewModel(
                     projectRepository = application.projectRepository,
-                    gitManager = application.gitManager
+                    gitManager = application.gitManager,
+                    chatRepository = application.chatRepository
                 ) as T
             }
         }
