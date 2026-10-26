@@ -101,6 +101,46 @@ class WebSearchTest {
     }
 
     @Test
+    fun `bing serp parses title, url and snippet`() {
+        val html = """
+            <ol id="b_results">
+            <li class="b_algo" data-id iid=SERP.1><div class="b_tpcn"><a class="tilk" href="https://kotlinlang.org/">icon</a></div>
+              <div class="b_algoheader"><a href="https://kotlinlang.org/" h="ID=SERP,1.2"><h2><strong>Kotlin</strong> Programming Language</h2></a></div>
+              <div class="b_caption"><p class="b_lineclamp3"><span class="news_dt">Feb 4, 2021</span>&nbsp;&#0183;&#32;Kotlin is a concise and multiplatform language.</p></div>
+            </li>
+            <li class="b_algo" data-id iid=SERP.2>
+              <div class="b_algoheader"><a href="https://en.wikipedia.org/wiki/Kotlin" h="ID=SERP,2.2"><h2>Kotlin - Wikipedia</h2></a></div>
+              <div class="b_caption"><p class="b_lineclamp2">A cross-platform, statically typed language.</p></div>
+            </li>
+            </ol>
+        """.trimIndent()
+        val hits = WebSearch.parseBing(html)
+        assertThat(hits).hasSize(2)
+        assertThat(hits[0].url).isEqualTo("https://kotlinlang.org/")
+        assertThat(hits[0].title).isEqualTo("Kotlin Programming Language")
+        assertThat(hits[0].snippet).contains("concise and multiplatform")
+        assertThat(hits[0].snippet).doesNotContain("Feb 4")
+        assertThat(hits[1].title).isEqualTo("Kotlin - Wikipedia")
+        assertThat(hits[1].snippet).isEqualTo("A cross-platform, statically typed language.")
+    }
+
+    @Test
+    fun `wikipedia api json parses into hits with real urls`() {
+        val json = """
+            {"batchcomplete":"","query":{"searchinfo":{"totalhits":2},"search":[
+              {"ns":0,"title":"Kotlin","pageid":1,"snippet":"a <span class=\"searchmatch\">programming</span> language"},
+              {"ns":0,"title":"Kotlin (programming language)","pageid":2,"snippet":"cross-platform"}
+            ]}}
+        """.trimIndent()
+        val hits = WebSearch.parseWikipedia(json)
+        assertThat(hits).hasSize(2)
+        assertThat(hits[0].title).isEqualTo("Kotlin")
+        assertThat(hits[0].url).isEqualTo("https://en.wikipedia.org/wiki/Kotlin")
+        assertThat(hits[0].snippet).isEqualTo("a programming language")
+        assertThat(hits[1].url).isEqualTo("https://en.wikipedia.org/wiki/Kotlin_(programming_language)")
+    }
+
+    @Test
     fun `redirect unwrapping handles every shape`() {
         assertThat(WebSearch.decodeDdgRedirect("//duckduckgo.com/l/?uddg=https%3A%2F%2Fx.dev%2Fa%3Fb%3D1&rut=1"))
             .isEqualTo("https://x.dev/a?b=1")

@@ -61,8 +61,10 @@ object WebSearch {
             val hits = firstNonEmpty(
                 { ddgHtml(q) },
                 { ddgLite(q) },
+                { bing(q) },
                 { mojeek(q) },
                 { searx(q) },
+                { wikipedia(q, n) },
             ).map { normalise(it) }.filter { it.url.isNotBlank() && it.title.isNotBlank() }
                 .distinctBy { it.url }
                 .take(n)
@@ -137,6 +139,18 @@ object WebSearch {
             referer = "https://lite.duckduckgo.com/",
         ) ?: return emptyList()
         return parseDdgLite(html)
+    }
+
+    private fun bing(q: String): List<Hit> {
+        val html = get("https://www.bing.com/search?q=" + enc(q) + "&count=10") ?: return emptyList()
+        return parseBing(html)
+    }
+
+    /** Wikipedia's own search API: keyless, reliable, and right for "what is X" queries. */
+    private fun wikipedia(q: String, limit: Int): List<Hit> {
+        val json = get("https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit=" +
+            limit.coerceIn(1, 10) + "&srsearch=" + enc(q)) ?: return emptyList()
+        return parseWikipedia(json)
     }
 
     private fun mojeek(q: String): List<Hit> {
@@ -229,6 +243,44 @@ object WebSearch {
         }
         return out
     }
+
+    /** Bing SERP: `<li class="b_algo">` blocks, title in `b_algoheader`, snippet in `b_lineclamp*`. */
+    fun parseBing(html: String): List<Hit> {
+        val out = ArrayList<Hit>()
+        val blocks = html.split("<li class=\"b_algo\"").drop(1)
+        for (block in blocks) {
+            val head = Regex("<div class=\"b_algoheader\"[^>]*>\\s*<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>", RegexOption.DOT_MATCHES_ALL)
+                .find(block)
+                ?: Regex("<a[^>]*href=\"(https?://[^\"]+)\"[^>]*>\\s*<h2>(.*?)</h2>", RegexOption.DOT_MATCHES_ALL).find(block)
+                ?: continue
+            val title = stripTags(head.groupValues[2])
+            val snippet = Regex("<p class=\"b_lineclamp[^\"]*\"[^>]*>(.*?)</p>", RegexOption.DOT_MATCHES_ALL)
+                .find(block)?.groupValues?.get(1)?.let { stripTags(it) }
+                ?.replace(Regex("^[A-Z][a-z]{2} \\d{1,2}, \\d{4}\\s*[\u00b7\u2022-]?\\s*"), "")
+                .orEmpty()
+            if (title.isNotBlank()) out += Hit(title, head.groupValues[1], snippet)
+        }
+        return out
+    }
+
+    /** Wikipedia search API JSON (query.search[]). */
+    fun parseWikipedia(json: String): List<Hit> = runCatching {
+        val root = com.oro.app.data.ai.AiHttp.json.parseToJsonElement(json)
+            .let { it as? kotlinx.serialization.json.JsonObject } ?: return emptyList()
+        val arr = (root["query"] as? kotlinx.serialization.json.JsonObject)
+            ?.get("search") as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+        arr.mapNotNull { el ->
+            val o = el as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+            val title = (o["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val snippet = (o["snippet"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                ?.let { stripTags(it) }.orEmpty()
+            val url = runCatching {
+                java.net.URI("https", "en.wikipedia.org", "/wiki/" + title.replace(' ', '_'), null).toASCIIString()
+            }.getOrDefault("https://en.wikipedia.org/wiki/" + title.replace(' ', '_'))
+            Hit(title, url, snippet)
+        }
+    }.getOrDefault(emptyList())
 
     /** DuckDuckGo wraps result URLs in a redirect (`/l/?uddg=...`): unwrap it. */
     fun decodeDdgRedirect(url: String): String {
