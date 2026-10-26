@@ -200,6 +200,13 @@ class ToolExecutor(
                 val q = args.getStringArg("query").orEmpty()
                 return ToolResult(true, com.oro.app.data.ai.search.WebDocs.format(com.oro.app.data.ai.search.WebDocs.lookup(q)))
             }
+            "web_search" -> {
+                val q = args.getStringArg("query")?.trim().orEmpty()
+                if (q.isEmpty()) return ToolResult(false, "", "Missing required argument: query")
+                val limit = args.getStringArg("limit")?.toIntOrNull()?.coerceIn(1, 10) ?: 6
+                val hits = com.oro.app.data.ai.search.WebSearch.search(q, limit)
+                return ToolResult(true, com.oro.app.data.ai.search.WebSearch.format(q, hits))
+            }
             "open_pull_request" -> {
                 val root = currentProjectPath ?: return ToolResult(false, "", "No project is open.")
                 val token = githubToken?.invoke()?.trim().orEmpty()

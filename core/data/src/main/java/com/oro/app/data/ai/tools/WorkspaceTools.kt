@@ -590,10 +590,28 @@ object HtmlText {
             .replace(Regex("(?i)<li\\b[^>]*>"), "\n- ")
             .replace(Regex("(?i)<h([1-6])\\b[^>]*>")) { "\n" + "#".repeat(it.groupValues[1].toInt()) + " " }
             .replace(Regex("(?s)<[^>]+>"), " ")
-        s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-            .replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
+        s = unescape(s)
         return s.lines().map { it.replace(Regex("[ \\t]+"), " ").trim() }
             .filter { it.isNotEmpty() }
             .joinToString("\n")
+    }
+
+    /** HTML entities to their characters: the named few plus numeric refs. */
+    fun unescape(s: String): String {
+        var out = s.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
+            .replace("&mdash;", "\u2014").replace("&ndash;", "\u2013")
+            .replace("&hellip;", "\u2026").replace("&middot;", "\u00b7")
+        if (out.contains("&#")) {
+            out = out.replace(Regex("&#(x?)([0-9a-fA-F]+);")) { m ->
+                val hex = m.groupValues[1].equals("x", true)
+                val code = runCatching {
+                    if (hex) m.groupValues[2].toInt(16) else m.groupValues[2].toInt()
+                }.getOrNull()
+                if (code != null && code in 0x20..0x10FFFF) String(Character.toChars(code)) else m.value
+            }
+        }
+        // &amp; last, so &amp;lt; stays the literal text "&lt;".
+        return out.replace("&amp;", "&")
     }
 }

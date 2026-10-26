@@ -19,7 +19,7 @@ Measured on molab release builds (same commit, before/after).
 - **Startup.** Poppins is decoded on a background thread while the splash is up, through the same calls
   Compose makes (`Resources.getFont` on 26+, `ResourcesCompat` below), so the first frame hits the cache.
 - **Baseline Profile.** Now also covers `data/ai/**` (agent loop, parsers, providers, tools),
-  `data/preview/**`, sessions and the device agent (`HPL`: hot, post-startup).
+  `data/preview/**`, sessions and the browser agent (`HPL`: hot, post-startup).
 - **Editor file tree.** Project-row emissions (one per file write, via `updatedAt`) used to rebuild the
   tree each time, on top of the refresh after every tool: two walks per agent edit. First load still
   loads at once; later emissions coalesce into one refresh after 600 ms of quiet.

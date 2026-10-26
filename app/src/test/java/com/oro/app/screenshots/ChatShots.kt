@@ -24,7 +24,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** How a use_phone call reads in the coding chat, while it runs and after. */
+/** How a use_browser call reads in the coding chat, while it runs and after. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = PHONE, application = ShotsApplication::class)
@@ -46,19 +46,19 @@ class ChatShots {
             Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
                 Column(Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
                     Text(
-                        "The form validates now. I'll try it on your phone the way a visitor would.",
+                        "The form validates now. I'll try it in a real browser the way a visitor would.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     val phone = ToolCallEntry(
-                        "use_phone", task,
+                        "use_browser", task,
                         if (running) ToolCallStatus.Running else ToolCallStatus.Success,
-                        output = if (running) null else "Phone task done in 48 s, 9 actions. Signed up as test@oro.dev; " +
-                            "the success toast appeared. The password hint overlaps the field at 360 px.",
+                        output = if (running) null else "Browser task done in 48 s, 9 actions (ended on localhost:8080/signup). " +
+                            "Signed up as test@oro.dev; the success toast appeared. The password hint overlaps the field at 360 px.",
                     )
                     ToolCallGroup(entries = before + phone, initiallyExpanded = true)
                     if (running) {
-                        OrobiWorking(label = "On the phone: Tap “Create account”", maxLines = 1)
+                        OrobiWorking(label = "In the browser: Click “Create account”", maxLines = 1)
                     } else {
                         Text(
                             "Signup works end to end. One layout bug: the password hint overlaps the field on " +
@@ -73,12 +73,12 @@ class ChatShots {
     }
 
     @Test
-    fun chat_use_phone_running_light() = compose.shoot("chat_use_phone_running_light", height = 420.dp) {
+    fun chat_use_browser_running_light() = compose.shoot("chat_use_browser_running_light", height = 420.dp) {
         ChatTurn(dark = false, running = true)
     }
 
     @Test
-    fun chat_use_phone_done_dark() = compose.shoot("chat_use_phone_done_dark", height = 420.dp) {
+    fun chat_use_browser_done_dark() = compose.shoot("chat_use_browser_done_dark", height = 420.dp) {
         ChatTurn(dark = true, running = false)
     }
 }

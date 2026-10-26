@@ -152,6 +152,4 @@
     <string name="error_load_project">Failed to load project</string>
     <string name="error_save_file">Failed to save file</string>
     <!-- Device agent -->
-    <string name="device_agent_service_summary">Lets Orobi operate your phone for tasks you start in Oro.</string>
-    <string name="device_agent_service_description">Oro Device Agent lets Orobi carry out tasks you start in the Oro app: it reads what is on screen and taps, types, scrolls and opens apps on your behalf. It acts only while a task you started is running, shows a floating control with Pause and Stop the whole time, and asks before sensitive actions such as sending, paying or deleting. Screen content is sent only to the AI model you chose for the task.</string>
 </resources>

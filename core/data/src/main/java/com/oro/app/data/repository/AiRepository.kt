@@ -76,7 +76,7 @@ class AiRepository(
         maxTokens: Int? = null,
         /** Told when the local free-tier pacer makes this request wait. */
         onRateLimitWait: (suspend () -> Unit)? = null,
-        /** This call's reasoning level for [model], over the saved one (e.g. the device agent's quick steps). */
+        /** This call's reasoning level for [model], over the saved one (e.g. the browser agent's quick steps). */
         reasoningLevel: String? = null
     ): Flow<StreamEvent> {
         val providerManager = createProviderManager()
@@ -356,8 +356,10 @@ class AiRepository(
                a quick check of that file: fix what it reports right away.
             5. Verify. Run check_syntax with no path (whole project) and fix every ERROR and WARN.
                For UI, look at it with screenshot_preview and fix what you see; get_preview_errors
-               shows runtime errors. The app also reviews your files when you finish and sends back
-               anything you missed.
+               shows runtime errors. Behaviour only a real browser shows (a form that submits, a
+               flow across pages): use_browser with open_preview=true tests the live site the way a
+               visitor would and reports what it saw. The app also reviews your files when you
+               finish and sends back anything you missed.
             6. Keep going until the task is fully done. If something fails, read the error, adjust
                and retry. Never claim something you did not do.
 
@@ -369,6 +371,9 @@ class AiRepository(
               you need (read_file takes several paths), run independent searches together, and create
               independent new files together.
             - For destructive steps (deleting files you didn't create) use request_approval first.
+            - Facts from the web (docs, current versions, APIs, examples): web_search, then
+              web_fetch the result worth reading. use_browser is for pages that need a real
+              browser: logins, interactions, or your own live preview.
 
             # Asking
             - A vague request for something new (a site, an app, a big feature) that leaves open facts

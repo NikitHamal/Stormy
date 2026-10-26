@@ -50,11 +50,11 @@ class ToolSchemaTest {
     @Test
     fun `the agent tool set is small and every tool has a description`() {
         // A long menu of overlapping tools degrades tool choice; keep it tight.
-        assertThat(allTools().size).isAtMost(24)
+        assertThat(allTools().size).isAtMost(26)
         allTools().forEach { assertThat(it.function.description.length).isAtLeast(40) }
         assertThat(allTools().map { it.function.name }).containsAtLeast(
             "read_file", "write_file", "edit_file", "multi_edit", "list_files", "glob", "grep",
-            "delete_file", "move_file", "ask_user", "update_plan", "web_fetch"
+            "delete_file", "move_file", "ask_user", "update_plan", "web_fetch", "web_search"
         )
     }
 

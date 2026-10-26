@@ -119,7 +119,7 @@ data class AgentLoopConfig(
     val repeatStopAfter: Int = 6,
     /**
      * JSON parameter schemas of tools beyond the built-ins (MCP servers, the
-     * device agent's tools), by name. Text-protocol values are typed by these;
+     * browser agent's tools), by name. Text-protocol values are typed by these;
      * the built-in tools' schemas are always known.
      */
     val toolSchemas: Map<String, JsonObject> = emptyMap(),
@@ -133,7 +133,7 @@ data class AgentLoopConfig(
     /**
      * Stop reading a reply that loops on the same passage (see
      * [AgentLoop.repetitionCut]) and keep its first copy. Off by default: code
-     * and data can repeat legitimately. The device agent's replies are short
+     * and data can repeat legitimately. The browser agent's replies are short
      * prose, where a small model once looped on one paragraph for 220 s.
      */
     val cutRepetition: Boolean = false,

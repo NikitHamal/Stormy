@@ -1796,7 +1796,7 @@ class EditorViewModel(
                 kotlinx.coroutines.withTimeout(15_000) { com.oro.app.data.ai.mcp.McpRegistry.tools(mcp) }
             }.getOrDefault(emptyList()).map { it.asTool() }
         } else emptyList()
-        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() + phoneTools() + mcpTools else emptyList()
+        val offeredTools = if (isAgentMode) AgentTools.forMainAgent() + browserTools() + mcpTools else emptyList()
         val knownTools = offeredTools.map { it.function.name }.toSet()
 
         // Context that does not change during a run, computed once.
@@ -1958,7 +1958,7 @@ class EditorViewModel(
             // detection ends genuinely hopeless loops instead.
             config = AgentLoopConfig(
                 attachImages = com.oro.app.data.ai.VisionSupport.supports(model),
-                // MCP and use_phone schemas, so raw text-protocol values get their real types.
+                // MCP and use_browser schemas, so raw text-protocol values get their real types.
                 toolSchemas = AgentTools.schemasOf(offeredTools),
                 idleTimeoutMs = profile.idleTimeoutMs,
                 // A prose intake question uses one final-check pass; the quality gate keeps its own.
@@ -2107,7 +2107,7 @@ class EditorViewModel(
                     )
                 }
             }
-            name == com.oro.app.data.ai.tools.DeviceDelegationTools.USE_PHONE_NAME -> runPhoneTask(call)
+            name == com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER_NAME -> runBrowserTask(call)
             delegationHandler.handles(name) -> {
                 val args = DelegationHandler.parseArgs(call.function.arguments)
                     ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
@@ -2127,98 +2127,93 @@ class EditorViewModel(
     }
 
     /**
-     * The chat run in which the user stopped a phone task, if any: within that
-     * run use_phone is refused, so the coding agent cannot take the phone back
-     * right after the user took it away (Unleashed would not even ask).
+     * The chat run in which the user stopped a browser task, if any: within
+     * that run use_browser is refused, so the coding agent cannot take the
+     * browser back right after the user took it away (Unleashed would not even
+     * ask).
      */
-    @Volatile private var phoneStoppedInRun: RunTranscript? = null
+    @Volatile private var browserStoppedInRun: RunTranscript? = null
 
-    /** use_phone is offered only while the device agent's accessibility service is connected. */
-    private fun phoneTools(): List<Tool> =
-        if (com.oro.app.device.OroAccessibilityService.instance.value != null) {
-            listOf(com.oro.app.data.ai.tools.DeviceDelegationTools.USE_PHONE)
-        } else emptyList()
+    /** use_browser needs no permission and no service: it is always on offer. */
+    private fun browserTools(): List<Tool> =
+        listOf(com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER)
 
     /**
-     * use_phone: the coding agent hands a task to the device agent mid-run and
-     * gets back what it did and found.
+     * use_browser: the coding agent hands a task to the browser agent mid-run
+     * and gets back what it did and found.
      *
-     * The phone task runs with the chat's model and the user's device
-     * settings (approvals, touch display, ad skipping); Leashed mode asks
-     * before the phone is taken over at all. While it runs, the chat's status
-     * line follows the device agent's current step, and stopping the chat run
-     * stops the phone task too. When it ends Oro comes back to this chat.
+     * The browser task runs with the chat's model and the user's browser
+     * settings (approvals for paying/sending, Pause/Stop on screen); Leashed
+     * mode asks before the browser is taken over at all. While it runs, the
+     * chat's status line follows the browser agent's current step, and
+     * stopping the chat run stops the browser task too. When it ends Oro comes
+     * back to this chat. The user can watch it live, or minimise it and keep
+     * working: the run lives in the process-wide BrowserAgent, not a screen.
      */
-    private suspend fun runPhoneTask(call: ToolCallResponse): ToolResult {
+    private suspend fun runBrowserTask(call: ToolCallResponse): ToolResult {
         val args = DelegationHandler.parseArgs(call.function.arguments)
-            ?: return ToolResult(false, "", "Could not parse the arguments for use_phone as JSON.")
+            ?: return ToolResult(false, "", "Could not parse the arguments for use_browser as JSON.")
         fun str(key: String): String? = (args[key] as? kotlinx.serialization.json.JsonPrimitive)?.content
             ?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
         val task = str("task") ?: str("goal") ?: str("description")
-            ?: return ToolResult(false, "", "task is required: say what to do on the phone and what counts as done.")
+            ?: return ToolResult(false, "", "task is required: say what to do in the browser and what counts as done.")
         val report = str("report")
         val openPreview = str("open_preview").equals("true", ignoreCase = true)
+        val startUrl = str("url")?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
         val model = _currentModel.value ?: return ToolResult(false, "", "No model is selected.")
         val app = OroApplication.getInstance()
         val thisRun = transcript
-        if (thisRun != null && phoneStoppedInRun === thisRun) {
+        if (thisRun != null && browserStoppedInRun === thisRun) {
             return ToolResult(
                 false, "",
-                "The user stopped your earlier phone task in this run. Do not use the phone again unless the user asks you to; continue without it."
+                "The user stopped your earlier browser task in this run. Do not use the browser again unless the user asks you to; continue without it."
             )
         }
-        if (com.oro.app.device.OroAccessibilityService.instance.value == null) {
-            return ToolResult(
-                false, "",
-                "Oro Device Agent is off. Ask the user to turn it on (Settings › Accessibility › Oro Device Agent), or continue without the phone."
-            )
-        }
-        if (com.oro.app.device.DeviceAgent.state.value.running) {
-            return ToolResult(false, "", "The phone is busy with another device task. Continue without it, or try again when it finishes.")
+        if (com.oro.app.browser.BrowserAgent.state.value.running) {
+            return ToolResult(false, "", "The browser is busy with another task. Continue without it, or try again when it finishes.")
         }
         if (preferencesRepository.autonomyMode.first() == com.oro.app.data.ai.agent.AutonomyMode.LEASHED &&
-            !awaitApproval("Use your phone", task)
+            !awaitApproval("Use the browser", task)
         ) {
-            return ToolResult(true, "The user declined the phone task. Do not retry it; continue without it or ask how they want it done.")
+            return ToolResult(true, "The user declined the browser task. Do not retry it; continue without it or ask how they want it done.")
         }
         val previewUrl = if (openPreview) {
             _project.value?.rootPath?.let { root ->
                 com.oro.app.data.preview.PreviewServerManager.getInstance().startServerForProject(root)
-            } ?: return ToolResult(false, "", "The live preview could not be started, so there is nothing to open on the phone.")
+            } ?: return ToolResult(false, "", "The live preview could not be started, so there is nothing to open in the browser.")
         } else null
         val brief = buildString {
-            if (previewUrl != null) {
-                append("First open ").append(previewUrl)
-                append(" with open_url: it is the live preview of the site the user is building in Oro.\n\n")
-            }
             append(task)
             if (report != null) append("\n\nWhen you finish, report: ").append(report)
         }
-        // The chat's status line follows the phone: what it is doing right now.
+        val firstUrl = previewUrl ?: startUrl
+        // The chat's status line follows the browser: what it is doing right now.
         val statusFollower = viewModelScope.launch {
-            com.oro.app.device.DeviceAgent.state.collect { s ->
-                if (s.running && s.origin == com.oro.app.device.DeviceAgent.Origin.CHAT) {
-                    val step = s.steps.lastOrNull { it.kind != com.oro.app.device.DeviceAgent.StepKind.THOUGHT }?.title ?: s.status
-                    // Paused, or waiting while the user has Oro open: say so rather than the last step.
-                    val label = if (s.paused || s.status.startsWith("Waiting")) s.status else step
-                    _runStatus.value = AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "On the phone: ${label.take(60)}")
+            com.oro.app.browser.BrowserAgent.state.collect { s ->
+                if (s.running && s.origin == com.oro.app.browser.BrowserAgent.Origin.CHAT) {
+                    val step = s.steps.lastOrNull { it.kind != com.oro.app.browser.BrowserAgent.StepKind.THOUGHT }?.title ?: s.status
+                    val label = if (s.paused || s.needsUser) s.status else step
+                    _runStatus.value = AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "In the browser: ${label.take(60)}")
                 }
             }
         }
         val result = try {
-            com.oro.app.device.DeviceAgent.runForResult(
-                app, brief, model, aiRepository, com.oro.app.device.DeviceSettingsStore.load(app)
+            com.oro.app.browser.BrowserAgent.runForResult(
+                app, brief, model, aiRepository,
+                com.oro.app.browser.BrowserSettingsStore.load(app),
+                startUrl = firstUrl,
+                projectRoot = _project.value?.rootPath,
             )
         } finally {
             statusFollower.cancel()
         }
-        if (result.stoppedByUser) phoneStoppedInRun = thisRun
+        if (result.stoppedByUser) browserStoppedInRun = thisRun
         val text = result.forModel()
         return when {
             result.success -> ToolResult(true, text)
             // The report already says what to do; an error line would read as a fault to retry.
-            result.stoppedByUser -> ToolResult(false, text, "The user stopped the phone task. Do not use the phone again unless they ask.")
-            else -> ToolResult(false, text, result.error ?: "The phone task was not completed.")
+            result.stoppedByUser -> ToolResult(false, text, "The user stopped the browser task. Do not use the browser again unless they ask.")
+            else -> ToolResult(false, text, result.error ?: "The browser task was not completed.")
         }
     }
 
@@ -2867,7 +2862,11 @@ class EditorViewModel(
         val allowedTools = AgentTools.all.filter { tool ->
             val capability = capabilityFor(tool.function.name)
             capability != null && definition.allows(capability)
-        }
+        } + if (definition.allows(ToolCapability.BROWSER)) {
+            // The in-app browser: subagents that may research or verify on the
+            // web get the same delegation tool the main agent has.
+            listOf(com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER)
+        } else emptyList()
         val nativeTools = model.supportsToolCalls
         val textToolProtocol = if (!nativeTools && allowedTools.isNotEmpty()) {
             "\n\n" + (aiRepository.createSystemMessage(
@@ -2887,11 +2886,18 @@ class EditorViewModel(
             // refusal goes back as the result so the agent can adjust.
             tools = { call ->
                 val name = ToolAliases.canonicalName(call.function.name)
-                val capability = capabilityFor(name)
-                if (capability == null || !definition.allows(capability)) {
-                    ToolResult(false, "", "Refused: a ${definition.label} agent cannot call ${call.function.name}.")
-                } else {
-                    toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
+                when {
+                    name == com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER_NAME ->
+                        if (definition.allows(ToolCapability.BROWSER)) runBrowserTask(call)
+                        else ToolResult(false, "", "Refused: a ${definition.label} agent cannot call use_browser.")
+                    else -> {
+                        val capability = capabilityFor(name)
+                        if (capability == null || !definition.allows(capability)) {
+                            ToolResult(false, "", "Refused: a ${definition.label} agent cannot call ${call.function.name}.")
+                        } else {
+                            toolExecutor.execute(projectId, call.copy(function = call.function.copy(name = name)))
+                        }
+                    }
                 }
             },
             config = AgentLoopConfig(maxIterations = definition.maxTurns)

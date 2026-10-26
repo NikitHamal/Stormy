@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.oro.app.data.repository.LiteMode
 import com.oro.app.data.repository.ThemeMode
@@ -27,13 +28,13 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
-    /** Set when the device agent brings Oro forward (question or finished task). */
-    private val openDeviceAgent = mutableStateOf(false)
+    /** Set when the browser agent brings Oro forward (question or finished task). */
+    private val openBrowserAgent = mutableStateOf(false)
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(com.oro.app.device.DeviceAgent.EXTRA_OPEN_DEVICE_AGENT, false)) openDeviceAgent.value = true
+        if (intent.getBooleanExtra(com.oro.app.browser.BrowserAgent.EXTRA_OPEN_BROWSER_AGENT, false)) openBrowserAgent.value = true
     }
 
     private val preferencesRepository by lazy {
@@ -51,7 +52,7 @@ class MainActivity : ComponentActivity() {
         // Backed by snapshot state so that setContent below actually recomposes
         // when the read lands; a plain captured var would never notify Compose.
         val startDestination = mutableStateOf<String?>(null)
-        if (intent?.getBooleanExtra(com.oro.app.device.DeviceAgent.EXTRA_OPEN_DEVICE_AGENT, false) == true) openDeviceAgent.value = true
+        if (intent?.getBooleanExtra(com.oro.app.browser.BrowserAgent.EXTRA_OPEN_BROWSER_AGENT, false) == true) openBrowserAgent.value = true
         splashScreen.setKeepOnScreenCondition { startDestination.value == null }
 
         lifecycleScope.launch {
@@ -101,8 +102,8 @@ class MainActivity : ComponentActivity() {
                 startDestination.value?.let {
                     MainContent(
                         startDestination = it,
-                        openDeviceAgent = openDeviceAgent.value,
-                        onDeviceAgentOpened = { openDeviceAgent.value = false }
+                        openBrowserAgent = openBrowserAgent.value,
+                        onBrowserAgentOpened = { openBrowserAgent.value = false }
                     )
                 }
             }
@@ -111,13 +112,27 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MainContent(startDestination: String, openDeviceAgent: Boolean, onDeviceAgentOpened: () -> Unit) {
+private fun MainContent(startDestination: String, openBrowserAgent: Boolean, onBrowserAgentOpened: () -> Unit) {
     val navController = rememberNavController()
 
-    OroNavGraph(
-        navController = navController,
-        startDestination = startDestination,
-        openDeviceAgent = openDeviceAgent,
-        onDeviceAgentOpened = onDeviceAgentOpened
-    )
+    androidx.compose.foundation.layout.Box {
+        OroNavGraph(
+            navController = navController,
+            startDestination = startDestination,
+            openBrowserAgent = openBrowserAgent,
+            onBrowserAgentOpened = onBrowserAgentOpened
+        )
+        // The browser run lives in a process-wide singleton, not in a screen:
+        // while it works and the user is anywhere else in Oro, the pill shows
+        // the current step and one tap brings the live view back.
+        val route = navController.currentBackStackEntryAsState().value?.destination?.route
+        if (route != Screen.BrowserAgent.route) {
+            com.oro.app.ui.screens.browser.BrowserPill(
+                onOpen = {
+                    navController.navigate(Screen.BrowserAgent.route) { launchSingleTop = true }
+                },
+                modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
+            )
+        }
+    }
 }

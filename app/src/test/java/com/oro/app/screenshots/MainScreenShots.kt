@@ -31,7 +31,7 @@ import com.oro.app.ui.components.expressive.ExpressiveSearchTopBar
 import com.oro.app.ui.components.expressive.FlowerIconButton
 import com.oro.app.ui.screens.editor.agent.RunTranscript
 import com.oro.app.ui.screens.editor.chat.ChatTab
-import com.oro.app.ui.screens.home.DeviceAgentButton
+import com.oro.app.ui.screens.home.BrowserAgentButton
 import com.oro.app.ui.screens.home.EmptyState
 import com.oro.app.ui.screens.home.HomeTitle
 import com.oro.app.ui.screens.home.ProjectsList
@@ -223,7 +223,7 @@ class MainScreenShots {
                             placeholder = "Search projects",
                             title = { HomeTitle() },
                             actions = {
-                                DeviceAgentButton(onClick = {})
+                                BrowserAgentButton(onClick = {})
                                 FlowerIconButton(icon = Icons.Outlined.Search, contentDescription = "Search projects", onClick = {})
                                 FlowerIconButton(icon = Icons.Outlined.Settings, contentDescription = "Settings", onClick = {}, alternate = true)
                             },

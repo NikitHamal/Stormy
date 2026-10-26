@@ -5,6 +5,11 @@
         name="projects"
         path="projects/" />
 
+    <!-- Browser agent downloads -->
+    <files-path
+        name="downloads"
+        path="downloads/" />
+
     <!-- Cache directory -->
     <cache-path
         name="cache"

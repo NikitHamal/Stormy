@@ -41,7 +41,8 @@ object DelegationTools {
 
                 Types: explore (read-only search), plan (research, no edits),
                 build (implement a scoped change), review (find defects),
-                general (anything else).
+                general (anything else). All but review may also research on
+                the web through the in-app browser (use_browser).
             """.trimIndent(),
             parameters = buildParameters(
                 """

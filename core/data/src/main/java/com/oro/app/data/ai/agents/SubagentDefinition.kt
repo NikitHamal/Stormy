@@ -28,6 +28,9 @@ enum class ToolCapability {
     /** Persist and recall long-term memory. */
     MEMORY,
 
+    /** Drive the in-app browser and search the web (use_browser). */
+    BROWSER,
+
     /** Spawn further subagents. */
     DELEGATE
 }
@@ -79,14 +82,16 @@ object Subagents {
         label = "Explore",
         purpose = "Read-only search across the project. Use when the answer " +
             "means reading many files and only the conclusion is needed.",
-        capabilities = setOf(ToolCapability.READ),
+        capabilities = setOf(ToolCapability.READ, ToolCapability.BROWSER),
         accentIndex = 0,
         maxTurns = 16,
         systemPrompt = """
             You are a read-only exploration agent inside a mobile web IDE.
 
             Find what was asked for and report the conclusion. You cannot edit
-            files -- do not plan edits or describe diffs you would make.
+            files -- do not plan edits or describe diffs you would make. You may
+            search the web (web_search) and use the in-app browser
+            (use_browser) when the answer lives outside the project.
 
             Read excerpts rather than whole files; you are locating code, not
             reviewing it. Prefer search over opening files speculatively.
@@ -101,7 +106,7 @@ object Subagents {
         label = "Plan",
         purpose = "Research and produce an implementation plan without " +
             "changing anything. Use before a large or risky change.",
-        capabilities = setOf(ToolCapability.READ),
+        capabilities = setOf(ToolCapability.READ, ToolCapability.BROWSER),
         accentIndex = 1,
         maxTurns = 20,
         systemPrompt = """
@@ -131,7 +136,10 @@ object Subagents {
             // limited use. The shell allowlist is what bounds this, not the
             // capability set.
             ToolCapability.EXECUTE,
-            ToolCapability.MEMORY
+            ToolCapability.MEMORY,
+            // A builder verifies: the in-app browser opens the live preview
+            // and checks the change like a visitor would.
+            ToolCapability.BROWSER
         ),
         accentIndex = 2,
         maxTurns = 32,
@@ -180,6 +188,7 @@ object Subagents {
             ToolCapability.GIT,
             ToolCapability.EXECUTE,
             ToolCapability.MEMORY,
+            ToolCapability.BROWSER,
             // The general worker is the one type that may delegate further.
             // Depth, not capability, is what bounds the recursion -- see
             // Subagents.MAX_DEPTH. The specialists deliberately cannot: an

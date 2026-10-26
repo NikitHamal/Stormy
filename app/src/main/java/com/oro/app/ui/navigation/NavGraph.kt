@@ -46,7 +46,7 @@ sealed class Screen(val route: String) {
     data object Mcp : Screen("mcp")
     data object Voice : Screen("voice")
     data object Skills : Screen("skills")
-    data object DeviceAgent : Screen("device_agent")
+    data object BrowserAgent : Screen("browser_agent")
     data object Timeline : Screen("timeline/{projectId}") {
         fun createRoute(projectId: String) = "timeline/$projectId"
     }
@@ -59,17 +59,17 @@ sealed class Screen(val route: String) {
 fun OroNavGraph(
     navController: NavHostController,
     startDestination: String,
-    openDeviceAgent: Boolean = false,
-    onDeviceAgentOpened: () -> Unit = {}
+    openBrowserAgent: Boolean = false,
+    onBrowserAgentOpened: () -> Unit = {}
 ) {
-    // Orobi brings Oro forward when it has a question or finishes a device
-    // task; land on the device agent screen rather than wherever the user was.
-    androidx.compose.runtime.LaunchedEffect(openDeviceAgent) {
-        if (openDeviceAgent && startDestination != Screen.Onboarding.route) {
-            if (navController.currentDestination?.route != Screen.DeviceAgent.route) {
-                navController.navigate(Screen.DeviceAgent.route) { launchSingleTop = true }
+    // Orobi brings Oro forward when it has a question or finishes a browser
+    // task; land on the browser screen rather than wherever the user was.
+    androidx.compose.runtime.LaunchedEffect(openBrowserAgent) {
+        if (openBrowserAgent && startDestination != Screen.Onboarding.route) {
+            if (navController.currentDestination?.route != Screen.BrowserAgent.route) {
+                navController.navigate(Screen.BrowserAgent.route) { launchSingleTop = true }
             }
-            onDeviceAgentOpened()
+            onBrowserAgentOpened()
         }
     }
 
@@ -160,14 +160,14 @@ fun OroNavGraph(
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
                 },
-                onDeviceAgentClick = {
-                    navController.navigate(Screen.DeviceAgent.route)
+                onBrowserAgentClick = {
+                    navController.navigate(Screen.BrowserAgent.route)
                 }
             )
         }
 
-        composable(Screen.DeviceAgent.route) {
-            com.oro.app.ui.screens.device.DeviceAgentScreen(onBack = { navController.popBackStack() })
+        composable(Screen.BrowserAgent.route) {
+            com.oro.app.ui.screens.browser.BrowserScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

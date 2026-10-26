@@ -88,7 +88,7 @@ import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Clear
@@ -150,7 +150,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onProjectClick: (String) -> Unit,
     onSettingsClick: () -> Unit,
-    onDeviceAgentClick: () -> Unit = {},
+    onBrowserAgentClick: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -303,7 +303,7 @@ fun HomeScreen(
                         },
                         title = { HomeTitle() },
                         actions = {
-                            DeviceAgentButton(onClick = onDeviceAgentClick)
+                            BrowserAgentButton(onClick = onBrowserAgentClick)
                             FlowerIconButton(
                                 icon = Icons.Outlined.Search,
                                 contentDescription = "Search projects",
@@ -901,21 +901,22 @@ private fun SwipeableProjectCard(
 }
 
 /**
- * The device agent's entry. While Orobi is operating the phone a magenta dot
- * sits on it, so the way back to a running task is always visible. Only the
- * running flag is observed, so a live run does not recompose the home screen.
+ * The browser agent's entry. While Orobi is working in the browser a magenta
+ * dot sits on it, so the way back to a running task is always visible. Only
+ * the running flag is observed, so a live run does not recompose the home
+ * screen.
  */
 @Composable
-internal fun DeviceAgentButton(onClick: () -> Unit) {
+internal fun BrowserAgentButton(onClick: () -> Unit) {
     val running by remember {
-        com.oro.app.device.DeviceAgent.state
+        com.oro.app.browser.BrowserAgent.state
             .map { it.running }
             .distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
     Box {
         FlowerIconButton(
-            icon = Icons.Outlined.TouchApp,
-            contentDescription = if (running) "Device agent, working" else "Device agent",
+            icon = Icons.Outlined.Language,
+            contentDescription = if (running) "Browser agent, working" else "Browser agent",
             onClick = onClick
         )
         if (running) {

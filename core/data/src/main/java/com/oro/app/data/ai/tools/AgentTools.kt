@@ -354,6 +354,22 @@ object AgentTools {
         """
     )
 
+    val WEB_SEARCH = tool(
+        "web_search",
+        """
+        Search the web (no API key): returns titles, URLs and snippets from a
+        free search engine. Use it to find documentation, examples, current
+        versions or anything the project and your knowledge do not answer;
+        then web_fetch (or the browser agent) the result worth reading.
+        """,
+        """
+        {"type":"object","properties":{
+          "query":{"type":"string","description":"The search query, as words (not a URL)."},
+          "limit":{"type":"integer","description":"Maximum results. Default 6, max 10."}
+        },"required":["query"]}
+        """
+    )
+
     val CHECK_SYNTAX = tool(
         "check_syntax",
         """
@@ -406,7 +422,7 @@ object AgentTools {
     val all: List<Tool> = listOf(
         READ_FILE, LIST_FILES, GLOB, GREP,
         EDIT_FILE, MULTI_EDIT, WRITE_FILE, MOVE_FILE, DELETE_FILE,
-        CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH,
+        CHECK_SYNTAX, GET_PREVIEW_ERRORS, SCREENSHOT_PREVIEW, AUDIT_PAGE, WEB_FETCH, WEB_SEARCH,
         SEARCH_PROJECT, DOCS_LOOKUP, ASK_USER, SAVE_MEMORY, USE_SKILL, ADD_UI_KIT, OPEN_PULL_REQUEST
     )
     // run_command is deliberately not offered: on Android there is no node,
@@ -416,18 +432,19 @@ object AgentTools {
 
     /** Names of tools that never modify anything, safe to run concurrently. */
     val readOnly: Set<String> = setOf(
-        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "get_preview_errors", "screenshot_preview", "audit_page", "use_skill", "search_project", "docs_lookup",
+        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "web_search", "get_preview_errors", "screenshot_preview", "audit_page", "use_skill", "search_project", "docs_lookup",
         // legacy names
         "search_files", "get_file_info", "recall_memory", "list_memories"
     )
 
     /** Capability a tool needs, for subagent permission filtering. */
     fun capabilityOf(name: String): ToolCapability? = when (ToolAliases.canonicalName(name)) {
-        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch" -> ToolCapability.READ
+        "read_file", "list_files", "glob", "grep", "check_syntax", "web_fetch", "web_search" -> ToolCapability.READ
         "write_file", "edit_file", "multi_edit", "move_file", "delete_file", "add_ui_kit" -> ToolCapability.WRITE
         "run_command" -> ToolCapability.EXECUTE
         "save_memory" -> ToolCapability.MEMORY
         "spawn_subagent" -> ToolCapability.DELEGATE
+        "use_browser" -> ToolCapability.BROWSER
         else -> null
     }
 
@@ -449,13 +466,14 @@ object AgentTools {
             "add_ui_kit" -> return "Installing the UI kit"
             "use_skill" -> "Studying"
             "web_fetch" -> "Fetching"
+            "web_search" -> "Searching the web"
             "run_command" -> "Running"
             "save_memory" -> "Remembering"
             "spawn_subagent" -> "Delegating"
             "update_plan" -> "Planning"
             "ask_user" -> return "Waiting for your answer"
             "request_approval" -> return "Waiting for your approval"
-            "use_phone" -> return "Using the phone"
+            "use_browser" -> return "Working in the browser"
             else -> return "Running ${name.replace('_', ' ')}"
         }
         return if (s != null) "$verb $s" else verb

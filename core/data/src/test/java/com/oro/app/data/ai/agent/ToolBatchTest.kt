@@ -145,7 +145,7 @@ class ToolBatchTest {
     @Test
     fun `interactive, outward-facing and unpinned calls are barriers`() {
         val names = listOf(
-            "ask_user", "request_approval", "run_command", "bash", "open_pull_request", "use_phone",
+            "ask_user", "request_approval", "run_command", "bash", "open_pull_request", "use_browser",
             "spawn_subagent", "mcp__github__create_issue", "save_memory", "add_ui_kit", "frobnicate"
         )
         for (name in names) {
