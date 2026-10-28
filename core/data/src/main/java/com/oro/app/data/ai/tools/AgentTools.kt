@@ -357,10 +357,13 @@ object AgentTools {
     val WEB_SEARCH = tool(
         "web_search",
         """
-        Search the web (no API key): returns titles, URLs and snippets from a
-        free search engine. Use it to find documentation, examples, current
-        versions or anything the project and your knowledge do not answer;
-        then web_fetch (or the browser agent) the result worth reading.
+        Search the web: titles, URLs and snippets from the user's configured
+        sources -- keyless engines first, then any keyed or custom providers
+        they added (Settings > Web search); a source that is blocked or
+        rate-limited is skipped automatically. Use it to find documentation,
+        examples, current versions or anything the project and your knowledge
+        do not answer; then web_fetch (or the browser agent) the result worth
+        reading.
         """,
         """
         {"type":"object","properties":{

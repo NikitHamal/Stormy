@@ -3,6 +3,7 @@ package com.oro.app.ui.screens.settings
 import com.oro.app.ui.theme.OroCorners
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.foundation.clickable
@@ -86,6 +87,7 @@ fun SettingsScreen(
     onNavigateToGitSettings: () -> Unit,
     onNavigateToProviders: () -> Unit = {},
     onNavigateToMcp: () -> Unit = {},
+    onNavigateToWebSearch: () -> Unit = {},
     onNavigateToVoice: () -> Unit = {},
     onNavigateToSkills: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory)
@@ -102,6 +104,7 @@ fun SettingsScreen(
         onNavigateToGitSettings = onNavigateToGitSettings,
         onNavigateToProviders = onNavigateToProviders,
         onNavigateToMcp = onNavigateToMcp,
+        onNavigateToWebSearch = onNavigateToWebSearch,
         onNavigateToVoice = onNavigateToVoice,
         onNavigateToSkills = onNavigateToSkills,
         onThemeSelected = viewModel::setThemeMode,
@@ -124,6 +127,7 @@ internal fun SettingsContent(
     onNavigateToGitSettings: () -> Unit,
     onNavigateToProviders: () -> Unit,
     onNavigateToMcp: () -> Unit,
+    onNavigateToWebSearch: () -> Unit = {},
     onNavigateToVoice: () -> Unit,
     onNavigateToSkills: () -> Unit,
     onThemeSelected: (ThemeMode) -> Unit,
@@ -255,6 +259,12 @@ internal fun SettingsContent(
                     title = "MCP servers",
                     subtitle = null,
                     onClick = onNavigateToMcp
+                )
+                SettingsNavItem(
+                    icon = Icons.Outlined.TravelExplore,
+                    title = "Web search",
+                    subtitle = "Sources, keys and your own endpoints",
+                    onClick = onNavigateToWebSearch
                 )
                 SettingsNavItem(
                     icon = Icons.Outlined.Mic,

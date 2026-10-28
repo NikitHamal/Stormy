@@ -109,6 +109,15 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         UndoRedoManager(projectRepository)
     }
 
+    init {
+        // The search chain reads its setup from a volatile field, not DataStore:
+        // one collector here keeps every caller (coding agent, subagents,
+        // browser agent) on the user's current providers and keys.
+        applicationScope.launch {
+            preferencesRepository.webSearchConfig.collect { com.oro.app.data.ai.search.WebSearch.configure(it) }
+        }
+    }
+
     val toolExecutor: ToolExecutor by lazy {
         ToolExecutor(projectRepository, memoryStorage, gitManager, semanticMemorySystem)
     }

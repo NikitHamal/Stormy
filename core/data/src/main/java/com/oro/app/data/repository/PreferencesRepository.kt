@@ -47,6 +47,9 @@ class PreferencesRepository(private val context: Context) {
         val PROVIDER_SETTINGS = stringPreferencesKey("provider_settings_v1")
         /** MCP servers as JSON ([com.oro.app.data.ai.mcp.McpSettings]). */
         val MCP_SETTINGS = stringPreferencesKey("mcp_servers_v1")
+
+        /** Web search sources as JSON ([com.oro.app.data.ai.search.WebSearchConfig]). */
+        val WEB_SEARCH_CONFIG = stringPreferencesKey("web_search_v1")
         val NETLIFY_TOKEN = stringPreferencesKey("netlify_token")
         val AUTONOMY = stringPreferencesKey("autonomy_mode")
         val DICTATION_ENGINE = stringPreferencesKey("dictation_engine")
@@ -323,6 +326,24 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setNetlifyToken(token: String) {
         context.dataStore.edit { it[PreferenceKeys.NETLIFY_TOKEN] = token.trim() }
+    }
+
+    /** The user's web-search setup: built-ins on/off, saved preset keys, custom endpoints. */
+    val webSearchConfig: Flow<com.oro.app.data.ai.search.WebSearchConfig> = context.dataStore.data.map { p ->
+        p[PreferenceKeys.WEB_SEARCH_CONFIG]?.let { raw ->
+            runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.search.WebSearchConfig.serializer(), raw) }.getOrNull()
+        } ?: com.oro.app.data.ai.search.WebSearchConfig()
+    }
+
+    suspend fun updateWebSearchConfig(transform: (com.oro.app.data.ai.search.WebSearchConfig) -> com.oro.app.data.ai.search.WebSearchConfig) {
+        context.dataStore.edit { p ->
+            val current = p[PreferenceKeys.WEB_SEARCH_CONFIG]?.let { raw ->
+                runCatching { AiHttp.json.decodeFromString(com.oro.app.data.ai.search.WebSearchConfig.serializer(), raw) }.getOrNull()
+            } ?: com.oro.app.data.ai.search.WebSearchConfig()
+            p[PreferenceKeys.WEB_SEARCH_CONFIG] = AiHttp.json.encodeToString(
+                com.oro.app.data.ai.search.WebSearchConfig.serializer(), transform(current)
+            )
+        }
     }
 
     suspend fun updateMcpSettings(transform: (com.oro.app.data.ai.mcp.McpSettings) -> com.oro.app.data.ai.mcp.McpSettings) {

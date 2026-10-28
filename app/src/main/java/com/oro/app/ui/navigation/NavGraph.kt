@@ -47,6 +47,7 @@ sealed class Screen(val route: String) {
     data object Voice : Screen("voice")
     data object Skills : Screen("skills")
     data object BrowserAgent : Screen("browser_agent")
+    data object WebSearchSettings : Screen("web_search_settings")
     data object Timeline : Screen("timeline/{projectId}") {
         fun createRoute(projectId: String) = "timeline/$projectId"
     }
@@ -232,6 +233,10 @@ fun OroNavGraph(
             com.oro.app.ui.screens.mcp.McpScreen(onBackClick = { navController.popBackStack() })
         }
 
+        composable(Screen.WebSearchSettings.route) {
+            com.oro.app.ui.screens.searchproviders.WebSearchSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(Screen.Providers.route) {
             val viewModel: ProvidersViewModel = viewModel(factory = ProvidersViewModel.Factory)
             ProvidersScreen(
@@ -269,6 +274,9 @@ fun OroNavGraph(
                 },
                 onNavigateToMcp = {
                     navController.navigate(Screen.Mcp.route)
+                },
+                onNavigateToWebSearch = {
+                    navController.navigate(Screen.WebSearchSettings.route)
                 },
                 onNavigateToVoice = {
                     navController.navigate(Screen.Voice.route)

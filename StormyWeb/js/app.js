@@ -11,7 +11,7 @@ import browser from './screens/browser.js';
 export const SCREENS = {
   onboarding, home, editor, preview, browser,
   settings: settings.settingsScreen, providers: settings.providersScreen, providerEditor: settings.providerEditorScreen,
-  mcp: settings.mcpScreen, voice: settings.voiceScreen, skills: settings.skillsScreen,
+  mcp: settings.mcpScreen, webSearch: settings.webSearchScreen, voice: settings.voiceScreen, skills: settings.skillsScreen,
   aiModels: settings.aiModelsScreen,
 };
 

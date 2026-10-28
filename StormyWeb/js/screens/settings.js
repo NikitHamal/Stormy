@@ -18,7 +18,9 @@ export const settingsScreen = { render() {
     ${section('Appearance', `<div class="row"><span class="grow">${segmented('Theme', ['System', 'Light', 'Dark'], state.theme === 'dark' ? 'Dark' : 'Light', 'theme')}</span></div>
       <div class="row">${ic('palette', 'l')}<span class="grow"><div class="t-body-l-e">Dynamic colour</div><div class="t-body-s muted">Use your wallpaper colours</div></span>${sw(false, 'dyn')}</div>`)}
     ${section('AI', nav('auto_awesome', 'AI models', 'Turn models on or off, set the default', 'aiModels') + nav('key', 'AI providers', '14 providers · 4 ready', 'providers') +
-      nav('hub', 'MCP servers', 'GitHub, Supabase, docs and more for Orobi', 'mcp') + nav('mic', 'Voice dictation', 'System or Whistle, on-device', 'voice') +
+      nav('hub', 'MCP servers', 'GitHub, Supabase, docs and more for Orobi', 'mcp') +
+      nav('travel_explore', 'Web search', 'Sources, keys and your own endpoints', 'webSearch') +
+      nav('mic', 'Voice dictation', 'System or Whistle, on-device', 'voice') +
       nav('auto_awesome', 'Skills', 'Playbooks Orobi loads when a task matches', 'skills'))}
     ${section('Performance', `<div class="row"><span class="grow">${segmented('Lite mode', ['Auto', 'On', 'Off'], 'Auto', 'lite')}<div class="t-body-s muted" style="margin-top:8px">Auto turns it on for phones with 3 GB of RAM or less: no blur, calmer motion.</div></span></div>`)}
     ${section('Editor', `<div class="row">${ic('format_list_numbered', 'l')}<span class="grow t-body-l-e">Line numbers</span>${sw(true, 'ln')}</div><div class="row">${ic('wrap_text', 'l')}<span class="grow t-body-l-e">Word wrap</span>${sw(true, 'ww')}</div>`)}
@@ -108,5 +110,39 @@ export const aiModelsScreen = { render() {
   const el = frame('AI models', `<div class="chips" style="padding:0 16px 8px">${['All', 'K2 Horizon', 'Kilo Code', 'Hy3', 'Groq', 'DeepSeek'].map((c, i) => `<span class="chip ${i ? '' : 'on'}">${c}</span>`).join('')}</div>
     ${state.models.map(([g, list]) => `<div class="section-label t-label-s-e muted">${g}</div><div style="padding:0 16px">${list.map(([n, c]) => `<div class="row" style="padding:8px 4px"><span class="grow"><div class="t-body-l-e one">${n}</div><div class="t-body-s muted one">${c}</div></span>${sw(true, n)}</div>`).join('')}</div>`).join('')}`);
   bindSwitches(el);
+  return el;
+} };
+
+// Web search (WebSearchSettingsScreen.kt): the chain the agents search through --
+// your endpoints first, then keyed free tiers, then the keyless engines. Each row
+// tests itself; the add sheet wires any JSON/SearXNG/HTML endpoint with a template.
+export const webSearchScreen = { render() {
+  const presets = [
+    ['tinyfish', 'TinyFish Search', 'Free on every plan · 30 queries/min', true],
+    ['brave', 'Brave Search', 'Own index · 2,000/mo free', true],
+    ['exa', 'Exa', 'Neural index · 1,000/mo free', false],
+    ['tavily', 'Tavily', '1,000 credits/mo free', false],
+    ['serper', 'Serper (Google SERP)', '2,500 queries, one-time', false],
+  ];
+  const builtins = [
+    ['ddg_html', 'DuckDuckGo (HTML)', 'Keyless · residential IPs fare best', true],
+    ['ddg_lite', 'DuckDuckGo (Lite)', 'Keyless · no-JS layout', true],
+    ['bing', 'Bing', 'Keyless · answers even from datacenter IPs', true],
+    ['mojeek', 'Mojeek', 'Keyless · strict rate limits', true],
+    ['searx', 'SearXNG (public)', 'Keyless · instances rotated', true],
+    ['wikipedia', 'Wikipedia', 'Keyless · entities and facts', true],
+  ];
+  const row = (icon, name, note, on, tag) => `<div class="row">${ic(icon, 'l')}<span class="grow"><div class="t-body-l-e">${name}${tag ? ` <span class="t-label-s muted">${tag}</span>` : ''}</div><div class="t-body-s muted">${note}</div></span><button class="iconbtn dim" data-test="${name}">${ic('play_arrow')}</button>${sw(on, name)}</div>`;
+  const el = frame('Web search', `
+    <p class="t-body-s muted" style="padding:0 20px 8px">Orobi searches through these, first to last, skipping any that are blocked or rate-limited. Yours go first; keys stay on this device.</p>
+    ${section('Your providers', row('edit', 'Home SearXNG', 'searx.lan · JSON', true) + `<div class="row"><button class="btn tonal" data-add>${ic('add')}<span>Add a provider</span></button></div>`)}
+    ${section('Free APIs, your key', presets.map(([id, n, note, on]) => row('key', n, note, on, on ? 'key saved' : 'no key')).join(''))}
+    ${section('Keyless engines', builtins.map(([id, n, note, on]) => row('travel_explore', n, note, on)).join(''))}`);
+  bindSwitches(el);
+  el.querySelectorAll('[data-test]').forEach((b) => (b.onclick = () => snackbar('3 results in 412 ms — ' + b.dataset.test + ' answers')));
+  el.querySelector('[data-add]').onclick = () => formSheet({ title: 'Your search endpoint', icon: 'add', confirm: 'Save',
+    body: field('Name', 'Home SearXNG', { id: 'n' }) + field('URL template', 'https://searx.lan/search?q={query}&format=json', { id: 'u', support: '{query}, {limit} and {key} are filled in for you' }) +
+      field('API key (optional)', '', { id: 'k' }) + segmented('Answers in', ['JSON', 'SearXNG', 'HTML'], 'SearXNG', 'kind'),
+    onConfirm: () => snackbar('Saved — tried first from now on') });
   return el;
 } };
