@@ -79,8 +79,10 @@ anywhere the model can read.
 - `web_search`: keyless search for every agent (coding agent, subagents,
   browser agent): DuckDuckGo HTML → DDG Lite → Mojeek → public SearXNG,
   parsed to title/url/snippet, redirect links decoded, deduped.
-- `read_page`: readability-style markdown/text/links extraction.
-- `extract`: CSS-selector or JS extraction to JSON (tables → rows).
+- `read_page`: readability-style markdown/text/links extraction, plus raw
+  `html` mode for scraping markup or code samples.
+- `extract`: structured scraping in one call -- one JSON row per selector
+  match, fields by child selector or attribute (tables, card grids, lists).
 - `evaluate`: guarded JS for everything else.
 - `screenshot`: viewport or full page, JPEG, for vision models only
   (`VisionSupport`).

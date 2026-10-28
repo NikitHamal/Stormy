@@ -306,7 +306,33 @@ object BrowserScripts {
       document.querySelector('[role=main]') || document.body;
   };
 
+  O.extract = function(sel, fieldsJson, limit){
+    var fields = [];
+    try { fields = JSON.parse(fieldsJson); } catch(e) { return JSON.stringify({ok:false, why:'fields is not JSON'}); }
+    var rows;
+    try { rows = document.querySelectorAll(sel || 'table tr'); } catch(e) { return JSON.stringify({ok:false, why:'bad selector'}); }
+    var out = [];
+    for (var i = 0; i < rows.length && out.length < limit; i++) {
+      var r = rows[i], o = {};
+      for (var f = 0; f < fields.length; f++) {
+        var fd = fields[f] || {};
+        var node = null;
+        try { node = fd.selector ? r.querySelector(fd.selector) : r; } catch(e) { node = null; }
+        if (!node) { o[fd.name || ('f' + f)] = null; continue; }
+        o[fd.name || ('f' + f)] = fd.attr ? String(node.getAttribute(fd.attr) || '') : O.txt(node.textContent, 300);
+      }
+      out.push(o);
+    }
+    return JSON.stringify({ok:true, count: rows.length, rows: out});
+  };
+
   O.read = function(mode, sel, max){
+    if (mode === 'html') {
+      var src = null;
+      try { src = sel ? document.querySelector(sel) : document.documentElement; } catch(e) { src = null; }
+      if (!src) return JSON.stringify({ok:true, text:''});
+      return JSON.stringify({ok:true, text:String(src.outerHTML || '').slice(0, max)});
+    }
     var root = O.mainRoot(sel);
     if (mode === 'links') {
       var seen = {}, lines = [], as = document.querySelectorAll('a[href]');
@@ -626,6 +652,9 @@ object BrowserScripts {
     fun evalJs(js: String): String = "window.__oro.evalIn(${q(js)})"
     fun readJs(mode: String, selector: String?, maxChars: Int): String =
         "window.__oro.read(${q(mode)}, ${selector?.let { q(it) } ?: "null"}, $maxChars)"
+
+    fun extractJs(selector: String?, fieldsJson: String, limit: Int): String =
+        "window.__oro.extract(${selector?.let { q(it) } ?: "null"}, ${q(fieldsJson)}, $limit)"
 
     /** A JavaScript string literal, safely quoted (org.json's quoter). */
     fun q(s: String): String = org.json.JSONObject.quote(s)

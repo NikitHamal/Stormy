@@ -8,6 +8,15 @@ or a cut-off session can resume. Newest entry on top. Keep entries short and fac
 2. Check the last CI run for the branch (Actions → Android CI). Fix compile errors first.
 3. Continue from "Next" of the latest entry.
 
+## 2026-10-28 — the browser is a subagent, not a user browser; extract; scrollable outcomes
+Owner review of round 1: the browser must not be something the user operates -- it exists for the coding agent (and its subagents) via `use_browser`; and long outcomes must scroll, never clip.
+- **BrowserScreen is now a pure live view:** the task composer, starters, model picker and the manual nav/URL-entry controls are gone. Idle state says whose browser this is ("Orobi calls use_browser"). What remains: the live WebView (the user's fingers still pass captchas and type secrets into the page), the read-only address line, run bar (Pause/Stop/transcript), the user-turn cards (question, approval, secret, HTTP auth), the human-check banner, and the ended run's summary -- now scrollable (body 220 dp cap, notes 120 dp), with Close. The home screen lost its browser button; the pill and notifications remain the ways in, plus the transcript from the run bar.
+- **More capable where it counts (scraping):** new `extract` tool -- one JSON row per selector match with named fields (child selector and/or attribute), total match count included; `read_page(mode="html")` returns raw markup of a selector (code/markup scraping); the prompt teaches the recipes (extract for tables/cards/grids, the page's own JSON APIs via evaluate+fetch with cookies, pagination loops). `BrowserScripts.O.extract` does the DOM work.
+- **StormyWeb replica follows:** composer/starters out, "use_browser · demo" trigger cards in the idle state (the demo simulates a chat-side call), read-only URL chip, scrollable outcome card.
+- Verified on the new molab box: `testDebugUnitTest` green (83 browser/search tests incl. extract scenarios), release build in flight; pushed to `browser-agent` as it went.
+
+---
+
 ## 2026-10-26 — device agent out of main; the browser agent takes the wheel
 Owner's call for the Play Store step: accessibility-driven automation is prohibited for non-accessibility apps, so the device agent is removed from `main` (it stays, untouched, on `oro-dev` -- revert path: it is all in git history and that branch). In its place: a browser agent that runs fully inside Oro -- no accessibility service, no overlay permission, nothing a reviewer can object to. This round went onto `main` directly (owner's instruction for this change).
 - **Removed:** `app/.../device/` (30 files + overlay), `ui/screens/device/`, `DeviceDelegationTools` (`use_phone`), the accessibility + notification-listener services, SET_ALARM and the launcher `<queries>` intent, device tests/screenshots (~4.5k lines). `ToolBatch`'s solo list, `AgentTools.activityLabel`, `ToolPresentation`, NavGraph/MainActivity/HomeScreen all moved to the browser.

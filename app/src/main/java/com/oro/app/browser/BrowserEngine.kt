@@ -299,42 +299,6 @@ object BrowserEngine : Browser {
         }
     }
 
-    fun reloadActive() { ui { it.webView.reload() } }
-
-    /** User-driven history buttons (no run needed). */
-    fun backUi() { ui { if (it.webView.canGoBack()) it.webView.goBack() } }
-    fun forwardUi() { ui { if (it.webView.canGoForward()) it.webView.goForward() } }
-
-    /** User-driven tab switching. */
-    fun switchTabUi(id: Int) { showTab(id) }
-
-    fun closeTabUi(id: Int) {
-        main.post {
-            removeTab(id)
-            tabs[activeId]?.let { reparent(it) }
-        }
-    }
-
-    /** Opens [url] from outside a run (the user typed it in the URL bar). */
-    fun openByUser(url: String) {
-        ui { tab ->
-            tab.loadError = null
-            tab.webView.loadUrl(normaliseUrl(url))
-        }
-    }
-
-    fun stopLoading() { ui { it.webView.stopLoading() } }
-
-    fun shareActive() {
-        val url = _ui.value.url
-        if (url.isBlank() || url == "about:blank") return
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, url)
-        }
-        runCatching { app.startActivity(Intent.createChooser(send, "Share").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    }
-
     fun flushCookies() = runCatching { CookieManager.getInstance().flush() }
 
     private fun ui(block: (Tab) -> Unit) {
@@ -690,6 +654,18 @@ object BrowserEngine : Browser {
             r.optBoolean("ok") -> r.optString("result").ifBlank { "(no result)" }
             else -> "JavaScript failed: ${r.optString("why")}"
         }
+    }
+
+    override suspend fun extract(selector: String?, fieldsJson: String, limit: Int): String {
+        val tab = tabOrNull() ?: return NO_TAB
+        ensureRuntime(tab)
+        val obj = eval(BrowserScripts.extractJs(selector, fieldsJson, limit), tab)?.let { jsonObj(it) }
+            ?: return "The page did not answer the extraction."
+        if (!obj.optBoolean("ok")) return "Extraction failed: ${obj.optString("why")}"
+        val rows = obj.optJSONArray("rows") ?: return "No rows."
+        val text = (0 until rows.length()).joinToString("\n") { rows.get(it).toString() }
+        return "${rows.length()} row(s) of ${obj.optInt("count")} matched:\n" + text.take(12_000) +
+            if (text.length > 12_000) "\n[... truncated; raise precision with a tighter selector]" else ""
     }
 
     override suspend fun readPage(mode: String, selector: String?, maxChars: Int): String {

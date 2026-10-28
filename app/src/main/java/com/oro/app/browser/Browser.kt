@@ -95,8 +95,15 @@ internal interface Browser {
      */
     suspend fun evaluate(js: String): String
 
-    /** Extracts the page (or [selector]'s subtree) as markdown/text/links. */
+    /** Extracts the page (or [selector]'s subtree) as markdown/text/links/html. */
     suspend fun readPage(mode: String, selector: String?, maxChars: Int): String
+
+    /**
+     * Structured extraction: one row per [selector] match, each row carrying
+     * the named fields (child selector and/or attribute). Returns the JSON
+     * rows text plus the total match count.
+     */
+    suspend fun extract(selector: String?, fieldsJson: String, limit: Int): String
 
     /** A viewport (or full-page) screenshot as base64 JPEG; null when it fails. */
     suspend fun screenshot(fullPage: Boolean): String?

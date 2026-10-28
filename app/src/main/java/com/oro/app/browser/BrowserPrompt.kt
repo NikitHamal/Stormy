@@ -46,8 +46,11 @@ object BrowserPrompt {
               Google: open_url("https://www.google.com/search?q=..."). YouTube: ".../results?search_query=...".
             - Reading a page's content (articles, docs, tables, comments): read_page(mode="markdown"), with a
               selector for one section. Its links: read_page(mode="links"). Never click through a list to read it.
-            - Structured data at scale: evaluate("...") with querySelectorAll, returning JSON; or read the table
-              via read_page and let the markdown keep the rows.
+            - Structured data: extract(selector=".row", fields=[{name, selector, attr}]) returns JSON rows in ONE
+              call -- the right tool for tables, card grids, result lists (count tells you the total). Raw markup
+              for code/markup scraping: read_page(mode="html", selector="pre.code"). The API a page itself calls:
+              evaluate("fetch('/api/items', {credentials: 'include'}).then(r => r.json())") runs with the page's
+              cookies and session. Pagination: extract each page, click/scroll to the next, combine in the summary.
             - Click by words with click_text("Add to cart") when the label is clear; by number otherwise; by
               selector when precision matters ("button[type=submit]").
             - Typing: type_text(index=<field>, text=..., submit=true) searches or sends in one step.

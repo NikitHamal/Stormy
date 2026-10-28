@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.RadioButtonChecked
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SwipeVertical
+import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Upload
@@ -111,6 +112,7 @@ object BrowserTranscript {
             "hover" -> Icons.Outlined.Mouse
             "press_key" -> Icons.AutoMirrored.Outlined.KeyboardReturn
             "web_search" -> Icons.Outlined.Search
+            "extract" -> Icons.Outlined.TableChart
             "read_page", "find_text" -> Icons.Outlined.Language
             "screenshot" -> Icons.Outlined.Visibility
             "evaluate" -> Icons.Outlined.Link

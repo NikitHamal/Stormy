@@ -442,6 +442,40 @@ class BrowserScenarioTest {
     }
 
     @Test
+    fun `extract pulls structured rows in one call`() = runTest {
+        val p = page(el(1, "button", "Next", top = 100, editable = false), url = "https://shop.example/list")
+        val browser = BrowserBench.browser(this, p)
+        browser.extractResult = { _ ->
+            "42 rows of 42 matched:\n" + (1..3).joinToString("\n") { "{\"name\":\"Item $it\",\"price\":\"INR ${it}00\"}" }
+        }
+        val model = ScriptedModel(
+            calls("extract" to """{"selector":".product-card","fields":[{"name":"name","selector":"h2"},{"name":"price","selector":".price"}],"limit":50}"""),
+            calls("finish_task" to """{"summary":"42 items; first three priced 100-300.","success":true}"""),
+        )
+
+        play(browser, model, "Scrape every product name and price")
+
+        assertThat(browser.log.filterIsInstance<Act.Js>().map { it.code }).contains("extract:.product-card")
+        assertThat(model.seen[1]).contains("42 rows of 42 matched")
+        assertThat(model.seen[1]).contains("INR 300")
+    }
+
+    @Test
+    fun `read_page html mode gives the raw markup for code scraping`() = runTest {
+        val p = page(el(1, "button", "Next", top = 100, editable = false))
+        val browser = BrowserBench.browser(this, p)
+        browser.readResult = { mode, _ -> if (mode == "html") "<pre class=\"code\">const x = 42;</pre>" else "" }
+        val model = ScriptedModel(
+            calls("read_page" to """{"mode":"html","selector":"pre.code"}"""),
+            calls("finish_task" to """{"summary":"Got the snippet.","success":true}"""),
+        )
+
+        play(browser, model, "Scrape the code sample")
+
+        assertThat(model.seen[1]).contains("const x = 42")
+    }
+
+    @Test
     fun `evaluate runs guarded javascript and returns its result`() = runTest {
         val p = page(el(1, "button", "OK", top = 100, editable = false))
         val browser = BrowserBench.browser(this, p)

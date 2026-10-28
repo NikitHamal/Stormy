@@ -137,7 +137,7 @@ object BrowserTools {
         "read_page",
         "Read the page's content, not just its controls: markdown (default, headings/links/tables kept), text, or links (every link with its URL). Use it to scrape copy, data or documentation; use selector to read one section.",
         """{"type":"object","properties":{
-          "mode":{"type":"string","enum":["markdown","text","links"],"description":"Default markdown."},
+          "mode":{"type":"string","enum":["markdown","text","links","html"],"description":"Default markdown; html gives the raw markup of `selector` (scraping code or markup)."},
           "selector":{"type":"string","description":"Read only this CSS selector's subtree, e.g. \"main\" or \".pricing-table\"."},
           "max_chars":{"type":"integer","description":"Maximum characters. Default 12000, max 40000."}
         }}"""
@@ -182,6 +182,20 @@ object BrowserTools {
         """{"type":"object","properties":{
           "full_page":{"type":"boolean","description":"Capture the whole scrollable page, not just the viewport. Default false."}
         }}"""
+    )
+
+    val EXTRACT = tool(
+        "extract",
+        "Pull structured data off the page in ONE call: every element matching `selector` becomes a row of the fields you name (a child selector and/or an attribute per field). The scraping workhorse: tables, card grids, result lists, comment threads. Returns JSON rows; `count` says how many matched in total.",
+        """{"type":"object","properties":{
+          "selector":{"type":"string","description":"CSS selector of each row/container, e.g. \"table tbody tr\", \".product-card\", \"li.comment\". Default \"table tr\"."},
+          "fields":{"type":"array","description":"What to pull from each row.","items":{"type":"object","properties":{
+            "name":{"type":"string","description":"Key for this value in the output."},
+            "selector":{"type":"string","description":"Child selector inside the row, e.g. \"td.price\" or \"a.title\". Omit for the row itself."},
+            "attr":{"type":"string","description":"Attribute to take instead of text, e.g. \"href\", \"src\", \"data-id\"."}
+          },"required":["name"]}},
+          "limit":{"type":"integer","description":"Maximum rows. Default 40, max 200."}
+        },"required":["fields"]}"""
     )
 
     val EVALUATE = tool(
@@ -278,7 +292,7 @@ object BrowserTools {
     val all: List<Tool> = listOf(
         OPEN_URL, CLICK, CLICK_TEXT, TYPE_TEXT, FILL_FORM, SELECT, CHECK,
         SCROLL, SCROLL_TO, PRESS_KEY, HOVER, BACK, FORWARD, RELOAD,
-        READ_PAGE, FIND_TEXT, WEB_SEARCH, WAIT, WAIT_FOR, SCREENSHOT, EVALUATE,
+        READ_PAGE, FIND_TEXT, WEB_SEARCH, WAIT, WAIT_FOR, SCREENSHOT, EXTRACT, EVALUATE,
         NEW_TAB, LIST_TABS, SWITCH_TAB, CLOSE_TAB,
         UPLOAD_FILE, LIST_DOWNLOADS, READ_DOWNLOAD,
         LIST_CREDENTIALS, USE_CREDENTIAL, ASK_USER_SECRET,
@@ -289,7 +303,7 @@ object BrowserTools {
 
     /** Tools that count as no action: no target, no guard, no action counter. */
     val passive: Set<String> = setOf(
-        "read_page", "find_text", "web_search", "wait", "wait_for", "screenshot", "browser_status",
+        "read_page", "find_text", "web_search", "wait", "wait_for", "screenshot", "extract", "browser_status",
         "list_tabs", "list_downloads", "read_download", "list_credentials",
         "take_note", "ask_user", "ask_user_secret", "finish_task",
     )

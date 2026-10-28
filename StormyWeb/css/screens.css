@@ -110,3 +110,7 @@ html, body { height: 100%; background: #07080B; font-family: var(--font); color:
 .runbar .grow { display: flex; flex-direction: column; min-width: 0; }
 .runbar .one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .btn.sm { height: 32px; padding: 0 var(--lg); font-size: 13px; }
+
+/* The run's outcome can be long (a scrape's payload): it scrolls, never clips. */
+.bcard .bcard-scroll { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; }
+.bcard { max-height: 46%; overflow-y: auto; }

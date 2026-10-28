@@ -88,7 +88,6 @@ import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Clear
@@ -150,7 +149,6 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onProjectClick: (String) -> Unit,
     onSettingsClick: () -> Unit,
-    onBrowserAgentClick: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -303,7 +301,6 @@ fun HomeScreen(
                         },
                         title = { HomeTitle() },
                         actions = {
-                            BrowserAgentButton(onClick = onBrowserAgentClick)
                             FlowerIconButton(
                                 icon = Icons.Outlined.Search,
                                 contentDescription = "Search projects",
@@ -898,38 +895,6 @@ private fun SwipeableProjectCard(
             }
         }
     )
-}
-
-/**
- * The browser agent's entry. While Orobi is working in the browser a magenta
- * dot sits on it, so the way back to a running task is always visible. Only
- * the running flag is observed, so a live run does not recompose the home
- * screen.
- */
-@Composable
-internal fun BrowserAgentButton(onClick: () -> Unit) {
-    val running by remember {
-        com.oro.app.browser.BrowserAgent.state
-            .map { it.running }
-            .distinctUntilChanged()
-    }.collectAsStateWithLifecycle(initialValue = false)
-    Box {
-        FlowerIconButton(
-            icon = Icons.Outlined.Language,
-            contentDescription = if (running) "Browser agent, working" else "Browser agent",
-            onClick = onClick
-        )
-        if (running) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(Space.xs + Space.xxs)
-                    .size(Space.sm)
-                    .clip(CircleShape)
-                    .background(com.oro.app.ui.brand.OroBrand.Magenta)
-            )
-        }
-    }
 }
 
 /** Number of distinct project mark silhouettes (see ExpressiveShapes.forIndex). */

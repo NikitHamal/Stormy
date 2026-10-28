@@ -969,6 +969,14 @@ object BrowserAgent {
                 ToolResult(true, if (hits.isEmpty()) "\"$q\" is not on the current page. Try scroll_to(\"$q\") or read_page."
                 else "Found ${hits.size}:\n" + hits.take(12).joinToString("\n") { it.element.render() })
             }
+            "extract" -> {
+                val fieldsEl = args["fields"]
+                val fieldsJson = fieldsEl?.toString() ?: "[]"
+                val sel = BrowserArgs.str(args, "selector")
+                val limit = (BrowserArgs.int(args, "limit") ?: 40).coerceIn(1, 200)
+                browsed = true
+                ToolResult(true, browser.extract(sel, fieldsJson, limit))
+            }
             "read_page" -> {
                 val mode = BrowserArgs.str(args, "mode") ?: "markdown"
                 val selector = BrowserArgs.str(args, "selector")
@@ -1677,7 +1685,8 @@ object BrowserAgent {
             "close_tab" -> "Close tab" to StepKind.ACTION
             "upload_file" -> "Upload ${quoted("path")}" to StepKind.ACTION
             "evaluate" -> "Run JavaScript" to StepKind.ACTION
-            "read_page" -> "Read the page" to StepKind.SYSTEM
+            "read_page" -> "Read the page" + (BrowserArgs.str(a, "selector")?.let { " ($it)" } ?: "") to StepKind.SYSTEM
+            "extract" -> "Extract rows (${BrowserArgs.str(a, "selector") ?: "table tr"})" to StepKind.SYSTEM
             "find_text" -> "Look for ${quoted("text")}" to StepKind.SYSTEM
             "web_search" -> "Search the web for ${quoted("query")}" to StepKind.SYSTEM
             "screenshot" -> "Look at the page" to StepKind.SYSTEM

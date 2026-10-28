@@ -67,10 +67,7 @@ export default {
         <button class="iconbtn" data-transcript style="display:none">${ic('list_alt')}</button>
         <button class="iconbtn" data-more>${ic('more_vert')}</button></div>
       <div class="urlbar">
-        <button class="iconbtn sm" data-nav="back">${ic('arrow_back')}</button>
-        <button class="iconbtn sm" data-nav="fwd">${ic('arrow_forward')}</button>
-        <button class="iconbtn sm" data-nav="reload">${ic('refresh')}</button>
-        <div class="urlchip t-body-s" data-url>Search or type a URL</div>
+        <div class="urlchip t-body-s" data-url>No page open</div>
       </div>
       <div class="bprogress" data-prog><i></i></div>
       <div class="pagewrap" data-pagewrap>
@@ -78,7 +75,7 @@ export default {
         <div class="hbanner" data-hbanner style="display:none">${ic('gpp_maybe')} Pass the check on the page — Orobi waits, it never solves it</div>
         <div class="welcome" data-welcome>
           <div class="t-headline-s">Orobi's browser</div>
-          <p class="t-body-s muted" style="max-width:300px;margin:8px auto 16px">Type a task below, or a URL above. Orobi browses, fills whole forms in one call, signs in with your saved logins and scrapes what you need — watch it live or minimise it; the work continues.</p>
+          <p class="t-body-s muted" style="max-width:300px;margin:8px auto 16px">This browser opens when a chat task needs the web — Orobi calls <b>use_browser</b> and works here while you watch or carry on elsewhere. Checks and secrets it cannot handle come to you on this screen.</p>
           <div data-starters style="display:flex;flex-direction:column;gap:8px;width:100%;max-width:340px;margin:0 auto"></div>
         </div>
       </div>
@@ -89,15 +86,6 @@ export default {
         <button class="iconbtn sm" data-pause>${ic('pause')}</button>
         <button class="iconbtn sm" data-stop>${ic('close')}</button>
       </div>
-      <div class="composer" data-composer>
-        <textarea rows="1" placeholder="What should Orobi do in the browser?" data-task></textarea>
-        <div class="controls">
-          <span class="chip sm" data-model>${esc(state.model.name)}</span>
-          <span class="grow"></span>
-          <button class="iconbtn" data-settings>${ic('tune')}</button>
-          <button class="btn filled sm" data-go>Go</button>
-        </div>
-      </div>
     </div>`);
 
     const pageEl = el.querySelector('[data-page]');
@@ -107,7 +95,7 @@ export default {
     const starters = el.querySelector('[data-starters]');
 
     Starters.forEach(([text, key]) => {
-      const b = h(`<button class="card tap" style="text-align:left;padding:12px 14px"><span class="t-body-s">${esc(text)}</span></button>`);
+      const b = h(`<button class="card tap" style="text-align:left;padding:12px 14px"><span class="t-label-s-e muted">use_browser · demo</span><div class="t-body-s" style="margin-top:4px">${esc(text)}</div></button>`);
       b.onclick = () => start(text, key);
       starters.append(b);
     });
@@ -119,7 +107,7 @@ export default {
         pageEl.innerHTML = `<h2>Welcome, Priya</h2><p class="t-body-s muted">Your account is ready. This is where the dashboard would load.</p>`;
         br.url = 'https://shop.example/welcome'; br.title = 'Welcome, Priya';
       } else pageEl.innerHTML = p.html;
-      urlEl.textContent = (p.url || 'Search or type a URL').replace(/^https?:\/\//, '');
+      urlEl.textContent = (p.url || 'No page open').replace(/^https?:\/\//, '');
       el.querySelector('[data-welcome]').style.display = name === 'blank' ? '' : 'none';
       pageEl.style.display = name === 'blank' ? 'none' : '';
     }
@@ -242,8 +230,8 @@ export default {
       br.summary = summary || br.summary;
       if (br.summary) {
         card.style.display = '';
-        card.innerHTML = `<div class="t-label-l">✓ Done</div><div class="t-body-s" style="margin:6px 0 10px">${esc(br.summary)}</div>
-          <div style="display:flex;gap:8px"><button class="btn filled sm" data-new>New task</button></div>`;
+        card.innerHTML = `<div class="t-label-l">✓ Done</div><div class="t-body-s bcard-scroll" style="margin:6px 0 10px">${esc(br.summary)}</div>
+          <div style="display:flex;gap:8px"><button class="btn filled sm" data-new>Close</button></div>`;
         card.querySelector('[data-new]').onclick = () => { card.style.display = 'none'; reset(); };
       }
       drawSteps();
@@ -254,7 +242,6 @@ export default {
       showPage('blank');
       runbar.style.display = 'none'; card.style.display = 'none';
       el.querySelector('[data-title]').textContent = 'Browser';
-      el.querySelector('[data-composer]').style.display = '';
     }
 
     function start(task, key) {
@@ -272,14 +259,6 @@ export default {
     }
 
     el.querySelector('[data-back]').onclick = () => back();
-    el.querySelector('[data-go]').onclick = () => {
-      const t = el.querySelector('[data-task]').value.trim();
-      el.querySelector('[data-task]').value = '';
-      if (t) start(t, 'price');
-    };
-    el.querySelector('[data-nav=reload]').onclick = () => { progress(600); snackbar('Reloaded'); };
-    el.querySelector('[data-nav=back]').onclick = () => snackbar('History back');
-    el.querySelector('[data-nav=fwd]').onclick = () => snackbar('History forward');
     el.querySelector('[data-pause]').onclick = (e) => {
       br.paused = !br.paused;
       e.currentTarget.innerHTML = ic(br.paused ? 'play_arrow' : 'pause');

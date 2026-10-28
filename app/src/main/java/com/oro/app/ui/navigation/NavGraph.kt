@@ -160,9 +160,6 @@ fun OroNavGraph(
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
                 },
-                onBrowserAgentClick = {
-                    navController.navigate(Screen.BrowserAgent.route)
-                }
             )
         }
 

@@ -117,6 +117,9 @@ internal class FakeBrowser(
     /** What evaluate returns. */
     var evalResult: (String) -> String = { "(eval ok)" }
 
+    /** What extract returns (rows text). */
+    var extractResult: (String?) -> String = { sel -> "3 rows of 3 matched:\n{\"title\":\"A\"}\n{\"title\":\"B\"}\n{\"title\":\"C\"}" }
+
     /** Downloads the run sees. */
     var downloadsList: List<DownloadInfo> = emptyList()
     var downloadTexts: Map<String, String> = emptyMap()
@@ -208,6 +211,11 @@ internal class FakeBrowser(
 
     override suspend fun readPage(mode: String, selector: String?, maxChars: Int): String =
         readResult(mode, selector).take(maxChars)
+
+    override suspend fun extract(selector: String?, fieldsJson: String, limit: Int): String {
+        log += Act.Js("extract:" + (selector ?: "table tr"))
+        return extractResult(selector)
+    }
 
     override suspend fun screenshot(fullPage: Boolean): String? = null
 
