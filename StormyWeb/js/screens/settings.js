@@ -136,7 +136,7 @@ export const webSearchScreen = { render() {
   const el = frame('Web search', `
     <p class="t-body-s muted" style="padding:0 20px 8px">Orobi searches through these, first to last, skipping any that are blocked or rate-limited. Yours go first; keys stay on this device.</p>
     ${section('Your providers', row('edit', 'Home SearXNG', 'searx.lan · JSON', true) + `<div class="row"><button class="btn tonal" data-add>${ic('add')}<span>Add a provider</span></button></div>`)}
-    ${section('Free APIs, your key', presets.map(([id, n, note, on]) => row('key', n, note, on, on ? 'key saved' : 'no key')).join(''))}
+    ${section('Free APIs, your key', presets.map(([id, n, note, on]) => row('key', n, (on ? 'Key saved · ' : 'No key · ') + note, on)).join(''))}
     ${section('Keyless engines', builtins.map(([id, n, note, on]) => row('travel_explore', n, note, on)).join(''))}`);
   bindSwitches(el);
   el.querySelectorAll('[data-test]').forEach((b) => (b.onclick = () => snackbar('3 results in 412 ms — ' + b.dataset.test + ' answers')));
