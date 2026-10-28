@@ -65,3 +65,48 @@ html, body { height: 100%; background: #07080B; font-family: var(--font); color:
 .code { flex: 1; overflow: auto; font: 400 12px/20px var(--mono); padding: 8px 0; }
 .code .ln { display: inline-block; width: 36px; text-align: right; padding-right: 10px; color: var(--outline); user-select: none; }
 .k { color: #9B7FA6; } .s { color: #7E9B76; } .t { color: #6E8CF7; } .a { color: #C49A6C; }
+
+/* ------------------------------------------------------------ browser */
+/* The browser screen (BrowserScreen.kt): URL bar, the live page, run bar,
+   user-turn cards and the composer. The page mock is deliberately light-on-white:
+   it is a web page, not an Oro screen. */
+.bscreen { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.urlbar { display: flex; align-items: center; gap: 2px; padding: 0 var(--sm) 6px; flex: none; }
+.urlbar .iconbtn.sm { width: 32px; height: 32px; color: var(--on-surface-variant); }
+.urlchip { flex: 1; min-width: 0; background: var(--sc-high); border-radius: var(--r-pill); padding: 8px 16px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--on-surface-variant); }
+.bprogress { display: none; height: 2px; flex: none; background: transparent; }
+.bprogress i { display: block; height: 2px; width: 0; background: var(--magenta); }
+.pagewrap { flex: 1; min-height: 0; position: relative; margin: 0 var(--sm); border-radius: var(--r-large);
+  overflow: hidden; background: var(--sc-lowest); box-shadow: inset 0 0 0 1px var(--outline-variant); }
+.webpage { position: absolute; inset: 0; overflow-y: auto; background: #fff; color: #14161a; padding: 16px;
+  font: 400 13px/1.5 var(--font); scrollbar-width: none; }
+.webpage h2 { font-size: 17px; margin: 6px 0 10px; }
+.webpage .muted { color: #5c6470; }
+.wresult { padding: 12px 4px; border-bottom: 1px solid #eef0f3; }
+.wr-a { color: #1a56db; font-weight: 600; font-size: 14px; text-decoration: none; display: block; }
+.wr-u { color: #202124; font-size: 11px; margin: 2px 0 4px; }
+.wresult p { margin: 0; color: #4d5156; font-size: 12px; }
+.wph.hero { height: 150px; border-radius: 12px; background: linear-gradient(135deg, #2b3240, #6b7486 60%, #c9ced8); margin-bottom: 12px; }
+.wprice { font-size: 20px; font-weight: 700; margin: 4px 0 10px; }
+.wprice s { font-size: 13px; color: #8a919c; font-weight: 400; margin-left: 6px; }
+.wsave { display: block; font-size: 12px; color: #0a7d43; font-weight: 500; margin-top: 2px; }
+.wspecs { background: #f5f7fa; border-radius: 12px; padding: 12px; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.wbuy, .wcreate { width: 100%; }
+.wgoogle { width: 100%; margin: 10px 0 8px; color: #14161a; }
+.wlab { display: block; font-size: 12px; color: #4d5156; margin: 10px 2px 4px; }
+.winp { width: 100%; box-sizing: border-box; border: 1px solid #d4d9e0; border-radius: 10px; padding: 10px 12px; font: 400 13px var(--font); background: #fff; color: #14161a; }
+.wrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #33383f; margin: 12px 2px; }
+.oid-flash { outline: 2px solid var(--magenta); outline-offset: 2px; border-radius: 8px; animation: oidpulse .9s ease; }
+@keyframes oidpulse { 0% { outline-color: color-mix(in srgb, var(--magenta) 20%, transparent); } 40% { outline-color: var(--magenta); } 100% { outline-color: color-mix(in srgb, var(--magenta) 30%, transparent); } }
+.hbanner { position: absolute; top: 10px; left: 10px; right: 10px; background: var(--magenta); color: #fff;
+  border-radius: 12px; padding: 10px 12px; font: 600 12.5px var(--font); display: flex; gap: 8px; align-items: center; }
+.welcome { position: absolute; inset: 0; overflow-y: auto; background: var(--surface); display: flex;
+  flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+.bcard { margin: 8px var(--lg) 0; padding: 14px 16px; border-radius: var(--r-large); background: var(--sc-low);
+  box-shadow: inset 0 0 0 1px var(--outline-variant); flex: none; }
+.runbar { display: flex; align-items: center; gap: 10px; margin: 8px var(--lg) 0; padding: 8px 10px 8px 14px;
+  border-radius: var(--r-large); background: var(--sc-high); flex: none; }
+.runbar .grow { display: flex; flex-direction: column; min-width: 0; }
+.runbar .one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn.sm { height: 32px; padding: 0 var(--lg); font-size: 13px; }

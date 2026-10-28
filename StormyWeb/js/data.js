@@ -12,6 +12,7 @@ export const state = {
     { id: 's3', title: 'Fix the mobile menu', when: 'Mon', count: 9, preview: 'It overlaps the logo', group: 'Previous 7 days', pinned: false },
   ],
   currentSession: 's1',
+  browser: { history: ['Find the price of the 256 GB Aurion X2'] },
   model: { name: 'K2 Horizon 375B', provider: 'K2 Horizon' },
   agentMode: true,
   autonomy: 'Unleashed',

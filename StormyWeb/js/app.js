@@ -6,9 +6,10 @@ import home from './screens/home.js';
 import editor from './screens/editor.js';
 import * as settings from './screens/settings.js';
 import preview from './screens/preview.js';
+import browser from './screens/browser.js';
 
 export const SCREENS = {
-  onboarding, home, editor, preview,
+  onboarding, home, editor, preview, browser,
   settings: settings.settingsScreen, providers: settings.providersScreen, providerEditor: settings.providerEditorScreen,
   mcp: settings.mcpScreen, voice: settings.voiceScreen, skills: settings.skillsScreen,
   aiModels: settings.aiModelsScreen,

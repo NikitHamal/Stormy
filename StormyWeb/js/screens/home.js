@@ -7,7 +7,7 @@ export default {
   render() {
     const el = h(`<div>
       <div class="topbar"><span class="title wordmark">Oro</span>
-        <button class="iconbtn" data-search>${ic('search')}</button><button class="iconbtn" data-settings>${ic('settings')}</button></div>
+        <button class="iconbtn" data-browser>${ic('language')}</button><button class="iconbtn" data-search>${ic('search')}</button><button class="iconbtn" data-settings>${ic('settings')}</button></div>
       <div class="search">${ic('search')}<span class="t-body-l">Search projects</span></div>
       <div class="scroll"><div class="section-label t-label-s-e muted">Projects</div><div class="list" data-list></div><div style="height:96px"></div></div>
       <button class="fab" data-new>${ic('add')}<span>New project</span></button></div>`);
@@ -33,6 +33,7 @@ export default {
     el.querySelector('[data-new]').onclick = () => formSheet({ title: 'New project', icon: 'add', confirm: 'Create',
       body: field('Name', '', { id: 'name' }) + field('Description (optional)', '', { id: 'd' }),
       onConfirm: (s) => { const name = s.querySelector('[data-f=name]').value || 'Untitled'; state.projects.unshift({ id: 'p' + Date.now(), name, when: 'Now', chats: 0, pinned: false, shape: 2 }); draw(); } });
+    el.querySelector('[data-browser]').onclick = () => navigate('browser');
     el.querySelector('[data-settings]').onclick = () => navigate('settings');
     draw();
     return el;
