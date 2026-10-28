@@ -107,7 +107,7 @@ export default {
         pageEl.innerHTML = `<h2>Welcome, Priya</h2><p class="t-body-s muted">Your account is ready. This is where the dashboard would load.</p>`;
         br.url = 'https://shop.example/welcome'; br.title = 'Welcome, Priya';
       } else pageEl.innerHTML = p.html;
-      urlEl.textContent = (p.url || 'No page open').replace(/^https?:\/\//, '');
+      urlEl.textContent = (br.url || 'No page open').replace(/^https?:\/\//, '');
       el.querySelector('[data-welcome]').style.display = name === 'blank' ? '' : 'none';
       pageEl.style.display = name === 'blank' ? 'none' : '';
     }
@@ -267,8 +267,7 @@ export default {
       if (!br.paused) play();
     };
     el.querySelector('[data-stop]').onclick = () => { clearTimeout(runTimer); finishRun(null); br.summary = null; card.style.display = 'none'; reset(); snackbar('Stopped'); };
-    el.querySelector('[data-settings]').onclick = () => snackbar('Browser settings: approvals, action limit, desktop mode, saved logins (encrypted, never sent to a model)');
-    el.querySelector('[data-more]').onclick = () => snackbar('Downloads · Share page · Browser settings');
+    el.querySelector('[data-more]').onclick = () => snackbar('Downloads · Browser settings (approvals, action limit, desktop mode, saved logins)');
     el.querySelector('[data-transcript]').onclick = () => {
       const iconOf = (t) => t === 'finish_task' ? 'check_circle' : t === 'web_search' ? 'search' : t === 'ask_user_secret' ? 'key' : t === 'fill_form' ? 'tune' : t === 'read_page' ? 'menu_book' : t === 'open_url' ? 'open_in_new' : 'language';
       const rows = br.steps.map((s) => s.kind === 'thought'
