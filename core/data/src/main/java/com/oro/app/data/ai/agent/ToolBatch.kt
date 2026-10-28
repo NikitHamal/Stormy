@@ -23,7 +23,8 @@ import kotlinx.serialization.json.contentOrNull
  * Each call is classified by what it touches ([Access]). Reads and writes are
  * scoped to project paths. A call that waits on the user or acts beyond the
  * project files (ask_user, request_approval, run_command, open_pull_request,
- * use_browser, MCP tools, a subagent that may write), and any tool not known
+ * use_browser, the coordinator tools (agents_status, follow_up,
+ * wait_for_agent), MCP tools, a subagent that may write), and any tool not known
  * here, is a barrier. A subagent that can only read (explore, plan, review)
  * reads the whole project, so several run side by side. A call starts once
  * every earlier call it depends on has finished:
@@ -146,7 +147,8 @@ class ToolBatch(
 
         /** Wait on the user or act beyond the project files: always alone. */
         private val BARRIERS = setOf(
-            "ask_user", "request_approval", "run_command", "open_pull_request", "use_browser"
+            "ask_user", "request_approval", "run_command", "open_pull_request", "use_browser",
+            "agents_status", "follow_up", "wait_for_agent"
         )
 
         /**

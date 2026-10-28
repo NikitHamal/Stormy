@@ -210,9 +210,26 @@ object Subagents {
         """.trimIndent()
     )
 
+    /**
+     * The browser delegation's session shape. Not spawnable -- `spawn_subagent`
+     * never offers it -- but a background `use_browser` run registers under it
+     * so the coordinator's status/follow-up/wait tools and the session cards
+     * cover browser work exactly like subagent work.
+     */
+    val BROWSER_SESSION = SubagentDefinition(
+        id = "browser",
+        label = "Browser",
+        purpose = "A background browser run delegated with use_browser.",
+        capabilities = setOf(ToolCapability.BROWSER),
+        accentIndex = 5,
+        maxTurns = 0,
+        systemPrompt = "",
+    )
+
     val all: List<SubagentDefinition> = listOf(EXPLORE, PLAN, BUILD, REVIEW, GENERAL)
 
-    operator fun get(id: String): SubagentDefinition? = all.find { it.id.equals(id, true) }
+    operator fun get(id: String): SubagentDefinition? =
+        all.find { it.id.equals(id, true) } ?: if (id.equals(BROWSER_SESSION.id, true)) BROWSER_SESSION else null
 
     /**
      * Maximum nesting depth.

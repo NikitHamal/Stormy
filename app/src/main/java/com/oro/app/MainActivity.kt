@@ -14,7 +14,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.oro.app.data.repository.LiteMode
 import com.oro.app.data.repository.ThemeMode
@@ -115,24 +114,10 @@ class MainActivity : ComponentActivity() {
 private fun MainContent(startDestination: String, openBrowserAgent: Boolean, onBrowserAgentOpened: () -> Unit) {
     val navController = rememberNavController()
 
-    androidx.compose.foundation.layout.Box {
-        OroNavGraph(
-            navController = navController,
-            startDestination = startDestination,
-            openBrowserAgent = openBrowserAgent,
-            onBrowserAgentOpened = onBrowserAgentOpened
-        )
-        // The browser run lives in a process-wide singleton, not in a screen:
-        // while it works and the user is anywhere else in Oro, the pill shows
-        // the current step and one tap brings the live view back.
-        val route = navController.currentBackStackEntryAsState().value?.destination?.route
-        if (route != Screen.BrowserAgent.route) {
-            com.oro.app.ui.screens.browser.BrowserPill(
-                onOpen = {
-                    navController.navigate(Screen.BrowserAgent.route) { launchSingleTop = true }
-                },
-                modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
-            )
-        }
-    }
+    OroNavGraph(
+        navController = navController,
+        startDestination = startDestination,
+        openBrowserAgent = openBrowserAgent,
+        onBrowserAgentOpened = onBrowserAgentOpened
+    )
 }

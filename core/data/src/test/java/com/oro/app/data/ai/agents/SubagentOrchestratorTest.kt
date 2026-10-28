@@ -56,6 +56,29 @@ class SubagentOrchestratorTest {
     }
 
     @Test
+    fun `follow-ups queue on live sessions, drain once, and refuse finished ones`() {
+        val o = orchestrator()
+        val session = o.spawn(Subagents.EXPLORE, "prices", "brief")!!
+
+        assertThat(o.queueFollowUp(session.id, "only EUR")).isTrue()
+        assertThat(o.queueFollowUp(session.id, "and the shop")).isTrue()
+        assertThat(o.session(session.id)!!.followUps).containsExactly("only EUR", "and the shop").inOrder()
+
+        assertThat(o.drainFollowUps(session.id)).containsExactly("only EUR", "and the shop").inOrder()
+        assertThat(o.drainFollowUps(session.id)).isEmpty()
+
+        o.complete(session.id, "done")
+        assertThat(o.queueFollowUp(session.id, "too late")).isFalse()
+    }
+
+    @Test
+    fun `the browser pseudo-definition is addressable but not spawnable by name`() {
+        // use_browser registers its sessions under it; spawn_subagent's enum never offers it.
+        assertThat(Subagents["browser"]).isEqualTo(Subagents.BROWSER_SESSION)
+        assertThat(Subagents.all.map { it.id }).doesNotContain("browser")
+    }
+
+    @Test
     fun `terminal phases are sticky so a late report cannot revive a session`() {
         val o = orchestrator()
         val session = o.spawn(Subagents.BUILD, "write page", "Write index.html")!!

@@ -183,6 +183,34 @@ class SubagentOrchestrator(
         )
     }
 
+    /**
+     * Queues a follow-up message for a live session; false when it is already
+     * finished (nothing left to tell).
+     */
+    fun queueFollowUp(sessionId: String, message: String): Boolean {
+        var queued = false
+        update(sessionId) { current ->
+            if (current.phase.isTerminal) current else {
+                queued = true
+                current.copy(followUps = current.followUps + message)
+            }
+        }
+        return queued
+    }
+
+    /** The follow-ups waiting for a session, removed as they are handed over. */
+    fun drainFollowUps(sessionId: String): List<String> {
+        var drained = emptyList<String>()
+        update(sessionId) { current ->
+            if (current.followUps.isEmpty()) current
+            else {
+                drained = current.followUps
+                current.copy(followUps = emptyList())
+            }
+        }
+        return drained
+    }
+
     /** Associate the driving coroutine so cancellation can reach it. */
     fun attachJob(sessionId: String, job: Job) {
         jobs[sessionId] = job

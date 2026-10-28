@@ -14,6 +14,7 @@ import com.oro.app.data.ai.agents.AgentStep
 import com.oro.app.data.ai.agents.AgentPhase
 import com.oro.app.data.ai.agents.AgentSession
 import com.oro.app.data.ai.agents.SubagentOrchestrator
+import com.oro.app.data.ai.agents.Subagents
 import com.oro.app.data.ai.agents.DelegationTools
 import com.oro.app.data.ai.agents.DelegationHandler
 import androidx.compose.runtime.Immutable
@@ -260,7 +261,16 @@ class EditorViewModel(
 
     private val delegationHandler = DelegationHandler(
         orchestrator = subagentOrchestrator,
-        runner = DelegationHandler.SubagentRunner { session -> launchSubagent(session) }
+        runner = DelegationHandler.SubagentRunner { session -> launchSubagent(session) },
+        // Browser sessions are driven by BrowserAgent, not the subagent loop:
+        // their follow-ups go straight into the running browser task.
+        followUpSink = { sessionId, message ->
+            if (subagentOrchestrator.session(sessionId)?.definition?.id == Subagents.BROWSER_SESSION.id) {
+                com.oro.app.browser.BrowserAgent.queueFollowUp(message)
+            } else {
+                subagentOrchestrator.queueFollowUp(sessionId, message)
+            }
+        }
     )
 
     private val _project = MutableStateFlow<Project?>(null)
@@ -2091,9 +2101,12 @@ class EditorViewModel(
                 // and the run often finished before the subagent did.
                 // The spawn names its own session: with read-only subagents
                 // running side by side, "the new one" could be another call's.
-                val (started, spawned) = delegationHandler.startSubagent(args)
-                if (!started.success) return started
-                val sessionId = spawned ?: return started
+                val spawn = delegationHandler.startSubagent(args)
+                if (!spawn.result.success) return spawn.result
+                // background=true: the coordinator keeps working; the session's
+                // card, agents_status and wait_for_agent are how it comes back.
+                if (spawn.background) return spawn.result
+                val sessionId = spawn.sessionId ?: return spawn.result
                 val done = subagentOrchestrator.sessions
                     .first { list -> list.none { it.id == sessionId } || list.first { it.id == sessionId }.let { !it.isLive } }
                     .firstOrNull { it.id == sessionId }
@@ -2187,6 +2200,25 @@ class EditorViewModel(
             if (report != null) append("\n\nWhen you finish, report: ").append(report)
         }
         val firstUrl = previewUrl ?: startUrl
+        val background = str("background").equals("true", ignoreCase = true) ||
+            str("wait").equals("false", ignoreCase = true)
+        if (background) {
+            // The run continues in BrowserAgent's own scope; a session in the
+            // orchestrator makes it visible to agents_status / follow_up /
+            // wait_for_agent and to the session cards, like any subagent.
+            val session = subagentOrchestrator.spawn(
+                definition = Subagents.BROWSER_SESSION,
+                description = "Browser: " + task.take(48),
+                prompt = brief,
+            ) ?: return ToolResult(false, "", "Could not register the background browser run.")
+            launchBrowserSession(app, session, brief, firstUrl, model)
+            return ToolResult(
+                true,
+                "Started the browser task in the background (id ${session.id}). It browses while you carry on: " +
+                    "agents_status watches it, follow_up steers it, wait_for_agent collects it. " +
+                    "The user can watch it live on the browser screen."
+            )
+        }
         // The chat's status line follows the browser: what it is doing right now.
         val statusFollower = viewModelScope.launch {
             com.oro.app.browser.BrowserAgent.state.collect { s ->
@@ -2216,6 +2248,66 @@ class EditorViewModel(
             else -> ToolResult(false, text, result.error ?: "The browser task was not completed.")
         }
     }
+
+    /**
+     * Drives a background `use_browser` run and mirrors it into an
+     * orchestrator session: phases and steps as they happen, the summary when
+     * it ends. The run itself lives in BrowserAgent's scope, so leaving the
+     * editor (or this view model dying) does not stop it.
+     */
+    private fun launchBrowserSession(
+        app: OroApplication,
+        session: com.oro.app.data.ai.agents.AgentSession,
+        brief: String,
+        startUrl: String?,
+        model: AiModel,
+    ) {
+        app.applicationScope.launch {
+            var lastStepId = 0L
+            val watcher = launch {
+                com.oro.app.browser.BrowserAgent.state.collect { st ->
+                    for (step in st.steps) {
+                        if (step.id <= lastStepId) continue
+                        lastStepId = step.id
+                        val phase = when (step.kind) {
+                            com.oro.app.browser.BrowserAgent.StepKind.THOUGHT -> com.oro.app.data.ai.agents.AgentPhase.THINKING
+                            com.oro.app.browser.BrowserAgent.StepKind.QUESTION,
+                            com.oro.app.browser.BrowserAgent.StepKind.APPROVAL,
+                            com.oro.app.browser.BrowserAgent.StepKind.SECRET -> com.oro.app.data.ai.agents.AgentPhase.AWAITING_APPROVAL
+                            else -> com.oro.app.data.ai.agents.AgentPhase.EXECUTING
+                        }
+                        subagentOrchestrator.advance(
+                            session.id, phase,
+                            com.oro.app.data.ai.agents.AgentStep(
+                                index = st.steps.indexOf(step),
+                                phase = phase,
+                                label = step.title.take(80),
+                                isError = step.status == com.oro.app.browser.BrowserAgent.StepStatus.FAILED ||
+                                    step.status == com.oro.app.browser.BrowserAgent.StepStatus.BLOCKED,
+                            ),
+                            turnsUsed = st.actions
+                        )
+                    }
+                    if (st.running && st.needsUser) subagentOrchestrator.advance(session.id, com.oro.app.data.ai.agents.AgentPhase.AWAITING_APPROVAL)
+                }
+            }
+            val result = com.oro.app.browser.BrowserAgent.runForResult(
+                app, brief, model, aiRepository,
+                com.oro.app.browser.BrowserSettingsStore.load(app),
+                startUrl = startUrl,
+                projectRoot = _project.value?.rootPath,
+            )
+            watcher.cancel()
+            if (result.success) {
+                subagentOrchestrator.complete(session.id, result.summary.ifBlank { result.forModel() })
+            } else {
+                subagentOrchestrator.fail(session.id, result.error ?: result.forModel().take(200))
+            }
+        }
+    }
+
+    /** The eye on a use_browser card: open the live view wherever the user is. */
+    fun requestBrowserLive() = com.oro.app.browser.BrowserLiveNav.request()
 
     private fun toolTokens(tools: List<Tool>?): Int = tools?.sumOf {
         TokenEstimator.estimate(it.function.name) + TokenEstimator.estimate(it.function.description) +
@@ -2900,7 +2992,17 @@ class EditorViewModel(
                     }
                 }
             },
-            config = AgentLoopConfig(maxIterations = definition.maxTurns)
+            config = AgentLoopConfig(
+                    maxIterations = definition.maxTurns,
+                    // Follow-ups from the coordinator land between rounds,
+                    // appended to the round's last result where the model
+                    // reads them as fresh instructions.
+                    roundNote = { _, _ ->
+                        val fu = subagentOrchestrator.drainFollowUps(session.id)
+                        if (fu.isEmpty()) null
+                        else "Follow-up from the coordinator while you worked: " + fu.joinToString(" | ")
+                    }
+                )
         )
 
         val listener = object : AgentLoopListener {

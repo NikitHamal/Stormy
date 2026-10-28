@@ -93,7 +93,13 @@ data class AgentSession(
     val startedAt: Long = System.currentTimeMillis(),
     val finishedAt: Long? = null,
     /** Set while [AgentPhase.AWAITING_APPROVAL]. */
-    val pendingApproval: ApprovalRequest? = null
+    val pendingApproval: ApprovalRequest? = null,
+    /**
+     * Messages queued by the coordinator while this session runs, delivered
+     * before its next round ([drain]ed by the loop). How the main agent
+     * follows up with work it delegated in the background.
+     */
+    val followUps: List<String> = emptyList()
 ) {
     val isLive: Boolean get() = phase.isLive
     val elapsedMs: Long get() = (finishedAt ?: System.currentTimeMillis()) - startedAt

@@ -35,7 +35,11 @@ object DelegationTools {
                 only context it gets. If you cannot write a clear brief, you do
                 not understand the task well enough to hand it off.
 
-                The call returns the subagent's summary when it finishes.
+                With background=true the call returns at once with the session
+                id and you keep working: watch it with agents_status, steer it
+                with follow_up, collect it with wait_for_agent (or let it finish
+                and read its card). With background=false (the default) the call
+                returns the subagent's summary when it finishes.
                 Explore, plan and review subagents started in one turn run side
                 by side (and beside your reads); build and general ones run alone.
 
@@ -61,6 +65,10 @@ object DelegationTools {
                     "prompt": {
                       "type": "string",
                       "description": "The full brief. The subagent sees only this -- include the goal, relevant file paths, and what you have already established."
+                    },
+                    "background": {
+                      "type": "boolean",
+                      "description": "True: return at once and keep working while it runs (check agents_status / follow_up / wait_for_agent). False (default): wait for its summary."
                     }
                   },
                   "required": ["agent_type", "description", "prompt"]
@@ -116,6 +124,80 @@ object DelegationTools {
         )
     )
 
+    val AGENTS_STATUS = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "agents_status",
+            description = """
+                The live state of delegated work: every running (and recently finished) subagent and background
+                browser run -- id, kind, task, phase, rounds spent, and its latest step. Call it to see how
+                background work is going before deciding whether to follow up, wait, or carry on with your own
+                work. With `id`, just that session, including its queued follow-ups.
+            """.trimIndent(),
+            parameters = buildParameters(
+                """
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "description": "One session id. Omit for all live and recent ones." }
+                  },
+                  "required": []
+                }
+                """
+            )
+        )
+    )
+
+    val FOLLOW_UP = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "follow_up",
+            description = """
+                Send a message to a running background session (subagent or browser run). It lands before the
+                session's next round: new facts, a change of direction, "stop that and do this instead", or an
+                answer to something it is stuck on. Use it instead of waiting and re-delegating: the session
+                keeps its whole context, so a correction costs one message, not a fresh brief.
+            """.trimIndent(),
+            parameters = buildParameters(
+                """
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "description": "The session id from spawn_subagent or agents_status." },
+                    "message": { "type": "string", "description": "What the session should know or do differently." }
+                  },
+                  "required": ["id", "message"]
+                }
+                """
+            )
+        )
+    )
+
+    val WAIT_FOR_AGENT = Tool(
+        type = "function",
+        function = FunctionDefinition(
+            name = "wait_for_agent",
+            description = """
+                Wait for a background session to finish and return its summary (or why it failed). The way to
+                collect work you started with background=true once its result is actually needed. A session
+                that already finished answers at once. Timeout caps the wait; on timeout the session keeps
+                running and you can wait again or carry on.
+            """.trimIndent(),
+            parameters = buildParameters(
+                """
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string", "description": "The session id." },
+                    "timeout_seconds": { "type": "integer", "description": "How long to wait. Default 120, max 600." }
+                  },
+                  "required": ["id"]
+                }
+                """
+            )
+        )
+    )
+
     val REQUEST_APPROVAL = Tool(
         type = "function",
         function = FunctionDefinition(
@@ -154,9 +236,9 @@ object DelegationTools {
     )
 
     /** Tools available to the orchestrator but never to a subagent. */
-    val orchestratorOnly: List<Tool> = listOf(SPAWN_SUBAGENT, UPDATE_PLAN)
+    val orchestratorOnly: List<Tool> = listOf(SPAWN_SUBAGENT, UPDATE_PLAN, AGENTS_STATUS, FOLLOW_UP, WAIT_FOR_AGENT)
 
-    val all: List<Tool> = listOf(SPAWN_SUBAGENT, UPDATE_PLAN, REQUEST_APPROVAL)
+    val all: List<Tool> = listOf(SPAWN_SUBAGENT, UPDATE_PLAN, REQUEST_APPROVAL, AGENTS_STATUS, FOLLOW_UP, WAIT_FOR_AGENT)
 
     /**
      * Parse a raw JSON Schema literal.

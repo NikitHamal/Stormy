@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
@@ -70,6 +71,7 @@ import com.oro.app.ui.components.MarkdownText
 import com.oro.app.ui.components.diff.DiffContent
 import com.oro.app.ui.components.diff.DiffSummaryBadge
 import com.oro.app.ui.components.expressive.ExpressiveLoadingIndicator
+import com.oro.app.ui.brand.OroBrand
 import com.oro.app.ui.theme.OroCorners
 import com.oro.app.ui.theme.ExpressiveShapes
 import com.oro.app.ui.theme.Sizes
@@ -392,6 +394,9 @@ private fun ToolDetailSheet(
     val clipboard = LocalClipboardManager.current
     val scheme = MaterialTheme.colorScheme
     val body = entry.output.orEmpty()
+    // A use_browser card is a window onto a live run: the sheet carries the
+    // run's transcript as it happens, and the eye opens the page itself.
+    val isBrowserCall = entry.toolName == com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER_NAME
     val kind = remember(entry, diff) { sheetKindFor(entry, presentation, diff) }
     val isError = entry.status == ToolCallStatus.Error
     val running = entry.status == ToolCallStatus.Running
@@ -437,6 +442,14 @@ private fun ToolDetailSheet(
                             style = MaterialTheme.typography.labelMedium,
                             color = scheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+                if (isBrowserCall) {
+                    IconButton(onClick = {
+                        onDismiss()
+                        com.oro.app.browser.BrowserLiveNav.request()
+                    }) {
+                        Icon(Icons.Outlined.Visibility, contentDescription = "See it live", tint = OroBrand.Magenta, modifier = Modifier.size(Sizes.icon))
                     }
                 }
                 IconButton(onClick = {
@@ -488,6 +501,10 @@ private fun ToolDetailSheet(
             }
 
             Spacer(Modifier.height(Space.md))
+            if (isBrowserCall) {
+                com.oro.app.ui.screens.browser.BrowserLivePanel()
+                Spacer(Modifier.height(Space.lg))
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

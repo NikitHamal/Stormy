@@ -325,6 +325,7 @@ object BrowserAgent {
             status = "Starting", maxActions = settings.maxActions, startedAt = System.currentTimeMillis(),
             origin = origin, currentUrl = startUrl.orEmpty(),
         )
+        currentFollowUps = java.util.concurrent.ConcurrentLinkedQueue()
         val run = BrowserRun(
             browser = BrowserEngine, task = task.trim(), model = model,
             // Many short decisions: the model's quick level, not the chat's deep one.
@@ -336,6 +337,7 @@ object BrowserAgent {
             },
             settings = settings, origin = origin, startUrl = startUrl,
             vision = settings.screenshots && VisionSupport.supports(model),
+            followUps = currentFollowUps ?: java.util.concurrent.ConcurrentLinkedQueue(),
         )
         // ATOMIC: the body runs even if Stop lands before it is first
         // dispatched, so the wrap-up in finally always happens -- otherwise
@@ -412,6 +414,19 @@ object BrowserAgent {
         _state.update { State() }
     }
 
+    /**
+     * Queues a follow-up from the coding agent for the running task; it lands
+     * before the run's next round, appended to that round's results. False
+     * when nothing is running (nothing left to tell).
+     */
+    fun queueFollowUp(message: String): Boolean {
+        val q = currentFollowUps ?: return false
+        q.add(message)
+        return true
+    }
+
+    @Volatile private var currentFollowUps: java.util.concurrent.ConcurrentLinkedQueue<String>? = null
+
     // ------------------------------------------------------------- one run
 
     /**
@@ -429,6 +444,9 @@ object BrowserAgent {
         val startUrl: String?,
         /** Whether this model sees screenshots. */
         val vision: Boolean,
+        /** Follow-ups queued by the coding agent while this run works. */
+        private val followUps: java.util.concurrent.ConcurrentLinkedQueue<String> =
+            java.util.concurrent.ConcurrentLinkedQueue(),
     ) {
         val tools = BrowserTools.forRun(vision)
         val limited = settings.maxActions > 0
@@ -641,6 +659,13 @@ object BrowserAgent {
                 client = client,
                 tools = runner,
                 config = AgentLoopConfig(
+                    // Follow-ups from the coding agent land between rounds.
+                    roundNote = { _, _ ->
+                        val q = followUps
+                        if (q.isEmpty()) null
+                        else "Follow-up from the coding agent while you worked: " +
+                            generateSequence { q.poll() }.joinToString(" | ")
+                    },
                     maxIterations = if (limited) settings.maxActions + 10 else AgentLoopConfig.UNLIMITED,
                     attachImages = vision,
                     maxToolResultChars = 14_000,
@@ -1455,6 +1480,9 @@ object BrowserAgent {
 
     /** The one state update that ends a run: why it ended, its summary or error, and the last step closed. */
     private fun publishEnd(result: AgentRunResult, run: BrowserRun) {
+        // The run is over: nothing left to tell it. A follow-up queued after
+        // this point must be refused, not swallowed by a dead queue.
+        currentFollowUps = null
         val now = System.currentTimeMillis()
         val reason = endReason(result, run.finishCalled, run.finishSuccess, cancelReason, run.limitHit)
         val finalText = (result as? AgentRunResult.Completed)?.finalText?.trim().orEmpty()
@@ -1515,7 +1543,11 @@ object BrowserAgent {
             status = "Starting", maxActions = settings.maxActions, startedAt = System.currentTimeMillis(),
             currentUrl = startUrl.orEmpty(),
         )
-        val run = BrowserRun(browser, task.trim(), model, client, settings, Origin.USER, startUrl, vision)
+        currentFollowUps = java.util.concurrent.ConcurrentLinkedQueue()
+        val run = BrowserRun(
+            browser, task.trim(), model, client, settings, Origin.USER, startUrl, vision,
+            followUps = currentFollowUps!!,
+        )
         var result: AgentRunResult = AgentRunResult.Failed("The browser agent stopped unexpectedly.", retryable = true)
         try {
             result = run.run()

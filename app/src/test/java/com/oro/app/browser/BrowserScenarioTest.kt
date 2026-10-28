@@ -420,6 +420,38 @@ class BrowserScenarioTest {
         assertThat(state.notes).containsExactly("price is 42")
     }
 
+    // --------------------------------------------------------- follow-ups
+
+    @Test
+    fun `a follow-up from the coding agent lands before the next round`() = runTest {
+        val p1 = page(el(1, "link", "Page two", top = 100), url = "https://a.example/1")
+        val p2 = page(el(1, "button", "Done", top = 100, editable = false), url = "https://a.example/2")
+        val browser = BrowserBench.browser(this, p1)
+        browser.rules = { a -> if (a is Act.Click && a.label == "Page two") p2 else null }
+        val model = ScriptedModel(
+            calls("click" to """{"index":1}"""),
+            calls("click" to """{"index":1}"""),
+            calls("finish_task" to """{"summary":"Done with the correction.","success":true}"""),
+        )
+        // The coordinator steers while the run works: queued as soon as the
+        // run is live, delivered with the first round's results.
+        backgroundScope.launch {
+            BrowserAgent.state.collect { s ->
+                if (s.running) BrowserAgent.queueFollowUp("actually stop after the second page")
+            }
+        }
+
+        play(browser, model, "Walk the pages")
+
+        assertThat(model.seen[1]).contains("Follow-up from the coding agent")
+        assertThat(model.seen[1]).contains("actually stop after the second page")
+    }
+
+    @Test
+    fun `queueing a follow-up with nothing running is refused`() {
+        assertThat(BrowserAgent.queueFollowUp("hello?")).isFalse()
+    }
+
     // ----------------------------------------------------- scraping tools
 
     @Test

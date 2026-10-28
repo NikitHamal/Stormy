@@ -1,6 +1,9 @@
 package com.oro.app.ui.components.agent
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.HourglassTop
+import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
@@ -229,6 +232,18 @@ object ToolPresentations {
         ),
         "request_approval" to ToolPresentation(
             "Asking you", "Asked you", Icons.AutoMirrored.Outlined.LiveHelp,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "agents_status" to ToolPresentation(
+            "Checking delegated work", "Checked delegated work", Icons.Outlined.ManageAccounts,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "follow_up" to ToolPresentation(
+            "Following up", "Followed up", Icons.Outlined.Forum,
+            subjectIsPath = false, detail = ToolDetailKind.Prose
+        ),
+        "wait_for_agent" to ToolPresentation(
+            "Waiting for the agent", "Waited for the agent", Icons.Outlined.HourglassTop,
             subjectIsPath = false, detail = ToolDetailKind.Prose
         ),
         // The coding agent handing a task to the browser agent: the detail is

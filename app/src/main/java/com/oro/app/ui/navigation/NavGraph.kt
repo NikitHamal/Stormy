@@ -63,6 +63,15 @@ fun OroNavGraph(
     openBrowserAgent: Boolean = false,
     onBrowserAgentOpened: () -> Unit = {}
 ) {
+    // The eye on a use_browser card: open the live view from wherever the user is.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        com.oro.app.browser.BrowserLiveNav.requests.collect { n ->
+            if (n > 0 && navController.currentDestination?.route != Screen.BrowserAgent.route) {
+                navController.navigate(Screen.BrowserAgent.route) { launchSingleTop = true }
+            }
+        }
+    }
+
     // Orobi brings Oro forward when it has a question or finishes a browser
     // task; land on the browser screen rather than wherever the user was.
     androidx.compose.runtime.LaunchedEffect(openBrowserAgent) {
