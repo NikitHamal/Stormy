@@ -91,6 +91,24 @@ anywhere the model can read.
 - `wait_for(text|selector|url, gone)` + DOM-stability settle; navigation waits
   on request inflight + structure hash, not a fixed sleep.
 
+## Coordinating with it (and with subagents)
+
+Delegation never has to block: `spawn_subagent(background=true)` and
+`use_browser(background=true)` hand back a session id at once, and the
+coordinator keeps working while the delegate works. Three tools close the
+loop -- `agents_status` (live phases, rounds, last step, queued follow-ups),
+`follow_up` (a message that lands before the session's next round: subagent
+loops and browser runs both drain their queue between rounds), and
+`wait_for_agent` (collect the summary when it is needed; a timeout leaves the
+run going). Background browser runs register as orchestrator sessions
+(`Subagents.BROWSER_SESSION`), so subagents and browser work are watched with
+the same tools and the same cards.
+
+The user's surfaces for a live run: the tool card's sheet (live transcript,
+plus an eye that opens the page), the browser screen, and a notification when
+the app is in the background. There is deliberately no floating pill and no
+home-screen entry: the browser is the coding agent's tool, not a parallel app.
+
 ## Two ways in (plus subagents)
 
 - `BrowserScreen`: the user types a task and watches it live (URL bar, tabs,
