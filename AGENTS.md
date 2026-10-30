@@ -4,6 +4,10 @@ Oro is a native Android AI coding IDE for building websites on a phone. Its agen
 This file is for any coding agent (or person) picking the project up. Read it first, then
 `CONTINUITY.md` for what is in flight.
 
+## Security doctrine
+
+The Shield (`guard/`, `security/`, `council/`) is defensive only: audit, detect, verify, recover. No offensive capability may be added — no exploitation, no credential testing against services, no probing hosts the user does not own. Secrets are masked in every transcript; plaintext passwords never enter chat or model context (vault or user-typed fields only); HIBP checks are k-anonymity; captchas hand off to the user; sensitive actions ask first. See docs/security-agent.md.
+
 ## Repo map
 | Path | What lives there |
 |---|---|

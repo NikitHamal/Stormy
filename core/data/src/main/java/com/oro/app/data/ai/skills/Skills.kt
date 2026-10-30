@@ -89,7 +89,10 @@ object Skills {
      * Markdown to raise the bar; add a file and its name here to add one.
      */
     private val CRAFT = listOf(
-        "design-system", "motion", "ui-states", "landing-page", "web-app", "backend", "auth", "dashboard", "forms", "game", "three-d"
+        "design-system", "motion", "ui-states", "landing-page", "web-app", "backend", "auth", "dashboard", "forms", "game", "three-d",
+        // The Shield's doctrine, readable by every agent: incident response,
+        // hardening, phishing triage and secret hygiene.
+        "security-incident", "security-hardening", "phishing-triage", "secret-hygiene",
     )
 
     private fun craftSkills(): List<Skill> = CRAFT.mapNotNull { name ->

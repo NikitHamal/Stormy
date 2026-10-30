@@ -146,7 +146,7 @@ class SecurityCouncil(private val clientFor: (AiModel) -> AgentModelClient) {
         runCatching {
             client.stream(AgentRequest(messages, null)).collect { event ->
                 when (event) {
-                    is StreamEvent.ContentDelta -> sb.append(event.text)
+                    is StreamEvent.ContentDelta -> sb.append(event.content)
                     is StreamEvent.Completed -> ok = true
                     is StreamEvent.Error -> return@collect
                     else -> Unit

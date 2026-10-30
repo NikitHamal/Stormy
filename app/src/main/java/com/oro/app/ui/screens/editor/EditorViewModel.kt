@@ -2121,6 +2121,7 @@ class EditorViewModel(
                 }
             }
             name == com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER_NAME -> runBrowserTask(call)
+            name == com.oro.app.data.ai.tools.GuardDelegationTools.ASK_GUARD_NAME -> runGuardTask(call)
             delegationHandler.handles(name) -> {
                 val args = DelegationHandler.parseArgs(call.function.arguments)
                     ?: return ToolResult(false, "", "Could not parse the arguments for $name as JSON.")
@@ -2147,9 +2148,46 @@ class EditorViewModel(
      */
     @Volatile private var browserStoppedInRun: RunTranscript? = null
 
-    /** use_browser needs no permission and no service: it is always on offer. */
+    /** use_browser and ask_guard need no permission and no service: always on offer. */
     private fun browserTools(): List<Tool> =
-        listOf(com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER)
+        listOf(
+            com.oro.app.data.ai.tools.BrowserDelegationTools.USE_BROWSER,
+            com.oro.app.data.ai.tools.GuardDelegationTools.ASK_GUARD,
+        )
+
+    /**
+     * ask_guard: the coding agent consults the Shield mid-run and waits for
+     * its verdict. The guard keeps its own tools, its own council and its own
+     * screen; Leashed mode asks before the consultation, exactly like the
+     * browser hand-off.
+     */
+    private suspend fun runGuardTask(call: ToolCallResponse): ToolResult {
+        val args = DelegationHandler.parseArgs(call.function.arguments)
+            ?: return ToolResult(false, "", "Could not parse the arguments for ask_guard as JSON.")
+        val brief = (args["brief"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()
+            ?: (args["task"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.trim()
+            ?: return ToolResult(false, "", "brief is required: the security question plus its evidence.")
+        if (com.oro.app.guard.GuardAgent.state.value.running) {
+            return ToolResult(false, "", "The guard is busy with another task. Continue without it, or try again when it finishes.")
+        }
+        if (preferencesRepository.autonomyMode.first() == com.oro.app.data.ai.agent.AutonomyMode.LEASHED &&
+            !awaitApproval("Consult the Shield", brief)
+        ) {
+            return ToolResult(true, "The user declined the consultation. Do not retry it; continue without a security verdict, or ask how they want it handled.")
+        }
+        val app = OroApplication.getInstance()
+        val result = com.oro.app.guard.GuardAgent.runForResult(
+            context = app,
+            task = brief,
+            aiRepository = aiRepository,
+            projectRoot = _project.value?.rootPath?.let { java.io.File(it) },
+        )
+        return if (result.error != null && !result.success) {
+            ToolResult(false, "", "The guard could not answer: ${result.error}")
+        } else {
+            ToolResult(result.success, "The Shield ${if (result.success) "reports" else "could not confirm"}:\n${result.summary}")
+        }
+    }
 
     /**
      * use_browser: the coding agent hands a task to the browser agent mid-run

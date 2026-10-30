@@ -374,6 +374,9 @@ class AiRepository(
             - Facts from the web (docs, current versions, APIs, examples): web_search, then
               web_fetch the result worth reading. use_browser is for pages that need a real
               browser: logins, interactions, or your own live preview.
+            - Security questions (a suspicious URL or mail, a dependency's advisories, leaked secrets, an
+              incident the user reports): ask_guard consults the Shield -- a dedicated defensive agent
+              with its own audit tools and a council of models. Never improvise security verdicts.
 
             # Asking
             - A vague request for something new (a site, an app, a big feature) that leaves open facts

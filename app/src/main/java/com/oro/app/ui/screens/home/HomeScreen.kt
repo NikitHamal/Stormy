@@ -88,6 +88,7 @@ import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Clear
@@ -149,6 +150,7 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     onProjectClick: (String) -> Unit,
     onSettingsClick: () -> Unit,
+    onShieldClick: () -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory)
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -301,6 +303,11 @@ fun HomeScreen(
                         },
                         title = { HomeTitle() },
                         actions = {
+                            FlowerIconButton(
+                                icon = Icons.Outlined.Security,
+                                contentDescription = "Shield — personal cyber-defence",
+                                onClick = onShieldClick
+                            )
                             FlowerIconButton(
                                 icon = Icons.Outlined.Search,
                                 contentDescription = "Search projects",

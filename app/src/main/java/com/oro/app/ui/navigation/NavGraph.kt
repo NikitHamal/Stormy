@@ -47,6 +47,7 @@ sealed class Screen(val route: String) {
     data object Voice : Screen("voice")
     data object Skills : Screen("skills")
     data object BrowserAgent : Screen("browser_agent")
+    data object Shield : Screen("shield")
     data object WebSearchSettings : Screen("web_search_settings")
     data object Timeline : Screen("timeline/{projectId}") {
         fun createRoute(projectId: String) = "timeline/$projectId"
@@ -170,6 +171,13 @@ fun OroNavGraph(
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
                 },
+                        onShieldClick = { navController.navigate(Screen.Shield.route) },
+            )
+        }
+
+        composable(Screen.Shield.route) {
+            com.oro.app.ui.screens.shield.ShieldScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

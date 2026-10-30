@@ -3,6 +3,45 @@
 Update this file at the end of every working session (or before a risky step), so a new agent
 or a cut-off session can resume. Newest entry on top. Keep entries short and factual.
 
+## 2026-10-26 (Black October): the Shield — personal cyber-defence agent, branch `black-october`
+
+Owner's brief: October 2026's breach wave ("Black October") plus a hijacked
+social account — every individual needs their own always-ready defensive AI.
+New branch `black-october` from `browser-agent`. Built this pass:
+
+- **SecurityCouncil** (core/data `ai/council/`): parallel seats — first
+  responder / adversary's advocate / verifier — each at
+  `ReasoningControls.maxLevel` (new), chair merges (dedupe at worst severity,
+  disagreements on record, absences counted). Default members: mercury:mercury-3,
+  k2:IFM/K2-Horizon-375B-A23B, hy3:hy3; user-seatable in the council sheet.
+- **core/data `security/`**: UrlGuard (offline phishing heuristics incl.
+  homoglyphs/typo-squats), Pwned (HIBP k-anonymity), Advisories (OSV + CISA
+  KEV, keyless, with diff store), SecretScan (shapes + placeholder-aware +
+  masked-only).
+- **GuardAgent** (app `guard/`): singleton loop on the AgentLoop harness;
+  tools audit_phone / check_url / lookup_advisory / kev_recent /
+  scan_project_secrets / check_vault / convene_council / use_browser /
+  ask_user / take_note / finish_task; `Guard` interface = JVM seam
+  (runScenarioExecute); RealGuard does phone introspection (Play-safe:
+  getPackagesHoldingPermissions, Settings, DevicePolicyManager), TLS probe,
+  vault audit, council via aiRepository.streamChat(maxLevel).
+- **ShieldScreen** (ui/screens/shield/): home top-bar entry (Security icon),
+  action cards (Incident mode first), live transcript + question cards,
+  council seat chips, findings board (DataStore `oro_guard`), settings sheet
+  (seat models, daily-pass toggle — worker not wired yet).
+- **ask_guard bridge**: GuardDelegationTools + EditorVM runGuardTask (Leashed
+  asks first); AiRepository system prompt now routes security questions to it;
+  4 craft skills: security-incident, security-hardening, phishing-triage,
+  secret-hygiene.
+- **Tests** (JVM): SecurityCouncilTest, SecurityCoreTest (UrlGuard/Pwned/
+  Advisories/SecretScan), GuardRunTest, PhoneAuditReportTest.
+
+Not done yet: molab box died (VM restart killed keepalive → 410; keepalive now
+self-heals marimo); verification this pass is GitHub CI on `black-october`;
+WorkManager daily pass; guard follow_up routing from DelegationHandler;
+StormyWeb replica parity. Next: owner to spin a fresh molab box for the
+live pass; then daily-pass worker + follow_up routing + real-device pass.
+
 ## How to resume
 1. `git log --oneline -15` on `oro-dev`, and read the latest entry below.
 2. Check the last CI run for the branch (Actions → Android CI). Fix compile errors first.
