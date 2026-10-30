@@ -317,7 +317,7 @@ fun ShieldCouncilCard(message: GuardAgent.Message, modifier: Modifier = Modifier
                         text = message.seats.joinToString(" · ").ifBlank { "no seat answered" },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -530,7 +530,10 @@ fun ShieldWelcome(
                         Spacer(Modifier.width(Space.md))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = "Latest · ${first.source}",
+                                text = buildString {
+                                    append("Latest · ").append(first.source)
+                                    if (first.epochMillis > 0) append(" · ").append(relativeTime(first.epochMillis))
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1,
