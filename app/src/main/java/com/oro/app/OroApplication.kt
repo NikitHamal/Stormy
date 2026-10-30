@@ -114,7 +114,12 @@ class OroApplication : Application(), SingletonImageLoader.Factory {
         // one collector here keeps every caller (coding agent, subagents,
         // browser agent) on the user's current providers and keys.
         applicationScope.launch {
-            preferencesRepository.webSearchConfig.collect { com.oro.app.data.ai.search.WebSearch.configure(it) }
+            // A Robolectric stub (and, in principle, an early constructor) can
+            // start this before the base context is attached; a failed setup
+            // read must not take the process down.
+            runCatching {
+                preferencesRepository.webSearchConfig.collect { com.oro.app.data.ai.search.WebSearch.configure(it) }
+            }
         }
     }
 
