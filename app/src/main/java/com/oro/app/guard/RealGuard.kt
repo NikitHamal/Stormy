@@ -303,7 +303,8 @@ internal class RealGuard(
             append("). Reporting is a lead, not evidence:\n")
             items.forEach { item ->
                 append("\n- ").append(item.source)
-                if (!item.date.isNullOrBlank()) append(" · ").append(item.date.take(32))
+                val date = item.date
+                if (!date.isNullOrBlank()) append(" · ").append(date.take(32))
                 append('\n').append("  ").append(item.title).append('\n').append("  ").append(item.link).append('\n')
                 if (item.summary.isNotBlank()) append("  ").append(item.summary).append('\n')
             }
