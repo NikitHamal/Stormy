@@ -299,7 +299,7 @@ internal class GuardRun(
         val prepare: suspend (List<ChatRequestMessage>, Int) -> AgentRequest = { history, _ ->
             AgentRequest(
                 listOf(ChatRequestMessage(role = "system", content = brief)) + history,
-                if (nativeTools) AgentTools.schemasOf(tools) else null
+                if (nativeTools) tools else null
             )
         }
 
@@ -614,14 +614,15 @@ internal class RealGuard(
     }
 
     override suspend fun vaultAudit(): String {
-        val entries = runCatching { WebVault.list(context) }.getOrDefault(emptyList())
+        runCatching { WebVault.init(context) }
+        val entries = runCatching { WebVault.list() }.getOrDefault(emptyList())
         if (entries.isEmpty()) return "The vault holds no logins yet -- nothing to audit."
         val hashes = HashSet<String>()
         val results = ArrayList<String>()
         var breached = 0
         var reused = 0
         for (e in entries.take(25)) {
-            val secret = runCatching { WebVault.get(context, e.id)?.password }.getOrNull() ?: continue
+            val secret = runCatching { WebVault.get(e.id)?.password }.getOrNull() ?: continue
             val sha = Pwned.sha1Hex(secret)
             if (!hashes.add(sha)) {
                 reused++

@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.oro.app.OroApplication
 import com.oro.app.data.ai.AiModel
-import com.oro.app.data.repository.ProjectRepository
 import com.oro.app.guard.GuardAgent
 import com.oro.app.guard.GuardSettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,7 +55,7 @@ class ShieldViewModel(app: Application) : AndroidViewModel(app) {
             (models as MutableStateFlow).value = aiRepository.getAvailableModels()
             _memberIds.value = GuardSettingsStore.memberIds(app)
             _dailyPass.value = GuardSettingsStore.dailyPassOn(app)
-            ProjectRepository(app).getAllProjects().collect { projects ->
+            OroApplication.getInstance().projectRepository.getAllProjects().collect { projects ->
                 projectRoot = projects.maxByOrNull { it.lastOpenedAt ?: 0L }?.rootPath?.let { File(it) }
             }
         }

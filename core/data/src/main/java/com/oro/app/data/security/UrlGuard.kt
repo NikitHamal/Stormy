@@ -112,7 +112,7 @@ object UrlGuard {
 
         // 5. Deceptive subdomain stacking: many labels, or a brand parked in front.
         val labels = host.split('.')
-        if (labels.size > 4) {
+        if (labels.size > 3) {
             score += 15; reasons += "${labels.size} subdomain levels: long label stacks bury the real domain at the end."
         }
 
@@ -124,7 +124,12 @@ object UrlGuard {
 
         // 7. Credentials in the URL: user@host is a very old trick.
         if (!uri.userInfo.isNullOrBlank()) {
-            score += 30; reasons += "The URL carries a user@ part: browsers treat what follows @ as the real host, which is how “https://paypal.com@evil.io” works."
+            score += 45
+            reasons += "The URL carries a user@ part: browsers treat what follows @ as the real host, which is how “https://paypal.com@evil.io” works."
+            if (BRANDS.any { uri.userInfo.contains(it) }) {
+                score += 35
+                reasons += "A trusted brand sits BEFORE the @ — it is bait; the real destination is the host after it."
+            }
         }
 
         // 8. Path tricks: scheme-relative doubles slashes, @ in path, %00-ish escapes.
@@ -140,7 +145,7 @@ object UrlGuard {
                 if (d in 1..2 && registrable(host) != "$b.com") b to d else null
             }.minByOrNull { it.second }
             if (near != null) {
-                score += 45; reasons += "The domain is ${near.second} character(s) from ${near.first}'s real domain: a typo-squat."
+                score += 60; reasons += "The domain is ${near.second} character(s) from ${near.first}'s real domain: a typo-squat."
             }
         }
 

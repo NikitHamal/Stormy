@@ -58,8 +58,7 @@ object PhoneAudit {
             (context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)?.isDeviceSecure == true
         }.getOrDefault(false)
         val encrypted = runCatching {
-            val sm = context.getSystemService(Context.STORAGE_SERVICE) as? android.os.storage.StorageManager
-            sm?.isEncrypted == true || Build.VERSION.SDK_INT >= 24
+            android.os.storage.StorageManager.isEncrypted() || Build.VERSION.SDK_INT >= 24
         }.getOrDefault(true)
         val adb = runCatching { Settings.Global.getInt(cr, Settings.Global.ADB_ENABLED, 0) == 1 }.getOrDefault(false)
         val devMode = runCatching { Settings.Global.getInt(cr, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1 }.getOrDefault(false)
@@ -72,14 +71,15 @@ object PhoneAudit {
             (context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager)
                 ?.activeAdmins?.map { it.packageName ?: "?" }.orEmpty()
         }.getOrDefault(emptyList())
-        val holders = WATCHED_PERMISSIONS.associate { (perm, _) ->
-            perm to runCatching {
+        val holders = HashMap<String, List<String>>()
+        for ((perm, _) in WATCHED_PERMISSIONS) {
+            holders[perm] = runCatching {
                 pm.getPackagesHoldingPermissions(arrayOf(perm))
                     .map { it.packageName }
                     .filter { it != context.packageName }
-            }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList<String>())
         }
-        val own = runCatching {
+        val own: List<String> = runCatching {
             pm.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
                 .requestedPermissions?.toList().orEmpty()
         }.getOrDefault(emptyList())
@@ -93,7 +93,7 @@ object PhoneAudit {
             installFromUnknownSources = unknownSources,
             accessibilityServices = a11y,
             deviceAdmins = admins,
-            permissionHolders = holders,
+            permissionHolders = holders.toMap(),
             playProtectEnabled = null, // only the Play app knows; the report links to it
             ownPermissions = own,
         )

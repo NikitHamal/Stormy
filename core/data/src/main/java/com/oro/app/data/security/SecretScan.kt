@@ -37,7 +37,7 @@ object SecretScan {
 
     /** Placeholder values that must not fire: examples, env refs, prompts. */
     private val PLACEHOLDER = Regex(
-        "(?i)^(x{4,}|\\*+|changeme|change_me|placeholder|example|dummy|test|your[_-]?(password|key|secret)|" +
+        "(?i)^(x{4,}|\\*+|changeme|change_me|placeholder|example|dummy|test|your[_-]?(password|key|secret)[\\w-]*|" +
             "\\$\\{?[A-Z_]+\\}?|%[A-Z_]+%|<[^>]+>|none|null|todo|fixme)$"
     )
 

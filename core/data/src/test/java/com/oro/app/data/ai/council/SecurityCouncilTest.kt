@@ -49,7 +49,7 @@ class SecurityCouncilTest {
         SUSPECTED: that anyone clicked -- no log in the artifact; check the mail gateway.
         FALSE ALARM: the "urgent invoice" body alone proves nothing; invoices are always urgent.
         FINDINGS:
-        high | DMARC fail is evidenced in the header | Preserve the original .eml as evidence
+        high | DMARC failure on a payment-themed mail | Preserve the original .eml as evidence
     """.trimIndent()
 
     private val chair = """
@@ -82,6 +82,7 @@ class SecurityCouncilTest {
             topic = "Is this mail a phish?",
             artifact = "Authentication-Results: dmarc=fail header.from=paypa1-notifications.com",
             members = members,
+            synthesizer = model("mercury-chair"),
             onOpinion = { heard += it },
         )
 
@@ -94,7 +95,7 @@ class SecurityCouncilTest {
         assertThat(result.findings.count { it.title.contains("DMARC", true) }).isEqualTo(1)
         // ...and keeps the disagreement on the record.
         assertThat(result.disagreements.joinToString()).contains("gateway")
-        assertThat(result.synthesizer).isEqualTo("mercury")
+        assertThat(result.synthesizer).isEqualTo("mercury-chair")
     }
 
     @Test
@@ -123,7 +124,7 @@ class SecurityCouncilTest {
 
     @Test
     fun `findings parsing tolerates prose around the block and caps the list`() {
-        val text = "Some reasoning first.\nFINDINGS:\nhigh | One | Do it\nnonsense line\nlow | Two | Later\nDISAGREEMENTS:\n- x versus y"
+        val text = "Some reasoning first.\nFINDINGS:\nhigh | One real finding | Do it\nnonsense line\nlow | Two also real | Later\nDISAGREEMENTS:\n- x versus y"
         val findings = SecurityCouncil.parseFindings(text)
         assertThat(findings).hasSize(2)
         assertThat(findings[0].severity).isEqualTo(Severity.HIGH)

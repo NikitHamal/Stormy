@@ -228,7 +228,7 @@ class SecurityCouncil(private val clientFor: (AiModel) -> AgentModelClient) {
             if (start < 0) return emptyList()
             return text.substring(start + "DISAGREEMENTS:".length).lineSequence()
                 .map { it.trim().removePrefix("-").trim() }
-                .filter { it.isNotBlank() && it.length > 12 }
+                .filter { it.isNotBlank() && it.length > 8 }
                 .take(8)
                 .toList()
         }
