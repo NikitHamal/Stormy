@@ -1,12 +1,7 @@
 package com.oro.app.guard
 
 import android.content.Context
-import com.oro.app.OroApplication
 import com.oro.app.R
-import com.oro.app.browser.BrowserAgent
-import com.oro.app.browser.BrowserProse
-import com.oro.app.browser.WebVault
-import com.oro.app.data.ai.AiHttp
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.ChatRequestMessage
 import com.oro.app.data.ai.ReasoningControls
@@ -15,22 +10,16 @@ import com.oro.app.data.ai.agent.AgentLoopConfig
 import com.oro.app.data.ai.agent.AgentLoopListener
 import com.oro.app.data.ai.agent.AgentModelClient
 import com.oro.app.data.ai.agent.AgentRequest
-import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentRunResult
+import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentToolRunner
 import com.oro.app.data.ai.ToolCallResponse
-import com.oro.app.data.ai.council.CouncilMember
-import com.oro.app.data.ai.council.CouncilResult
-import com.oro.app.data.ai.council.CouncilRole
-import com.oro.app.data.ai.council.SecurityCouncil
 import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.BrowserDelegationTools
 import com.oro.app.data.ai.tools.ToolResult
 import com.oro.app.data.repository.AiRepository
-import com.oro.app.data.security.Advisories
-import com.oro.app.data.security.Pwned
-import com.oro.app.data.security.SecretScan
-import com.oro.app.data.security.UrlGuard
+import com.oro.app.data.security.ThreatIntel
+import com.oro.app.data.security.ThreatTrace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -42,40 +31,44 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.time.YearMonth
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.abs
 
 /**
  * The personal cyber-defence agent: one instance app-wide, like the browser
  * agent it consults. Defensive only -- it audits (phone, vault, project),
- * detects (URLs, advisories, exploitation news), verifies (the council of
- * models) and guides recovery (incident work, with the browser agent on hand
- * to walk the user's own security checkups). It never touches a system the
- * user does not own.
+ * detects (URLs, advisories, exploitation news), traces (public records,
+ * evidence records), verifies (the council of models) and guides recovery
+ * and lawful countermeasures (block, rotate, report, harden).
  *
- * Everything environment-touching sits behind the [Guard] interface, so the
- * tool contract and the loop run on the JVM against scripted guards.
+ * Refusing to retaliate is a feature, not a limitation: the guard never
+ * attacks, scans or accesses a system the user does not own. It can work the
+ * user's own phone, accounts and projects, and it can take an attacker's
+ * infrastructure down the only way a defender legitimately can -- through the
+ * registrar, host, browser blocklists and CERTs.
+ *
+ * The screen is a conversation: user messages, the guard's streamed replies,
+ * tool activity as inline cards, and questions as tap-to-answer cards.
+ * Everything environment-touching sits behind [Guard], so the tool contract,
+ * the loop and the transcript run on the JVM against scripted guards.
  */
 object GuardAgent {
 
-    enum class StepKind { THOUGHT, ACTION, QUESTION, NOTE, SYSTEM }
-    enum class StepStatus { RUNNING, DONE, FAILED, WAITING }
+    enum class MsgRole { USER, GUARD, TOOL, NOTE, SYSTEM }
+    enum class MsgStatus { RUNNING, DONE, FAILED, WAITING }
 
-    data class Step(
+    data class Message(
         val id: Long,
-        val kind: StepKind,
-        val tool: String?,
-        val title: String,
+        val role: MsgRole,
+        val text: String,
+        val tool: String? = null,
         val detail: String = "",
-        val status: StepStatus = StepStatus.DONE,
-        val endedAt: Long? = null,
+        val status: MsgStatus = MsgStatus.DONE,
+        val streaming: Boolean = false,
+        val callId: String? = null,
+        val at: Long = System.currentTimeMillis(),
     )
 
     data class Question(val text: String, val options: List<String>)
@@ -88,7 +81,7 @@ object GuardAgent {
         val modelName: String = "",
         val status: String = "",
         val statusKind: AgentStatus.Kind? = null,
-        val steps: List<Step> = emptyList(),
+        val messages: List<Message> = emptyList(),
         val question: Question? = null,
         val seats: List<String> = emptyList(),
         val result: Result? = null,
@@ -106,27 +99,41 @@ object GuardAgent {
         suspend fun vaultAudit(): String
         suspend fun council(topic: String, artifact: String?): CouncilResult
         suspend fun browserTask(task: String): ToolResult
+        fun fileOp(operation: String, path: String, content: String = "", old: String = "", new: String = ""): String
+        suspend fun runScript(language: String, code: String, stdin: String?): String
+        suspend fun intel(kind: String, value: String): String
+        suspend fun webPosture(url: String): String
+        suspend fun dependencyAudit(): String
+        suspend fun abuseReport(kind: String, note: String, evidence: String): String
+        suspend fun delegate(task: String, focus: String?): String
     }
 
     internal val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val stepSeq = AtomicLong()
+    private val msgSeq = AtomicLong()
     private var job: Job? = null
     private var questionGate: CompletableDeferred<String?>? = null
 
-    internal fun setGate(gate: CompletableDeferred<String?>) { questionGate = gate }
-    private val notes = mutableListOf<String>()
     internal var followUps: ConcurrentLinkedQueue<String> = ConcurrentLinkedQueue()
+
+    const val FALLBACK_BRIEF =
+        "You are Oro's Shield: a personal cyber-defence agent. Audit, detect, verify, recover, and counter lawfully: " +
+            "preserve evidence, trace public records, block, report and harden. Never attack, scan or access a system the user does not own."
+
+    private const val MAX_MESSAGES = 320
+    private const val MAX_TEXT = 24_000
 
     fun queueFollowUp(text: String) {
         val t = text.trim()
-        if (t.isNotEmpty()) followUps += t
+        if (t.isEmpty()) return
+        addMessage(MsgRole.USER, t)
+        followUps += t
     }
 
     /** Start a run the user watches on the shield screen. */
-    fun start(
+    suspend fun start(
         context: Context,
         task: String,
         aiRepository: AiRepository,
@@ -156,7 +163,7 @@ object GuardAgent {
         return _state.value.result ?: Result(false, "", "The guard ended without a verdict.")
     }
 
-    private fun begin(
+    private suspend fun begin(
         context: Context,
         task: String,
         aiRepository: AiRepository,
@@ -165,12 +172,15 @@ object GuardAgent {
     ): Job? {
         if (_state.value.running) return null
         val appContext = context.applicationContext
-        stepSeq.set(0)
-        notes.clear()
+        msgSeq.set(0)
         followUps = ConcurrentLinkedQueue()
         questionGate = null
-        val chosen = model ?: aiRepository.getAvailableModels().firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS }
-            ?: aiRepository.getAvailableModels().firstOrNull()
+        val available = aiRepository.getAvailableModels()
+        val chairId = GuardSettingsStore.chairId(appContext)
+        val chosen = model
+            ?: available.firstOrNull { it.id == chairId }
+            ?: available.firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS }
+            ?: available.firstOrNull()
         if (chosen == null) {
             _state.value = State(result = Result(false, "", "No models are configured yet."))
             return null
@@ -179,11 +189,11 @@ object GuardAgent {
             running = true, task = task.trim(), modelName = chosen.name,
             status = "Standing watch", startedAt = System.currentTimeMillis(),
         )
+        addMessage(MsgRole.USER, task.trim())
         val guard = RealGuard(appContext, aiRepository, projectRoot)
         val stream = AgentModelClient { req ->
             aiRepository.streamChat(
                 chosen, req.messages, req.tools, temperature = 0.2f,
-                // Few, consequential decisions: the model's deepest level.
                 reasoningLevel = ReasoningControls.maxLevel(chosen),
             )
         }
@@ -201,6 +211,8 @@ object GuardAgent {
     }
 
     fun stop() {
+        questionGate?.complete(null)
+        questionGate = null
         job?.cancel()
         job = null
     }
@@ -214,25 +226,117 @@ object GuardAgent {
         questionGate?.complete(text)
     }
 
-    internal fun addStep(step: Step) {
-        _state.update { it.copy(steps = (it.steps + step).takeLast(400)) }
+    internal fun setGate(gate: CompletableDeferred<String?>) { questionGate = gate }
+
+    internal fun nextId() = msgSeq.incrementAndGet()
+
+    internal fun addMessage(
+        role: MsgRole,
+        text: String,
+        tool: String? = null,
+        detail: String = "",
+        status: MsgStatus = MsgStatus.DONE,
+        callId: String? = null,
+    ): Long {
+        if (text.isBlank() && tool == null) return -1
+        val id = nextId()
+        _state.update {
+            it.copy(messages = (it.messages + Message(id, role, text.take(MAX_TEXT), tool, detail, status, false, callId)).takeLast(MAX_MESSAGES))
+        }
+        return id
     }
 
-    internal fun nextId() = stepSeq.incrementAndGet()
+    internal fun startAssistant(): Long {
+        val id = nextId()
+        _state.update {
+            it.copy(messages = (it.messages + Message(id, MsgRole.GUARD, "", streaming = true)).takeLast(MAX_MESSAGES))
+        }
+        return id
+    }
+
+    internal fun appendAssistant(id: Long, delta: String) {
+        if (delta.isEmpty() || id < 0) return
+        _state.update { st ->
+            st.copy(messages = st.messages.map { m ->
+                if (m.id == id) m.copy(text = (m.text + delta).take(MAX_TEXT)) else m
+            })
+        }
+    }
+
+    internal fun finishAssistant(id: Long, visible: String) {
+        if (id < 0) {
+            if (visible.isNotBlank()) addMessage(MsgRole.GUARD, visible)
+            return
+        }
+        val text = visible.trim()
+        _state.update { st ->
+            val without = st.messages.filterNot { it.id == id }
+            if (text.isEmpty()) st.copy(messages = without)
+            else st.copy(messages = (without + Message(id, MsgRole.GUARD, text.take(MAX_TEXT))).takeLast(MAX_MESSAGES))
+        }
+    }
+
+    internal fun addTool(tool: String, callId: String?): Long = addMessage(
+        MsgRole.TOOL,
+        GuardTools.humanize(tool),
+        tool = tool,
+        status = MsgStatus.RUNNING,
+        callId = callId,
+    )
+
+    internal fun finishTool(callId: String?, tool: String, output: String, success: Boolean) {
+        val id = _state.value.messages.lastOrNull { it.callId == callId && it.tool == tool && it.status == MsgStatus.RUNNING }?.id
+            ?: return
+        _state.update { st ->
+            st.copy(messages = st.messages.map { m ->
+                if (m.id == id) m.copy(detail = output.take(8_000), status = if (success) MsgStatus.DONE else MsgStatus.FAILED) else m
+            })
+        }
+    }
+
+    internal fun note(text: String) {
+        addMessage(MsgRole.NOTE, text)
+    }
+
+    internal fun askInState(text: String, options: List<String>): Long {
+        _state.update { it.copy(question = Question(text, options)) }
+        return -1
+    }
+
+    internal fun resolveQuestion(id: Long, answer: String?) {
+        val question = _state.value.question?.text
+        _state.update { st -> st.copy(question = null) }
+        if (!question.isNullOrBlank()) addMessage(MsgRole.GUARD, question)
+        if (!answer.isNullOrBlank()) addMessage(MsgRole.USER, answer)
+    }
+
+    internal fun setStatus(status: AgentStatus) {
+        _state.update { it.copy(status = status.label, statusKind = status.kind) }
+    }
+
+    internal fun setSeats(seats: List<String>) {
+        _state.update { it.copy(seats = seats) }
+    }
 
     internal fun end(result: Result) {
         _state.update {
             it.copy(
                 running = false, question = null, result = result,
                 endedAt = System.currentTimeMillis(),
-                steps = it.steps.map { s -> if (s.status == StepStatus.RUNNING || s.status == StepStatus.WAITING) s.copy(status = StepStatus.DONE) else s },
+                messages = it.messages.map { m -> if (m.streaming) m.copy(streaming = false) else m },
             )
         }
     }
 
     /** Test seam: a scripted guard drives the real tool dispatch. */
     internal suspend fun runScenarioExecute(guard: Guard, name: String, args: String): ToolResult =
-        GuardRun(guard, AgentModelClient { throw IllegalStateException("scripted") }, null).execute(name, JSONObject(args))
+        GuardToolRuntime(
+            guard = guard,
+            appContext = null,
+            ask = { _, _ -> "No user is available." },
+            onFinish = { _, _ -> },
+            onNote = {},
+        ).execute(name, JSONObject(args))
 }
 
 /** One guard run: the loop, the tool dispatch, the question gate. */
@@ -248,51 +352,64 @@ internal class GuardRun(
     private var finishCalled = false
 
     suspend fun run(task: String) {
-        val brief = appContext?.getString(R.string.guard_system_brief) ?: FALLBACK_BRIEF
+        val brief = appContext?.getString(R.string.guard_system_brief) ?: GuardAgent.FALLBACK_BRIEF
         val tools = GuardTools.all + BrowserDelegationTools.USE_BROWSER
         val conversation = mutableListOf(
-            ChatRequestMessage(role = "user", content = "Task: $task\n\nDecide the first step. Audit first, act second, and convene the council for anything worth a second opinion.")
+            ChatRequestMessage(
+                role = "user",
+                content = "Task: $task\n\nStart with the smallest evidence-gathering step. Audit first, act second, and convene the council for anything worth a second opinion. In an active incident, contain before you investigate."
+            )
         )
-
+        val runtime = GuardToolRuntime(
+            guard = guard,
+            appContext = appContext,
+            ask = { question, options -> askQuestion(question, options) },
+            onFinish = { summary, success ->
+                finishSummary = summary
+                finishSuccess = success
+                finishCalled = true
+            },
+            onNote = { GuardAgent.note(it) },
+        )
         val runner = AgentToolRunner { call ->
             val name = call.function.name.substringAfterLast('.').lowercase()
             val args = runCatching { JSONObject(call.function.arguments.ifBlank { "{}" }) }.getOrDefault(JSONObject())
-            execute(name, args)
+            runtime.execute(name, args)
         }
 
-        var currentStepId = -1L
+        var streamId = -1L
+        var suppressLive = false
         val listener = object : AgentLoopListener {
             override fun onStatus(status: AgentStatus) {
-                GuardAgent._state.update { it.copy(status = status.label, statusKind = status.kind) }
+                GuardAgent.setStatus(status)
+            }
+
+            override fun onText(delta: String) {
+                if (suppressLive) return
+                if (delta.contains("<tool_call") || delta.contains("<function=")) {
+                    suppressLive = true
+                    return
+                }
+                if (streamId < 0) streamId = GuardAgent.startAssistant()
+                GuardAgent.appendAssistant(streamId, delta)
             }
 
             override fun onTurnComplete(visibleText: String, toolCalls: List<ToolCallResponse>) {
                 val thought = AgentLoop.stripThinking(visibleText).trim()
-                if (thought.isNotEmpty()) {
-                    GuardAgent.addStep(GuardAgent.Step(GuardAgent.nextId(), GuardAgent.StepKind.THOUGHT, null, thought.take(400)))
-                }
+                GuardAgent.finishAssistant(streamId, thought)
+                streamId = -1
+                suppressLive = false
             }
 
             override fun onToolStarted(call: ToolCallResponse) {
                 if (call.function.name == "finish_task") return
-                val id = GuardAgent.nextId()
-                currentStepId = id
-                GuardAgent.addStep(
-                    GuardAgent.Step(id, GuardAgent.StepKind.ACTION, call.function.name, humanize(call.function.name),
-                        status = GuardAgent.StepStatus.RUNNING)
-                )
+                GuardAgent.addTool(call.function.name, call.id)
             }
 
             override fun onToolFinished(call: ToolCallResponse, result: ToolResult) {
                 if (call.function.name == "finish_task") return
                 val text = if (result.success) result.output else (result.error ?: result.output)
-                val id = currentStepId
-                GuardAgent._state.update { st ->
-                    st.copy(steps = st.steps.map { s ->
-                        if (s.id == id) s.copy(detail = text.take(240), status = if (result.success) GuardAgent.StepStatus.DONE else GuardAgent.StepStatus.FAILED, endedAt = System.currentTimeMillis())
-                        else s
-                    })
-                }
+                GuardAgent.finishTool(call.id, call.function.name, text, result.success)
             }
         }
 
@@ -312,8 +429,8 @@ internal class GuardRun(
                     if (q.isEmpty()) null
                     else "The user sent this while you worked: " + generateSequence { q.poll() }.joinToString(" | ")
                 },
-                maxIterations = 60,
-                maxToolResultChars = 20_000,
+                maxIterations = 80,
+                maxToolResultChars = 24_000,
                 idleTimeoutMs = 120_000,
                 maxQualityPasses = 2,
                 toolSchemas = AgentTools.schemasOf(tools),
@@ -352,326 +469,17 @@ internal class GuardRun(
     private fun lastText(conversation: List<ChatRequestMessage>): String =
         AgentLoop.stripThinking(conversation.lastOrNull { it.role == "assistant" }?.content.orEmpty()).trim()
 
-    /** The tool contract; everything a guard can do lands here. */
-    internal suspend fun execute(name: String, args: JSONObject): ToolResult {
-        if (name == "use_browser") {
-            val task = args.optString("task").trim()
-            if (task.isEmpty()) return ToolResult(false, "", "Provide task: what the browser agent should do and what counts as done.")
-            return guard.browserTask(task)
-        }
-        if (!GuardTools.names.contains(name)) return ToolResult(false, "", "Unknown guard tool: $name")
-        return try {
-            when (name) {
-                "audit_phone" -> {
-                    val report = guard.phoneReport()
-                    persistFindings(report, "phone audit")
-                    ToolResult(true, report)
-                }
-
-                "check_url" -> {
-                    val url = args.optString("url")
-                    if (url.isBlank()) ToolResult(false, "", "Provide url.")
-                    else ToolResult(true, guard.checkUrl(url, args.optBoolean("deep", true)))
-                }
-
-                "lookup_advisory" -> {
-                    val pkg = args.optString("package")
-                    val eco = args.optString("ecosystem")
-                    if (pkg.isBlank() || eco.isBlank()) ToolResult(false, "", "Provide package and ecosystem.")
-                    else ToolResult(true, guard.advisories(pkg, eco, args.optString("version").ifBlank { null }))
-                }
-
-                "kev_recent" -> {
-                    val days = args.optInt("days", 14).coerceIn(1, 90)
-                    val report = guard.kevRecent(days)
-                    persistFindings(report, "KEV")
-                    ToolResult(true, report)
-                }
-
-                "scan_project_secrets" -> {
-                    val files = guard.projectFiles()
-                    if (files.isEmpty()) return ToolResult(true, "No scannable files in the project.")
-                    val hits = ArrayList<SecretScan.Hit>()
-                    for ((path, text) in files) hits += SecretScan.scanFile(path, text)
-                    if (hits.isEmpty()) ToolResult(true, "Scanned ${files.size} files: no credential shapes found.")
-                    else ToolResult(true, buildString {
-                        append("Found ").append(hits.size).append(" escaped credential(s) across ").append(files.size).append(" files (values masked):\n")
-                        hits.take(40).forEach { append("- ").append(it.file).append(':').append(it.line).append(' ').append(it.kind).append(' ').append(it.masked).append('\n') }
-                        append("\nRotate every one of these now: a committed secret is a leaked secret, git history included. Then remove it from the file and load it from an environment variable or Oro's vault instead.")
-                    })
-                }
-
-                "check_vault" -> ToolResult(true, guard.vaultAudit())
-
-                "convene_council" -> {
-                    val topic = args.optString("topic")
-                    if (topic.isBlank()) return ToolResult(false, "", "Provide topic.")
-                    val artifact = args.optString("artifact").ifBlank { null }
-                    GuardAgent._state.update { it.copy(status = "Council in session", seats = emptyList()) }
-                    val result = guard.council(topic, artifact)
-                    GuardAgent._state.update { it.copy(seats = result.opinions.map { o -> "${o.modelName}: ${o.failed ?: "${o.findings.size} findings"}" }) }
-                    ToolResult(true, buildString {
-                        append("Council verdict (chair: ").append(result.synthesizer).append("):\n").append(result.verdict).append("\n\nFindings:\n")
-                        if (result.findings.isEmpty()) append("(none evidenced)\n")
-                        result.findings.take(12).forEach { append("- [").append(it.severity.name).append("] ").append(it.title).append(" -> ").append(it.action).append('\n') }
-                        if (result.disagreements.isNotEmpty()) {
-                            append("\nDisagreements on the record:\n")
-                            result.disagreements.forEach { append("- ").append(it).append('\n') }
-                        }
-                    })
-                }
-
-                "ask_user" -> {
-                    val question = args.optString("question")
-                    if (question.isBlank()) return ToolResult(false, "", "Provide question.")
-                    val options = args.optJSONArray("options").toStringList().take(4)
-                    val answer = askQuestion(question, options)
-                    ToolResult(true, "The user answered: $answer")
-                }
-
-                "take_note" -> {
-                    val note = args.optString("note").trim()
-                    if (note.isNotEmpty()) {
-                        GuardAgent.addStep(GuardAgent.Step(GuardAgent.nextId(), GuardAgent.StepKind.NOTE, null, note.take(240)))
-                    }
-                    ToolResult(true, "Noted.")
-                }
-
-                "finish_task" -> {
-                    val summary = args.optString("summary").trim()
-                    if (summary.isBlank()) return ToolResult(false, "", "Provide summary.")
-                    finishSummary = summary
-                    finishSuccess = args.optBoolean("success", true)
-                    finishCalled = true
-                    ToolResult(true, "Task finished.")
-                }
-
-                else -> ToolResult(false, "", "Unknown tool.")
-            }
-        } catch (t: Throwable) {
-            ToolResult(false, "", "${t.javaClass.simpleName}: ${t.message}")
-        }
-    }
-
-    private fun persistFindings(report: String, source: String) {
-        val ctx = appContext ?: return
-        scope().launch(Dispatchers.IO) {
-            runCatching {
-                report.lineSequence().forEach { line ->
-                    val m = Regex("^\\[(\\w+)]\\s+(.+?)\\s*->\\s*(.+)$").find(line.trim()) ?: return@forEach
-                    GuardSettingsStore.addFinding(ctx, m.groupValues[1], m.groupValues[2].take(140), m.groupValues[3].take(240), source)
-                }
-            }
-        }
-    }
-
-    private fun scope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    /** Blocks the run until the user answers on the shield screen. */
+    /** Blocks the run until the user answers in the chat. */
     private suspend fun askQuestion(text: String, options: List<String>): String {
         val gate = CompletableDeferred<String?>()
         GuardAgent.setGate(gate)
-        val id = GuardAgent.nextId()
-        GuardAgent.addStep(GuardAgent.Step(id, GuardAgent.StepKind.QUESTION, "ask_user", text, status = GuardAgent.StepStatus.WAITING))
-        GuardAgent._state.update { it.copy(question = GuardAgent.Question(text, options)) }
-        val answer = gate.await()
-        GuardAgent._state.update { it.copy(question = null) }
-        GuardAgent._state.update { st ->
-            st.copy(steps = st.steps.map { s -> if (s.id == id) s.copy(status = GuardAgent.StepStatus.DONE, detail = (answer ?: "(no answer)").take(200)) else s })
+        val id = GuardAgent.askInState(text, options)
+        val answer = try {
+            gate.await()
+        } finally {
+            GuardAgent.setGate(CompletableDeferred())
         }
+        GuardAgent.resolveQuestion(id, answer?.takeIf { it.isNotBlank() })
         return answer?.takeIf { it.isNotBlank() } ?: "The user did not answer; make the safe assumption and say so."
-    }
-
-    private fun JSONArray?.toStringList(): List<String> {
-        val arr = this ?: return emptyList()
-        return (0 until arr.length()).mapNotNull { i -> arr.optString(i)?.takeIf { it.isNotBlank() } }
-    }
-
-    private fun humanize(name: String): String = when (name) {
-        "audit_phone" -> "Auditing this phone's posture"
-        "check_url" -> "Judging a link"
-        "lookup_advisory" -> "Checking advisories"
-        "kev_recent" -> "Reading the exploitation news"
-        "scan_project_secrets" -> "Scanning the project for escaped secrets"
-        "check_vault" -> "Auditing saved logins"
-        "convene_council" -> "Convening the council"
-        "use_browser" -> "Working in the browser"
-        "ask_user" -> "Asking you"
-        else -> name
-    }
-
-    companion object {
-        const val FALLBACK_BRIEF = "You are Oro's personal cyber-defence agent: audit, detect, verify, recover. Defensive only."
-    }
-}
-
-/**
- * The environment-touching half of the guard: the phone, the network, the
- * vault, the models -- behind [GuardAgent.Guard] so the other half stays
- * testable.
- */
-internal class RealGuard(
-    private val context: Context,
-    private val aiRepository: AiRepository,
-    private val projectRoot: File?,
-) : GuardAgent.Guard {
-
-    override fun phoneReport(): String {
-        val facts = PhoneAudit.collect(context)
-        val now = YearMonth.now()
-        val findings = PhoneAudit.report(facts, now.year, now.monthValue)
-        return buildString {
-            append("Device posture (Android ").append(facts.sdkInt).append(", patch ").append(facts.securityPatch).append("):\n")
-            findings.forEach { (sev, title, action) ->
-                append("[").append(sev.name).append("] ").append(title).append(" -> ").append(action).append('\n')
-            }
-        }
-    }
-
-    override fun projectFiles(): List<Pair<String, String>> {
-        val root = projectRoot ?: return emptyList()
-        if (!root.isDirectory) return emptyList()
-        val skipDirs = setOf(".git", "node_modules", "build", ".gradle", "dist", "out", ".next", "__pycache__", ".venv")
-        val binaryExt = setOf("png", "jpg", "jpeg", "gif", "webp", "ico", "pdf", "zip", "gz", "jar", "apk", "mp3", "mp4", "woff", "woff2", "ttf", "eot", "bin", "so", "exe", "class")
-        val out = ArrayList<Pair<String, String>>()
-        fun walk(dir: File, depth: Int) {
-            if (depth > 8 || out.size >= 600) return
-            for (f in (dir.listFiles() ?: emptyArray()).sortedBy { it.name }) {
-                if (f.isDirectory) {
-                    if (f.name !in skipDirs && !f.name.startsWith(".")) walk(f, depth + 1)
-                } else if (f.isFile && f.length() < 1_500_000 && f.extension.lowercase() !in binaryExt) {
-                    val text = runCatching { f.readText() }.getOrNull() ?: continue
-                    if (text.contains('\u0000')) continue
-                    out += f.absolutePath.removePrefix(root.absolutePath).removePrefix("/") to text
-                }
-            }
-        }
-        walk(root, 0)
-        return out
-    }
-
-    override suspend fun checkUrl(url: String, deep: Boolean): String = withContext(Dispatchers.IO) {
-        val verdict = UrlGuard.check(url)
-        val certNote = if (deep && verdict.host != null) probeTls(url) else null
-        buildString {
-            append(verdict.render(url))
-            if (!certNote.isNullOrBlank()) append("\nTLS: ").append(certNote).append('\n')
-        }
-    }
-
-    private fun probeTls(url: String): String? = runCatching {
-        val client = AiHttp.client.newBuilder()
-            .connectTimeout(8, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build()
-        val request = okhttp3.Request.Builder().url(url).head().build()
-        client.newCall(request).execute().use { r ->
-            val chain = r.handshake?.peerCertificates ?: return@use "no certificate presented"
-            val leaf = chain.first() as? java.security.cert.X509Certificate ?: return@use "unreadable certificate"
-            val daysLeft = (leaf.notAfter.time - System.currentTimeMillis()) / 86_400_000
-            val issuer = leaf.issuerX500Principal.name.substringAfter("CN=").substringBefore(",")
-            val sans = runCatching { leaf.subjectAlternativeNames?.mapNotNull { (it.getOrNull(1) as? String) }.orEmpty() }.getOrDefault(emptyList())
-            val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
-            val nameOk = sans.any { it.equals(host, true) || (it.startsWith("*.") && host.endsWith(it.drop(1), true)) }
-            buildString {
-                if (daysLeft < 0) append("EXPIRED ").append(abs(daysLeft)).append(" days ago. ")
-                else if (daysLeft < 30) append("expires in ").append(daysLeft).append(" days. ")
-                if (sans.isNotEmpty() && !nameOk) append("Certificate covers ").append(sans.take(4).joinToString()).append(", not ").append(host).append(". ")
-                else append("Name match OK. ")
-                append("Issuer: ").append(issuer).append('.')
-            }
-        }
-    }.getOrNull()
-
-    override suspend fun advisories(pkg: String, eco: String, version: String?): String {
-        val list = Advisories.osvQuery(eco, pkg, version)
-            ?: return "OSV could not be reached; say nothing about advisories rather than guess."
-        if (list.isEmpty()) return "No known advisories for $eco:$pkg${version?.let { " $it" } ?: ""} in OSV."
-        return buildString {
-            append(list.size).append(" known advisory(ies) for ").append(eco).append(':').append(pkg).append(' ')
-                .append(version ?: "(all versions)").append(":\n")
-            list.take(12).forEach { a ->
-                append("- ").append(a.id)
-                if (a.aliases.isNotEmpty()) append(" (").append(a.aliases.take(3).joinToString()).append(')')
-                if (a.severity != null) append(" [").append(a.severity).append(']')
-                append(": ").append(a.summary).append('\n')
-            }
-        }
-    }
-
-    override suspend fun kevRecent(days: Int): String {
-        val catalog = Advisories.kevCatalog() ?: return "CISA's KEV catalog could not be reached right now."
-        val cutoff = java.time.LocalDate.now().minusDays(days.toLong())
-        val window = catalog.filter { e -> runCatching { java.time.LocalDate.parse(e.dateAdded) >= cutoff }.getOrDefault(false) }
-        if (window.isEmpty()) return "No new exploited-in-the-wild entries in the last $days days."
-        val seen = GuardSettingsStore.kevSeen(context)
-        val fresh = window.filter { it.cve !in seen }
-        GuardSettingsStore.markKevSeen(context, fresh.map { it.cve }.toSet())
-        return buildString {
-            append(fresh.size).append(" new (").append(window.size).append(" total in window) KEV entries, ransomware-linked first:\n")
-            (if (fresh.isNotEmpty()) fresh else window)
-                .sortedWith(compareByDescending<Advisories.KevEntry> { it.knownRansomware }.thenByDescending { it.dateAdded })
-                .take(15).forEach { e ->
-                    append("- ").append(e.dateAdded).append(' ').append(e.cve).append(' ').append(e.vendor).append(' ').append(e.product)
-                    if (e.knownRansomware) append(" [ransomware-linked]")
-                    append('\n')
-                }
-        }
-    }
-
-    override suspend fun vaultAudit(): String {
-        runCatching { WebVault.init(context) }
-        val entries = runCatching { WebVault.list() }.getOrDefault(emptyList())
-        if (entries.isEmpty()) return "The vault holds no logins yet -- nothing to audit."
-        val hashes = HashSet<String>()
-        val results = ArrayList<String>()
-        var breached = 0
-        var reused = 0
-        for (e in entries.take(25)) {
-            val secret = runCatching { WebVault.get(e.id)?.password }.getOrNull() ?: continue
-            val sha = Pwned.sha1Hex(secret)
-            if (!hashes.add(sha)) {
-                reused++
-                results += "- ${e.domain}: password REUSED on another saved site -- unique it"
-            } else {
-                when (val seen = Pwned.passwordSeenCount(secret)) {
-                    null -> results += "- ${e.domain}: breach status unknown (the oracle was unreachable)"
-                    0 -> results += "- ${e.domain}: not seen in known breaches"
-                    else -> {
-                        breached++
-                        results += "- ${e.domain}: seen in $seen breach(es) -- rotate now"
-                    }
-                }
-            }
-        }
-        return buildString {
-            append("Vault audit (").append(entries.size).append(" login(s); passwords never left the device -- only five hash characters did):\n")
-            results.forEach { append(it).append('\n') }
-            if (breached > 0 || reused > 0) append("\n$breached breached, $reused reused. Rotate those first, make every password unique, and turn on 2FA wherever it exists.")
-        }
-    }
-
-    override suspend fun council(topic: String, artifact: String?): CouncilResult {
-        val ids = GuardSettingsStore.memberIds(context)
-        val seated = ids.mapNotNull { id -> aiRepository.getAvailableModels().firstOrNull { it.id == id } }
-        val models = seated.ifEmpty { aiRepository.getAvailableModels().take(3) }
-        val members = models.mapIndexed { i, m -> CouncilMember(m, CouncilRole.entries[i % CouncilRole.entries.size]) }
-        val council = SecurityCouncil { m ->
-            AgentModelClient { req: AgentRequest ->
-                aiRepository.streamChat(m, req.messages, req.tools, temperature = 0.2f, reasoningLevel = ReasoningControls.maxLevel(m))
-            }
-        }
-        return council.deliberate(topic, artifact, members)
-    }
-
-    override suspend fun browserTask(task: String): ToolResult {
-        if (task.isBlank()) return ToolResult(false, "", "Provide task.")
-        val repo = aiRepository
-        val model = repo.getAvailableModels().firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS } ?: repo.getAvailableModels().firstOrNull()
-            ?: return ToolResult(false, "", "No models configured.")
-        val r = BrowserAgent.runForResult(
-            context, task, model, repo,
-            BrowserAgent.Settings(),
-        )
-        return if (r.error != null) ToolResult(false, "", r.error)
-        else ToolResult(r.success, "browser ${if (r.success) "succeeded" else "failed"}: ${r.summary}")
     }
 }

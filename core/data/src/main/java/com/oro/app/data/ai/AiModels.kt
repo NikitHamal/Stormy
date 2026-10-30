@@ -64,7 +64,9 @@ enum class ProviderProtocol {
     /** A lab's official Hugging Face Space relaying to its own API, over Gradio's queue protocol. */
     HF_SPACE,
     /** Cloudflare's AI Playground: an Agents SDK WebSocket (setConfig RPC + AI SDK chat stream). */
-    CF_PLAYGROUND
+    CF_PLAYGROUND,
+    /** Gemini's anonymous web chat: warmed cookies + length-prefixed `wrb.fr` stream. */
+    GEMINI_WEB
 }
 
 /** How a provider treats credentials. */
@@ -296,6 +298,14 @@ enum class AiProvider(
             "tool calls. Answers arrive whole (the demo does not stream); shared with the demo's visitors.",
         protocol = ProviderProtocol.HF_SPACE
     ),
+    GEMINI_WEB(
+        displayName = "Gemini Web (community)",
+        baseUrl = "https://gemini.google.com",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Unofficial bridge to Gemini's anonymous web chat (Flash-Lite): no account, no key. " +
+            "Cookie identities and request ids rotate automatically when Google rate-limits one. Text only; may break without notice.",
+        protocol = ProviderProtocol.GEMINI_WEB
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -410,6 +420,16 @@ object SeedModels {
     )
 
     /**
+     * Google's anonymous Gemini web chat (2026-10-26, the NEB bridge): one
+     * default Flash-Lite model, text only, cookie identity rotation. The web
+     * page rejects obvious clients, so the client applies a Chrome UA and
+     * warms a session per identity.
+     */
+    val geminiWeb = listOf(
+        model("geminiweb:gemini-flash-lite", "Gemini Flash Lite (web, no key)", AiProvider.GEMINI_WEB, 32_000, tools = false)
+    )
+
+    /**
      * getunikey.ai's anonymous trial. Each id was checked on 2026-10-22 for
      * which model actually answers (the stream's `model` field); ids answered
      * by a different model (Kimi K3, GLM 5.2) are left out, and "gpt-5.5" is
@@ -495,6 +515,7 @@ object SeedModels {
         AiProvider.PTERO to ptero,
         AiProvider.LLM7 to fetchedOnly,
         AiProvider.MERCURY to mercury,
+        AiProvider.GEMINI_WEB to geminiWeb,
         AiProvider.UNIKEY to unikey,
         AiProvider.INCEPTION to inception,
         AiProvider.CUSTOM to fetchedOnly

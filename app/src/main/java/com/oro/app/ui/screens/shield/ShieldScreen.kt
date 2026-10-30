@@ -1,350 +1,330 @@
 package com.oro.app.ui.screens.shield
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.BugReport
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.Newspaper
-import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.oro.app.guard.GuardAgent
+import com.oro.app.ui.components.chat.ModernChatInput
+import com.oro.app.ui.theme.OroCorners
+import com.oro.app.ui.theme.Sizes
+import com.oro.app.ui.theme.Space
 
 /**
- * The shield: the guard agent's home. Cards start standing orders (audit the
- * phone, judge a link, scan the project, read the exploitation news, run
- * incident response, convene the council); while a run is live the whole
- * screen becomes its transcript, questions and all; finished findings stay
- * on the board. The council roster sits in the settings sheet -- every
- * member deliberates at its model's deepest reasoning level.
+ * The Shield: a chat with the guard. A message starts or continues a run; the
+ * guard's prose streams in as replies, every tool call becomes an inline card
+ * that opens to its evidence, and a question becomes a tap-to-answer card in
+ * the transcript. The composer carries the guard model and the council behind
+ * it; findings live one tap away in the top bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShieldScreen(
     onBack: () -> Unit,
+    onOpenModels: () -> Unit = {},
     vm: ShieldViewModel = viewModel(),
 ) {
     val guard by vm.guardState.collectAsState()
-    var settingsOpen by remember { mutableStateOf(false) }
-    var inputAction by remember { mutableStateOf<ShieldAction?>(null) }
-    var inputText by remember { mutableStateOf("") }
+    val findings by vm.findings.collectAsState()
+    val models by vm.models.collectAsState()
+    val memberIds by vm.memberIds.collectAsState()
+    val chair by vm.chair.collectAsState()
+    val dailyPass by vm.dailyPass.collectAsState()
+    val runnerUrl by vm.runnerUrl.collectAsState()
+    val runnerToken by vm.runnerToken.collectAsState()
+
+    var draft by rememberSaveable { mutableStateOf("") }
+    var councilOpen by rememberSaveable { mutableStateOf(false) }
+    var findingsOpen by rememberSaveable { mutableStateOf(false) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var runnerOpen by rememberSaveable { mutableStateOf(false) }
+
+    val listState = rememberLazyListState()
+    val seatNames = memberIds.mapNotNull { id -> models.firstOrNull { it.id == id }?.name }
+    val hasRunningTool = guard.messages.any { it.role == GuardAgent.MsgRole.TOOL && it.status == GuardAgent.MsgStatus.RUNNING }
+    val trailing = (if (guard.question != null) 1 else 0) +
+        (if (guard.running && guard.question == null && !hasRunningTool) 1 else 0) +
+        (if (!guard.running && guard.result?.error != null) 1 else 0)
+    LaunchedEffect(guard.messages.size, guard.question?.text, guard.running) {
+        val total = guard.messages.size + trailing
+        if (total > 0) listState.animateScrollToItem(total - 1)
+    }
+
+    val status = when {
+        guard.question != null -> "Waiting for you"
+        guard.running -> guard.status.ifBlank { "Working" }
+        guard.result?.error != null -> "Run failed"
+        guard.messages.isNotEmpty() -> "Ready"
+        else -> "Personal cyber-defence"
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Outlined.Security, "Shield") }
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
+                    }
                 },
-                title = { Column {
-                    Text("Shield", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        when {
-                            guard.running -> guard.status.ifBlank { "Watching" }
-                            guard.result != null -> if (guard.result?.success == true) "Task answered" else "Task ended"
-                            else -> "Personal cyber-defence"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } },
+                title = {
+                    Column {
+                        Text("Shield", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        Text(
+                            text = status,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                },
                 actions = {
-                    IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Outlined.Settings, "Council settings") }
-                }
+                    IconButton(onClick = { findingsOpen = true }) {
+                        BadgedBox(badge = {
+                            if (findings.isNotEmpty()) {
+                                Badge { Text(if (findings.size > 9) "9+" else findings.size.toString()) }
+                            }
+                        }) {
+                            Icon(Icons.Outlined.Assessment, "Findings")
+                        }
+                    }
+                    IconButton(onClick = { settingsOpen = true }) {
+                        Icon(Icons.Outlined.Tune, "Shield settings")
+                    }
+                },
             )
-        }
-    ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
-            // Council seats, always visible: who answers when it matters.
-            val seats by vm.seatedNames.collectAsState()
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                seats.forEach { name ->
-                    AssistChip(onClick = { settingsOpen = true }, label = { Text(name, style = MaterialTheme.typography.labelSmall) })
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding(),
+        ) {
+            if (guard.messages.isEmpty() && !guard.running) {
+                ShieldWelcome(
+                    seatNames = seatNames,
+                    findingCount = findings.size,
+                    onSuggestion = { draft = it },
+                    onOpenCouncil = { councilOpen = true },
+                    onOpenFindings = { findingsOpen = true },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
+                    verticalArrangement = Arrangement.spacedBy(Space.md),
+                ) {
+                    items(
+                        items = guard.messages,
+                        key = { it.id },
+                        contentType = { it.role.name },
+                    ) { message ->
+                        when (message.role) {
+                            GuardAgent.MsgRole.USER -> ShieldUserBubble(message.text, message.at)
+                            GuardAgent.MsgRole.GUARD -> ShieldGuardMessage(message, message.streaming)
+                            GuardAgent.MsgRole.TOOL -> GuardToolCard(message)
+                            GuardAgent.MsgRole.NOTE -> GuardNoteRow(message)
+                            GuardAgent.MsgRole.SYSTEM -> Text(
+                                text = message.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    guard.question?.let { question ->
+                        item(key = "question") {
+                            ShieldQuestionCard(
+                                question = question,
+                                onAnswer = { vm.answer(it) },
+                                modifier = Modifier.padding(top = Space.xs),
+                            )
+                        }
+                    }
+                    if (guard.question == null && guard.running && !hasRunningTool) {
+                        item(key = "working") {
+                            ShieldWorking(guard.status.ifBlank { "Working" })
+                        }
+                    }
+                    guard.result?.let { result ->
+                        if (!guard.running && result.error != null) {
+                            item(key = "run-error") {
+                                ShieldErrorCard(result = result, onNewChat = { vm.newChat(); draft = "" })
+                            }
+                        }
+                    }
                 }
-                if (seats.isEmpty()) Text("No council seated", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
             }
 
-            if (guard.running || guard.result != null) {
-                RunTranscript(guard, vm)
+            if (guard.messages.isNotEmpty() && !guard.running) {
+                ShieldQuickChips(onPick = { draft = it })
+                Spacer(Modifier.height(Space.sm))
+            }
+
+            val model = chair
+            if (model != null) {
+                ModernChatInput(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    onSend = {
+                        val text = draft.trim()
+                        if (text.isNotEmpty()) {
+                            vm.send(text)
+                            draft = ""
+                        }
+                    },
+                    onStop = vm::stop,
+                    isEnabled = !guard.running,
+                    isProcessing = guard.running,
+                    agentMode = true,
+                    currentModel = model,
+                    onModelClick = { councilOpen = true },
+                    onSettingsClick = { settingsOpen = true },
+                    settingsDescription = "Shield settings",
+                    mentions = false,
+                    placeholder = "Ask the Shield, or describe what happened",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = Space.lg, end = Space.lg, top = Space.sm, bottom = Space.lg),
+                )
             } else {
-                ActionGrid(onPick = { action ->
-                    when (action) {
-                        ShieldAction.PHONE_AUDIT, ShieldAction.VAULT_AUDIT, ShieldAction.PROJECT_SECRETS, ShieldAction.KEV_NEWS -> vm.runAction(action)
-                        else -> { inputAction = action; inputText = "" }
-                    }
-                })
-                FindingsBoard(vm)
+                NoModelCard(onOpenModels = onOpenModels)
             }
         }
     }
 
-    // Input dialog for the actions that take a subject.
-    inputAction?.let { action ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { inputAction = null },
-            title = { Text(action.label) },
-            text = {
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    placeholder = {
-                        Text(when (action) {
-                            ShieldAction.CHECK_URL -> "https://the-suspicious.link/…"
-                            ShieldAction.INCIDENT -> "What are you seeing? (optional)"
-                            ShieldAction.COUNCIL -> "The question for the council…"
-                            else -> "Your question…"
-                        })
-                    },
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    val a = action; val t = inputText
-                    inputAction = null
-                    if (a != ShieldAction.INCIDENT && t.isBlank() && a != ShieldAction.FREEFORM) return@Button
-                    vm.runAction(a, t)
-                }) { Text("Go") }
-            },
-            dismissButton = { OutlinedButton(onClick = { inputAction = null }) { Text("Cancel") } },
+    if (councilOpen) {
+        CouncilSheet(
+            models = models,
+            memberIds = memberIds,
+            chairId = chair?.id,
+            dailyPass = dailyPass,
+            onToggleMember = vm::toggleMember,
+            onSetChair = vm::setChair,
+            onDailyPass = vm::setDailyPass,
+            onDismiss = { councilOpen = false },
         )
     }
-
+    if (findingsOpen) {
+        FindingsSheet(
+            findings = findings,
+            onAskGuard = { prompt ->
+                findingsOpen = false
+                vm.send(prompt)
+            },
+            onClear = vm::clearFindings,
+            onDismiss = { findingsOpen = false },
+        )
+    }
     if (settingsOpen) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val models by vm.models.collectAsState()
-        val memberIds by vm.memberIds.collectAsState()
-        val daily by vm.dailyPass.collectAsState()
-        ModalBottomSheet(onDismissRequest = { settingsOpen = false }, sheetState = sheetState) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
-                Text("The council", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        GuardSettingsSheet(
+            dailyPass = dailyPass,
+            runnerUrl = runnerUrl,
+            onDailyPass = vm::setDailyPass,
+            onOpenCouncil = {
+                settingsOpen = false
+                councilOpen = true
+            },
+            onOpenRunner = {
+                settingsOpen = false
+                runnerOpen = true
+            },
+            onNewChat = {
+                settingsOpen = false
+                vm.newChat()
+                draft = ""
+            },
+            onDismiss = { settingsOpen = false },
+        )
+    }
+    if (runnerOpen) {
+        RunnerFormSheet(
+            initialUrl = runnerUrl,
+            initialToken = runnerToken,
+            onSave = { url, token ->
+                vm.saveRunner(url, token)
+                runnerOpen = false
+            },
+            onDismiss = { runnerOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun NoModelCard(onOpenModels: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.lg, vertical = Space.lg),
+        shape = OroCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(Sizes.hairline, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            Modifier.padding(Space.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.Security,
+                contentDescription = null,
+                modifier = Modifier.size(Sizes.icon),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(Space.md))
+            Column(Modifier.weight(1f)) {
+                Text("No model is set up", style = MaterialTheme.typography.bodyMediumEmphasized, maxLines = 1)
                 Text(
-                    "Every seated model deliberates each brief in parallel at its deepest reasoning level: first responder, adversary's advocate, verifier -- then a chair merges the record. Seat the models you trust; three is a council, one is an opinion.",
-                    style = MaterialTheme.typography.bodySmall,
+                    "Add one to start the Shield.",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
-                Spacer(Modifier.height(10.dp))
-                models.forEach { m ->
-                    Row(Modifier.fillMaxWidth().clickable { vm.toggleMember(m.id) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = m.id in memberIds, onCheckedChange = { vm.toggleMember(m.id) })
-                        Column(Modifier.weight(1f)) {
-                            Text(m.name, style = MaterialTheme.typography.bodyMedium)
-                            Text(m.provider.name.lowercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Daily guard pass", style = MaterialTheme.typography.bodyMedium)
-                        Text("Exploitation news, vault and posture checks once a day.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = daily, onCheckedChange = { vm.setDailyPass(it) })
-                }
             }
+            Button(onClick = onOpenModels) { Text("Add") }
         }
     }
-}
-
-@Composable
-private fun ActionGrid(onPick: (ShieldAction) -> Unit) {
-    val cards = listOf(
-        Triple(ShieldAction.INCIDENT, Icons.Outlined.BugReport, "Something is wrong — start here"),
-        Triple(ShieldAction.PHONE_AUDIT, Icons.Outlined.PhoneAndroid, "Audit this phone"),
-        Triple(ShieldAction.CHECK_URL, Icons.Outlined.Link, "Judge a link"),
-        Triple(ShieldAction.VAULT_AUDIT, Icons.Outlined.Key, "Audit saved logins"),
-        Triple(ShieldAction.PROJECT_SECRETS, Icons.Outlined.Code, "Scan project for secrets"),
-        Triple(ShieldAction.KEV_NEWS, Icons.Outlined.Newspaper, "Exploitation news"),
-        Triple(ShieldAction.COUNCIL, Icons.Outlined.Groups, "Ask the council"),
-        Triple(ShieldAction.FREEFORM, Icons.Outlined.Security, "Ask the guard anything"),
-    )
-    LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(cards) { (action, icon, label) ->
-            Card(
-                Modifier.fillMaxWidth().clickable { onPick(action) },
-                colors = CardDefaults.cardColors(
-                    containerColor = if (action == ShieldAction.INCIDENT)
-                        MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerLow
-                ),
-            ) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, null, Modifier.size(22.dp),
-                        tint = if (action == ShieldAction.INCIDENT) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(12.dp))
-                    Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RunTranscript(guard: GuardAgent.State, vm: ShieldViewModel) {
-    var answer by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize()) {
-        if (guard.running) {
-            LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
-        }
-        guard.result?.let { r ->
-            Card(Modifier.fillMaxWidth().padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor =
-                    if (r.success) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(if (r.success) "Verdict" else (r.error ?: "Ended"), fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(r.summary.ifBlank { r.error.orEmpty() }, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(onClick = { vm.clear() }) { Text("New task") }
-                }
-            }
-        }
-        val steps = guard.steps
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
-            items(steps, key = { it.id }) { step ->
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(8.dp).background(
-                            when (step.status) {
-                                GuardAgent.StepStatus.RUNNING -> MaterialTheme.colorScheme.primary
-                                GuardAgent.StepStatus.FAILED -> MaterialTheme.colorScheme.error
-                                GuardAgent.StepStatus.WAITING -> MaterialTheme.colorScheme.tertiary
-                                GuardAgent.StepStatus.DONE -> MaterialTheme.colorScheme.outline
-                            }, RoundedCornerShape(4.dp)))
-                        Spacer(Modifier.width(10.dp))
-                        Text(step.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                    }
-                    if (step.detail.isNotBlank()) {
-                        Text(step.detail, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontFamily = if (step.kind == GuardAgent.StepKind.THOUGHT) FontFamily.Default else FontFamily.Monospace,
-                            modifier = Modifier.padding(start = 18.dp, top = 2.dp))
-                    }
-                }
-            }
-            guard.question?.let { q ->
-                item {
-                    Card(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(q.text, style = MaterialTheme.typography.bodyMedium)
-                            if (q.options.isNotEmpty()) {
-                                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    q.options.forEach { opt ->
-                                        AssistChip(onClick = { vm.answer(opt) }, label = { Text(opt) })
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(value = answer, onValueChange = { answer = it },
-                                modifier = Modifier.fillMaxWidth(), placeholder = { Text("Answer…") })
-                            Spacer(Modifier.height(8.dp))
-                            Button(onClick = { if (answer.isNotBlank()) { vm.answer(answer); answer = "" } }) { Text("Send") }
-                        }
-                    }
-                }
-            }
-            guard.seats.forEach { seat ->
-                item { Text(seat, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 2.dp)) }
-            }
-        }
-        if (guard.running) {
-            OutlinedButton(
-                onClick = { vm.stop() },
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-            ) { Icon(Icons.Outlined.Stop, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Stop the guard") }
-        }
-    }
-}
-
-@Composable
-private fun FindingsBoard(vm: ShieldViewModel) {
-    val findings by vm.findings.collectAsState()
-    if (findings.isEmpty()) return
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Findings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            TextButtonSmall("Clear") { vm.clearFindings() }
-        }
-        findings.sortedBy { severityRank(it["severity"]) }.take(12).forEach { f ->
-            Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
-                Text(f["severity"]?.uppercase() ?: "INFO", style = MaterialTheme.typography.labelSmall,
-                    color = severityColor(f["severity"]), modifier = Modifier.width(64.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(f["title"].orEmpty(), style = MaterialTheme.typography.bodySmall)
-                    if (!f["action"].isNullOrBlank()) {
-                        Text(f["action"]!!, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TextButtonSmall(label: String, onClick: () -> Unit) {
-    Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.clickable(onClick = onClick).padding(4.dp))
-}
-
-private fun severityRank(s: String?) = when (s?.uppercase()) {
-    "CRITICAL" -> 0; "HIGH" -> 1; "MEDIUM" -> 2; "LOW" -> 3; else -> 4
-}
-
-@Composable
-private fun severityColor(s: String?): Color = when (s?.uppercase()) {
-    "CRITICAL", "HIGH" -> MaterialTheme.colorScheme.error
-    "MEDIUM" -> MaterialTheme.colorScheme.tertiary
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }

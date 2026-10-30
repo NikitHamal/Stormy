@@ -177,7 +177,8 @@ fun OroNavGraph(
 
         composable(Screen.Shield.route) {
             com.oro.app.ui.screens.shield.ShieldScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenModels = { navController.navigate(Screen.AiModels.route) },
             )
         }
 

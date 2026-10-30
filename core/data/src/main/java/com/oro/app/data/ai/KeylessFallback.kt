@@ -57,6 +57,9 @@ object KeylessFallback {
         // Text-mode stand-in found 2026-10-23: Cloudflare's playground (per-minute
         // caps shared by all its visitors).
         "cfai:@cf/google/gemma-4-26b-a4b-it",
+        // Gemini's anonymous web chat: cookie-rotating, text-only, a good
+        // stand-in when the other text routes are rate limited.
+        "geminiweb:gemini-flash-lite",
         "k2:IFM/K2-Horizon-375B-A23B",
         "ptero:deepseek-v4.1-flash:free",
         "qwen:qwen3.7-plus"

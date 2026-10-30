@@ -73,7 +73,8 @@ object CommunityClients {
             ProviderProtocol.MERCURY_WEB to MercuryWebClient(),
             ProviderProtocol.UNIKEY_GUEST to UnikeyClient(),
             ProviderProtocol.HF_SPACE to HfSpaceClient(),
-            ProviderProtocol.CF_PLAYGROUND to CloudflarePlaygroundClient()
+            ProviderProtocol.CF_PLAYGROUND to CloudflarePlaygroundClient(),
+            ProviderProtocol.GEMINI_WEB to GeminiWebClient()
         )
     }
 
