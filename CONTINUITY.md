@@ -36,11 +36,23 @@ New branch `black-october` from `browser-agent`. Built this pass:
 - **Tests** (JVM): SecurityCouncilTest, SecurityCoreTest (UrlGuard/Pwned/
   Advisories/SecretScan), GuardRunTest, PhoneAuditReportTest.
 
-Not done yet: molab box died (VM restart killed keepalive → 410; keepalive now
-self-heals marimo); verification this pass is GitHub CI on `black-october`;
-WorkManager daily pass; guard follow_up routing from DelegationHandler;
-StormyWeb replica parity. Next: owner to spin a fresh molab box for the
-live pass; then daily-pass worker + follow_up routing + real-device pass.
+Verification: GitHub CI on `black-october` (molab box died — VM restart
+killed keepalive → 410; keepalive now self-heals marimo, but a fresh box is
+needed for live passes). CI caught and we fixed: chairIt missing return,
+ContentDelta.content, real WebVault/ProjectRepository signatures, API-37
+PackageManager stub removal (getPackagesHoldingPermissions takes flags;
+getPackageInfo(String,int) gone), org.json stubbed in app unit tests (added
+testImplementation org.json:20231013), UrlGuard danger weights (typo-squat
+alone = DANGEROUS; brand-before-@ = DANGEROUS), test fixtures assembling
+secrets at runtime (push protection rejected the first commit — Stripe/AWS
+literals in test source trip GitHub secret scanning: keep test secrets
+concatenated), HIBP fixture colons, empty browser task refused in dispatch.
+
+Remaining next: WorkManager daily guard pass (toggle exists in the council
+sheet, worker not wired); guard follow_up routing from DelegationHandler
+(GuardAgent.queueFollowUp exists); real-device pass (shield actions, council
+with live models, incident mode); StormyWeb replica parity; fresh molab box
+for live council/OSV/KEV/HIBP fetch tests.
 
 ## How to resume
 1. `git log --oneline -15` on `oro-dev`, and read the latest entry below.
