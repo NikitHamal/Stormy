@@ -5,6 +5,7 @@ import com.oro.app.data.ai.ChatRequestMessage
 import com.oro.app.data.ai.StreamEvent
 import com.oro.app.data.ai.agent.AgentModelClient
 import com.oro.app.data.ai.agent.AgentRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
@@ -143,7 +144,7 @@ class SecurityCouncil(private val clientFor: (AiModel) -> AgentModelClient) {
     private suspend fun textOf(client: AgentModelClient, messages: List<ChatRequestMessage>): String? {
         val sb = StringBuilder()
         var ok = false
-        runCatching {
+        try {
             client.stream(AgentRequest(messages, null)).collect { event ->
                 when (event) {
                     is StreamEvent.ContentDelta -> sb.append(event.content)
@@ -152,6 +153,10 @@ class SecurityCouncil(private val clientFor: (AiModel) -> AgentModelClient) {
                     else -> Unit
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // A provider failure is an absent seat, not a cancelled council.
         }
         return if (ok || sb.isNotEmpty()) sb.toString().trim().takeIf { it.isNotEmpty() } else null
     }

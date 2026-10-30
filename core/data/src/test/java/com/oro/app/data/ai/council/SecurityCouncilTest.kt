@@ -145,4 +145,19 @@ class SecurityCouncilTest {
         assertThat(merged[0].severity).isEqualTo(Severity.HIGH)
         assertThat(merged[0].action).contains("every session token")
     }
+
+    @Test
+    fun `stopping a deliberation propagates instead of becoming an absent seat`() = runTest {
+        val members = listOf(CouncilMember(model("slow")))
+        val council = SecurityCouncil {
+            AgentModelClient { _: AgentRequest -> throw kotlinx.coroutines.CancellationException("Stop") }
+        }
+        var cancelled = false
+        try {
+            council.deliberate("t", null, members)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            cancelled = true
+        }
+        assertThat(cancelled).isTrue()
+    }
 }
