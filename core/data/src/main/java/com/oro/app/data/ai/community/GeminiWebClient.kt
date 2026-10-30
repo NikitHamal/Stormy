@@ -73,14 +73,18 @@ class GeminiWebClient : CommunityChatClient {
                         continue
                     }
                     val outcome = identity.send(prompt) { event -> emit(event) }
-                    if (outcome == SendOutcome.Done) {
-                        adopt(identity)
-                        return@guarded
+                    when (outcome) {
+                        SendOutcome.Done -> {
+                            adopt(identity)
+                            return@guarded
+                        }
+                        is SendOutcome.Failed -> {
+                            lastError = outcome.error ?: StreamEvent.Error("$SITE: no answer", retryable = true)
+                            identity.close()
+                            if (outcome.fatal) break
+                            delay(900L * attempt)
+                        }
                     }
-                    lastError = outcome.error ?: StreamEvent.Error("$SITE: no answer", retryable = true)
-                    identity.close()
-                    if (outcome.fatal) break
-                    delay(900L * attempt)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     identity.close()
                     throw e
@@ -277,8 +281,10 @@ class GeminiWebClient : CommunityChatClient {
         private fun parseLine(line: String): List<String> = GeminiWebParser.parse(line)
 
         fun close() {
+            // Its own pool and dispatcher: evicting here never touches the
+            // shared client used by the rest of the app.
             runCatching { client.connectionPool.evictAll() }
-            runCatching { client.dispatcher.executorService.shutdown() }
+            runCatching { client.dispatcher.cancelAll() }
         }
     }
 

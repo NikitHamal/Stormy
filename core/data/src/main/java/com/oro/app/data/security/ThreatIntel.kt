@@ -318,7 +318,7 @@ object ThreatIntel {
         val scan = scanJob.await()
         val notes = ArrayList<String>()
         if (rdap == null) notes += "RDAP did not answer for $clean; registrar and abuse contact are unknown."
-        if (dns.isEmpty()) notes += "DoH returned no records; the domain may be parked, down, or the resolver was unreachable."
+        if (dns.records.isEmpty()) notes += "DoH returned no records; the domain may be parked, down, or the resolver was unreachable."
         if (crt == null) notes += "Certificate transparency search failed; subdomains may be incomplete."
         if (scan == null) notes += "urlscan's public index was unreachable; no third-party scan verdict is included."
         (rdap ?: DomainReport(clean)).copy(

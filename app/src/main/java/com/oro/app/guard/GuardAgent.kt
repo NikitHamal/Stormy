@@ -190,7 +190,7 @@ object GuardAgent {
             ?: available.firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS }
             ?: available.firstOrNull()
         if (chosen == null) {
-            _state.value = State(result = Result(false, "", "No models are configured yet."))
+            _state.update { it.copy(running = false, result = Result(false, "", "No models are configured yet.")) }
             return null
         }
         _state.update {
