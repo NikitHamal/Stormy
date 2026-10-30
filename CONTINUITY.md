@@ -34,9 +34,13 @@ glyphs and keyboard handling. This pass:
   GuardRun news/web contract. `ShieldShots` now includes the council card, the
   news strip and the new chips.
 
-Verification: CI at the previous code head `1254960` was green (unit tests,
-release APK, screenshots). This pass is queued for the same `[shots]` run;
-fix from its first red log if anything fails.
+Verification: CI is green at `e2f9463` — all core and app unit tests, the
+release APK and the `[shots]` screenshots pass. The final renders confirm the
+Council chip (with its check), the news strip, the two-line council record
+(every seat named), the tool cards and the quick-chip glyphs. Stop now
+propagates through prefetches, the tool runtime and the council's model calls
+instead of being recorded as an absent seat. CI at the previous head
+`1254960` was also green.
 
 ## 2026-10-30 (Black October): the Shield becomes a chat with a counter-intelligence toolkit, branch `black-october`
 

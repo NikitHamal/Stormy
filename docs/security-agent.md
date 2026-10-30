@@ -143,7 +143,10 @@ placeholders and masking (`SecretScanTest`), indicator extraction, timeline
 ordering and evidence redaction (`ThreatTraceTest`), RDAP/DNS/crt.sh/urlscan
 parsing, manifest parsing and abuse-report redaction (`ThreatIntelTest`),
 sandbox request/response contracts (`SandboxTest`), the Gemini web chunk parser
-(`GeminiWebParserTest`), the guard's tool contract on a scripted `Guard`
+(`GeminiWebParserTest`), security-news RSS/CDATA/entity parsing
+(`SecurityNewsTest`), phone coverage and per-app installer limits
+(`PhoneAuditReportTest`), council cancellation propagation
+(`SecurityCouncilTest`), the guard's tool contract on a scripted `Guard`
 (`GuardRunTest` — including that a scanned secret never reaches the output),
-and the posture rules (`PhoneAuditReportTest`).
+and the posture rules.
 
