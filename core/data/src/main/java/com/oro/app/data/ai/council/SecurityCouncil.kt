@@ -132,7 +132,7 @@ class SecurityCouncil(private val clientFor: (AiModel) -> AgentModelClient) {
         )
         val text = textOf(clientFor(chair), listOf(system, user))
             ?: return Triple("The chair could not synthesise; the raw opinions stand as the record.", heard.flatMap { it.findings }, emptyList())
-        Triple(
+        return Triple(
             text.substringBefore("FINDINGS:").substringBefore("DISAGREEMENTS:").trim(),
             parseFindings(text),
             parseDisagreements(text),
