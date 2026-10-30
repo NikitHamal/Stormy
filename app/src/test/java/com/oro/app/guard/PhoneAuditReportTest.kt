@@ -65,7 +65,7 @@ class PhoneAuditReportTest {
         assertThat(titles.any { it.contains("unknown sources") }).isTrue()
         assertThat(titles.any { it.contains("Accessibility service") && it.contains("com.spy.loader") }).isTrue()
         // Worst first.
-        assertThat(report.map { it.first.rank }).isSorted()
+        assertThat(report.map { it.first.rank }).isInOrder()
     }
 
     @Test

@@ -35,7 +35,7 @@ class GuardRunTest {
         override suspend fun browserTask(task: String) = ToolResult(true, "browser succeeded: $task")
     }
 
-    private fun run(guard: GuardAgent.Guard, name: String, args: String) =
+    private suspend fun run(guard: GuardAgent.Guard, name: String, args: String) =
         GuardAgent.runScenarioExecute(guard, name, args)
 
     @Test
