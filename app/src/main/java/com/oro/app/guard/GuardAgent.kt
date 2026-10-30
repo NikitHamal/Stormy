@@ -128,6 +128,16 @@ object GuardAgent {
     private const val MAX_MESSAGES = 320
     private const val MAX_TEXT = 24_000
 
+    /** Like runCatching, but Stop is never swallowed: cancellation always propagates. */
+    private suspend fun <T> attempt(block: suspend () -> T): Pair<T?, Throwable?> =
+        try {
+            block() to null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            null to t
+        }
+
     fun queueFollowUp(text: String) {
         val t = text.trim()
         if (t.isEmpty()) return
@@ -227,9 +237,9 @@ object GuardAgent {
                 if (wantsPhone) {
                     GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Reading this phone's posture"))
                     GuardAgent.addTool("audit_phone", "prefetch-phone")
-                    val outcome = runCatching { guard.phoneReport() }
-                    val report = outcome.getOrElse { "The phone audit failed: ${it.message ?: it.javaClass.simpleName}" }
-                    GuardAgent.finishTool("prefetch-phone", "audit_phone", report, outcome.isSuccess)
+                    val (phone, phoneError) = attempt { guard.phoneReport() }
+                    val report = phone ?: "The phone audit failed: ${phoneError?.message ?: phoneError?.javaClass?.simpleName ?: "unknown error"}"
+                    GuardAgent.finishTool("prefetch-phone", "audit_phone", report, phone != null)
                     evidence += "\n\nThe audit_phone tool already ran before this turn. Its exact report:\n" +
                         report.take(10_000) +
                         "\n\nExplain this report to the user. Never say you cannot access the phone while a report is above."
@@ -237,10 +247,10 @@ object GuardAgent {
                 if (wantsNews) {
                     GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Reading the latest security news"))
                     GuardAgent.addTool("security_news", "prefetch-news")
-                    val outcome = runCatching { guard.securityNews(null, 10) }
-                    val news = outcome.getOrElse { "The security-news feeds could not be read: ${it.message ?: it.javaClass.simpleName}" }
-                    GuardAgent.finishTool("prefetch-news", "security_news", news, outcome.isSuccess)
-                    evidence += "\n\nThe security_news tool already ran before this turn. Its report:\n" + news.take(10_000)
+                    val (news, newsError) = attempt { guard.securityNews(null, 10) }
+                    val report = news ?: "The security-news feeds could not be read: ${newsError?.message ?: newsError?.javaClass?.simpleName ?: "unknown error"}"
+                    GuardAgent.finishTool("prefetch-news", "security_news", report, news != null)
+                    evidence += "\n\nThe security_news tool already ran before this turn. Its report:\n" + report.take(10_000)
                 }
                 if (councilOn) {
                     GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.THINKING, "Council in session"))
@@ -255,13 +265,13 @@ object GuardAgent {
                         }
                         append(evidence)
                     }
-                    val outcome = runCatching { guard.council(task, councilArtifact.ifBlank { null }) }
-                    outcome.getOrNull()?.let { result ->
-                        GuardAgent.addCouncil(result)
-                        evidence += "\n\n" + GuardAgent.councilEvidence(result)
+                    val (council, councilError) = attempt { guard.council(task, councilArtifact.ifBlank { null }) }
+                    if (council != null) {
+                        GuardAgent.addCouncil(council)
+                        evidence += "\n\n" + GuardAgent.councilEvidence(council)
                     }
-                    outcome.exceptionOrNull()?.let {
-                        GuardAgent.note("The council could not convene: ${it.message ?: it.javaClass.simpleName}")
+                    if (councilError != null) {
+                        GuardAgent.note("The council could not convene: ${councilError.message ?: councilError.javaClass.simpleName}")
                     }
                 }
                 GuardRun(guard, stream, appContext, chosen.supportsToolCalls, prior).run(task.trim(), evidence)

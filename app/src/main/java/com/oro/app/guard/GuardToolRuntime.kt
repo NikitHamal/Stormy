@@ -227,6 +227,8 @@ internal class GuardToolRuntime(
 
                 else -> ToolResult(false, "", "Unknown tool.")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (t: Throwable) {
             ToolResult(false, "", "${t.javaClass.simpleName}: ${t.message}")
         }
