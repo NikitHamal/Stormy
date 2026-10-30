@@ -43,17 +43,17 @@ class ShieldViewModel(app: Application) : AndroidViewModel(app) {
     private val _dailyPass = MutableStateFlow(false)
     val dailyPass = _dailyPass.asStateFlow()
 
-    val models: StateFlow<List<AiModel>> = MutableStateFlow(aiRepository.models)
+    val models: StateFlow<List<AiModel>> = MutableStateFlow(aiRepository.getAvailableModels())
 
     val seatedNames: StateFlow<List<String>> = _memberIds.map { ids ->
-        ids.mapNotNull { id -> aiRepository.models.firstOrNull { it.id == id }?.name ?: id.substringAfter(':') }
+        ids.mapNotNull { id -> aiRepository.getAvailableModels().firstOrNull { it.id == id }?.name ?: id.substringAfter(':') }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private var projectRoot: File? = null
 
     init {
         viewModelScope.launch {
-            (models as MutableStateFlow).value = aiRepository.models
+            (models as MutableStateFlow).value = aiRepository.getAvailableModels()
             _memberIds.value = GuardSettingsStore.memberIds(app)
             _dailyPass.value = GuardSettingsStore.dailyPassOn(app)
             ProjectRepository(app).getAllProjects().collect { projects ->

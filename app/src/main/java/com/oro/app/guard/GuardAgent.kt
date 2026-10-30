@@ -169,8 +169,8 @@ object GuardAgent {
         notes.clear()
         followUps = ConcurrentLinkedQueue()
         questionGate = null
-        val chosen = model ?: aiRepository.models.firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS }
-            ?: aiRepository.models.firstOrNull()
+        val chosen = model ?: aiRepository.getAvailableModels().firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS }
+            ?: aiRepository.getAvailableModels().firstOrNull()
         if (chosen == null) {
             _state.value = State(result = Result(false, "", "No models are configured yet."))
             return null
@@ -646,8 +646,8 @@ internal class RealGuard(
 
     override suspend fun council(topic: String, artifact: String?): CouncilResult {
         val ids = GuardSettingsStore.memberIds(context)
-        val seated = ids.mapNotNull { id -> aiRepository.models.firstOrNull { it.id == id } }
-        val models = seated.ifEmpty { aiRepository.models.take(3) }
+        val seated = ids.mapNotNull { id -> aiRepository.getAvailableModels().firstOrNull { it.id == id } }
+        val models = seated.ifEmpty { aiRepository.getAvailableModels().take(3) }
         val members = models.mapIndexed { i, m -> CouncilMember(m, CouncilRole.entries[i % CouncilRole.entries.size]) }
         val council = SecurityCouncil { m ->
             AgentModelClient { req: AgentRequest ->
@@ -660,7 +660,7 @@ internal class RealGuard(
     override suspend fun browserTask(task: String): ToolResult {
         if (task.isBlank()) return ToolResult(false, "", "Provide task.")
         val repo = aiRepository
-        val model = repo.models.firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS } ?: repo.models.firstOrNull()
+        val model = repo.getAvailableModels().firstOrNull { it.id in GuardSettingsStore.DEFAULT_MEMBERS } ?: repo.getAvailableModels().firstOrNull()
             ?: return ToolResult(false, "", "No models configured.")
         val r = BrowserAgent.runForResult(
             context, task, model, repo,
