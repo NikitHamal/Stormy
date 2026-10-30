@@ -104,7 +104,12 @@ internal class RealGuard(
                     .containsMatchIn(rel)
                 val looksSecret = sensitiveName || SecretScan.scanFile(display(root, target), text).isNotEmpty()
                 val safe = if (looksSecret) ThreatTrace.redact(text) else text
-                safe.take(200_000) + if (safe.length > 200_000) "\n… (${safe.length - 200_000} more characters; read a narrower path)" else ""
+                val note = if (looksSecret) {
+                    "\n\n[Credential-shaped values are masked in this view. Never ask for or print them; rotate an exposed secret and keep the new value in the vault.]"
+                } else ""
+                safe.take(200_000) +
+                    (if (safe.length > 200_000) "\n… (${safe.length - 200_000} more characters; read a narrower path)" else "") +
+                    note
             }
 
             "list" -> {

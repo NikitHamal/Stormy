@@ -346,7 +346,7 @@ object GuardAgent {
                 messages = it.messages.map { m -> if (m.streaming) m.copy(streaming = false) else m },
             )
         }
-        if (result.success && result.summary.isNotBlank() && !lastGuard.contains(result.summary.take(60))) {
+        if (result.summary.isNotBlank() && !lastGuard.contains(result.summary.take(60))) {
             addMessage(MsgRole.GUARD, result.summary)
         }
     }

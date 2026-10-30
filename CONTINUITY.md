@@ -44,9 +44,11 @@ keyless execution and Gemini web. Done this pass:
 
 Verification: both molab boxes died (`410 sandbox terminated`; the first was
 fully provisioned with 20 cores, JDK 21, Android 37.2 and a clone before the
-VM expired). Per the owner's fallback, GitHub CI on `black-october` is the
-compile/test oracle now. **CI status at hand-off: running.** Expect Kotlin
-nits; fix from the first red log.
+VM expired). Per the owner's fallback, GitHub CI on `black-october` became the
+compile/test oracle. **CI is green at `9f7b3fa`**: all core and app unit tests
+(600+) and the release APK build pass. A follow-up `[shots]` run renders the
+Shield chat (`ShieldShots`: welcome, transcript, dark transcript) so the UI can
+be reviewed as images, not prose.
 
 **Still open**: live pass of the new intel/sandbox/Gemini routes, a real-device
 UI pass, and deciding whether shield transcripts should persist across process
