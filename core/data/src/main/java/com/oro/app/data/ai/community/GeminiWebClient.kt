@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit
  *     `f.req=[null,"<inner-json>"]`; the inner JSON carries the prompt,
  *     locale and an empty conversation token (anonymous chats need none).
  *  3. The reply is a `)]}'`-prefixed stream of length-prefixed JSON chunks;
- *     answer text lives in nested `rc_*` arrays, ids in `c_*/r_*` pairs.
+ *     answer text lives in nested `rc_*` arrays, ids in `c_<id>` / `r_<id>` pairs.
  *
  * Each identity is a fresh cookie jar and a fresh `_reqid`; a 429, 5xx or a
  * rejected request drops the identity and retries with the next one, so a

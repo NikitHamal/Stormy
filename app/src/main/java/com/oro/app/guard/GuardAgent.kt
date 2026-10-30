@@ -172,9 +172,17 @@ object GuardAgent {
     ): Job? {
         if (_state.value.running) return null
         val appContext = context.applicationContext
-        msgSeq.set(0)
         followUps = ConcurrentLinkedQueue()
         questionGate = null
+        val priorMessages = _state.value.messages
+        val prior = priorMessages
+            .filter { it.role == MsgRole.USER || it.role == MsgRole.GUARD }
+            .takeLast(12)
+            .mapNotNull { m ->
+                val text = m.text.trim().take(4_000)
+                if (text.isEmpty()) null
+                else ChatRequestMessage(role = if (m.role == MsgRole.USER) "user" else "assistant", content = text)
+            }
         val available = aiRepository.getAvailableModels()
         val chairId = GuardSettingsStore.chairId(appContext)
         val chosen = model
@@ -185,10 +193,20 @@ object GuardAgent {
             _state.value = State(result = Result(false, "", "No models are configured yet."))
             return null
         }
-        _state.value = State(
-            running = true, task = task.trim(), modelName = chosen.name,
-            status = "Standing watch", startedAt = System.currentTimeMillis(),
-        )
+        _state.update {
+            it.copy(
+                running = true,
+                task = task.trim(),
+                modelName = chosen.name,
+                status = "Standing watch",
+                statusKind = null,
+                question = null,
+                seats = emptyList(),
+                result = null,
+                startedAt = System.currentTimeMillis(),
+                endedAt = 0,
+            )
+        }
         addMessage(MsgRole.USER, task.trim())
         val guard = RealGuard(appContext, aiRepository, projectRoot)
         val stream = AgentModelClient { req ->
@@ -199,7 +217,7 @@ object GuardAgent {
         }
         job = scope.launch {
             try {
-                GuardRun(guard, stream, appContext, chosen.supportsToolCalls).run(task.trim())
+                GuardRun(guard, stream, appContext, chosen.supportsToolCalls, prior).run(task.trim())
             } catch (e: CancellationException) {
                 end(Result(false, "", "Stopped."))
                 throw e
@@ -220,6 +238,7 @@ object GuardAgent {
     fun clear() {
         stop()
         _state.value = State()
+        msgSeq.set(0)
     }
 
     fun answer(text: String) {
@@ -319,12 +338,16 @@ object GuardAgent {
     }
 
     internal fun end(result: Result) {
+        val lastGuard = _state.value.messages.lastOrNull { it.role == MsgRole.GUARD }?.text.orEmpty()
         _state.update {
             it.copy(
                 running = false, question = null, result = result,
                 endedAt = System.currentTimeMillis(),
                 messages = it.messages.map { m -> if (m.streaming) m.copy(streaming = false) else m },
             )
+        }
+        if (result.success && result.summary.isNotBlank() && !lastGuard.contains(result.summary.take(60))) {
+            addMessage(MsgRole.GUARD, result.summary)
         }
     }
 
@@ -345,6 +368,7 @@ internal class GuardRun(
     private val modelStream: AgentModelClient,
     private val appContext: Context?,
     private val nativeTools: Boolean = true,
+    private val prior: List<ChatRequestMessage> = emptyList(),
 ) {
 
     private var finishSummary: String? = null
@@ -354,12 +378,10 @@ internal class GuardRun(
     suspend fun run(task: String) {
         val brief = appContext?.getString(R.string.guard_system_brief) ?: GuardAgent.FALLBACK_BRIEF
         val tools = GuardTools.all + BrowserDelegationTools.USE_BROWSER
-        val conversation = mutableListOf(
-            ChatRequestMessage(
-                role = "user",
-                content = "Task: $task\n\nStart with the smallest evidence-gathering step. Audit first, act second, and convene the council for anything worth a second opinion. In an active incident, contain before you investigate."
-            )
-        )
+        val conversation = (prior + ChatRequestMessage(
+            role = "user",
+            content = "Task: $task\n\nStart with the smallest evidence-gathering step. Audit first, act second, and convene the council for anything worth a second opinion. In an active incident, contain before you investigate."
+        )).toMutableList()
         val runtime = GuardToolRuntime(
             guard = guard,
             appContext = appContext,

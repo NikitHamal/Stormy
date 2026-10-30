@@ -3,6 +3,56 @@
 Update this file at the end of every working session (or before a risky step), so a new agent
 or a cut-off session can resume. Newest entry on top. Keep entries short and factual.
 
+## 2026-10-30 (Black October): the Shield becomes a chat with a counter-intelligence toolkit, branch `black-october`
+
+The owner rejected the first Shield UI ("too poor, needs to be the chat interface
+from the editor's chat tab") and asked for investigation, tracing and lawful
+countering of attackers, plus coding/file tools, subagents, the browser agent,
+keyless execution and Gemini web. Done this pass:
+
+- **Chat UI rebuilt** (`ui/screens/shield/`): `ShieldScreen` is now a
+  conversation — streamed guard replies, inline expandable tool cards,
+  tap-to-answer question cards, quick orders above the proven
+  `ModernChatInput`, a findings badge and revamped `CouncilSheet`,
+  `FindingsSheet`, `GuardSettingsSheet`, `RunnerFormSheet` on `Space`/
+  `OroCorners`/`Sizes`. Welcome starters fill the draft; seats show names and
+  roles; no flow rows or ad-hoc 16dp spacing. `GuardAgent` keeps the
+  transcript across runs and passes the last 12 user/guard turns as context;
+  `clear()` starts a fresh chat. Finish summaries become a verdict bubble when
+  the model did not already say them.
+- **Trace/counter core** (`core/data/security/`): `ThreatTrace` (indicators,
+  dated timeline, credential redaction, case fingerprint), `ThreatIntel` (RDAP,
+  DoH, crt.sh, urlscan, IP ownership, site posture incl. SPF/DMARC/DNSSEC,
+  OSV dependency audit, abuse channels and report drafting), `Sandbox`
+  (Judge0 → Wandbox → own runner, JSON contracts).
+- **Guard tools**: trace_incident, enrich_indicator, audit_web_posture,
+  audit_dependencies, draft_abuse_report, read_file/list_files/write_file/
+  edit_file (project + `workspace/`, secret-file reads masked), run_script,
+  delegate_investigation (read-only subagents on seated models), add_finding.
+  `GuardToolRuntime` is the shared dispatch; `RealGuard` the environment;
+  `GuardInvestigator` the nested loop.
+- **Doctrine**: "counter" is evidence → public-record tracing → block →
+  report (registrar/host/Safe Browsing/APWG/IC3/CISA) → harden. No retaliation,
+  no scanning/probing hosts the user does not own. Sandbox never receives
+  secrets; own-runner option exists for that.
+- **Gemini web** (`ai/community/GeminiWebClient.kt`): NEB's anonymous
+  Gemini protocol in Kotlin/OkHttp — `/app` cookie warm-up (`FdrFJe`, `bl`,
+  `SNlM0e`), `StreamGenerate` `f.req`, `wrb.fr`/`rc_*` streaming, rotating
+  cookie identities and `_reqid`, optional proxies (`GeminiWebConfig`).
+  Provider `GEMINI_WEB`, seed `geminiweb:gemini-flash-lite`, community client
+  and keyless-fallback entry. Text-only; VisionSupport excludes community.
+
+Verification: both molab boxes died (`410 sandbox terminated`; the first was
+fully provisioned with 20 cores, JDK 21, Android 37.2 and a clone before the
+VM expired). Per the owner's fallback, GitHub CI on `black-october` is the
+compile/test oracle now. **CI status at hand-off: running.** Expect Kotlin
+nits; fix from the first red log.
+
+**Still open**: daily-pass WorkManager (toggle exists, no worker), live pass of
+the new intel/sandbox/Gemini routes, a real-device UI pass, and deciding
+whether shield transcripts should persist across process death (currently
+process-wide only).
+
 ## 2026-10-26 (Black October): the Shield — personal cyber-defence agent, branch `black-october`
 
 Owner's brief: October 2026's breach wave ("Black October") plus a hijacked
