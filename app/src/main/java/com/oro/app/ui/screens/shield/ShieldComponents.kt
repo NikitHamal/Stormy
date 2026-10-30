@@ -213,8 +213,8 @@ fun GuardToolCard(message: GuardAgent.Message, modifier: Modifier = Modifier) {
                     Text(
                         text = when {
                             running -> "Working"
-                            failed -> "Failed"
-                            else -> message.tool?.replace('_', ' ').orEmpty().ifBlank { firstLine }.ifBlank { "Done" }
+                            failed -> if (firstLine.isBlank()) "Failed" else "Failed — $firstLine"
+                            else -> firstLine.ifBlank { "Done" }
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = if (failed) onContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -300,6 +300,7 @@ fun ShieldWorking(label: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun ShieldErrorCard(result: GuardAgent.Result, onNewChat: () -> Unit, modifier: Modifier = Modifier) {
+    val stopped = result.error == "Stopped."
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = OroCorners.large,
@@ -307,14 +308,14 @@ fun ShieldErrorCard(result: GuardAgent.Result, onNewChat: () -> Unit, modifier: 
     ) {
         Column(Modifier.padding(Space.md)) {
             Text(
-                text = if (result.error == "Stopped.") "Stopped" else "Run failed",
+                text = if (stopped) "Stopped" else "Run failed",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
             Spacer(Modifier.height(Space.xs))
             Text(
-                text = result.error.orEmpty().ifBlank { result.summary },
+                text = if (stopped) "The run was stopped before it finished." else result.error.orEmpty().ifBlank { result.summary },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )

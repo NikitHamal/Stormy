@@ -48,7 +48,11 @@ VM expired). Per the owner's fallback, GitHub CI on `black-october` became the
 compile/test oracle. **CI is green at `9f7b3fa`**: all core and app unit tests
 (600+) and the release APK build pass. A follow-up `[shots]` run renders the
 Shield chat (`ShieldShots`: welcome, transcript, dark transcript) so the UI can
-be reviewed as images, not prose.
+be reviewed as images, not prose. Live probes on 2026-10-30: NEB's Gemini web
+proxy answered OK (the protocol the Kotlin `GeminiWebClient` ports), Judge0 CE
+and Wandbox ran a script, and RDAP/DoH/crt.sh/urlscan answered from this
+network. Piston's public API is whitelist-only since 2026-02-15 and was not
+used.
 
 **Still open**: live pass of the new intel/sandbox/Gemini routes, a real-device
 UI pass, and deciding whether shield transcripts should persist across process
