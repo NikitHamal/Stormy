@@ -244,7 +244,18 @@ object GuardAgent {
                 }
                 if (councilOn) {
                     GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.THINKING, "Council in session"))
-                    val outcome = runCatching { guard.council(task, evidence.ifBlank { null }) }
+                    val councilArtifact = buildString {
+                        val recent = prior.takeLast(6)
+                        if (recent.isNotEmpty()) {
+                            append("Conversation so far:\n")
+                            recent.forEach { m ->
+                                append(m.role).append(": ").append(m.content.orEmpty().take(2_000)).append('\n')
+                            }
+                            append('\n')
+                        }
+                        append(evidence)
+                    }
+                    val outcome = runCatching { guard.council(task, councilArtifact.ifBlank { null }) }
                     outcome.getOrNull()?.let { result ->
                         GuardAgent.addCouncil(result)
                         evidence += "\n\n" + GuardAgent.councilEvidence(result)
