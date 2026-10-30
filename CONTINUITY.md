@@ -48,10 +48,10 @@ VM expired). Per the owner's fallback, GitHub CI on `black-october` is the
 compile/test oracle now. **CI status at hand-off: running.** Expect Kotlin
 nits; fix from the first red log.
 
-**Still open**: daily-pass WorkManager (toggle exists, no worker), live pass of
-the new intel/sandbox/Gemini routes, a real-device UI pass, and deciding
-whether shield transcripts should persist across process death (currently
-process-wide only).
+**Still open**: live pass of the new intel/sandbox/Gemini routes, a real-device
+UI pass, and deciding whether shield transcripts should persist across process
+death (currently process-wide only). The daily pass is in-app on the first
+Shield visit each day (no WorkManager).
 
 ## 2026-10-26 (Black October): the Shield — personal cyber-defence agent, branch `black-october`
 

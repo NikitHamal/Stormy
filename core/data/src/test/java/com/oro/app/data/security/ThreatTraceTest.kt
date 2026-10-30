@@ -59,7 +59,8 @@ class ThreatTraceTest {
         assertThat(clean).contains("api_key: [redacted]")
         assertThat(clean).doesNotContain("hunter2")
         assertThat(clean).doesNotContain("sk_live_abcdefghijklmnop")
-        assertThat(clean).contains("Bearer [redacted]")
+        assertThat(clean).doesNotContain("eyJhbGciOiJIUzI1NiJ9")
+        assertThat(clean).doesNotContain("session=abc123")
     }
 
     @Test

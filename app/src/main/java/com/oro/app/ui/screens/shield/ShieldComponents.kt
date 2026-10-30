@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Policy
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.QuestionAnswer
 import androidx.compose.material.icons.outlined.Report
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.TaskAlt
@@ -524,6 +525,7 @@ fun toolIcon(name: String?): ImageVector = when (name) {
     "draft_abuse_report" -> Icons.Outlined.Report
     "read_file", "write_file", "edit_file" -> Icons.Outlined.Description
     "list_files" -> Icons.Outlined.FolderOpen
+    "grep" -> Icons.Outlined.Search
     "run_script" -> Icons.Outlined.Terminal
     "delegate_investigation" -> Icons.Outlined.Groups
     "convene_council" -> Icons.Outlined.Groups

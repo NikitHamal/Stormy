@@ -234,19 +234,24 @@ object ThreatTrace {
     // -------------------------------------------------------------- redaction
 
     private val KV_SECRET = Regex(
-        """(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?id|sessionid|auth|authorization|cookie|set-cookie|private[_-]?key|client[_-]?secret)\b\s*[:=]\s*("?)([^\s"',;]{3,})\2"""
+        """(?i)\b(password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|session[_-]?id|sessionid|auth|private[_-]?key|client[_-]?secret)\b\s*[:=]\s*("?)([^\s"',;]{3,})\2"""
     )
     private val BEARER = Regex("""(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}""")
+    private val AUTH_LINE = Regex("""(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$""")
+    private val COOKIE_LINE = Regex("""(?im)^(\s*(?:set-)?cookie\s*:\s*).*$""")
 
     /**
      * Masks credential-shaped values in an artifact before it is quoted back
      * to the user or into a model's context. Headers, connection strings and
      * `.env` fragments are the usual carriers; the key survives, the value
-     * does not.
+     * does not. Whole `Authorization` and `Cookie` header values go first,
+     * because a bearer token is two words and a cookie jar is several pairs.
      */
     fun redact(text: String): String {
-        var out = KV_SECRET.replace(text) { m -> "${m.groupValues[1]}: [redacted]" }
+        var out = AUTH_LINE.replace(text) { m -> m.groupValues[1] + "[redacted]" }
+        out = COOKIE_LINE.replace(out) { m -> m.groupValues[1] + "[redacted]" }
         out = BEARER.replace(out, "Bearer [redacted]")
+        out = KV_SECRET.replace(out) { m -> "${m.groupValues[1]}: [redacted]" }
         return out
     }
 

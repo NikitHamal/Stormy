@@ -17,6 +17,7 @@ import com.oro.app.data.repository.AiRepository
 import com.oro.app.data.security.Advisories
 import com.oro.app.data.security.Pwned
 import com.oro.app.data.security.Sandbox
+import com.oro.app.data.security.SecretScan
 import com.oro.app.data.security.ThreatIntel
 import com.oro.app.data.security.ThreatTrace
 import com.oro.app.data.security.UrlGuard

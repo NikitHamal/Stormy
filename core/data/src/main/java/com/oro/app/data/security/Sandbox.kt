@@ -62,7 +62,7 @@ object Sandbox {
         val v = raw.trim().lowercase(Locale.ROOT)
         return when (v) {
             "py", "python", "python3" -> "python"
-            "js", "node", "javascript", "nodejs" -> "javascript"
+            "js", "node", "node.js", "nodejs", "javascript" -> "javascript"
             "ts", "typescript" -> "typescript"
             "sh", "shell", "bash" -> "bash"
             "rb", "ruby" -> "ruby"
