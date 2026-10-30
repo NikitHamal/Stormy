@@ -354,7 +354,11 @@ internal class GuardRun(
 
     /** The tool contract; everything a guard can do lands here. */
     internal suspend fun execute(name: String, args: JSONObject): ToolResult {
-        if (name == "use_browser") return guard.browserTask(args.optString("task"))
+        if (name == "use_browser") {
+            val task = args.optString("task").trim()
+            if (task.isEmpty()) return ToolResult(false, "", "Provide task: what the browser agent should do and what counts as done.")
+            return guard.browserTask(task)
+        }
         if (!GuardTools.names.contains(name)) return ToolResult(false, "", "Unknown guard tool: $name")
         return try {
             when (name) {
