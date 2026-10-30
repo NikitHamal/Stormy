@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
@@ -591,11 +592,6 @@ fun ShieldWelcome(
                     onClick = { onSuggestion(ShieldAction.HARDEN.task("")) },
                 )
                 StarterCard(
-                    icon = Icons.Outlined.Newspaper,
-                    label = "Latest security news",
-                    onClick = { onSuggestion(ShieldAction.KEV_NEWS.task("")) },
-                )
-                StarterCard(
                     icon = Icons.Outlined.Public,
                     label = "Check my accounts",
                     onClick = { onSuggestion(ShieldAction.ACCOUNTS.task("")) },
@@ -685,6 +681,15 @@ fun ShieldQuickChips(
                         modifier = Modifier.size(Sizes.iconSmall),
                     )
                 },
+                trailingIcon = if (councilOn) {
+                    {
+                        Icon(
+                            Icons.Outlined.Check,
+                            contentDescription = "Council mode on",
+                            modifier = Modifier.size(Sizes.iconSmall),
+                        )
+                    }
+                } else null,
             )
         }
         items(actions.size, key = { actions[it].first.name }) { index ->
