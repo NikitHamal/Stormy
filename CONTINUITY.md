@@ -45,14 +45,14 @@ keyless execution and Gemini web. Done this pass:
 Verification: both molab boxes died (`410 sandbox terminated`; the first was
 fully provisioned with 20 cores, JDK 21, Android 37.2 and a clone before the
 VM expired). Per the owner's fallback, GitHub CI on `black-october` became the
-compile/test oracle. **CI is green at `9f7b3fa`**: all core and app unit tests
-(600+) and the release APK build pass. A follow-up `[shots]` run renders the
-Shield chat (`ShieldShots`: welcome, transcript, dark transcript) so the UI can
-be reviewed as images, not prose. Live probes on 2026-10-30: NEB's Gemini web
-proxy answered OK (the protocol the Kotlin `GeminiWebClient` ports), Judge0 CE
-and Wandbox ran a script, and RDAP/DoH/crt.sh/urlscan answered from this
-network. Piston's public API is whitelist-only since 2026-02-15 and was not
-used.
+compile/test oracle. **CI is green at `1254960`**: all core and app unit tests
+(600+), the release APK build, and the UI screenshots pass. The renders
+(`ShieldShots`: welcome, transcript, dark transcript) were inspected; the first
+pass showed a raw tool subtitle and a doubled "Stopped.", both fixed in
+`1254960`. Live probes on 2026-10-30: NEB's Gemini web proxy answered OK (the
+protocol the Kotlin `GeminiWebClient` ports), Judge0 CE and Wandbox ran a
+script, and RDAP/DoH/crt.sh/urlscan answered from this network. Piston's public
+API is whitelist-only since 2026-02-15 and was not used.
 
 **Still open**: live pass of the new intel/sandbox/Gemini routes, a real-device
 UI pass, and deciding whether shield transcripts should persist across process
