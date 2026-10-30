@@ -28,6 +28,7 @@ object GuardSettingsStore {
     private val FINDINGS = stringPreferencesKey("findings")
     private val RUNNER_URL = stringPreferencesKey("sandbox_runner_url")
     private val RUNNER_TOKEN = stringPreferencesKey("sandbox_runner_token")
+    private val LAST_PASS = stringPreferencesKey("last_daily_pass")
 
     private val json = Json { ignoreUnknownKeys = true }
     private val listJson = Json { ignoreUnknownKeys = true }
@@ -69,6 +70,13 @@ object GuardSettingsStore {
 
     suspend fun setSandboxRunnerToken(context: Context, token: String) {
         context.guardPrefs.edit { it[RUNNER_TOKEN] = token.trim() }
+    }
+
+    suspend fun lastDailyPass(context: Context): Long =
+        context.guardPrefs.data.first()[LAST_PASS]?.toLongOrNull() ?: 0L
+
+    suspend fun markDailyPass(context: Context) {
+        context.guardPrefs.edit { it[LAST_PASS] = System.currentTimeMillis().toString() }
     }
 
     suspend fun dailyPassOn(context: Context): Boolean =

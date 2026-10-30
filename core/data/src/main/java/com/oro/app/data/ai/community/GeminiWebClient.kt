@@ -64,7 +64,7 @@ class GeminiWebClient : CommunityChatClient {
                 return@guarded
             }
             var lastError: StreamEvent.Error? = null
-            for (attempt in 1..MAX_ATTEMPTS) {
+            attempts@ for (attempt in 1..MAX_ATTEMPTS) {
                 val identity = identityFor(attempt)
                 try {
                     if (!identity.warm()) {
@@ -81,7 +81,7 @@ class GeminiWebClient : CommunityChatClient {
                         is SendOutcome.Failed -> {
                             lastError = outcome.error ?: StreamEvent.Error("$SITE: no answer", retryable = true)
                             identity.close()
-                            if (outcome.fatal) break
+                            if (outcome.fatal) break@attempts
                             delay(900L * attempt)
                         }
                     }
@@ -125,23 +125,30 @@ class GeminiWebClient : CommunityChatClient {
         Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port))
     }.getOrNull()
 
-    /** Flattens a chat into the one prompt the anonymous page understands. */
+    /**
+     * Flattens the whole agent conversation into the one prompt the anonymous
+     * page understands. Tool calls and tool results are kept (as the same
+     * text protocol the harness teaches) so a text-tool agent does not lose
+     * the evidence it just gathered between turns.
+     */
     private fun buildPrompt(messages: List<ChatRequestMessage>): String {
         val system = messages.firstOrNull { it.role == "system" }?.content.orEmpty().take(8_000)
-        val turns = messages.filter { it.role == "user" || it.role == "assistant" }
-            .mapNotNull { m -> m.content?.takeIf { it.isNotBlank() }?.let { m.role to it } }
-        val lastUser = turns.lastOrNull { it.first == "user" }?.second.orEmpty()
-        if (lastUser.isBlank()) return ""
-        val transcript = if (turns.size > 1) {
-            turns.dropLast(1).takeLast(10).joinToString("\n") { (role, text) ->
-                val label = if (role == "user") "User" else "Assistant"
-                "$label: ${text.take(2_000)}"
+        val turns = Transcript.turns(messages)
+            .filter { it.role != "system" }
+            .takeLast(16)
+        if (turns.isEmpty()) return ""
+        val transcript = turns.joinToString("\n") { turn ->
+            val label = when {
+                turn.role == "user" && turn.text.startsWith("<tool_result") -> "Tool result"
+                turn.role == "user" -> "User"
+                else -> "Assistant"
             }
-        } else ""
+            "$label: ${turn.text.take(2_500)}"
+        }
         return buildString {
             if (system.isNotBlank()) append(system).append("\n\n")
-            if (transcript.isNotBlank()) append("Previous conversation:\n").append(transcript).append("\n\n")
-            append("User: ").append(lastUser.take(12_000))
+            append("Conversation so far:\n").append(transcript)
+            append("\n\nContinue as the assistant. Reply with the next step or the answer; no preamble.")
         }.take(26_000)
     }
 

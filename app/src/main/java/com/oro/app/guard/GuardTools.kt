@@ -123,6 +123,15 @@ object GuardTools {
         }}"""
     )
 
+    val GREP = tool(
+        "grep",
+        "Search the project or workspace with a regular expression; returns path:line: match, capped at 200. Credential-shaped values in a matching line are masked. Use it to find the exact place to patch before edit_file.",
+        """{"type":"object","properties":{
+          "pattern":{"type":"string","description":"Kotlin/Java regular expression."},
+          "path":{"type":"string","description":"File or folder to search. Default the whole project."}
+        },"required":["pattern"]}"""
+    )
+
     val WRITE_FILE = tool(
         "write_file",
         "Create or overwrite a text file in the open project or the guard workspace. Use for hardening patches, a response script, an evidence note, or a report the user asked for. Never write credentials into a project file; workspace/ is the scratch space.",
@@ -205,7 +214,7 @@ object GuardTools {
     val all: List<Tool> = listOf(
         AUDIT_PHONE, CHECK_URL, LOOKUP_ADVISORY, KEV_RECENT, SCAN_PROJECT_SECRETS,
         CHECK_VAULT, TRACE_INCIDENT, ENRICH_INDICATOR, AUDIT_WEB_POSTURE, AUDIT_DEPENDENCIES,
-        DRAFT_ABUSE_REPORT, READ_FILE, LIST_FILES, WRITE_FILE, EDIT_FILE, RUN_SCRIPT,
+        DRAFT_ABUSE_REPORT, READ_FILE, LIST_FILES, GREP, WRITE_FILE, EDIT_FILE, RUN_SCRIPT,
         DELEGATE_INVESTIGATION, ADD_FINDING, CONVENE_COUNCIL, ASK_USER, TAKE_NOTE, FINISH_TASK,
     )
 
@@ -217,7 +226,7 @@ object GuardTools {
     val investigatorNames: Set<String> = setOf(
         "check_url", "lookup_advisory", "kev_recent", "scan_project_secrets",
         "trace_incident", "enrich_indicator", "audit_web_posture", "audit_dependencies",
-        "read_file", "list_files", "run_script",
+        "read_file", "list_files", "grep", "run_script",
     )
 
     fun forNames(names: Set<String>): List<Tool> = all.filter { it.function.name in names }
@@ -236,6 +245,7 @@ object GuardTools {
         "draft_abuse_report" -> "Drafting the abuse report"
         "read_file" -> "Reading a file"
         "list_files" -> "Listing files"
+        "grep" -> "Searching the project"
         "write_file" -> "Writing a file"
         "edit_file" -> "Applying a hardening patch"
         "run_script" -> "Running a script in the sandbox"

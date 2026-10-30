@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.oro.app.OroApplication
 import com.oro.app.data.ai.AiModel
 import com.oro.app.guard.GuardAgent
+import com.oro.app.guard.GuardDailyPass
 import com.oro.app.guard.GuardSettingsStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +64,9 @@ class ShieldViewModel(app: Application) : AndroidViewModel(app) {
     private var projectRoot: File? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { GuardDailyPass.runIfDue(app, aiRepository) }
+        }
         viewModelScope.launch {
             _models.value = aiRepository.getAvailableModels()
             _memberIds.value = GuardSettingsStore.memberIds(app)

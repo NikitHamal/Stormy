@@ -154,7 +154,7 @@ fun CouncilSheet(
                         Column(Modifier.weight(1f)) {
                             Text("Daily guard pass", style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                "Exploitation news, vault and posture checks once a day.",
+                                "First Shield visit each day: posture, vault, exploitation news.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -450,7 +450,7 @@ fun GuardSettingsSheet(
                 Column(Modifier.weight(1f)) {
                     Text("Daily guard pass", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "One automatic check each day",
+                        "First visit each day: posture, vault, news",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -526,7 +526,7 @@ fun RunnerFormSheet(
         onConfirm = { onSave(url.trim(), token.trim()) },
     ) {
         Text(
-            "Empty uses Judge0 and Wandbox: keyless, disposable, no account. Point at your own runner — a self-hosted Piston, a free VM, a Cloudflare tunnel — to keep code off third parties.",
+            "Empty uses Judge0 and Wandbox: keyless, disposable, no account. Point at your own runner — a self-hosted Piston, a free VM, a Cloudflare quick tunnel — to keep code off third parties.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

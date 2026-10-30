@@ -125,6 +125,38 @@ internal class RealGuard(
                 if (lines.isEmpty()) "No files under ${display(root, target)}." else lines.joinToString("\n")
             }
 
+            "grep" -> {
+                val regex = runCatching { Regex(content) }.getOrElse {
+                    error("Invalid regular expression: ${it.message}")
+                }
+                val skip = setOf(".git", "node_modules", "build", ".gradle", "dist", "out", ".next", "__pycache__", ".venv")
+                val binary = setOf("png", "jpg", "jpeg", "gif", "webp", "ico", "pdf", "zip", "gz", "jar", "apk", "mp3", "mp4", "woff", "woff2", "ttf", "so", "exe", "class")
+                val hits = ArrayList<String>()
+                fun scan(file: File) {
+                    if (hits.size >= 200 || !file.isFile || file.length() > 1_500_000 || file.extension.lowercase() in binary) return
+                    val text = runCatching { file.readText() }.getOrNull() ?: return
+                    if (text.contains('\u0000')) return
+                    text.lineSequence().forEachIndexed { index, line ->
+                        if (hits.size >= 200) return@forEachIndexed
+                        if (regex.containsMatchIn(line)) {
+                            hits += "${display(root, file)}:${index + 1}: ${ThreatTrace.redact(line.trim()).take(300)}"
+                        }
+                    }
+                }
+                val base = if (target.isFile) target.parentFile ?: target else target
+                if (!base.isDirectory) error("No such folder: ${display(root, target)}")
+                fun walk(dir: File, depth: Int) {
+                    if (hits.size >= 200 || depth > 8) return
+                    (dir.listFiles() ?: emptyArray()).sortedBy { it.name }.forEach { f ->
+                        if (f.name in skip) return@forEach
+                        if (f.isDirectory) walk(f, depth + 1) else scan(f)
+                    }
+                }
+                if (target.isFile) scan(target) else walk(base, 0)
+                if (hits.isEmpty()) "No matches for ${content.take(80)} in ${display(root, target)}."
+                else hits.joinToString("\n") + if (hits.size >= 200) "\n… capped at 200 matches; narrow the pattern." else ""
+            }
+
             "write", "append" -> {
                 val blocked = rel.split('/', '\\').any { it in setOf(".git", "node_modules", "build", ".gradle") }
                 if (blocked) error("Refusing to write inside a build or VCS folder.")

@@ -128,6 +128,12 @@ internal class GuardToolRuntime(
 
                 "list_files" -> ToolResult(true, guard.fileOp("list", args.optString("path")))
 
+                "grep" -> {
+                    val pattern = args.optString("pattern")
+                    if (pattern.isBlank()) return ToolResult(false, "", "Provide a pattern.")
+                    ToolResult(true, guard.fileOp("grep", args.optString("path"), content = pattern))
+                }
+
                 "write_file" -> {
                     val path = args.optString("path")
                     if (path.isBlank()) return ToolResult(false, "", "Provide path.")

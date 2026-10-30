@@ -2,6 +2,7 @@ package com.oro.app.guard
 
 import android.content.Context
 import com.oro.app.R
+import com.oro.app.browser.BrowserProse
 import com.oro.app.data.ai.AiModel
 import com.oro.app.data.ai.ChatRequestMessage
 import com.oro.app.data.ai.ReasoningControls
@@ -14,12 +15,11 @@ import com.oro.app.data.ai.agent.AgentRunResult
 import com.oro.app.data.ai.agent.AgentStatus
 import com.oro.app.data.ai.agent.AgentToolRunner
 import com.oro.app.data.ai.ToolCallResponse
+import com.oro.app.data.ai.council.CouncilResult
 import com.oro.app.data.ai.tools.AgentTools
 import com.oro.app.data.ai.tools.BrowserDelegationTools
 import com.oro.app.data.ai.tools.ToolResult
 import com.oro.app.data.repository.AiRepository
-import com.oro.app.data.security.ThreatIntel
-import com.oro.app.data.security.ThreatTrace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
