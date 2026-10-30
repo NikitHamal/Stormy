@@ -220,6 +220,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)
+    // The guard's tool dispatch speaks org.json; the mockable android.jar only
+    // stubs it, so JVM tests need the real artifact on the classpath.
+    testImplementation("org.json:json:20231013")
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(platform(libs.androidx.compose.bom))
     testImplementation(libs.androidx.ui.test.junit4)
