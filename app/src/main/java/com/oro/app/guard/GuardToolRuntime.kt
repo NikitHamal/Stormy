@@ -61,6 +61,18 @@ internal class GuardToolRuntime(
                     ToolResult(true, report)
                 }
 
+                "security_news" -> {
+                    val topic = args.optString("topic").ifBlank { null }
+                    val limit = args.optInt("limit", 10).coerceIn(1, 20)
+                    ToolResult(true, guard.securityNews(topic, limit))
+                }
+
+                "web_search" -> {
+                    val query = args.optString("query").trim()
+                    if (query.isBlank()) return ToolResult(false, "", "Provide a query.")
+                    ToolResult(true, guard.webSearch(query))
+                }
+
                 "scan_project_secrets" -> {
                     val files = guard.projectFiles()
                     if (files.isEmpty()) return ToolResult(true, "No scannable files in the project.")

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.oro.app.OroApplication
 import com.oro.app.data.ai.AiModel
+import com.oro.app.data.security.SecurityNews
 import com.oro.app.guard.GuardAgent
 import com.oro.app.guard.GuardDailyPass
 import com.oro.app.guard.GuardSettingsStore
@@ -55,6 +56,12 @@ class ShieldViewModel(app: Application) : AndroidViewModel(app) {
     private val _dailyPass = MutableStateFlow(false)
     val dailyPass = _dailyPass.asStateFlow()
 
+    private val _councilOnPrompt = MutableStateFlow(false)
+    val councilOnPrompt = _councilOnPrompt.asStateFlow()
+
+    private val _news = MutableStateFlow<List<SecurityNews.Item>>(emptyList())
+    val news = _news.asStateFlow()
+
     private val _runnerUrl = MutableStateFlow("")
     val runnerUrl = _runnerUrl.asStateFlow()
 
@@ -66,12 +73,14 @@ class ShieldViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { GuardDailyPass.runIfDue(app, aiRepository) }
+            _news.value = runCatching { SecurityNews.latest(null, 3) }.getOrDefault(emptyList())
         }
         viewModelScope.launch {
             _models.value = aiRepository.getAvailableModels()
             _memberIds.value = GuardSettingsStore.memberIds(app)
             _chairId.value = GuardSettingsStore.chairId(app)
             _dailyPass.value = GuardSettingsStore.dailyPassOn(app)
+            _councilOnPrompt.value = GuardSettingsStore.councilOnPrompt(app)
             _runnerUrl.value = GuardSettingsStore.sandboxRunnerUrl(app).orEmpty()
             _runnerToken.value = GuardSettingsStore.sandboxRunnerToken(app).orEmpty()
             OroApplication.getInstance().projectRepository.getAllProjects().collect { projects ->
@@ -128,6 +137,13 @@ class ShieldViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setCouncilOnPrompt(on: Boolean) {
+        viewModelScope.launch {
+            GuardSettingsStore.setCouncilOnPrompt(app, on)
+            _councilOnPrompt.value = on
+        }
+    }
+
     fun saveRunner(url: String, token: String) {
         viewModelScope.launch {
             GuardSettingsStore.setSandboxRunnerUrl(app, url)
@@ -178,10 +194,11 @@ enum class ShieldAction(val label: String) {
             "Harden the open project. Audit dependencies, scan for secrets, and if I give you a URL, review the deployed site's headers and mail authentication. " +
                 "Then patch the project files yourself and leave me a short report of what changed. URL: ${input.ifBlank { "(none yet)" }}"
     },
-    KEV_NEWS("Exploitation news") {
+    KEV_NEWS("Security news") {
         override fun task(input: String) =
-            "Read CISA's Known-Exploited-Vulnerabilities catalog for the last 30 days. Summarise what is being exploited in the wild right now, ransomware-linked first, " +
-                "and say which of it could plausibly touch me (phone apps, home routers, common dev dependencies)."
+            "Read the latest security news now with security_news, then read CISA's Known-Exploited-Vulnerabilities catalog for the last 30 days. " +
+                "Summarise what is actually happening, ransomware-linked first, and say which of it could plausibly touch this user " +
+                "(phone apps, home routers, common dev dependencies). Name the source and date of every item; reporting is a lead, not evidence."
     },
     ACCOUNTS("Check my accounts") {
         override fun task(input: String) =

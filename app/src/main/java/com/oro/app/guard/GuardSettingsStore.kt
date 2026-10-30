@@ -23,6 +23,7 @@ object GuardSettingsStore {
 
     private val MODEL_IDS = stringPreferencesKey("council_model_ids")
     private val CHAIR_ID = stringPreferencesKey("chair_model_id")
+    private val COUNCIL_ON_PROMPT = stringPreferencesKey("council_on_prompt")
     private val DAILY_ON = stringPreferencesKey("daily_pass_on")
     private val KEV_SEEN = stringPreferencesKey("kev_seen")
     private val FINDINGS = stringPreferencesKey("findings")
@@ -56,6 +57,14 @@ object GuardSettingsStore {
 
     suspend fun setChairId(context: Context, id: String) {
         context.guardPrefs.edit { it[CHAIR_ID] = id }
+    }
+
+    /** Whether every new prompt is deliberated by all seated models before the guard acts. */
+    suspend fun councilOnPrompt(context: Context): Boolean =
+        context.guardPrefs.data.first()[COUNCIL_ON_PROMPT]?.toBooleanStrictOrNull() ?: false
+
+    suspend fun setCouncilOnPrompt(context: Context, on: Boolean) {
+        context.guardPrefs.edit { it[COUNCIL_ON_PROMPT] = on.toString() }
     }
 
     suspend fun sandboxRunnerUrl(context: Context): String? =

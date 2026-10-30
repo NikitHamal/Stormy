@@ -50,6 +50,23 @@ object GuardTools {
         }}"""
     )
 
+    val SECURITY_NEWS = tool(
+        "security_news",
+        "The latest security reporting from The Hacker News, BleepingComputer, Krebs on Security and SANS ISC, over keyless RSS. Use it whenever the user asks what is happening now; training data is stale. News is a lead, not evidence -- verify the incident itself with KEV/OSV, the artifact and the official vendor source.",
+        """{"type":"object","properties":{
+          "topic":{"type":"string","description":"Optional filter, e.g. ransomware, Android, PHP, a vendor name."},
+          "limit":{"type":"integer","description":"Number of items, default 10, max 20."}
+        }}"""
+    )
+
+    val WEB_SEARCH = tool(
+        "web_search",
+        "Search the live web through Oro's keyless chain (custom endpoints, free keyed presets, then DuckDuckGo/Bing/Mojeek/SearXNG/Wikipedia). Use for a current advisory, a vendor page, a CVE note or any fact after the model's training data. Results are leads; open the official source before treating it as evidence.",
+        """{"type":"object","properties":{
+          "query":{"type":"string","description":"What to search for, specific enough to find the official page."}
+        },"required":["query"]}"""
+    )
+
     val SCAN_PROJECT_SECRETS = tool(
         "scan_project_secrets",
         "Scan the open project's files for escaped credentials: cloud keys, tokens, private keys, connection strings, assigned secrets. Findings are masked (shape and length only) -- the values never enter this conversation. High-precision patterns; examples and placeholders do not fire.",
@@ -212,10 +229,11 @@ object GuardTools {
     )
 
     val all: List<Tool> = listOf(
-        AUDIT_PHONE, CHECK_URL, LOOKUP_ADVISORY, KEV_RECENT, SCAN_PROJECT_SECRETS,
-        CHECK_VAULT, TRACE_INCIDENT, ENRICH_INDICATOR, AUDIT_WEB_POSTURE, AUDIT_DEPENDENCIES,
-        DRAFT_ABUSE_REPORT, READ_FILE, LIST_FILES, GREP, WRITE_FILE, EDIT_FILE, RUN_SCRIPT,
-        DELEGATE_INVESTIGATION, ADD_FINDING, CONVENE_COUNCIL, ASK_USER, TAKE_NOTE, FINISH_TASK,
+        AUDIT_PHONE, CHECK_URL, LOOKUP_ADVISORY, KEV_RECENT, SECURITY_NEWS, WEB_SEARCH,
+        SCAN_PROJECT_SECRETS, CHECK_VAULT, TRACE_INCIDENT, ENRICH_INDICATOR, AUDIT_WEB_POSTURE,
+        AUDIT_DEPENDENCIES, DRAFT_ABUSE_REPORT, READ_FILE, LIST_FILES, GREP, WRITE_FILE,
+        EDIT_FILE, RUN_SCRIPT, DELEGATE_INVESTIGATION, ADD_FINDING, CONVENE_COUNCIL, ASK_USER,
+        TAKE_NOTE, FINISH_TASK,
     )
 
     val names: Set<String> = all.map { it.function.name }.toSet()
@@ -224,7 +242,7 @@ object GuardTools {
 
     /** The read-only subset an investigator subagent may use. */
     val investigatorNames: Set<String> = setOf(
-        "check_url", "lookup_advisory", "kev_recent", "scan_project_secrets",
+        "check_url", "lookup_advisory", "kev_recent", "security_news", "web_search", "scan_project_secrets",
         "trace_incident", "enrich_indicator", "audit_web_posture", "audit_dependencies",
         "read_file", "list_files", "grep", "run_script",
     )
@@ -236,6 +254,8 @@ object GuardTools {
         "check_url" -> "Judging a link"
         "lookup_advisory" -> "Checking advisories"
         "kev_recent" -> "Reading the exploitation news"
+        "security_news" -> "Reading the latest security news"
+        "web_search" -> "Searching the live web"
         "scan_project_secrets" -> "Scanning the project for escaped secrets"
         "check_vault" -> "Auditing saved logins"
         "trace_incident" -> "Building the evidence record"

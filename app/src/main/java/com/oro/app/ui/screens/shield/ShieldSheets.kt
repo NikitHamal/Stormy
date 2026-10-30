@@ -21,11 +21,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -346,6 +350,13 @@ private fun FindingCard(finding: Map<String, String>, onAsk: () -> Unit) {
     ) {
         Column(Modifier.padding(Space.md)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = severityGlyph(severity),
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSmall),
+                    tint = accent,
+                )
+                Spacer(Modifier.width(Space.xxs + Space.xxs))
                 Surface(shape = CircleShape, color = accent.copy(alpha = 0.14f)) {
                     Text(
                         text = severity,
@@ -400,14 +411,23 @@ private fun severityRank(severity: String?): Int = when (severity?.trim()?.upper
     else -> 4
 }
 
+private fun severityGlyph(severity: String): ImageVector = when (severity.uppercase()) {
+    "CRITICAL", "HIGH" -> Icons.Outlined.ErrorOutline
+    "MEDIUM" -> Icons.Outlined.WarningAmber
+    "LOW" -> Icons.Outlined.Info
+    else -> Icons.Outlined.CheckCircle
+}
+
 /* -------------------------------- settings -------------------------------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GuardSettingsSheet(
     dailyPass: Boolean,
+    councilOnPrompt: Boolean,
     runnerUrl: String,
     onDailyPass: (Boolean) -> Unit,
+    onCouncilOnPrompt: (Boolean) -> Unit,
     onOpenCouncil: () -> Unit,
     onOpenRunner: () -> Unit,
     onNewChat: () -> Unit,
@@ -440,6 +460,25 @@ fun GuardSettingsSheet(
                 subtitle = if (runnerUrl.isBlank()) "Public sandboxes (keyless)" else "Your runner",
                 onClick = onOpenRunner,
             )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onCouncilOnPrompt(!councilOnPrompt) }
+                    .padding(vertical = Space.md),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Council on every prompt", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "All seats deliberate before the guard acts",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Switch(checked = councilOnPrompt, onCheckedChange = onCouncilOnPrompt)
+            }
             Row(
                 Modifier
                     .fillMaxWidth()

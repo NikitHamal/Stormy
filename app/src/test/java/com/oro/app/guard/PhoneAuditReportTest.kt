@@ -89,4 +89,21 @@ class PhoneAuditReportTest {
         assertThat(PhoneAudit.patchAgeMonths("2027-01-01", 2026, 10)).isLessThan(0)
         assertThat(PhoneAudit.report(clean.copy(securityPatch = "2027-01-01"), 2026, 10)).hasSize(1)
     }
+
+    @Test
+    fun `coverage gaps and per-app installer limits are named, not called clean`() {
+        val report = PhoneAudit.report(
+            clean.copy(
+                unreadableChecks = listOf("Apps holding READ_SMS (SecurityException)"),
+                unknownSourcesReliable = false,
+                canInstallUnknownApps = true,
+            ),
+            2026, 10,
+        )
+        val titles = report.map { it.second }
+        assertThat(titles.any { it.contains("Some checks could not be read") }).isTrue()
+        assertThat(titles.any { it.contains("Per-app install permissions") }).isTrue()
+        assertThat(titles.any { it.contains("Oro itself can install") }).isTrue()
+        assertThat(report.map { it.first.rank }).isInOrder()
+    }
 }

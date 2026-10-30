@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -59,7 +63,7 @@ import com.oro.app.ui.theme.Space
  * the transcript. The composer carries the guard model and the council behind
  * it; findings live one tap away in the top bar.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ShieldScreen(
     onBack: () -> Unit,
@@ -72,6 +76,8 @@ fun ShieldScreen(
     val memberIds by vm.memberIds.collectAsState()
     val chair by vm.chair.collectAsState()
     val dailyPass by vm.dailyPass.collectAsState()
+    val councilOnPrompt by vm.councilOnPrompt.collectAsState()
+    val news by vm.news.collectAsState()
     val runnerUrl by vm.runnerUrl.collectAsState()
     val runnerToken by vm.runnerToken.collectAsState()
 
@@ -87,7 +93,8 @@ fun ShieldScreen(
     val trailing = (if (guard.question != null) 1 else 0) +
         (if (guard.running && guard.question == null && !hasRunningTool) 1 else 0) +
         (if (!guard.running && guard.result?.error != null) 1 else 0)
-    LaunchedEffect(guard.messages.size, guard.question?.text, guard.running) {
+    val imeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(guard.messages.size, guard.question?.text, guard.running, imeVisible) {
         val total = guard.messages.size + trailing
         if (total > 0) listState.animateScrollToItem(total - 1)
     }
@@ -141,12 +148,14 @@ fun ShieldScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .imePadding(),
         ) {
             if (guard.messages.isEmpty() && !guard.running) {
                 ShieldWelcome(
                     seatNames = seatNames,
                     findingCount = findings.size,
+                    latestNews = news,
                     onSuggestion = { draft = it },
                     onOpenCouncil = { councilOpen = true },
                     onOpenFindings = { findingsOpen = true },
@@ -168,6 +177,7 @@ fun ShieldScreen(
                             GuardAgent.MsgRole.USER -> ShieldUserBubble(message.text, message.at)
                             GuardAgent.MsgRole.GUARD -> ShieldGuardMessage(message, message.streaming)
                             GuardAgent.MsgRole.TOOL -> GuardToolCard(message)
+                            GuardAgent.MsgRole.COUNCIL -> ShieldCouncilCard(message)
                             GuardAgent.MsgRole.NOTE -> GuardNoteRow(message)
                             GuardAgent.MsgRole.SYSTEM -> Text(
                                 text = message.text,
@@ -200,8 +210,13 @@ fun ShieldScreen(
                 }
             }
 
-            if (guard.messages.isNotEmpty() && !guard.running) {
-                ShieldQuickChips(onPick = { draft = it })
+            if (!guard.running) {
+                ShieldQuickChips(
+                    councilOn = councilOnPrompt,
+                    seatCount = memberIds.size,
+                    onCouncilToggle = { vm.setCouncilOnPrompt(!councilOnPrompt) },
+                    onPick = { draft = it },
+                )
                 Spacer(Modifier.height(Space.sm))
             }
 
@@ -263,8 +278,10 @@ fun ShieldScreen(
     if (settingsOpen) {
         GuardSettingsSheet(
             dailyPass = dailyPass,
+            councilOnPrompt = councilOnPrompt,
             runnerUrl = runnerUrl,
             onDailyPass = vm::setDailyPass,
+            onCouncilOnPrompt = vm::setCouncilOnPrompt,
             onOpenCouncil = {
                 settingsOpen = false
                 councilOpen = true

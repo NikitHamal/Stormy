@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Description
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -67,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oro.app.data.ai.tools.QuestionOption
 import com.oro.app.data.ai.tools.UserQuestion
+import com.oro.app.data.security.SecurityNews
 import com.oro.app.guard.GuardAgent
 import com.oro.app.guard.GuardTools
 import com.oro.app.ui.brand.OrobiIdle
@@ -268,6 +271,97 @@ fun GuardNoteRow(message: GuardAgent.Message, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * The whole panel, not just the chair's summary: which models spoke, what each
+ * concluded, the merged findings and the disagreements. The verdict is open;
+ * the seat transcripts are one tap away.
+ */
+@Composable
+fun ShieldCouncilCard(message: GuardAgent.Message, modifier: Modifier = Modifier) {
+    var expanded by rememberSaveable(message.id) { mutableStateOf(false) }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = OroCorners.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(Sizes.hairline, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+    ) {
+        Column(
+            Modifier
+                .then(if (OroTheme.liteMode) Modifier else Modifier.animateContentSize())
+                .clickable(enabled = message.detail.isNotBlank()) { expanded = !expanded }
+                .padding(Space.md),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(Sizes.avatar),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Outlined.Groups,
+                            contentDescription = null,
+                            modifier = Modifier.size(Sizes.iconSmall),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(Space.sm))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "Council record",
+                        style = MaterialTheme.typography.bodyMediumEmphasized,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = message.seats.joinToString(" · ").ifBlank { "no seat answered" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (message.detail.isNotBlank()) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,
+                        contentDescription = if (expanded) "Hide the seats" else "Read every seat",
+                        modifier = Modifier.size(Sizes.icon),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(Space.sm))
+            Text(
+                text = message.text,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = if (expanded) Int.MAX_VALUE else 6,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (expanded && message.detail.isNotBlank()) {
+                Spacer(Modifier.height(Space.sm))
+                SelectionContainer {
+                    Text(
+                        text = message.detail,
+                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                }
+            }
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                text = clock(message.at),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.End),
+            )
+        }
+    }
+}
+
 @Composable
 fun ShieldQuestionCard(
     question: GuardAgent.Question,
@@ -333,6 +427,7 @@ fun ShieldErrorCard(result: GuardAgent.Result, onNewChat: () -> Unit, modifier: 
 fun ShieldWelcome(
     seatNames: List<String>,
     findingCount: Int,
+    latestNews: List<SecurityNews.Item>,
     onSuggestion: (String) -> Unit,
     onOpenCouncil: () -> Unit,
     onOpenFindings: () -> Unit,
@@ -390,17 +485,82 @@ fun ShieldWelcome(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.secondaryContainer,
                     ) {
-                        Text(
-                            text = "$findingCount finding${if (findingCount == 1) "" else "s"}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = Space.md, vertical = Space.sm - Space.xxs),
-                        )
+                        Row(
+                            Modifier.padding(horizontal = Space.md, vertical = Space.sm - Space.xxs),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Assessment,
+                                contentDescription = null,
+                                modifier = Modifier.size(Sizes.iconSmall),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            Text(
+                                text = "$findingCount finding${if (findingCount == 1) "" else "s"}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(Space.xl))
+
+            if (latestNews.isNotEmpty()) {
+                val first = latestNews.first()
+                Surface(
+                    onClick = { onSuggestion(ShieldAction.KEV_NEWS.task("")) },
+                    shape = OroCorners.large,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(Sizes.hairline, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.widthIn(max = 440.dp),
+                ) {
+                    Row(
+                        Modifier.padding(Space.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Newspaper,
+                            contentDescription = null,
+                            modifier = Modifier.size(Sizes.icon),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(Space.md))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Latest · ${first.source}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = first.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (latestNews.size > 1) {
+                                Text(
+                                    text = "+${latestNews.size - 1} more",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                        Icon(
+                            Icons.Outlined.ChevronRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(Sizes.icon),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(Space.xl))
+            }
 
             Column(
                 modifier = Modifier.widthIn(max = 440.dp),
@@ -426,6 +586,11 @@ fun ShieldWelcome(
                     icon = Icons.Outlined.Policy,
                     label = "Harden my project",
                     onClick = { onSuggestion(ShieldAction.HARDEN.task("")) },
+                )
+                StarterCard(
+                    icon = Icons.Outlined.Newspaper,
+                    label = "Latest security news",
+                    onClick = { onSuggestion(ShieldAction.KEV_NEWS.task("")) },
                 )
                 StarterCard(
                     icon = Icons.Outlined.Public,
@@ -478,25 +643,59 @@ private fun StarterCard(
 /* --------------------------------- chips ---------------------------------- */
 
 @Composable
-fun ShieldQuickChips(onPick: (String) -> Unit,modifier: Modifier = Modifier) {
+fun ShieldQuickChips(
+    councilOn: Boolean,
+    seatCount: Int,
+    onCouncilToggle: () -> Unit,
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val actions = listOf(
-        ShieldAction.INCIDENT to "Incident",
-        ShieldAction.TRACE to "Trace",
-        ShieldAction.CHECK_URL to "Link",
-        ShieldAction.PHONE_AUDIT to "Phone",
-        ShieldAction.VAULT_AUDIT to "Leaks",
-        ShieldAction.HARDEN to "Harden",
-        ShieldAction.KEV_NEWS to "News",
+        Triple(ShieldAction.INCIDENT, "Incident", Icons.Outlined.Security),
+        Triple(ShieldAction.TRACE, "Trace", Icons.Outlined.TravelExplore),
+        Triple(ShieldAction.CHECK_URL, "Link", Icons.Outlined.Link),
+        Triple(ShieldAction.PHONE_AUDIT, "Phone", Icons.Outlined.PhoneAndroid),
+        Triple(ShieldAction.VAULT_AUDIT, "Leaks", Icons.Outlined.Password),
+        Triple(ShieldAction.HARDEN, "Harden", Icons.Outlined.Policy),
+        Triple(ShieldAction.KEV_NEWS, "News", Icons.Outlined.Newspaper),
     )
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = Space.lg),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
+        item(key = "council-toggle") {
+            FilterChip(
+                selected = councilOn,
+                onClick = onCouncilToggle,
+                label = {
+                    Text(
+                        text = if (seatCount > 0) "Council $seatCount" else "Council",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.Groups,
+                        contentDescription = null,
+                        modifier = Modifier.size(Sizes.iconSmall),
+                    )
+                },
+            )
+        }
         items(actions.size, key = { actions[it].first.name }) { index ->
-            val (action, label) = actions[index]
+            val (action, label, icon) = actions[index]
             AssistChip(
                 onClick = { onPick(action.task("")) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(Sizes.iconSmall),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
                 label = {
                     Text(
                         text = label,
@@ -517,6 +716,8 @@ fun toolIcon(name: String?): ImageVector = when (name) {
     "check_url" -> Icons.Outlined.Link
     "lookup_advisory" -> Icons.Outlined.BugReport
     "kev_recent" -> Icons.Outlined.Newspaper
+    "security_news" -> Icons.Outlined.Newspaper
+    "web_search" -> Icons.Outlined.Search
     "scan_project_secrets" -> Icons.Outlined.Password
     "check_vault" -> Icons.Outlined.Password
     "trace_incident" -> Icons.Outlined.TravelExplore

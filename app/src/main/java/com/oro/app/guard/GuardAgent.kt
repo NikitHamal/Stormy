@@ -56,7 +56,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object GuardAgent {
 
-    enum class MsgRole { USER, GUARD, TOOL, NOTE, SYSTEM }
+    enum class MsgRole { USER, GUARD, TOOL, COUNCIL, NOTE, SYSTEM }
     enum class MsgStatus { RUNNING, DONE, FAILED, WAITING }
 
     data class Message(
@@ -68,6 +68,7 @@ object GuardAgent {
         val status: MsgStatus = MsgStatus.DONE,
         val streaming: Boolean = false,
         val callId: String? = null,
+        val seats: List<String> = emptyList(),
         val at: Long = System.currentTimeMillis(),
     )
 
@@ -106,6 +107,8 @@ object GuardAgent {
         suspend fun dependencyAudit(): String
         suspend fun abuseReport(kind: String, note: String, evidence: String): String
         suspend fun delegate(task: String, focus: String?): String
+        suspend fun securityNews(topic: String?, limit: Int): String
+        suspend fun webSearch(query: String): String
     }
 
     internal val _state = MutableStateFlow(State())
@@ -174,9 +177,10 @@ object GuardAgent {
         val appContext = context.applicationContext
         followUps = ConcurrentLinkedQueue()
         questionGate = null
+        val councilOn = GuardSettingsStore.councilOnPrompt(appContext)
         val priorMessages = _state.value.messages
         val prior = priorMessages
-            .filter { it.role == MsgRole.USER || it.role == MsgRole.GUARD }
+            .filter { it.role == MsgRole.USER || it.role == MsgRole.GUARD || it.role == MsgRole.COUNCIL }
             .takeLast(12)
             .mapNotNull { m ->
                 val text = m.text.trim().take(4_000)
@@ -215,9 +219,41 @@ object GuardAgent {
                 reasoningLevel = ReasoningControls.maxLevel(chosen),
             )
         }
+        val wantsPhone = Regex("(audit|scan|check|inspect) (this|my) (phone|device)", RegexOption.IGNORE_CASE).containsMatchIn(task)
+        val wantsNews = Regex("security news|latest news|what'?s happening", RegexOption.IGNORE_CASE).containsMatchIn(task)
         job = scope.launch {
             try {
-                GuardRun(guard, stream, appContext, chosen.supportsToolCalls, prior).run(task.trim())
+                var evidence = ""
+                if (wantsPhone) {
+                    GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Reading this phone's posture"))
+                    GuardAgent.addTool("audit_phone", "prefetch-phone")
+                    val outcome = runCatching { guard.phoneReport() }
+                    val report = outcome.getOrElse { "The phone audit failed: ${it.message ?: it.javaClass.simpleName}" }
+                    GuardAgent.finishTool("prefetch-phone", "audit_phone", report, outcome.isSuccess)
+                    evidence += "\n\nThe audit_phone tool already ran before this turn. Its exact report:\n" +
+                        report.take(10_000) +
+                        "\n\nExplain this report to the user. Never say you cannot access the phone while a report is above."
+                }
+                if (wantsNews) {
+                    GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.RUNNING_TOOL, "Reading the latest security news"))
+                    GuardAgent.addTool("security_news", "prefetch-news")
+                    val outcome = runCatching { guard.securityNews(null, 10) }
+                    val news = outcome.getOrElse { "The security-news feeds could not be read: ${it.message ?: it.javaClass.simpleName}" }
+                    GuardAgent.finishTool("prefetch-news", "security_news", news, outcome.isSuccess)
+                    evidence += "\n\nThe security_news tool already ran before this turn. Its report:\n" + news.take(10_000)
+                }
+                if (councilOn) {
+                    GuardAgent.setStatus(AgentStatus(AgentStatus.Kind.THINKING, "Council in session"))
+                    val outcome = runCatching { guard.council(task, evidence.ifBlank { null }) }
+                    outcome.getOrNull()?.let { result ->
+                        GuardAgent.addCouncil(result)
+                        evidence += "\n\n" + GuardAgent.councilEvidence(result)
+                    }
+                    outcome.exceptionOrNull()?.let {
+                        GuardAgent.note("The council could not convene: ${it.message ?: it.javaClass.simpleName}")
+                    }
+                }
+                GuardRun(guard, stream, appContext, chosen.supportsToolCalls, prior).run(task.trim(), evidence)
             } catch (e: CancellationException) {
                 end(Result(false, "", "Stopped."))
                 throw e
@@ -337,6 +373,63 @@ object GuardAgent {
         _state.update { it.copy(seats = seats) }
     }
 
+    /**
+     * The council's record as a transcript object: every seat that spoke (or
+     * why it did not), the chair's verdict, merged findings and the
+     * disagreements. This is the "three or more models at once" answer.
+     */
+    internal fun addCouncil(result: CouncilResult) {
+        val seats = result.opinions.map { o ->
+            "${o.modelName} · ${o.role.id.replace('_', ' ')}" + if (o.failed != null) " · absent" else ""
+        }
+        val detail = buildString {
+            result.opinions.forEach { o ->
+                append("## ").append(o.modelName).append(" (").append(o.role.id.replace('_', ' ')).append(")\n")
+                if (o.failed != null) append("Absent: ").append(o.failed).append('\n')
+                else append(o.text.take(6_000)).append('\n')
+                append('\n')
+            }
+            if (result.findings.isNotEmpty()) {
+                append("Findings:\n")
+                result.findings.take(16).forEach { f ->
+                    append("- [").append(f.severity.name).append("] ").append(f.title).append(" -> ").append(f.action).append('\n')
+                }
+            }
+            if (result.disagreements.isNotEmpty()) {
+                append("\nDisagreements:\n")
+                result.disagreements.take(8).forEach { append("- ").append(it).append('\n') }
+            }
+        }
+        val text = result.verdict.ifBlank { "The council could not hear any member." }
+        val id = nextId()
+        _state.update {
+            it.copy(
+                messages = (it.messages + Message(
+                    id = id,
+                    role = MsgRole.COUNCIL,
+                    text = text.take(MAX_TEXT),
+                    detail = detail.take(MAX_TEXT),
+                    seats = seats,
+                )).takeLast(MAX_MESSAGES)
+            )
+        }
+    }
+
+    /** The record the guard model receives after the council has spoken. */
+    internal fun councilEvidence(result: CouncilResult): String = buildString {
+        append("The council has already deliberated on this request, with every seated model at its maximum reasoning level. Verdict:\n")
+        append(result.verdict.take(8_000)).append('\n')
+        if (result.findings.isNotEmpty()) {
+            append("\nCouncil findings:\n")
+            result.findings.take(16).forEach { append("- [").append(it.severity.name).append("] ").append(it.title).append(" -> ").append(it.action).append('\n') }
+        }
+        if (result.disagreements.isNotEmpty()) {
+            append("\nDisagreements to keep on the record:\n")
+            result.disagreements.take(8).forEach { append("- ").append(it).append('\n') }
+        }
+        append("\nUse this record. Do not re-run the deliberation unless new evidence changes it; keep any disagreement that still matters.")
+    }
+
     internal fun end(result: Result) {
         val lastGuard = _state.value.messages.lastOrNull { it.role == MsgRole.GUARD }?.text.orEmpty()
         _state.update {
@@ -375,13 +468,15 @@ internal class GuardRun(
     private var finishSuccess = false
     private var finishCalled = false
 
-    suspend fun run(task: String) {
+    suspend fun run(task: String, evidence: String = "") {
         val brief = appContext?.getString(R.string.guard_system_brief) ?: GuardAgent.FALLBACK_BRIEF
         val tools = GuardTools.all + BrowserDelegationTools.USE_BROWSER
-        val conversation = (prior + ChatRequestMessage(
-            role = "user",
-            content = "Task: $task\n\nStart with the smallest evidence-gathering step. Audit first, act second, and convene the council for anything worth a second opinion. In an active incident, contain before you investigate."
-        )).toMutableList()
+        val taskMessage = buildString {
+            append("Task: ").append(task)
+            if (evidence.isNotBlank()) append("\n\n").append(evidence.take(18_000))
+            append("\n\nStart with the smallest evidence-gathering step. Audit first, act second, and convene the council for anything worth a second opinion. In an active incident, contain before you investigate.")
+        }
+        val conversation = (prior + ChatRequestMessage(role = "user", content = taskMessage)).toMutableList()
         val runtime = GuardToolRuntime(
             guard = guard,
             appContext = appContext,

@@ -44,6 +44,10 @@ class GuardRunTest {
         override suspend fun abuseReport(kind: String, note: String, evidence: String) =
             "Subject: Abuse report — $kind\nRequested action: investigate and suspend."
         override suspend fun delegate(task: String, focus: String?) = "Investigator: $task"
+        override suspend fun securityNews(topic: String?, limit: Int) =
+            "Latest security reporting (2 items, keyless RSS). Reporting is a lead, not evidence:\n- CISA · 2026-10-30\n  A new campaign\n  https://example.org/a"
+        override suspend fun webSearch(query: String) =
+            "Web results for \"$query\" (leads, not evidence):\n- Result\n  https://example.org\n  snippet"
     }
 
     private suspend fun run(guard: GuardAgent.Guard, name: String, args: String) =
@@ -158,6 +162,17 @@ class GuardRunTest {
         val delegated = run(FakeGuard(), "delegate_investigation", """{"task":"Check the headers"}""")
         assertThat(delegated.success).isTrue()
         assertThat(delegated.output).contains("Investigator")
+    }
+
+    @Test
+    fun `live news and web search are exposed with their caveats`() = runTest {
+        val news = run(FakeGuard(), "security_news", """{"topic":"ransomware","limit":5}""")
+        assertThat(news.success).isTrue()
+        assertThat(news.output).contains("lead, not evidence")
+        val web = run(FakeGuard(), "web_search", """{"query":"CVE-2026-109618 advisory"}""")
+        assertThat(web.success).isTrue()
+        assertThat(web.output).contains("Web results")
+        assertThat(run(FakeGuard(), "web_search", "{}").success).isFalse()
     }
 
     @Test

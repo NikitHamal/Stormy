@@ -16,6 +16,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.oro.app.guard.GuardAgent
 import com.oro.app.ui.screens.shield.GuardToolCard
+import com.oro.app.ui.screens.shield.ShieldCouncilCard
 import com.oro.app.ui.screens.shield.ShieldErrorCard
 import com.oro.app.ui.screens.shield.ShieldGuardMessage
 import com.oro.app.ui.screens.shield.ShieldQuickChips
@@ -62,12 +63,30 @@ class ShieldShots {
             ShieldWelcome(
                 seatNames = listOf("Mercury 3", "K2 Horizon", "Hy3"),
                 findingCount = 3,
+                latestNews = listOf(
+                    com.oro.app.data.security.SecurityNews.Item(
+                        source = "The Hacker News",
+                        title = "New ransomware campaign targets edge devices",
+                        link = "https://example.org/ransomware",
+                        date = "Fri, 30 Oct 2026 10:00:00 GMT",
+                        epochMillis = now,
+                        summary = "Researchers report a fast-moving campaign.",
+                    ),
+                    com.oro.app.data.security.SecurityNews.Item(
+                        source = "BleepingComputer",
+                        title = "Patch Tuesday fixes 40 flaws",
+                        link = "https://example.org/patch",
+                        date = "Thu, 29 Oct 2026 08:30:00 GMT",
+                        epochMillis = now - 86_400_000,
+                        summary = "Edge and Windows updates.",
+                    ),
+                ),
                 onSuggestion = {},
                 onOpenCouncil = {},
                 onOpenFindings = {},
                 modifier = Modifier.weight(1f),
             )
-            ShieldQuickChips(onPick = {})
+            ShieldQuickChips(councilOn = true, seatCount = 3, onCouncilToggle = {}, onPick = {})
             Spacer(Modifier.height(Space.md))
         }
     }
@@ -96,6 +115,23 @@ class ShieldShots {
                         at = now - 80_000,
                     ),
                     isStreaming = false,
+                )
+                ShieldCouncilCard(
+                    GuardAgent.Message(
+                        id = 9,
+                        role = GuardAgent.MsgRole.COUNCIL,
+                        text = "A real session takeover is likely: the recovery address changed after the alert. " +
+                            "Contain now, then verify the login's IP against the alert headers.",
+                        detail = "## Mercury 3 · first responder\nContain and rotate.\n\n" +
+                            "## K2 Horizon · adversary's advocate\nThe alert may be the phish; do not authenticate through it.\n\n" +
+                            "## Hy3 · verifier\nThe artifact confirms a recovery-address change; the IP is unverified.",
+                        seats = listOf(
+                            "Mercury 3 · first responder",
+                            "K2 Horizon · adversary's advocate",
+                            "Hy3 · verifier",
+                        ),
+                        at = now - 75_000,
+                    ),
                 )
                 GuardToolCard(
                     GuardAgent.Message(
@@ -127,7 +163,7 @@ class ShieldShots {
                 )
                 ShieldWorking("Convening the council")
             }
-            ShieldQuickChips(onPick = {})
+            ShieldQuickChips(councilOn = true, seatCount = 3, onCouncilToggle = {}, onPick = {})
             Spacer(Modifier.height(Space.md))
         }
     }
@@ -162,7 +198,7 @@ class ShieldShots {
                     onNewChat = {},
                 )
             }
-            ShieldQuickChips(onPick = {})
+            ShieldQuickChips(councilOn = true, seatCount = 3, onCouncilToggle = {}, onPick = {})
             Spacer(Modifier.height(Space.md))
         }
     }

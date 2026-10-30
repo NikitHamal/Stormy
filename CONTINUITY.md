@@ -3,6 +3,41 @@
 Update this file at the end of every working session (or before a risky step), so a new agent
 or a cut-off session can resume. Newest entry on top. Keep entries short and factual.
 
+## 2026-10-30 (Black October, second pass): council on every prompt, a real phone audit, live news
+
+Owner feedback: the Shield looked like a toy — no multi-model option per prompt,
+"audit my phone" said it could not access the phone, no latest news, rough
+glyphs and keyboard handling. This pass:
+
+- **Council mode** (`GuardSettingsStore.council_on_prompt`, chip above the
+  composer, settings toggle): every new prompt is deliberated by **all seated
+  models** (3+) at max reasoning before the guard acts. `GuardAgent.addCouncil`
+  writes a `COUNCIL` transcript object with the verdict, each seat's reading,
+  merged findings and disagreements; `councilEvidence` feeds the record to the
+  chair's tool-using loop. `ShieldCouncilCard` renders it, seats one tap away.
+- **Phone audit, deterministically**: an explicit audit/scan/check of this
+  phone/device prefetches `audit_phone` before the model's turn, shows the tool
+  card, and hands the report to the model with "never say you cannot access the
+  phone". `PhoneAudit` now records unreadable checks and Android 8+ per-app
+  installer limits as coverage findings instead of silently empty checks;
+  `RealGuard.phoneReport` names coverage and never throws.
+- **Live news and web**: `security_news` (The Hacker News, BleepingComputer,
+  Krebs, SANS ISC over keyless RSS, 5-min cache) and `web_search` (the existing
+  keyless chain) are guard tools; the News action prefetches the RSS report,
+  the welcome shows a latest-headline strip, and the system brief forbids
+  answering current events from memory.
+- **Glyphs and keyboard**: leading glyphs on every quick chip, a Council filter
+  chip, severity icons in findings, a newspaper glyph for news. Scaffold insets
+  are consumed before `imePadding`, and the transcript scrolls to the last item
+  when the IME becomes visible.
+- Tests: `SecurityNewsTest` (RSS/CDATA/entities/dates), phone coverage test,
+  GuardRun news/web contract. `ShieldShots` now includes the council card, the
+  news strip and the new chips.
+
+Verification: CI at the previous code head `1254960` was green (unit tests,
+release APK, screenshots). This pass is queued for the same `[shots]` run;
+fix from its first red log if anything fails.
+
 ## 2026-10-30 (Black October): the Shield becomes a chat with a counter-intelligence toolkit, branch `black-october`
 
 The owner rejected the first Shield UI ("too poor, needs to be the chat interface

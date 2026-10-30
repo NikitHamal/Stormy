@@ -13,11 +13,13 @@ import com.oro.app.data.ai.council.CouncilResult
 import com.oro.app.data.ai.council.CouncilRole
 import com.oro.app.data.ai.council.SecurityCouncil
 import com.oro.app.data.ai.tools.ToolResult
+import com.oro.app.data.ai.search.WebSearch
 import com.oro.app.data.repository.AiRepository
 import com.oro.app.data.security.Advisories
 import com.oro.app.data.security.Pwned
 import com.oro.app.data.security.Sandbox
 import com.oro.app.data.security.SecretScan
+import com.oro.app.data.security.SecurityNews
 import com.oro.app.data.security.ThreatIntel
 import com.oro.app.data.security.ThreatTrace
 import com.oro.app.data.security.UrlGuard
@@ -49,14 +51,30 @@ internal class RealGuard(
 ) : GuardAgent.Guard {
 
     override fun phoneReport(): String {
-        val facts = PhoneAudit.collect(context)
+        val facts = runCatching { PhoneAudit.collect(context) }.getOrElse { error ->
+            return "Phone audit could not run: ${error.javaClass.simpleName}: ${error.message ?: "no message"}. " +
+                "This is an access failure, not a clean phone. Try once more; if it repeats, the OS refused a settings or package read."
+        }
         val now = YearMonth.now()
-        val findings = PhoneAudit.report(facts, now.year, now.monthValue)
+        val findings = runCatching { PhoneAudit.report(facts, now.year, now.monthValue) }.getOrElse { error ->
+            return "The phone's facts were read, but the report rules failed: ${error.message ?: error.javaClass.simpleName}. " +
+                "Do not treat this as clean; read the facts again."
+        }
         return buildString {
-            append("Device posture (Android ").append(facts.sdkInt).append(", patch ").append(facts.securityPatch).append("):\n")
+            append("Device posture (Android ").append(facts.sdkInt).append(", patch ").append(facts.securityPatch).append("). ")
+            append("Read-only: settings and package metadata only; no app data was opened.\n")
+            if (facts.unreadableChecks.isEmpty()) {
+                append("Coverage: every check was readable.\n")
+            } else {
+                append("Coverage: ").append(facts.unreadableChecks.size).append(" check(s) unreadable — ")
+                    .append(facts.unreadableChecks.take(4).joinToString("; "))
+                    .append(". They are unverified, not clean.\n")
+            }
+            append("Package-permission counts are limited by Android package visibility; an empty list is a lower bound, not proof.\n")
             findings.forEach { (sev, title, action) ->
                 append("[").append(sev.name).append("] ").append(title).append(" -> ").append(action).append('\n')
             }
+            append("\nThis is an audit of posture, not a malware scan; an app can be malicious while holding ordinary permissions. If the user suspects an active compromise, preserve evidence and continue with trace_incident and the council.")
         }
     }
 
@@ -271,6 +289,39 @@ internal class RealGuard(
                     if (e.knownRansomware) append(" [ransomware-linked]")
                     append('\n')
                 }
+        }
+    }
+
+    override suspend fun securityNews(topic: String?, limit: Int): String {
+        val items = SecurityNews.latest(topic, limit)
+        if (items.isEmpty()) {
+            return "No security news could be read right now. The feeds may be unreachable; say so instead of filling the gap from memory."
+        }
+        return buildString {
+            append("Latest security reporting (").append(items.size).append(" items, keyless RSS")
+            if (!topic.isNullOrBlank()) append(", filtered by \"").append(topic).append('"')
+            append("). Reporting is a lead, not evidence:\n")
+            items.forEach { item ->
+                append("\n- ").append(item.source)
+                if (!item.date.isNullOrBlank()) append(" · ").append(item.date.take(32))
+                append('\n').append("  ").append(item.title).append('\n').append("  ").append(item.link).append('\n')
+                if (item.summary.isNotBlank()) append("  ").append(item.summary).append('\n')
+            }
+        }
+    }
+
+    override suspend fun webSearch(query: String): String {
+        val hits = WebSearch.search(query, 8)
+        if (hits.isEmpty()) {
+            return "No web results for \"$query\". Say that the search found nothing; do not invent a source."
+        }
+        return buildString {
+            append("Web results for \"").append(query).append("\" (leads, not evidence; open the official source):\n")
+            hits.forEach { hit ->
+                append("\n- ").append(hit.title).append('\n')
+                append("  ").append(hit.url).append('\n')
+                if (hit.snippet.isNotBlank()) append("  ").append(hit.snippet.take(400)).append('\n')
+            }
         }
     }
 

@@ -18,6 +18,15 @@ draft rather than send it. The council and the findings board are sheets built
 on the design tokens. Follow-ups keep the transcript and the last twelve
 turns as model context; "New chat" clears it, findings stay.
 
+The **Council** chip seats three or more models on every prompt. The seats
+deliberate in parallel at max reasoning; the full record (verdict, each seat's
+reading, findings, disagreements) lands in the transcript, and the chair then
+runs the tool-using agent on that record. The **News** action and the welcome's
+latest-headline strip read the live RSS feeds; an explicit "audit this phone"
+runs `audit_phone` before the model speaks, so the model explains a real report
+instead of claiming it cannot reach the device. Unreadable checks are named as
+coverage gaps, never reported as clean.
+
 ## Why multi-model
 
 One model reviewing a breach notice is one opinion wearing a costume. The
@@ -43,6 +52,8 @@ in the council sheet. Three is a council; one is an opinion.
 | `check_url` | Structural phishing tells offline (brand-on-wrong-domain, typo-squats ≤2 edits, homoglyphs/punycode, `user@` tricks, raw IPs, shorteners, abuse TLDs) + TLS certificate probe (expiry, name match, issuer). Never opens the page. |
 | `lookup_advisory` | OSV, keyless: is this dependency actually vulnerable. |
 | `kev_recent` | CISA KEV, keyless: what is **exploited in the wild**, ransomware-linked first; a diff store means a pass reports only new news. Published ≠ exploited. |
+| `security_news` | Fresh reporting from The Hacker News, BleepingComputer, Krebs and SANS ISC over keyless RSS, cached for five minutes. Reporting is a lead, not evidence. |
+| `web_search` | The live keyless search chain; use it for a current advisory, vendor page or any fact after training, then open the official source. |
 | `scan_project_secrets` | High-precision credential shapes (AWS/GitHub/Stripe/Slack/JWT/conn-strings/private keys/assigned secrets), placeholder-aware, and **masked-only output**: a found secret never enters a transcript or model context. |
 | `check_vault` | Saved logins vs HIBP **by k-anonymity** (five hex chars of a SHA-1 leave the device, never the password) + reuse detection + rotation order. |
 | `trace_incident` | Turns a mail, headers, a breach notice or a chat log into indicators and a dated timeline, then passively enriches the top domains/IPs/URLs. Always the first step in an incident; the record names its own gaps. |
