@@ -75,9 +75,9 @@ class PwnedTest {
     @Test
     fun `the range answer is matched locally by suffix`() {
         val body = """
-            005F1B1B9192FE31DDA889AC9C1D1D853B2 2
-            00D5F1C006B9E11E47BE75E724E5F5E18C9 11
-            5BE9877AB58D9408DEC4C4B8A2143AA9BB0 1
+            005F1B1B9192FE31DDA889AC9C1D1D853B2:2
+            00D5F1C006B9E11E47BE75E724E5F5E18C9:11
+            5BE9877AB58D9408DEC4C4B8A2143AA9BB0:1
         """.trimIndent()
         assertThat(Pwned.parseRange(body, "00D5F1C006B9E11E47BE75E724E5F5E18C9")).isEqualTo(11)
         assertThat(Pwned.parseRange(body, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")).isEqualTo(0)
@@ -137,12 +137,17 @@ class SecretScanTest {
 
     @Test
     fun `real credential shapes are caught and masked`() {
-        val text = """
-            const stripe = "sk_live_" + "51HxYzAbC1234567890abcde";
-            aws_key = "AKIA" + "IOSFODNN7EXAMPLE"
-            -----BEGIN RSA PRIVATE KEY-----
-            url = "postgres://admin:hunter2secret@db.internal:5432/app"
-        """.trimIndent()
+        // The secrets are assembled at runtime: the test source itself must
+        // not carry contiguous credential shapes (push protection, and it
+        // would be a lie in a repo about secret hygiene).
+        val stripeSecret = "sk_live_" + "51HxYzAbC1234567890abcde"
+        val awsSecret = "AKIA" + "IOSFODNN7EXAMPLE"
+        val text = listOf(
+            "const stripe = \"$stripeSecret\";",
+            "aws_key = \"$awsSecret\"",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            "url = \"postgres://admin:hunter2secret@db.internal:5432/app\"",
+        ).joinToString("\n")
         val hits = SecretScan.scanText(text)
         assertThat(hits.map { it.kind }).containsAtLeast("stripe live key", "aws access key", "private key", "connection string with password")
         assertThat(hits.first { it.kind == "stripe live key" }.line).isEqualTo(1)

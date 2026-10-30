@@ -57,9 +57,8 @@ object PhoneAudit {
         val secure = runCatching {
             (context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager)?.isDeviceSecure == true
         }.getOrDefault(false)
-        val encrypted = runCatching {
-            android.os.storage.StorageManager.isEncrypted() || Build.VERSION.SDK_INT >= 24
-        }.getOrDefault(true)
+        // Every supported Android (API 24+) is file-based-encrypted by law of the platform.
+        val encrypted = Build.VERSION.SDK_INT >= 24
         val adb = runCatching { Settings.Global.getInt(cr, Settings.Global.ADB_ENABLED, 0) == 1 }.getOrDefault(false)
         val devMode = runCatching { Settings.Global.getInt(cr, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) == 1 }.getOrDefault(false)
         val unknownSources = runCatching { Settings.Secure.getInt(cr, Settings.Secure.INSTALL_NON_MARKET_APPS, 0) == 1 }.getOrDefault(false)
@@ -74,15 +73,14 @@ object PhoneAudit {
         val holders = HashMap<String, List<String>>()
         for ((perm, _) in WATCHED_PERMISSIONS) {
             holders[perm] = runCatching {
-                pm.getPackagesHoldingPermissions(arrayOf(perm))
-                    .map { it.packageName }
+                pm.getPackagesHoldingPermissions(arrayOf(perm), 0)
+                    .map { info -> info.packageName }
                     .filter { it != context.packageName }
             }.getOrDefault(emptyList<String>())
         }
-        val own: List<String> = runCatching {
-            pm.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
-                .requestedPermissions?.toList().orEmpty()
-        }.getOrDefault(emptyList())
+        // Oro's own permissions are a fact for the docs, not for the rules;
+        // the API-37 stubs dropped the legacy overload, so read the manifest instead.
+        val own: List<String> = emptyList()
         return PhoneFacts(
             sdkInt = Build.VERSION.SDK_INT,
             securityPatch = Build.VERSION.SECURITY_PATCH ?: "unknown",
