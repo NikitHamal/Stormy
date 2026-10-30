@@ -270,6 +270,18 @@ object ReasoningControls {
      */
     fun quickLevel(model: AiModel): String? = quickLevel(forModel(model))
 
+    /**
+     * The deepest level a model offers: what the security council runs at.
+     * Deliberation is a few long calls, not many short ones, so depth beats
+     * latency here -- the inverse of [quickLevel].
+     */
+    fun maxLevel(model: AiModel): String? = maxLevel(forModel(model))
+
+    fun maxLevel(control: ReasoningControl?): String? {
+        control ?: return null
+        return control.levels.lastOrNull()?.wire ?: control.initial
+    }
+
     fun quickLevel(control: ReasoningControl?): String? {
         control ?: return null
         return QUICK.firstOrNull { control.has(it) } ?: control.initial
