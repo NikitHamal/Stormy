@@ -179,12 +179,13 @@ class PteroClient(
                     }
                 }
                 putJsonArray("attachments") {
-                    allImages.forEachIndexed { idx, dataUrl ->
-                        val mime = dataUrl.removePrefix("data:").substringBefore(';', "image/png").ifBlank { "image/png" }
+                    allImages.forEachIndexed { idx, rawImg ->
+                        val dataUrl = if (rawImg.startsWith("data:")) rawImg else "data:image/jpeg;base64,$rawImg"
+                        val mime = dataUrl.removePrefix("data:").substringBefore(';', "image/jpeg").ifBlank { "image/jpeg" }
                         addJsonObject {
-                            put("name", "image_$idx.png")
+                            put("name", "image_$idx.jpg")
                             put("type", mime)
-                            put("size", dataUrl.length * 3 / 4)
+                            put("size", rawImg.length * 3 / 4)
                             put("data", dataUrl)
                             put("dataUrl", dataUrl)
                             put("url", dataUrl)

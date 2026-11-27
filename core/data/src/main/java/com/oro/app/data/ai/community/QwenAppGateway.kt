@@ -67,16 +67,135 @@ object QwenAppGateway {
         return rest.substring(0, end).replace("&amp;", "&")
     }
 
+    /**
+     * Generates Alibaba Cloud OSS V4 `Authorization` header (`OSS4-HMAC-SHA256`) for
+     * Qwen Android App Gateway multimodal attachment uploads.
+     */
+    fun signOssV4Header(
+        accessKeyId: String,
+        accessKeySecret: String,
+        securityToken: String,
+        bucketName: String,
+        filePath: String,
+        mimeType: String,
+        unixSeconds: Long = System.currentTimeMillis() / 1000L
+    ): Pair<String, String> {
+        val (dateStr, datePart) = KeylessCrypto.iso8601UtcCompact(unixSeconds)
+        val ossUa = "aliyun-sdk-js/6.23.0 Chrome 132.0.0.0 on Windows 10 64-bit"
+        val canonicalHeaders =
+            "content-type:$mimeType\n" +
+                "x-oss-content-sha256:UNSIGNED-PAYLOAD\n" +
+                "x-oss-date:$dateStr\n" +
+                "x-oss-security-token:$securityToken\n" +
+                "x-oss-user-agent:$ossUa\n"
+        val encodedPath = filePath.split('/').joinToString("/") { seg ->
+            java.net.URLEncoder.encode(seg, "UTF-8").replace("+", "%20")
+        }
+        val canonicalUri = "/$bucketName/$encodedPath"
+        val canonicalRequest = "PUT\n$canonicalUri\n\n$canonicalHeaders\n\nUNSIGNED-PAYLOAD"
+        val dateScope = "$datePart/ap-southeast-1/oss/aliyun_v4_request"
+        val stringToSign =
+            "OSS4-HMAC-SHA256\n$dateStr\n$dateScope\n${KeylessCrypto.sha256Hex(canonicalRequest.toByteArray(Charsets.UTF_8))}"
+        val kDate = KeylessCrypto.hmacSha256Bytes(
+            "aliyun_v4$accessKeySecret".toByteArray(Charsets.UTF_8),
+            datePart.toByteArray(Charsets.UTF_8)
+        )
+        val kRegion = KeylessCrypto.hmacSha256Bytes(kDate, "ap-southeast-1".toByteArray(Charsets.UTF_8))
+        val kService = KeylessCrypto.hmacSha256Bytes(kRegion, "oss".toByteArray(Charsets.UTF_8))
+        val kSigning = KeylessCrypto.hmacSha256Bytes(kService, "aliyun_v4_request".toByteArray(Charsets.UTF_8))
+        val signature = KeylessCrypto.hmacSha256Hex(kSigning, stringToSign.toByteArray(Charsets.UTF_8))
+        return "OSS4-HMAC-SHA256 Credential=$accessKeyId/$dateScope,Signature=$signature" to dateStr
+    }
+
+    private suspend fun uploadImageAttachment(acct: Account, rawBase64: String, index: Int): JsonObject? = runCatching {
+        val cleanB64 = rawBase64.substringAfter("base64,", rawBase64).trim()
+        val bytes = java.util.Base64.getDecoder().decode(cleanB64)
+        val filename = "image_$index.jpg"
+        val mime = "image/jpeg"
+        val stsReq = appRequest("$QWEN_APP_BASE/files/getstsToken", acct)
+            .post(
+                buildJsonObject {
+                    put("filename", filename)
+                    put("filesize", bytes.size)
+                    put("filetype", "image")
+                }.toString().toRequestBody(JSON)
+            )
+            .build()
+        val stsData = CommunityHttp.execute(stsReq, AiHttp.client) { resp ->
+            if (!resp.isSuccessful) return@execute null
+            val o = AiHttp.json.parseToJsonElement(resp.body?.string().orEmpty()) as? JsonObject
+            if ((o?.get("success") as? JsonPrimitive)?.booleanOrNull != true) return@execute null
+            o["data"] as? JsonObject
+        } ?: return null
+
+        val fileUrl = (stsData["file_url"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val fileId = (stsData["file_id"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val bucket = (stsData["bucketname"] as? JsonPrimitive)?.contentOrNull ?: "qwen-webui-prod"
+        val filePath = (stsData["file_path"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val akId = (stsData["access_key_id"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val akSecret = (stsData["access_key_secret"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val secToken = (stsData["security_token"] as? JsonPrimitive)?.contentOrNull ?: return null
+
+        val (authHeader, dateStr) = signOssV4Header(akId, akSecret, secToken, bucket, filePath, mime)
+        val putUrl = fileUrl.substringBefore('?')
+        val putReq = Request.Builder()
+            .url(putUrl)
+            .put(bytes.toRequestBody(mime.toMediaType()))
+            .header("Content-Type", mime)
+            .header("x-oss-content-sha256", "UNSIGNED-PAYLOAD")
+            .header("x-oss-date", dateStr)
+            .header("x-oss-security-token", secToken)
+            .header("x-oss-user-agent", "aliyun-sdk-js/6.23.0 Chrome 132.0.0.0 on Windows 10 64-bit")
+            .header("authorization", authHeader)
+            .build()
+        val uploaded = CommunityHttp.execute(putReq, AiHttp.client) { it.isSuccessful }
+        if (!uploaded) return null
+        val nowMs = System.currentTimeMillis()
+        buildJsonObject {
+            put("type", "image")
+            putJsonObject("file") {
+                put("created_at", nowMs)
+                putJsonObject("data") {}
+                put("filename", filename)
+                put("hash", JsonNull)
+                put("id", fileId)
+                putJsonObject("meta") {
+                    put("name", filename)
+                    put("size", bytes.size)
+                    put("content_type", mime)
+                }
+                put("update_at", nowMs)
+                put("type", "image")
+            }
+            put("id", fileId)
+            put("url", fileUrl)
+            put("name", filename)
+            put("collection_name", "")
+            put("progress", 0)
+            put("status", "uploaded")
+            put("greenNet", "success")
+            put("size", bytes.size)
+            put("error", "")
+            put("itemId", UUID.randomUUID().toString())
+            put("file_type", mime)
+            put("showType", "image")
+            put("file_class", "vision")
+            put("uploadTaskId", UUID.randomUUID().toString())
+        }
+    }.getOrNull()
+
     suspend fun FlowCollector<StreamEvent>.tryStream(
         upstreamModel: String,
         prompt: String,
-        thinking: Boolean
+        thinking: Boolean,
+        images: List<String> = emptyList()
     ): Boolean {
         val acct = acquireAccount() ?: return false
         val qwenModel = when (upstreamModel) {
             "qwen4-max", "qwen3.8-max", "qwen3.7-max", "qwen3.8-omni-flash", "qwen3.5-omni-plus", "qwen3.7-plus" -> upstreamModel
             else -> "qwen4-max"
         }
+        val uploadedFiles = images.mapIndexedNotNull { idx, img -> uploadImageAttachment(acct, img, idx) }
         val nowMs = System.currentTimeMillis()
         val newChatReq = appRequest("$QWEN_APP_BASE/chats/new", acct)
             .post(
@@ -125,7 +244,9 @@ object QwenAppGateway {
                     put("sub_chat_type", "t2t")
                     putJsonArray("models") { add(JsonPrimitive(qwenModel)) }
                     put("user_action", "chat")
-                    putJsonArray("files") {}
+                    putJsonArray("files") {
+                        uploadedFiles.forEach { add(it) }
+                    }
                     putJsonObject("safety") { put("enabled", false) }
                     putJsonObject("extra") {
                         putJsonObject("meta") { put("subChatType", "t2t") }

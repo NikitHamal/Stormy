@@ -129,7 +129,8 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
                 }
             }
             // Try the Qwen Android App Gateway before falling back to the hidden WebView
-            if (base == "https://chat.qwen.ai" && with(QwenAppGateway) { tryStream(upstream, prompt, thinking) }) {
+            val allImages = messages.flatMap { it.images }
+            if (base == "https://chat.qwen.ai" && with(QwenAppGateway) { tryStream(upstream, prompt, thinking, allImages) }) {
                 return@guarded
             }
             if (bridge == null) {
