@@ -1,7 +1,32 @@
-# Keyless model endpoints — research for Oro (2026-10-22, fork F2)
+# Keyless model endpoints — research for Oro (2026-10-22, fork F2; updated 2026-10-24 with ZeusDesigns port)
 
-Sources: g4f (xtekky/gpt4free @ 54925a9, providers with `working=True`, `needs_auth=False`),
+Sources: ZeusDesigns (`src-tauri/src/providers.rs` and `src-tauri/src/crypto.rs`), g4f (xtekky/gpt4free @ 54925a9, providers with `working=True`, `needs_auth=False`),
 the user's NEB repo (`backend_python/api/*_proxy.py`), live probes from this sandbox.
+
+## 2026-10-24 — Complete ZeusDesigns Keyless Provider & Gemini 4 Family Port
+
+All free keyless providers from ZeusDesigns have been ported into `core/data/src/main/java/com/oro/app/data/ai/community/` (`Gemini4MeshClient.kt`, `MultiTargetOaiClient.kt`, `KeylessCrypto.kt`, `QwenAppGateway.kt`) and registered in `AiModels.kt`, `KeylessSeeds.kt`, `KeylessFallback.kt`, `ReasoningControls.kt`, `ModelCapabilities.kt`, and `ModelProfiles.kt`:
+
+| Provider (`AiProvider`) | Protocol Client | Flagship Models | Capabilities |
+|---|---|---|---|
+| `ANTIGRAVITY` | `Gemini4MeshClient` | Gemini 4 Hydrogen (XHigh/High/Medium/Low/Sonar/Tiered), Gemini 4 Neon (XHigh/High/Medium/Low), Gemini 4 Carbon (High/Medium/Low), Gemini 4 Argon (High/Medium/Low), Gemini 4 Pro Orchestrator, Gemini 3.8 Flash, Claude Opus/Sonnet 5.5 | 1M ctx, native tools, vision, effort control, multi-node failover |
+| `GEMINI4_HYDROGEN` | `Gemini4MeshClient` | Gemini 4 Hydrogen, Neon, Carbon, Argon, Pro Orchestrator, 3.8 Flash, Worker AGY | 1M ctx, load-balanced across Antigravity + Direct `StreamGenerate` (`wrb.fr`) + 5-node cluster + FreeClaude |
+| `GEMINI4_DIRECT` | `Gemini4MeshClient` | Gemini 4 Hydrogen/Thinking, Neon/Thinking, Carbon, Argon, Auto Router, 3.7/3.6/3.5 Flash, 3.1 Pro, Flash Lite | 1M ctx, direct anonymous `gemini.google.com` `StreamGenerate` (`MODE_CATEGORY` 1..6) + 5-node cluster |
+| `GEMINI_WEB` | `Gemini4MeshClient` | Gemini 4 Hydrogen, Neon, Carbon, Gemini 3.7 Flash | 1M ctx, web gateway + `StreamGenerate` failover |
+| `MYCHAT_CLOUD` | `MultiTargetOaiClient` | GPT-6 Luna, GPT-5, GPT-5 Mini, GPT-4.1, GPT-4.1 Mini, GPT-4o, o3, o4-mini | Rolling hourly UTC MD5 `X-Encryption-Token`, native tools, AI Bridge failover |
+| `CLAUDE5_PROXY` | `MultiTargetOaiClient` | Claude Sonnet 5.5, Claude Haiku 5.5, Claude Opus 5.5, Kimi K3.1 Pro, StepFun Step 5, GLM 4.5/Z1/4.6V Flash | 1M ctx, Anthropic Messages `/v1/messages` SSE, native tools, vision |
+| `NIM_CLOUD` | `MultiTargetOaiClient` | Nemotron 3.5 Super VL 120B, Nemotron 3 Ultra 550B, Nano Omni 30B VL, Lightning 30B, Bolt E4B, Mistral Large 4 1T, Step 5, GLM 5.3 Flash, MiniMax M3.1 Flash, Laguna XS 2.1 | 7-key NVIDIA NIM direct rotation pool + proxy cluster + BlockRun failover |
+| `BLOCKRUN` | `MultiTargetOaiClient` | Nemotron 3.5 Super/Lightning/Bolt, Ultra 550B, Nano Omni 30B VL, MiniMax M3.1 Flash, Step 3.7 Flash, Muse Glimmer 30B, Laguna XS 2.1, North Mini Code | Native tools, vision, candidate rotation |
+| `FREELLM_HUB` | `MultiTargetOaiClient` | GLM 5.3/5.2/5.3 Flash, Kimi K2.7 Code/K2.6, DeepSeek V4.1 Flash/V3.2, Qwen 3.8 27B/Flash Next, Mistral Large 3/Devstral/Magistral/Codestral, Reka Flash 3, Gemma 4 31B, GPT-OSS 120B, Llama 4 Maverick | Persona-override shield, native tools, multi-node failover |
+| `AI_BRIDGE` | `MultiTargetOaiClient` | GPT-6 Luna, Claude Haiku 5.5, GPT-4.1, GPT-4o, DeepSeek V4 Flash/Vision, Grok 4.20, Qwen 3.7/3.5 Flash, Doubao Seed 2.0 Mini | Native tools, MyChat/Claude5Proxy failover |
+| `HF_ROUTER` | `MultiTargetOaiClient` | Qwen 3.8 2.4T, DeepSeek V4 Pro/Flash, GLM 5.3, MiniMax M2.7, Kimi K2, Qwen3 Coder 480B/Next | Multi-candidate failover |
+| `LITELLM_HUB` | `MultiTargetOaiClient` | GPT-OSS 120B (Groq LPU), Qwen 3.8 27B (Groq LPU), Nemotron 3 Ultra 550B, DeepSeek V4.1 Flash, Gemini 2.5 Flash | Direct Groq LPU + LiteLLM hub + NIM failover |
+| `SUPA_VIP` | `MultiTargetOaiClient` | Qwen 4 Max VIP, Qwen 3.8 Max VIP, Qwen 3.7 Flash VIP, DeepSeek V4.1 Flash VIP, DeepSeek R1 VIP | Tongyi VIP proxy with native tools |
+| `SHANNIAN_VIP` | `MultiTargetOaiClient` | DeepSeek V4 Flash Vision VIP, Qwen 3.5 Flash VIP, Doubao Seed 2.0 Lite/Mini, SenseNova 6.8 Flash/Lite | Session exchange + Volcengine Ark v3 + SenseNova direct |
+| `AGNES_CLOUD` | `MultiTargetOaiClient` | Agnes 3.0 Pro, Agnes 3.0 Flash, Agnes 2.5 Pro/Beta/Theta, Agnes 2.5 Flash VL | Direct Agnes AI hub with native tools |
+| `ZHIPU_LONGCAT` | `MultiTargetOaiClient` | LongCat 2.5 1.6T MoE, LongCat 2.5 Preview, GLM 4.5 Flash, GLM Z1 Flash, GLM 4V Flash | Official Z.ai BigModel PaaS v4 + LongCat OpenAI API |
+| `OPENCODE_ZEN_FREE` | `MultiTargetOaiClient` | Big Pickle, DeepSeek V4.1 Flash, MiMo V2.6 Flash, Nemotron 3.5 Super VL/Lightning, Beam, Flint 40B, Iceman, Hy4 Flash, Tidepool Alpha | `Bearer public` OpenCode Zen free lane |
+| `VIREONIX`, `COLIBRI_QWEN`, `GEMMA4_CLUSTER`, `FRONTIER_LAB`, `DEEPAI`, `MOTIF`, `CHATJIMMY` | `MultiTargetOaiClient` | Vireonix Auto, Qwen 3.6 35B MoE, Gemma 4 31B/12B/E4B VL, Muse Glimmer 30B, Inkling 2 Mini, DeepAI IslandKey, Motif 3 102B, ChatJimmy 20,000+ tok/s | Full multi-target coverage |
 
 Sandbox caveat: egress is a Google Cloud datacenter IP behind a TLS-intercepting proxy. Sites with
 bot checks (Vercel, Cloudflare, Alibaba WAF) challenge it even when a phone would pass, and some
