@@ -37,6 +37,15 @@ object ModelCapabilities {
      */
     private val CONTEXT_WINDOWS: List<Pair<String, Int>> = listOf(
         // --- Google Gemini / Gemma ------------------------------------------
+        "gemini-4" to 1_048_576,
+        "gemini-hydrogen" to 1_048_576,
+        "gemini-neon" to 1_048_576,
+        "gemini-carbon" to 1_048_576,
+        "gemini-argon" to 1_048_576,
+        "gemini-pro-orchestrator" to 1_048_576,
+        "gemini-flash-worker" to 1_048_576,
+        "gemini-flash-lite" to 1_048_576,
+        "gemini-auto" to 1_048_576,
         "gemini-3" to 1_048_576,
         "gemini-2.5" to 1_048_576,
         "gemini-2.0" to 1_048_576,
@@ -84,10 +93,12 @@ object ModelCapabilities {
         "claude" to 200_000,
 
         // --- Qwen -----------------------------------------------------------
+        "qwen4" to 1_000_000,
         "qwen3-coder" to 262_144,
         // Hosted Qwen3.8 Max: 983,616 input tokens in thinking mode (991,808 without).
         "qwen3.8-max" to 983_616,
         "qwen3.8" to 262_144,
+        "qwen3.7" to 1_000_000,
         "qwen3.6" to 262_144,
         "qwen3.5" to 262_144,
         "qwen3-max" to 262_144,
@@ -158,10 +169,17 @@ object ModelCapabilities {
         "grok-4" to 256_000,
         "grok-code" to 256_000,
         "grok" to 131_072,
+        "step-5" to 262_144,
+        "step-3.7" to 131_072,
+        "longcat-2" to 131_072,
+        "doubao-seed-2" to 131_072,
+        "sensenova-6" to 131_072,
+        "reka-flash-3" to 131_072,
+        "reka-edge" to 131_072,
         "laguna" to 262_144,
         "beam" to 1_048_576,
         "kilo-auto" to 256_000,
-        "phi-4" to 16 * K
+        "phi-4" to 64 * K
     ).sortedByDescending { it.first.length }
 
     /** Used when nothing matches: a modern small model, not a 2023 one. */
