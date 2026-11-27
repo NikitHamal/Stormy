@@ -39,6 +39,16 @@ class ZeusKeylessProvidersTest {
         assertThat(parts).hasSize(3)
         assertThat(parts[2]).hasLength(32)
 
+        val tryitKey = KeylessCrypto.generateDeepAiTryitKey("TestAgent/1.0")
+        assertThat(tryitKey).startsWith("tryit-")
+        assertThat(tryitKey.split("-")[2]).hasLength(64)
+
+        val (isoFull, isoDate) = KeylessCrypto.iso8601UtcCompact(1_776_000_000L)
+        assertThat(isoDate).isEqualTo("20260412")
+        assertThat(isoFull).isEqualTo("20260412T132000Z")
+
+        assertThat(PteroClient.extractNonce("<script>var nonce = 'a1b2c3d4e5';</script>")).isEqualTo("a1b2c3d4e5")
+
         val (reasoning, answer) = KeylessCrypto.parseChatJimmyOutput(
             "<|think|>Step 1: analyze layout<|/think|>Hello world!<|stats|>{\"tok_s\":21500}<|/stats|>"
         )

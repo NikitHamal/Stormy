@@ -75,6 +75,39 @@ object KeylessCrypto {
     }
 
     /**
+     * DeepAI's triple-SHA-256 `tryit-{rand}-{sha256}` key generator (`generate_deepai_tryit_key` in ZeusDesigns).
+     */
+    fun generateDeepAiTryitKey(userAgent: String = CommunityHeaders.USER_AGENT): String {
+        val randomNum = ThreadLocalRandom.current().nextLong(10_000_000_000L, 99_999_999_999L).toString()
+        val h1 = sha256Hex("$userAgent$randomNum$DEEPAI_SALT".toByteArray(Charsets.UTF_8))
+        val h2 = sha256Hex("$userAgent$h1".toByteArray(Charsets.UTF_8))
+        val h3 = sha256Hex("$userAgent$h2".toByteArray(Charsets.UTF_8))
+        return "tryit-$randomNum-$h3"
+    }
+
+    /**
+     * HMAC-SHA256 raw bytes and hex digest (used for Alibaba Cloud OSS V4 signing in Qwen App Gateway).
+     */
+    fun hmacSha256Bytes(key: ByteArray, message: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(message)
+    }
+
+    fun hmacSha256Hex(key: ByteArray, message: ByteArray): String =
+        hmacSha256Bytes(key, message).joinToString("") { "%02x".format(it) }
+
+    /**
+     * Converts UNIX epoch seconds into `("YYYYMMDDTHHMMSSZ", "YYYYMMDD")` in UTC.
+     */
+    fun iso8601UtcCompact(unixSeconds: Long = System.currentTimeMillis() / 1000L): Pair<String, String> {
+        val inst = Instant.ofEpochSecond(unixSeconds).atOffset(ZoneOffset.UTC)
+        val datePart = "%04d%02d%02d".format(inst.year, inst.monthValue, inst.dayOfMonth)
+        val full = "%sT%02d%02d%02dZ".format(datePart, inst.hour, inst.minute, inst.second)
+        return full to datePart
+    }
+
+    /**
      * Splits ChatJimmy output into `(reasoning, visibleContent)`, stripping `<|stats|>...<|/stats|>`
      * and extracting `<|think|>...<|/think|>`.
      */
@@ -114,10 +147,26 @@ object KeylessCrypto {
      * multi-target clients can fail over before emitting error text to the user.
      */
     fun isUpstreamErrorText(text: String): Boolean {
-        val lower = text.trim().lowercase()
-        if (lower.isEmpty()) return false
+        val t = text.trim()
+        if (t.isEmpty()) return false
+        val lower = t.lowercase()
         return lower.startsWith("error:") ||
             lower.startsWith("{\"error\"") ||
+            lower.startsWith("provider api request failed.") ||
+            lower.startsWith("provider authentication failed.") ||
+            lower.startsWith("[proxy error:") ||
+            lower.startsWith("api error: 401") ||
+            lower.startsWith("api error: 402") ||
+            lower.startsWith("api error: 403") ||
+            lower.startsWith("api error: 404") ||
+            lower.startsWith("error code: 401") ||
+            lower.startsWith("error code: 402") ||
+            lower.startsWith("error code: 403") ||
+            lower.startsWith("error code: 404") ||
+            lower.startsWith("error code: 410") ||
+            lower.startsWith("service error, please try again later") ||
+            lower.contains("vercel security checkpoint") ||
+            lower.contains("tool_use_failed") ||
             lower.contains("rate limit exceeded") ||
             lower.contains("quota exceeded") ||
             lower.contains("no available channel") ||
@@ -125,6 +174,9 @@ object KeylessCrypto {
             lower.contains("model_not_found") ||
             lower.contains("upstream error") ||
             lower.contains("service unavailable") ||
-            lower.contains("bad gateway")
+            lower.contains("bad gateway") ||
+            t.contains("接上级主管部门通知") ||
+            t.contains("完全下架") ||
+            lower.contains("aichatos")
     }
 }

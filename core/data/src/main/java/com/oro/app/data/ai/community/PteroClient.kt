@@ -91,7 +91,7 @@ class PteroClient(
         body: JsonObject
     ): Boolean = runCatching {
         val ip = KeylessCrypto.fakeIpv4()
-        val req = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url("https://ptero.pro/wp-json/mlp/v1/chat-stream")
             .post(body.toString().toRequestBody(JSON))
             .header("Content-Type", "application/json")
@@ -101,8 +101,8 @@ class PteroClient(
             .header("X-Forwarded-For", ip)
             .header("X-Real-IP", ip)
             .site("https://ptero.pro")
-            .build()
-        CommunityHttp.execute(req) { response ->
+        cachedNonce?.takeIf { it.isNotEmpty() }?.let { reqBuilder.header("X-WP-Nonce", it) }
+        CommunityHttp.execute(reqBuilder.build()) { response ->
             if (!response.isSuccessful) return@execute false
             val source = response.body?.source() ?: return@execute false
             var started = false
@@ -112,6 +112,14 @@ class PteroClient(
                 if (!line.startsWith("data:")) continue
                 val raw = line.removePrefix("data:").trim()
                 val ev = runCatching { AiHttp.json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: continue
+                val act = ev["activity"] as? JsonObject
+                if ((act?.get("type") as? JsonPrimitive)?.contentOrNull == "thinking") {
+                    val lbl = (act["label"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                    if (lbl.isNotEmpty()) {
+                        if (!started) { started = true; emit(StreamEvent.Started) }
+                        emit(StreamEvent.ReasoningDelta("$lbl\n"))
+                    }
+                }
                 val thinkingTok = (ev["thinking_token"] as? JsonPrimitive)?.contentOrNull.orEmpty()
                 if (thinkingTok.isNotEmpty()) {
                     if (!started) { started = true; emit(StreamEvent.Started) }
@@ -136,6 +144,20 @@ class PteroClient(
         const val SITE = "Ptero"
         private const val MAX_ATTEMPTS = 3
         private val JSON = "application/json".toMediaType()
+        @Volatile private var cachedNonce: String? = null
+
+        fun extractNonce(html: String): String? {
+            for (pat in listOf("var nonce = '", "var nonce = \"", "data-referral-nonce=\"", "data-referral-nonce='")) {
+                val idx = html.indexOf(pat)
+                if (idx >= 0) {
+                    val rest = html.substring(idx + pat.length)
+                    val end = rest.indexOfFirst { !it.isDigit() && it !in 'a'..'f' && it !in 'A'..'F' }
+                        .let { if (it < 0) rest.length else it }
+                    if (end >= 8) return rest.substring(0, end)
+                }
+            }
+            return null
+        }
 
         /** System text rides on the last user message (the site has no system role); earlier turns go in history. */
         fun buildBody(upstreamModel: String, messages: List<ChatRequestMessage>): JsonObject? {
@@ -144,16 +166,32 @@ class PteroClient(
             val convo = turns.filter { it.role != "system" }
             val lastUserIndex = convo.indexOfLast { it.role == "user" }
             if (lastUserIndex < 0) return null
+            val allImages = messages.flatMap { it.images }
+            val effModel = if (allImages.isNotEmpty()) "agnes-2.5-flash:agnes" else upstreamModel
             val message = (if (systems.isNotBlank()) "[System instructions: $systems]\n\n" else "") + convo[lastUserIndex].text
             return buildJsonObject {
                 put("message", message)
-                put("model", upstreamModel)
+                put("model", effModel)
+                put("conversation_id", UUID.randomUUID().toString())
                 putJsonArray("history") {
                     convo.take(lastUserIndex).forEach { t ->
                         addJsonObject { put("role", t.role); put("text", t.text); putJsonArray("attachments") {} }
                     }
                 }
-                putJsonArray("attachments") {}
+                putJsonArray("attachments") {
+                    allImages.forEachIndexed { idx, img ->
+                        val dataUrl = "data:${img.mimeType};base64,${img.base64}"
+                        addJsonObject {
+                            put("name", "image_$idx.png")
+                            put("type", img.mimeType)
+                            put("size", img.base64.length * 3 / 4)
+                            put("data", dataUrl)
+                            put("dataUrl", dataUrl)
+                            put("url", dataUrl)
+                        }
+                    }
+                }
+                put("github_repo", "")
                 put("lang", "en")
                 put("mode", "full")
             }

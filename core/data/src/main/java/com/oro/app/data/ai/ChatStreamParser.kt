@@ -77,10 +77,10 @@ class ChatStreamParser {
         val delta = (choice["delta"] as? JsonObject) ?: (choice["message"] as? JsonObject)
 
         if (delta != null) {
-            stringOf(delta["reasoning_content"])?.takeIf { it.isNotEmpty() }
-                ?.let { sawAnything = true; out += StreamEvent.ReasoningDelta(it) }
-                ?: stringOf(delta["reasoning"])?.takeIf { it.isNotEmpty() }
-                    ?.let { sawAnything = true; out += StreamEvent.ReasoningDelta(it) }
+            extractReasoning(delta)?.takeIf { it.isNotEmpty() }?.let {
+                sawAnything = true
+                out += StreamEvent.ReasoningDelta(it)
+            }
 
             stringOf(delta["content"])?.takeIf { it.isNotEmpty() }?.let {
                 sawAnything = true
@@ -90,6 +90,9 @@ class ChatStreamParser {
             (delta["tool_calls"] as? JsonArray)?.forEach { element ->
                 val call = element as? JsonObject ?: return@forEach
                 accumulate(call)
+            }
+            (delta["function_call"] as? JsonObject)?.let { fc ->
+                accumulateFunctionCall(fc)
             }
         }
 
@@ -139,6 +142,45 @@ class ChatStreamParser {
         if (argumentsFragment != null) acc.arguments.append(argumentsFragment)
     }
 
+    private fun accumulateFunctionCall(fc: JsonObject) {
+        sawAnything = true
+        val name = stringOf(fc["name"])?.takeIf { it.isNotBlank() }
+        val argsEl = fc["arguments"]
+        val argsFrag = when (argsEl) {
+            null -> null
+            is JsonPrimitive -> argsEl.contentOrNull
+            else -> argsEl.toString()
+        }
+        val acc = tools.getOrPut(0) { ToolAccumulator(id = "call_0") }
+        if (name != null) acc.name = name
+        if (argsFrag != null) acc.arguments.append(argsFrag)
+    }
+
+    private fun extractReasoning(delta: JsonObject): String? {
+        for (key in REASONING_KEYS) {
+            when (val el = delta[key]) {
+                is JsonPrimitive -> el.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }?.let { return it }
+                is JsonObject -> {
+                    for (sub in REASONING_SUBKEYS) {
+                        stringOf(el[sub])?.takeIf { it.isNotEmpty() }?.let { return it }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        val details = delta["reasoning_details"] as? JsonArray
+        if (details != null) {
+            val sb = StringBuilder()
+            for (item in details) {
+                val obj = item as? JsonObject ?: continue
+                val text = stringOf(obj["text"]) ?: stringOf(obj["thinking"]) ?: stringOf(obj["summary"])
+                if (!text.isNullOrEmpty()) sb.append(text)
+            }
+            if (sb.isNotEmpty()) return sb.toString()
+        }
+        return null
+    }
+
     /** Flush tool calls and complete. Idempotent. */
     fun finish(): List<StreamEvent> {
         if (finished) return emptyList()
@@ -162,6 +204,9 @@ class ChatStreamParser {
     }
 
     companion object {
+        private val REASONING_KEYS = listOf("reasoning_content", "reasoning", "thinking", "thought")
+        private val REASONING_SUBKEYS = listOf("text", "content", "thinking", "summary")
+
         private fun stringOf(element: JsonElement?): String? =
             (element as? JsonPrimitive)?.takeIf { it.isString }?.content
 
