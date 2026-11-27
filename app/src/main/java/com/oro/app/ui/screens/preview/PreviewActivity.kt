@@ -59,6 +59,7 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Handyman
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -139,7 +140,17 @@ import com.oro.app.ui.components.inspector.SourceTextEdit
 import com.oro.app.ui.components.inspector.StyleChangeRequest
 import com.oro.app.ui.components.inspector.TextChangeRequest
 import com.oro.app.ui.components.inspector.VisualElementInspector
+import com.oro.app.data.preview.ArtifactHistoryStore
+import com.oro.app.data.preview.ArtifactKind
+import com.oro.app.data.preview.CanvasBackdrop
+import com.oro.app.data.preview.ChatPromptBridge
+import com.oro.app.data.preview.ElementPrompt
 import com.oro.app.data.preview.FrameworkType
+import com.oro.app.data.preview.PickedElement
+import com.oro.app.data.preview.PreviewTelemetry
+import com.oro.app.data.preview.PreviewViewport
+import com.oro.app.data.preview.RuntimeIssue
+import com.oro.app.data.preview.PreviewArtifacts
 import com.oro.app.data.repository.LiteMode
 import com.oro.app.ui.theme.DevicePerformance
 import com.oro.app.data.preview.PreviewServerManager
@@ -177,6 +188,7 @@ class PreviewActivity : ComponentActivity() {
 
         projectId = intent.getStringExtra(EXTRA_PROJECT_ID) ?: ""
         projectPath = intent.getStringExtra(EXTRA_PROJECT_PATH) ?: ""
+        val startPath = intent.getStringExtra(EXTRA_START_PATH)?.takeIf { it.isNotBlank() }
 
         setContent {
             // Same Lite mode resolution as MainActivity, so the preview's
@@ -188,6 +200,7 @@ class PreviewActivity : ComponentActivity() {
                 PreviewScreen(
                     projectId = projectId,
                     projectPath = projectPath,
+                    startPath = startPath,
                     onBackClick = { finish() },
                     onWebViewCreated = { webView = it }
                 )
@@ -223,6 +236,8 @@ class PreviewActivity : ComponentActivity() {
 
         const val EXTRA_PROJECT_ID = "extra_project_id"
         const val EXTRA_PROJECT_PATH = "extra_project_path"
+        /** A project-relative file to open the preview on (a page, an SVG, a Markdown file). */
+        const val EXTRA_START_PATH = "extra_start_path"
 
         // Result extras for agent edit mode
         const val RESULT_AGENT_PROMPT = "result_agent_prompt"
@@ -408,6 +423,7 @@ class InspectorJsInterface(
 private fun PreviewScreen(
     projectId: String,
     projectPath: String,
+    startPath: String?,
     onBackClick: () -> Unit,
     onWebViewCreated: (WebView) -> Unit
 ) {
@@ -430,10 +446,70 @@ private fun PreviewScreen(
     }
     val density = LocalDensity.current
 
+    // Preview studio: runtime errors, drag-resized width, canvas backdrop, file versions.
+    var runtimeIssues by remember { mutableStateOf<List<RuntimeIssue>>(emptyList()) }
+    var customWidth by remember { mutableStateOf<Int?>(null) }
+    var backdrop by remember { mutableStateOf(CanvasBackdrop.AUTO) }
+    var previewHeightPx by remember { mutableIntStateOf(0) }
+    var currentPath by remember { mutableStateOf<String?>(null) }
+    var versionLabel by remember { mutableStateOf<String?>(null) }
+    var versionsFor by remember { mutableStateOf<String?>(null) }
+    val history = remember(projectId) { ArtifactHistoryStore.forProject(projectId) }
+    var pendingExportText by remember { mutableStateOf<String?>(null) }
+    var pendingZipPage by remember { mutableStateOf<String?>(null) }
+
     // Embedded dev server for framework projects
     val serverManager = remember { PreviewServerManager.getInstance() }
     val serverState by serverManager.serverState.collectAsStateWithLifecycle()
     var previewUrl by remember { mutableStateOf<String?>(null) }
+
+    // Page picker and local address bar.
+    var showPages by remember { mutableStateOf(false) }
+    var showAddress by remember { mutableStateOf(false) }
+    val serverOrigin = remember(previewUrl) {
+        previewUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?.let { u -> Uri.parse(u).let { "${it.scheme}://${it.authority}" } }
+    }
+    val previewEntries by produceState(emptyList<String>(), projectPath, showPages) {
+        value = if (showPages) withContext(Dispatchers.IO) { listPreviewEntries(File(projectPath)) } else emptyList()
+    }
+
+    fun currentRel(): String? = PreviewArtifacts.relativeOf(serverOrigin ?: "", webView?.url)
+
+    fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+
+    val htmlSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/html")) { uri ->
+        val text = pendingExportText
+        pendingExportText = null
+        if (uri != null && text != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { PreviewExport.writeText(context, uri, text) }
+                toast(if (ok) "Saved ✓" else "Couldn't save the file")
+            }
+        }
+    }
+    val zipSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val page = pendingZipPage
+        pendingZipPage = null
+        if (uri != null && page != null) {
+            scope.launch {
+                val count = withContext(Dispatchers.IO) { PreviewExport.writeZip(context, uri, File(projectPath), page) }
+                toast(if (count >= 0) "Saved $count file${if (count == 1) "" else "s"} ✓" else "Couldn't save the files")
+            }
+        }
+    }
+
+    // Keeps a version of the page on screen (and of the file it shows) as the agent edits it.
+    LaunchedEffect(currentPath, projectPath) {
+        val path = currentPath
+        if (path == null) { versionLabel = null; return@LaunchedEffect }
+        while (true) {
+            withContext(Dispatchers.IO) { ArtifactHistoryStore.capture(projectId, File(projectPath), path) }
+            val revisions = history.revisions(path)
+            versionLabel = if (revisions.size > 1) "v${revisions.last().number}" else null
+            kotlinx.coroutines.delay(1500)
+        }
+    }
 
     // Detect framework type. Off the main thread: detection reads
     // package.json and, failing that, walks the whole project tree (up to
@@ -449,8 +525,12 @@ private fun PreviewScreen(
     // Start server for framework projects
     LaunchedEffect(projectPath) {
         if (projectPath.isNotEmpty()) {
-            val url = serverManager.getPreviewUrl(projectPath)
-            previewUrl = url
+            // Opened on one file (a page, an SVG, a Markdown document): serve the
+            // project and point at that file; otherwise the project's own entry page.
+            val onFile = startPath?.let { path ->
+                serverManager.startServerForProject(projectPath)?.let { PreviewArtifacts.urlFor(it, path) }
+            }
+            previewUrl = onFile ?: serverManager.getPreviewUrl(projectPath)
         }
     }
 
@@ -637,6 +717,31 @@ private fun PreviewScreen(
         }
     }
 
+    if (showPages && serverOrigin != null) {
+        PagePickerDialog(
+            entries = previewEntries,
+            current = PreviewArtifacts.relativeOf(serverOrigin, webView?.url),
+            onPick = { path ->
+                showPages = false
+                webView?.loadUrl(PreviewArtifacts.urlFor(serverOrigin, path))
+            },
+            onDismiss = { showPages = false }
+        )
+    }
+    if (showAddress) {
+        LocalAddressDialog(
+            onGo = { url ->
+                showAddress = false
+                webView?.loadUrl(url)
+            },
+            onProject = {
+                showAddress = false
+                previewUrl?.let { webView?.loadUrl(it) }
+            },
+            onDismiss = { showAddress = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -746,6 +851,21 @@ private fun PreviewScreen(
                             onDismissRequest = { showMoreMenu = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Pages") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showPages = true
+                                },
+                                enabled = serverOrigin != null
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Open local address") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showAddress = true
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Open in browser") },
                                 onClick = {
                                     // The page being previewed, served: a browser on this
@@ -789,6 +909,80 @@ private fun PreviewScreen(
                                         imageVector = Icons.Outlined.OpenInBrowser,
                                         contentDescription = null
                                     )
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Export standalone HTML") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    val page = currentRel()
+                                    if (page == null || PreviewArtifacts.kindOf(page) != ArtifactKind.WEB_PAGE) {
+                                        toast("Open an HTML page to export it")
+                                    } else {
+                                        scope.launch {
+                                            val result = withContext(Dispatchers.IO) { PreviewExport.bundle(File(projectPath), page) }
+                                            if (result.html.isEmpty()) toast("$page isn't there any more") else {
+                                                pendingExportText = result.html
+                                                htmlSaver.launch(PreviewExport.standaloneName(page))
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copy full code") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    val page = currentRel()
+                                    if (page == null) toast("Nothing to copy yet") else scope.launch {
+                                        val root = File(projectPath)
+                                        val (text, folded) = withContext(Dispatchers.IO) {
+                                            if (PreviewArtifacts.kindOf(page) == ArtifactKind.WEB_PAGE) {
+                                                PreviewExport.bundle(root, page).let { it.html to it.inlined.size }
+                                            } else {
+                                                PreviewExport.readText(root, page).orEmpty() to 0
+                                            }
+                                        }
+                                        if (text.isEmpty()) toast("Nothing to copy") else {
+                                            PreviewExport.copy(context, text)
+                                            toast(if (folded > 0) "Copied ✓ ($folded file${if (folded == 1) "" else "s"} inlined)" else "Copied ✓")
+                                        }
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Save page and files (.zip)") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    val page = currentRel()
+                                    if (page == null || PreviewArtifacts.kindOf(page) != ArtifactKind.WEB_PAGE) {
+                                        toast("Open an HTML page to save it")
+                                    } else {
+                                        pendingZipPage = page
+                                        zipSaver.launch(PreviewExport.zipName(page))
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Print or save as PDF") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    val wv = webView
+                                    if (wv == null || !PreviewExport.print(context, wv, pageTitle)) toast("Printing isn't available")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Source and versions") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    val page = currentRel()?.takeIf { ArtifactHistoryStore.isTracked(it) }
+                                    if (page == null) toast("No source to show for this page") else {
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) { ArtifactHistoryStore.capture(projectId, File(projectPath), page) }
+                                            versionsFor = page
+                                        }
+                                    }
                                 }
                             )
                             HorizontalDivider()
@@ -866,27 +1060,45 @@ private fun PreviewScreen(
             PreviewDeviceBar(
                 device = device,
                 landscape = landscape,
-                layoutWidth = device.width(landscape)
+                layoutWidth = customWidth ?: device.width(landscape)
                     ?: with(density) { previewWidthPx.toDp().value.roundToInt() }.takeIf { it > 0 },
                 errorCount = errorCount,
                 onDeviceChange = { picked ->
+                    customWidth = null
                     if (picked != device) {
                         device = picked
                         landscape = false
                     }
                 },
-                onRotate = { landscape = !landscape },
+                onRotate = { customWidth = null; landscape = !landscape },
                 onFit = { webView?.let { runCatching { it.zoomBy(0.01f) } } },
                 onShowErrors = { showConsole = true },
                 darkPage = pageDark.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q },
                 onToggleDark = { pageDark = !pageDark }
             )
 
+            val effectiveWidth = customWidth ?: device.width(landscape)
+                ?: with(density) { previewWidthPx.toDp().value.roundToInt() }.takeIf { it > 0 }
+                ?: PreviewViewport.MIN_WIDTH
+            ViewportStudioBar(
+                width = effectiveWidth,
+                cssHeight = PreviewViewport.cssHeight(effectiveWidth, previewWidthPx, previewHeightPx),
+                customWidth = customWidth != null,
+                onWidthChange = { customWidth = PreviewViewport.clamp(it) },
+                onWidthSettled = { customWidth = customWidth?.let { w -> PreviewViewport.snap(w) } },
+                onResetWidth = { customWidth = null },
+                backdrop = backdrop,
+                onBackdrop = { backdrop = backdrop.next() },
+                versionLabel = versionLabel,
+                onVersions = { currentRel()?.let { versionsFor = it } }
+            )
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .onSizeChanged { previewWidthPx = it.width }
+                    .onSizeChanged { previewWidthPx = it.width; previewHeightPx = it.height }
+                    .canvasBackdrop(backdrop)
             ) {
                 PreviewWebView(
                     projectPath = projectPath,
@@ -895,6 +1107,9 @@ private fun PreviewScreen(
                     landscape = landscape,
                     darkPage = pageDark,
                     modifier = Modifier.fillMaxSize(),
+                    widthOverride = customWidth,
+                    transparentBackground = backdrop != CanvasBackdrop.AUTO,
+                    onRuntimeIssue = { issue -> runtimeIssues = PreviewTelemetry.merge(runtimeIssues, issue) },
                     selectionMode = selectionMode,
                     onWebViewCreated = { wv ->
                         webView = wv
@@ -903,8 +1118,11 @@ private fun PreviewScreen(
                     onPageStarted = {
                         // Like a browser's console: each page load starts clean.
                         consoleLogs.clear()
+                        runtimeIssues = emptyList()
                     },
                     onPageFinished = { wv ->
+                        currentPath = PreviewArtifacts.relativeOf(serverOrigin ?: "", wv.url)
+                            ?.takeIf { ArtifactHistoryStore.isTracked(it) }
                         // A reload (the dev server's, after an edit) drops the inspector;
                         // put it back, and keep the element being edited picked.
                         when (selectionMode) {
@@ -935,6 +1153,12 @@ private fun PreviewScreen(
                             consoleLogs.removeAt(0)
                         }
                         consoleLogs.add(entry)
+                        if (entry.level == ConsoleMessage.MessageLevel.ERROR) {
+                            runtimeIssues = PreviewTelemetry.merge(
+                                runtimeIssues,
+                                PreviewTelemetry.fromConsole(entry.message, entry.sourceId, entry.lineNumber)
+                            )
+                        }
                         // Errors and warnings also go to Orobi's next turn.
                         val level = when (entry.level) {
                             ConsoleMessage.MessageLevel.ERROR -> com.oro.app.data.preview.PreviewDiagnostics.Level.ERROR
@@ -1074,6 +1298,14 @@ private fun PreviewScreen(
                 AgentPromptBar(
                     selectedElements = selectedElements.toList(),
                     onClearSelection = { selectedElements.clear() },
+                    onSendToChat = { instruction ->
+                        val picked = selectedElements.map { it.toPicked() }
+                        ChatPromptBridge.offer(projectId, ElementPrompt.build(picked, instruction))
+                        toast("Element added to the chat")
+                        selectedElements.clear()
+                        selectionMode = SelectionMode.DISABLED
+                        onBackClick()
+                    },
                     onSubmit = { prompt ->
                         // Process directly with AI instead of redirecting to chat
                         val model = currentModel.value
@@ -1223,6 +1455,30 @@ private fun PreviewScreen(
                 }
             }
 
+            // Runtime errors from the page, with a one-tap hand-off to the chat
+            AnimatedVisibility(
+                visible = runtimeIssues.isNotEmpty() && !agentSelectionMode,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut()
+            ) {
+                RuntimeErrorBanner(
+                    issues = runtimeIssues,
+                    onFix = {
+                        ChatPromptBridge.offer(
+                            projectId,
+                            PreviewTelemetry.fixPrompt(runtimeIssues, currentRel(), serverOrigin)
+                        )
+                        toast("Error added to the chat")
+                        onBackClick()
+                    },
+                    onCopy = {
+                        PreviewExport.copy(context, PreviewTelemetry.copyContext(runtimeIssues, currentRel(), serverOrigin))
+                        toast("Copied ✓")
+                    },
+                    onDismiss = { runtimeIssues = emptyList() }
+                )
+            }
+
             // Console panel
             AnimatedVisibility(
                 visible = showConsole && !showInspectorPanel && !agentSelectionMode,
@@ -1239,7 +1495,32 @@ private fun PreviewScreen(
             }
         }
     }
+
+    versionsFor?.let { path ->
+        VersionsSheet(
+            path = path,
+            history = history,
+            onCopy = { text ->
+                PreviewExport.copy(context, text)
+                toast("Copied ✓")
+            },
+            onDismiss = { versionsFor = null }
+        )
+    }
 }
+
+/** The picked element as a chat prompt sees it. */
+private fun InspectedElement.toPicked(): PickedElement = PickedElement(
+    tag = tagName,
+    selector = selector.ifBlank { buildElementSelector(this) },
+    id = id,
+    classes = className,
+    text = ownText.ifBlank { textContent },
+    width = boundingRect.width.roundToInt(),
+    height = boundingRect.height.roundToInt(),
+    styles = computedStyles,
+    page = pagePath
+)
 
 /**
  * Extension function to convert InspectorElementData back to InspectedElement
@@ -1346,7 +1627,9 @@ internal fun AgentPromptBar(
     isProcessing: Boolean = false,
     hasValidModel: Boolean = true,
     onNavigateToModels: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Puts the selection and what was typed into the editor's chat instead of applying the edit here. */
+    onSendToChat: ((String) -> Unit)? = null
 ) {
     var promptText by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
@@ -1496,6 +1779,26 @@ internal fun AgentPromptBar(
                             }
                         }
                     )
+                }
+
+                // Hand the selection to the chat composer
+                if (onSendToChat != null) {
+                    IconButton(
+                        onClick = {
+                            keyboardController?.hide()
+                            onSendToChat(promptText)
+                            promptText = ""
+                        },
+                        enabled = !isProcessing,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = "Send to chat",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
 
                 // Send button
@@ -2055,6 +2358,22 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
             overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:999999;border:2px solid ${if (multiSelect) "#6366F1" else "#6200EE"};background:rgba(${if (multiSelect) "99,102,241" else "98,0,238"},0.1);display:none;transition:all 0.1s ease;';
             document.body.appendChild(overlay);
 
+            // Label over the highlight: <tag#id.class> and its size in CSS px.
+            var oroTip = document.createElement('div');
+            oroTip.id = '__oro_inspector_label';
+            oroTip.style.cssText = 'position:fixed;pointer-events:none;z-index:1000000;background:#1c1b1f;color:#fff;font:600 11px/1.3 monospace;padding:2px 6px;border-radius:4px;display:none;white-space:nowrap;max-width:90vw;overflow:hidden;text-overflow:ellipsis;';
+            document.body.appendChild(oroTip);
+            function oroShowTip(el, rect) {
+                var t = el.tagName.toLowerCase();
+                if (el.id) t += '#' + el.id;
+                var cls = (typeof el.className === 'string' ? el.className : '').trim().split(' ').filter(Boolean).slice(0, 2);
+                cls.forEach(function(c) { t += '.' + c; });
+                oroTip.textContent = t + '  ' + Math.round(rect.width) + ' x ' + Math.round(rect.height);
+                oroTip.style.display = 'block';
+                oroTip.style.left = Math.max(0, Math.min(rect.left, window.innerWidth - 140)) + 'px';
+                oroTip.style.top = (rect.top > 24 ? rect.top - 22 : rect.bottom + 4) + 'px';
+            }
+
             // Track selected elements for multi-select mode
             var selectedElements = new Set();
 
@@ -2178,6 +2497,7 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                     overlay.style.top = rect.top + 'px';
                     overlay.style.width = rect.width + 'px';
                     overlay.style.height = rect.height + 'px';
+                    oroShowTip(el, rect);
                 },
 
                 select: function(el) {
@@ -2266,6 +2586,7 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                         overlay.style.top = rect.top + 'px';
                         overlay.style.width = rect.width + 'px';
                         overlay.style.height = rect.height + 'px';
+                        oroShowTip(el, rect);
                     }
                 },
 
@@ -2278,6 +2599,7 @@ private fun WebView.injectInspectorScript(multiSelect: Boolean = false) {
                     this.current = null;
                     var overlay = document.getElementById('__oro_inspector_overlay');
                     if (overlay) overlay.remove();
+                    if (oroTip) oroTip.remove();
 
                     // Remove all selection markers
                     document.querySelectorAll('.__oro_selected_marker').forEach(function(m) {

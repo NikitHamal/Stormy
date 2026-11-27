@@ -80,6 +80,12 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
         <activity
+            android:name=".ui.screens.pdf.PdfViewerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Oro"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
+
+        <activity
             android:name=".ui.screens.mcp.McpOAuthActivity"
             android:exported="true"
             android:noHistory="true"

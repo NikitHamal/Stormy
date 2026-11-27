@@ -133,6 +133,15 @@ fun ToolCard(
     val presentation = ToolPresentations[entry.toolName]
     var sheetOpen by remember { mutableStateOf(false) }
 
+    // A file the agent wrote that can be looked at (a page, a PDF) gets a
+    // button on its card, when the screen can open it.
+    val opener = com.oro.app.ui.screens.preview.LocalArtifactOpener.current
+    val artifactPath = entry.subject?.trim()?.takeIf {
+        opener != null && entry.status == ToolCallStatus.Success &&
+            com.oro.app.ui.screens.preview.ArtifactLauncher.producesFile(entry.toolName)
+    }
+    val artifactLabel = com.oro.app.ui.screens.preview.ArtifactLauncher.label(artifactPath)
+
     val shortSubject = entry.subject?.takeIf { it.isNotBlank() }?.let { raw ->
         if (presentation.subjectIsPath) ToolPresentations.shortenPath(raw) else raw
     }
@@ -167,6 +176,8 @@ fun ToolCard(
             additions = additions,
             deletions = deletions,
             expanded = false,
+            artifactLabel = artifactLabel,
+            onArtifact = { artifactPath?.let { path -> opener?.invoke(path) } },
             onToggle = { sheetOpen = true }
         )
     }
@@ -191,6 +202,8 @@ private fun ToolCardHeader(
     additions: Int,
     deletions: Int,
     expanded: Boolean,
+    artifactLabel: String?,
+    onArtifact: () -> Unit,
     onToggle: () -> Unit
 ) {
     val running = entry.status == ToolCallStatus.Running
@@ -248,6 +261,23 @@ private fun ToolCardHeader(
             )
         } else {
             Spacer(Modifier.weight(1f))
+        }
+        if (artifactLabel != null && !running && !isError) {
+            Spacer(Modifier.width(Space.xs))
+            Box(
+                modifier = Modifier
+                    .clip(OroCorners.small)
+                    .background(scheme.secondaryContainer)
+                    .clickable(onClickLabel = artifactLabel, onClick = onArtifact)
+                    .padding(horizontal = Space.sm, vertical = Space.xxs)
+            ) {
+                Text(
+                    text = artifactLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.onSecondaryContainer,
+                    maxLines = 1
+                )
+            }
         }
         Spacer(Modifier.width(Space.sm))
         when {

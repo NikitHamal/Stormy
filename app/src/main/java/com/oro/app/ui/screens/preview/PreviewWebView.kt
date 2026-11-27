@@ -1,5 +1,8 @@
 package com.oro.app.ui.screens.preview
 
+import com.oro.app.ui.screens.pdf.PdfViewerActivity
+import com.oro.app.data.preview.PreviewTelemetry
+import com.oro.app.data.preview.RuntimeIssue
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
@@ -80,7 +83,13 @@ internal fun PreviewWebView(
     onConsoleMessage: (ConsoleLogEntry) -> Unit,
     onRendererGone: (reopened: Boolean) -> Unit,
     onElementInspected: (InspectedElement, SelectionMode) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** A layout width in CSS px set by dragging; overrides [device]'s own while not null. */
+    widthOverride: Int? = null,
+    /** True lets the page's own background through to what the preview paints behind it. */
+    transparentBackground: Boolean = false,
+    /** An uncaught error, rejected promise or `console.error` reported by the page. */
+    onRuntimeIssue: (RuntimeIssue) -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentOnCreated by rememberUpdatedState(onWebViewCreated)
@@ -91,6 +100,8 @@ internal fun PreviewWebView(
     val currentOnGone by rememberUpdatedState(onRendererGone)
     val currentOnElementInspected by rememberUpdatedState(onElementInspected)
     val currentSelectionMode by rememberUpdatedState(selectionMode)
+    val currentOnIssue by rememberUpdatedState(onRuntimeIssue)
+    val telemetryInterface = remember { TelemetryJsInterface { currentOnIssue(it) } }
 
     // Reads the mode at the moment of the tap, so a fast mode switch routes right.
     val inspectorInterface = remember {
@@ -120,11 +131,20 @@ internal fun PreviewWebView(
     }
 
     // Device changes after the first load: new settings, then reload.
-    LaunchedEffect(device, landscape, generation) {
+    LaunchedEffect(device, landscape, widthOverride, generation) {
         val webView = session.webView ?: return@LaunchedEffect
-        if (session.applied == device to landscape) return@LaunchedEffect
-        webView.applyDevice(session, device, landscape, defaultUa)
-        webView.reload()
+        val next = AppliedDevice(device, landscape, widthOverride)
+        val previous = session.applied
+        if (previous == next) return@LaunchedEffect
+        webView.applyDevice(session, device, landscape, defaultUa, widthOverride)
+        // Dragging the width only changes the layout width: re-lay the page out live,
+        // no reload. Anything else (another device, rotating, back to a preset) reloads.
+        val liveWidth = widthOverride
+        if (liveWidth != null && previous != null && previous.device == device && previous.landscape == landscape) {
+            webView.evaluateJavascript(PreviewDevice.viewportNowScript(liveWidth), null)
+        } else {
+            webView.reload()
+        }
     }
 
     Box(modifier) {
@@ -139,6 +159,22 @@ internal fun PreviewWebView(
                         session.webView = this
                         configure()
                         addJavascriptInterface(inspectorInterface, "OroInspector")
+                        addJavascriptInterface(telemetryInterface, PreviewTelemetry.BRIDGE)
+                        addJavascriptInterface(
+                            BlobPdfBridge(
+                                context = ctx.applicationContext,
+                                onFile = { file -> PdfViewerActivity.open(ctx, file.absolutePath, "Document.pdf") },
+                                onProblem = { message -> notice(message) }
+                            ),
+                            BlobPdfBridge.NAME
+                        )
+                        // Errors thrown while the page loads are the ones most worth catching:
+                        // install the reporter before the page's own scripts run.
+                        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                            runCatching {
+                                WebViewCompat.addDocumentStartJavaScript(this, PreviewTelemetry.SCRIPT, setOf("*"))
+                            }
+                        }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             // Kept responsive while on screen; its memory can go first in the background.
                             setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
@@ -151,7 +187,11 @@ internal fun PreviewWebView(
                                 return when (uri.scheme?.lowercase()) {
                                     "http", "https" -> {
                                         // The project's own pages stay here; other sites open in a browser.
-                                        if (!req.isForMainFrame || isLocalHost(uri.host) || uri.host == Uri.parse(view?.url.orEmpty()).host) {
+                                        if (req.isForMainFrame && isPdfUrl(uri)) {
+                                            // A PDF link opens in Oro's own viewer, wherever it points.
+                                            PdfViewerActivity.open(ctx, uri.toString())
+                                            true
+                                        } else if (!req.isForMainFrame || isLocalHost(uri.host) || uri.host == Uri.parse(view?.url.orEmpty()).host) {
                                             false
                                         } else {
                                             openOutside(ctx, uri)
@@ -177,6 +217,8 @@ internal fun PreviewWebView(
                                 super.onPageFinished(view, url)
                                 if (view == null || view !== session.webView) return
                                 if (url != null && url != "about:blank" && !url.startsWith("data:")) session.lastUrl = url
+                                // Where document-start scripts are missing, report from here on (a no-op when installed).
+                                view.evaluateJavascript(PreviewTelemetry.SCRIPT, null)
                                 // Without document-start scripts the width is set after load, then fitted.
                                 val width = session.layoutWidth
                                 if (width != null && session.scriptHandler == null) {
@@ -307,16 +349,25 @@ internal fun PreviewWebView(
                             }
                         }
 
-                        setDownloadListener { url, _, _, _, _ ->
+                        setDownloadListener { url, _, _, mimetype, _ ->
                             val uri = Uri.parse(url)
-                            if (uri.scheme == "http" || uri.scheme == "https") {
+                            val isPdf = mimetype?.contains("pdf", ignoreCase = true) == true ||
+                                isPdfUrl(uri) || url.startsWith("data:application/pdf", ignoreCase = true)
+                            if (isPdf && (uri.scheme == "http" || uri.scheme == "https" || uri.scheme == "data")) {
+                                PdfViewerActivity.open(ctx, url)
+                            } else if (isPdf && uri.scheme == "blob") {
+                                // A blob lives inside the page: ask the page for its bytes, hand
+                                // them over in pieces, and open the file they make.
+                                session.webView?.evaluateJavascript(BlobPdfBridge.fetchScript(url), null)
+                                    ?: notice("Couldn't read the PDF from the page.")
+                            } else if (uri.scheme == "http" || uri.scheme == "https") {
                                 openOutside(ctx, uri)
                             } else {
                                 notice("Files the page makes itself (${uri.scheme}: links) can't be saved from the preview. Open the page in a browser to save one.")
                             }
                         }
 
-                        applyDevice(session, device, landscape, defaultUa)
+                        applyDevice(session, device, landscape, defaultUa, widthOverride)
                         val url = session.lastUrl ?: previewUrl
                         session.loadedPreviewUrl = previewUrl
                         if (url != null && !session.held) loadPreview(url, projectPath)
@@ -324,6 +375,7 @@ internal fun PreviewWebView(
                     }
                 },
                 update = { view ->
+                    view.setBackgroundColor(if (transparentBackground) android.graphics.Color.TRANSPARENT else android.graphics.Color.WHITE)
                     // Only a new preview URL (the server came up, or moved) navigates;
                     // the page the user has clicked through to is left alone.
                     if (previewUrl != null && previewUrl != session.loadedPreviewUrl && !session.held) {
@@ -364,7 +416,7 @@ private class PreviewSession {
     var lastUrl: String? = null
     var loadedPreviewUrl: String? = null
     var scriptHandler: ScriptHandler? = null
-    var applied: Pair<PreviewDevice, Boolean>? = null
+    var applied: AppliedDevice? = null
     var layoutWidth: Int? = null
     var fileCallback: ValueCallback<Array<Uri>>? = null
     var fileMultiple = false
@@ -410,18 +462,49 @@ private fun WebView.configure() {
  * next load. Widths go in through a document-start script where WebView
  * supports one, else after load (see onPageFinished).
  */
-private fun WebView.applyDevice(session: PreviewSession, device: PreviewDevice, landscape: Boolean, defaultUa: String) {
+private fun WebView.applyDevice(
+    session: PreviewSession,
+    device: PreviewDevice,
+    landscape: Boolean,
+    defaultUa: String,
+    widthOverride: Int? = null
+) {
     session.scriptHandler?.let { handler -> runCatching { handler.remove() } }
     session.scriptHandler = null
     settings.userAgentString = device.userAgent(defaultUa)
-    val width = device.width(landscape)
+    val width = widthOverride ?: device.width(landscape)
     if (width != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
         session.scriptHandler = runCatching {
             WebViewCompat.addDocumentStartJavaScript(this, PreviewDevice.viewportScript(width), setOf("*"))
         }.getOrNull()
     }
     session.layoutWidth = width
-    session.applied = device to landscape
+    session.applied = AppliedDevice(device, landscape, widthOverride)
+}
+
+/** What the WebView was last laid out as. */
+private data class AppliedDevice(val device: PreviewDevice, val landscape: Boolean, val width: Int?)
+
+/**
+ * Receives the page's error reports (see [PreviewTelemetry.SCRIPT]). Reports
+ * are bounded and rate-limited so a page that throws every frame cannot
+ * flood the main thread, and anything unparseable is dropped.
+ */
+private class TelemetryJsInterface(private val onIssue: (RuntimeIssue) -> Unit) {
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var windowStart = 0L
+    private var inWindow = 0
+
+    @android.webkit.JavascriptInterface
+    fun report(json: String?) {
+        val now = SystemClock.elapsedRealtime()
+        synchronized(this) {
+            if (now - windowStart > 1000) { windowStart = now; inWindow = 0 }
+            if (++inWindow > 20) return
+        }
+        val issue = PreviewTelemetry.parse(json.orEmpty().take(8_000)) ?: return
+        main.post { onIssue(issue) }
+    }
 }
 
 /** file:// pages may read their neighbours; pages from the dev server don't need to. */
@@ -440,6 +523,8 @@ private fun WebView.loadPreview(url: String, projectPath: String) {
 private const val NO_INDEX_PAGE =
     "<html><body style=\"font-family:sans-serif;padding:24px\"><h2>No index.html yet</h2>" +
         "<p>Add an index.html to the project to preview it.</p></body></html>"
+
+private fun isPdfUrl(uri: Uri): Boolean = uri.path?.endsWith(".pdf", ignoreCase = true) == true
 
 private fun isLocalHost(host: String?): Boolean =
     host == null || host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
@@ -478,4 +563,99 @@ private fun loadErrorMessage(description: String): String = when {
         "That address can't be reached. Check the connection, or retry."
     "FILE_NOT_FOUND" in description -> "That page isn't in the project."
     else -> "The page didn't load ($description)."
+}
+
+/**
+ * Brings a PDF that only exists as a `blob:` URL inside the page out to a
+ * file: the page reads the blob in slices and passes each as base64, and
+ * the finished file opens in the built-in viewer. An Intent could not carry
+ * it (about 1 MB), and a blob URL means nothing outside its page.
+ */
+private class BlobPdfBridge(
+    private val context: android.content.Context,
+    private val onFile: (File) -> Unit,
+    private val onProblem: (String) -> Unit
+) {
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var file: File? = null
+    private var out: java.io.OutputStream? = null
+    private var total = 0L
+
+    @android.webkit.JavascriptInterface
+    @Synchronized
+    fun begin() {
+        closeQuietly()
+        val dir = File(context.cacheDir, "pdf-view").apply { mkdirs() }
+        file = File.createTempFile("blob", ".pdf", dir)
+        out = file?.outputStream()
+        total = 0L
+    }
+
+    @android.webkit.JavascriptInterface
+    @Synchronized
+    fun chunk(base64: String?) {
+        val stream = out ?: return
+        val bytes = try {
+            android.util.Base64.decode(base64.orEmpty(), android.util.Base64.DEFAULT)
+        } catch (e: IllegalArgumentException) {
+            fail("The PDF data is damaged.")
+            return
+        }
+        total += bytes.size
+        if (total > MAX_BYTES) { fail("This PDF is too large to open from the preview."); return }
+        stream.write(bytes)
+    }
+
+    @android.webkit.JavascriptInterface
+    @Synchronized
+    fun end() {
+        val done = file
+        closeQuietly()
+        if (done != null && done.length() > 0) main.post { onFile(done) }
+        else main.post { onProblem("The PDF was empty.") }
+    }
+
+    @android.webkit.JavascriptInterface
+    @Synchronized
+    fun fail(message: String?) {
+        closeQuietly()
+        file?.delete()
+        file = null
+        main.post { onProblem(message?.take(120) ?: "Couldn't read the PDF from the page.") }
+    }
+
+    private fun closeQuietly() {
+        runCatching { out?.close() }
+        out = null
+    }
+
+    companion object {
+        const val NAME = "OroBlob"
+        private const val MAX_BYTES = 150L * 1024 * 1024
+
+        fun fetchScript(blobUrl: String): String {
+            val quoted = org.json.JSONObject.quote(blobUrl)
+            return """
+                (function (u) {
+                  fetch(u).then(function (r) { return r.blob(); }).then(function (b) {
+                    $NAME.begin();
+                    var size = b.size, step = 524288, pos = 0;
+                    function next() {
+                      if (pos >= size) { $NAME.end(); return; }
+                      var reader = new FileReader();
+                      reader.onload = function () {
+                        var data = String(reader.result);
+                        $NAME.chunk(data.substring(data.indexOf(',') + 1));
+                        pos += step;
+                        next();
+                      };
+                      reader.onerror = function () { $NAME.fail('Could not read the PDF.'); };
+                      reader.readAsDataURL(b.slice(pos, pos + step));
+                    }
+                    next();
+                  }).catch(function (e) { $NAME.fail(String(e)); });
+                })($quoted);
+            """.trimIndent()
+        }
+    }
 }

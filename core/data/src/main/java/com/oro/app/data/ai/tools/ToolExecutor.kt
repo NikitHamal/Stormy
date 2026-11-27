@@ -181,8 +181,23 @@ class ToolExecutor(
                 if (ws == null) {
                     return ToolResult(false, "", "No project is open, so there are no files to work with.")
                 }
+                // The preview keeps the versions of files the agent writes (v1, v2, Latest
+                // and the Diff tab): what the file held before this call, and after it.
+                val writtenPath = if (toolName == "write_file" || toolName == "edit_file" || toolName == "multi_edit") {
+                    args.getStringArg("path")
+                } else null
+                val historyRoot = currentProjectPath
+                if (writtenPath != null && historyRoot != null) {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        com.oro.app.data.preview.ArtifactHistoryStore.capture(projectId, historyRoot, writtenPath)
+                    }
+                }
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    ProjectTools.dispatch(ws, toolName, args) ?: ws.webFetch(args)
+                    (ProjectTools.dispatch(ws, toolName, args) ?: ws.webFetch(args)).also {
+                        if (writtenPath != null && historyRoot != null) {
+                            com.oro.app.data.preview.ArtifactHistoryStore.capture(projectId, historyRoot, writtenPath)
+                        }
+                    }
                 }
             }
             "search_project" -> {

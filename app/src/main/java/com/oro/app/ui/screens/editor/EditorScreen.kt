@@ -176,6 +176,27 @@ fun EditorScreen(
     val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // Lets tool cards in the chat open what the agent wrote: a page in the
+    // live preview, a PDF in the built-in viewer.
+    val artifactOpener: ((String) -> Unit)? = remember(uiState.project?.id, uiState.project?.rootPath) {
+        uiState.project?.let { project ->
+            { relativePath: String ->
+                com.oro.app.ui.screens.preview.ArtifactLauncher.open(
+                    context, project.id, project.rootPath, relativePath
+                )
+            }
+        }
+    }
+
+    // "Fix with Stormy" and "Send to chat" in the preview land in the message box.
+    val pendingPrompt by com.oro.app.data.preview.ChatPromptBridge.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingPrompt, uiState.project?.id) {
+        val item = pendingPrompt ?: return@LaunchedEffect
+        if (item.projectId != uiState.project?.id) return@LaunchedEffect
+        viewModel.updateChatInput(com.oro.app.data.preview.ChatPromptBridge.compose(uiState.chatInput, item.text))
+        if (uiState.selectedTab != EditorTab.CHAT) viewModel.selectTab(EditorTab.CHAT)
+        com.oro.app.data.preview.ChatPromptBridge.consume(item)
+    }
 
     // Track target path for import operations
     var importTargetPath by remember { mutableStateOf("") }
@@ -434,7 +455,8 @@ fun EditorScreen(
                         ) { tab ->
                             when (tab) {
                                 EditorTab.CHAT -> androidx.compose.runtime.CompositionLocalProvider(
-                                    com.oro.app.ui.genui.LocalGenUiActions provides viewModel::sendText
+                                    com.oro.app.ui.genui.LocalGenUiActions provides viewModel::sendText,
+                                    com.oro.app.ui.screens.preview.LocalArtifactOpener provides artifactOpener
                                 ) { ChatTab(
                                     sessionsState = sessionsState,
                                     sessionActions = sessionActions,
@@ -498,7 +520,9 @@ fun EditorScreen(
                                         )
                                     }
 
-                                    CodeTab(
+                                    androidx.compose.runtime.CompositionLocalProvider(
+                                        com.oro.app.ui.screens.preview.LocalArtifactOpener provides artifactOpener
+                                    ) { CodeTab(
                                         currentFile = uiState.currentFile,
                                         fileContent = uiState.fileContent,
                                         isModified = uiState.isFileModified,
@@ -510,7 +534,7 @@ fun EditorScreen(
                                         onAiEditRequest = { request ->
                                             viewModel.handleAiCodeEdit(request)
                                         }
-                                    )
+                                    ) }
                                 }
                             }
                         }

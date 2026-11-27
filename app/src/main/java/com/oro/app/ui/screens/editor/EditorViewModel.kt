@@ -417,6 +417,7 @@ class EditorViewModel(
                 val open = _currentFile.value
                 val root = _project.value?.rootPath
                 if (open != null && root != null && open.path in result.files &&
+                    com.oro.app.data.preview.PreviewArtifacts.kindOf(open.path) != com.oro.app.data.preview.ArtifactKind.PDF &&
                     _fileContent.value == _originalFileContent.value
                 ) {
                     val text = withContext(Dispatchers.IO) { File(root, open.path).takeIf { it.isFile }?.readText().orEmpty() }
@@ -966,6 +967,28 @@ class EditorViewModel(
             val project = _project.value ?: return@launch
             val file = File(project.rootPath, relativePath)
             val fileSize = file.length()
+
+            // A PDF is drawn by the built-in viewer, not read as text: no size
+            // warning, and no content that could be saved back over the file.
+            if (com.oro.app.data.preview.PreviewArtifacts.kindOf(relativePath) == com.oro.app.data.preview.ArtifactKind.PDF) {
+                val newTab = OpenFileTab(
+                    path = relativePath,
+                    name = fileNode.name,
+                    extension = fileNode.extension,
+                    content = "",
+                    fileSize = fileSize,
+                    isReadOnly = true
+                )
+                val updatedOpenFiles = _openFiles.value + newTab
+                _openFiles.value = updatedOpenFiles
+                _currentFileIndex.value = updatedOpenFiles.size - 1
+                _fileContent.value = ""
+                _originalFileContent.value = ""
+                _currentFile.value = fileNode
+                _selectedTab.value = EditorTab.CODE
+                return@launch
+            }
+
             val strategy = LargeFileHandler.determineStrategy(fileSize)
 
             when (strategy) {

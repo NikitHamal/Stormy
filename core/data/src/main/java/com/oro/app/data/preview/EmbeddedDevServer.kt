@@ -45,6 +45,7 @@ class EmbeddedDevServer(
         private const val HTTP_OK = 200
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500
+        private const val MAX_VIEW_BYTES = 5L * 1024 * 1024
 
         /** Change batches kept for "what changed since" questions from pages. */
         private const val CHANGE_LOG_SIZE = 32
@@ -371,6 +372,20 @@ class EmbeddedDevServer(
             normalizedPath = normalizedPath.substring(0, queryIndex)
         }
 
+        // Markdown documents the preview shows as pages; a plain request for
+        // a .md file (a site fetching its own content) still gets the raw text.
+        if (normalizedPath.startsWith(PreviewArtifacts.MARKDOWN_ROUTE)) {
+            serveMarkdown(normalizedPath.removePrefix(PreviewArtifacts.MARKDOWN_ROUTE), output)
+            return
+        }
+
+        // SVG, CSV, JSON and text files the preview shows as viewer pages; a plain
+        // request for the file itself (a page's <img>, fetch()) gets it unchanged.
+        if (normalizedPath.startsWith(PreviewArtifacts.VIEW_ROUTE)) {
+            serveView(normalizedPath.removePrefix(PreviewArtifacts.VIEW_ROUTE), output)
+            return
+        }
+
         // Handle root path
         if (normalizedPath.isEmpty() || normalizedPath == "/") {
             normalizedPath = "index.html"
@@ -413,6 +428,57 @@ class EmbeddedDevServer(
 
         // Serve the file with transformation if needed
         serveFile(targetFile, normalizedPath, output)
+    }
+
+    /** A Markdown file of the project, rendered as a themed page (same traversal and hidden-folder rules as any file). */
+    private fun serveMarkdown(relativePath: String, output: BufferedOutputStream) {
+        val file = File(projectRoot, relativePath)
+        val inside = runCatching {
+            file.canonicalPath.startsWith(projectRoot.canonicalPath + File.separator)
+        }.getOrDefault(false)
+        val hidden = relativePath.split('/').any { it.startsWith(".") }
+        if (!inside || hidden || !file.isFile || PreviewArtifacts.kindOf(file.name) != ArtifactKind.MARKDOWN) {
+            sendError(output, HTTP_NOT_FOUND, "File not found: $relativePath")
+            return
+        }
+        try {
+            val page = injectHotReload(MiniMarkdown.page(file.name, file.readText()))
+            sendResponse(output, HTTP_OK, "text/html; charset=utf-8", page.toByteArray())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error rendering markdown: ${file.path}", e)
+            sendError(output, HTTP_SERVER_ERROR, "Error reading file")
+        }
+    }
+
+    /** An SVG, CSV, JSON or text file of the project as a viewer page (same traversal and hidden-folder rules as any file). */
+    private fun serveView(relativePath: String, output: BufferedOutputStream) {
+        val file = File(projectRoot, relativePath)
+        val inside = runCatching {
+            file.canonicalPath.startsWith(projectRoot.canonicalPath + File.separator)
+        }.getOrDefault(false)
+        val hidden = relativePath.split('/').any { it.startsWith(".") }
+        val kind = PreviewArtifacts.kindOf(file.name)
+        if (!inside || hidden || !file.isFile || !PreviewArtifacts.hasViewerPage(kind)) {
+            sendError(output, HTTP_NOT_FOUND, "File not found: $relativePath")
+            return
+        }
+        if (file.length() > MAX_VIEW_BYTES) {
+            sendError(output, HTTP_SERVER_ERROR, "File too large to preview")
+            return
+        }
+        try {
+            val rawPath = "/" + relativePath.split('/').filter { it.isNotEmpty() }.joinToString("/") {
+                java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20")
+            }
+            val page = ArtifactViews.page(kind, file.name, rawPath, file.readText()) ?: run {
+                sendError(output, HTTP_NOT_FOUND, "File not found: $relativePath")
+                return
+            }
+            sendResponse(output, HTTP_OK, "text/html; charset=utf-8", injectHotReload(page).toByteArray())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error rendering viewer page: ${file.path}", e)
+            sendError(output, HTTP_SERVER_ERROR, "Error reading file")
+        }
     }
 
     private fun serveFile(file: File, requestPath: String, output: BufferedOutputStream) {
@@ -1392,6 +1458,7 @@ class EmbeddedDevServer(
             "wav" -> "audio/wav"
             "pdf" -> "application/pdf"
             "txt" -> "text/plain; charset=utf-8"
+            "csv" -> "text/csv; charset=utf-8"
             "md" -> "text/markdown; charset=utf-8"
             "vue" -> "application/javascript; charset=utf-8"
             "svelte" -> "application/javascript; charset=utf-8"

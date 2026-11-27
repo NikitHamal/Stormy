@@ -174,8 +174,15 @@ class PreviewServerManager {
         // Verify index.html exists
         val indexFile = File(projectPath, "index.html")
         if (!indexFile.exists()) {
-            Log.w(TAG, "No index.html found in $projectPath")
-            return "about:blank"
+            // A site built page by page (pricing.html, about.html) opens on its
+            // first page instead of a blank screen.
+            val entry = firstPage(projectRoot)
+            if (entry == null) {
+                Log.w(TAG, "No index.html found in $projectPath")
+                return "about:blank"
+            }
+            val url = startServerForProject(projectPath) ?: return "about:blank"
+            return PreviewArtifacts.urlFor(url, entry)
         }
 
         // Always use HTTP server - avoids CORS issues with:
@@ -192,6 +199,18 @@ class PreviewServerManager {
         // Fallback only if server fails to start
         Log.w(TAG, "Server failed to start, falling back to file:// (may have CORS issues)")
         return "file://${indexFile.absolutePath}"
+    }
+
+    /** The page a project without an index.html opens on, looking a few folders deep. */
+    private fun firstPage(projectRoot: File): String? {
+        if (!projectRoot.isDirectory) return null
+        val files = projectRoot.walkTopDown()
+            .maxDepth(4)
+            .onEnter { d -> d == projectRoot || !(d.name.startsWith(".") || d.name == "node_modules") }
+            .filter { it.isFile && PreviewArtifacts.kindOf(it.name) == ArtifactKind.WEB_PAGE }
+            .map { it.relativeTo(projectRoot).invariantSeparatorsPath }
+            .toList()
+        return PreviewArtifacts.entryPoint(files)
     }
 
     /**
