@@ -205,5 +205,35 @@ class ZeusKeylessProvidersTest {
         val call = evs.filterIsInstance<StreamEvent.ToolCalls>().single().toolCalls.single()
         assertThat(call.function.name).isEqualTo("read_file")
         assertThat(call.function.arguments).isEqualTo("""{"path":"a.kt"}""")
+
+        // LMFingerprint family classification & under-the-hood proxy reroute detection
+        assertThat(KeylessModelVerifier.classifyClaimedFamily("GEMINI4_HYDROGEN", "gemini-4-hydrogen"))
+            .isEqualTo("Google Gemini 4 Family")
+        assertThat(KeylessModelVerifier.classifyClaimedFamily("AGNES_CLOUD", "agnes-3.0-pro"))
+            .isEqualTo("Sapiens Agnes AI")
+        assertThat(KeylessModelVerifier.classifyClaimedFamily("VOLC_ARK", "doubao-seed-2-0-lite-260428"))
+            .isEqualTo("ByteDance Doubao (Volcengine Ark)")
+        val claimed = KeylessModelVerifier.classifyClaimedFamily("LOGFARE_HUB", "devstral-latest")
+        val detected = KeylessModelVerifier.classifyDetectedFamily(
+            "openai/gpt-oss-120b",
+            "I am GPT-OSS, an open-weight model by OpenAI. 17*23=391.",
+            "Keyless SSE Stream"
+        )
+        assertThat(claimed).isEqualTo("Mistral AI")
+        assertThat(detected).isEqualTo("OpenAI GPT-OSS Open-Weights")
+        assertThat(KeylessModelVerifier.familiesCompatible(claimed, detected)).isFalse()
+
+        // Qwen OSS V4 signature header format check
+        val (ossAuth, ossDate) = QwenAppGateway.signOssV4Header(
+            accessKeyId = "STS.TEST",
+            accessKeySecret = "secret",
+            securityToken = "tok",
+            bucketName = "qwen-webui-prod",
+            filePath = "uploads/test.jpg",
+            mimeType = "image/jpeg",
+            unixSeconds = 1_776_000_000L
+        )
+        assertThat(ossDate).isEqualTo("20260412T132000Z")
+        assertThat(ossAuth).startsWith("OSS4-HMAC-SHA256 Credential=STS.TEST/20260412/ap-southeast-1/oss/aliyun_v4_request,Signature=")
     }
 }
