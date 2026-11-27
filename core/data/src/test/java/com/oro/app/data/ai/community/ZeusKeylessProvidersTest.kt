@@ -79,6 +79,24 @@ class ZeusKeylessProvidersTest {
         assertThat(ev1).containsExactly(StreamEvent.ContentDelta("Hello "))
         assertThat(ev2).containsExactly(StreamEvent.ContentDelta("Gemini 4!"))
         assertThat(parser.sawOutput).isTrue()
+
+        // Internal Gemini StreamGenerate code_reference / code_stdout blocks are stripped cleanly
+        val rawExec = "```python?code_reference&code_event_index=1\nprint(2+2)\n```\n```text?code_stdout&code_event_index=1\n4\n```\nPELICAN 4"
+        assertThat(WrbFrSnapshotParser.cleanGeminiCodeBlocks(rawExec)).isEqualTo("PELICAN 4")
+
+        // Multi-turn compaction preserves prior user/assistant turns for gemini-web2api nodes
+        val compacted = Gemini4MeshClient.compactGeminiWeb2ApiMessages(
+            listOf(
+                ChatRequestMessage("system", "Sys"),
+                ChatRequestMessage("user", "Turn 1"),
+                ChatRequestMessage("assistant", "Reply 1"),
+                ChatRequestMessage("user", "Turn 2")
+            )
+        )
+        assertThat(compacted).hasSize(2)
+        assertThat(compacted.last().content).contains("Turn 1")
+        assertThat(compacted.last().content).contains("Reply 1")
+        assertThat(compacted.last().content).contains("Turn 2")
     }
 
     @Test

@@ -101,18 +101,26 @@ class Gemini4MeshClient(
             }
         }
 
-        // 3. Multi-node gemini-web2api OpenAI cluster
+        // 3. Multi-node 5-node gemini-web2api OpenAI cluster
         val (_, _, legacyAlias) = resolveGemini4Mode(resolvedModel)
         val chenianModel = resolveChenianModel(resolvedModel)
+        val compactedWeb2ApiMsgs = compactGeminiWeb2ApiMessages(textModeMessages)
         val clusterTargets = listOf(
             "https://chenian233-gemini-web2api.hf.space/v1/chat/completions" to chenianModel,
+            "https://pouluo-gemini-web2api.hf.space/v1/chat/completions" to chenianModel,
+            "https://peijun1-gemini-web2api.hf.space/v1/chat/completions" to legacyAlias,
+            "https://peijun1-1-gemini-web2api.hf.space/v1/chat/completions" to legacyAlias,
             "https://giabaopro1908-gemini2api.hf.space/v1/chat/completions" to legacyAlias,
             antigravityEndpoint to toAntigravityModel(resolvedModel)
         )
         for ((endpoint, targetModel) in clusterTargets) {
             val bearer = if (endpoint == antigravityEndpoint) "sk-antigravity" else null
             val targetTools = if (endpoint == antigravityEndpoint) tools else null
-            val targetMsgs = if (endpoint == antigravityEndpoint) messages else textModeMessages
+            val targetMsgs = when {
+                endpoint == antigravityEndpoint -> messages
+                endpoint.contains("gemini-web2api") || endpoint.contains("gemini2api") -> compactedWeb2ApiMsgs
+                else -> textModeMessages
+            }
             if (tryOpenAiTarget(endpoint, targetModel, targetMsgs, targetTools, bearer = bearer)) {
                 return@guarded
             }
@@ -448,6 +456,24 @@ class Gemini4MeshClient(
             }
         }
 
+        /**
+         * Preserves multi-turn conversation history when routing through `gemini-web2api` / `gemini2api`
+         * gateways that only read the system message and final user message.
+         */
+        fun compactGeminiWeb2ApiMessages(messages: List<ChatRequestMessage>): List<ChatRequestMessage> {
+            val turns = Transcript.turns(messages)
+            val nonSys = turns.filter { it.role != "system" }
+            if (nonSys.size <= 1) return messages
+            val prior = nonSys.dropLast(1).joinToString("\n\n") { t ->
+                val tag = if (t.role == "assistant") "[Assistant]" else "[User]"
+                "$tag: ${t.text.take(4_000)}"
+            }
+            val lastUser = nonSys.last().text
+            val mergedUser = "Prior conversation & tool turns:\n$prior\n\nCurrent turn:\n$lastUser"
+            val sysMsgs = messages.filter { it.role == "system" }
+            return sysMsgs + ChatRequestMessage(role = "user", content = mergedUser)
+        }
+
         fun buildStreamGeneratePrompt(messages: List<ChatRequestMessage>, thinking: Boolean): String {
             val turns = Transcript.turns(messages)
             if (turns.none { it.role == "user" }) return ""
@@ -521,6 +547,7 @@ class Gemini4MeshClient(
  */
 class WrbFrSnapshotParser {
     private var prevText = ""
+    private var inThink = false
     var sawOutput = false
         private set
 
@@ -540,12 +567,13 @@ class WrbFrSnapshotParser {
                 val part = partEl as? JsonArray ?: continue
                 val texts = part.getOrNull(1) as? JsonArray ?: continue
                 for (tEl in texts) {
-                    val snap = (tEl as? JsonPrimitive)?.contentOrNull ?: continue
+                    val snapRaw = (tEl as? JsonPrimitive)?.contentOrNull ?: continue
+                    val snap = cleanGeminiCodeBlocks(snapRaw)
                     if (snap.isEmpty()) continue
                     val delta = computeSnapshotDelta(prevText, snap)
                     if (delta.isNotEmpty()) {
                         sawOutput = true
-                        out += splitThinkAndContent(delta)
+                        out += routeThinkState(delta)
                     }
                     if (snap.length >= prevText.length) {
                         prevText = snap
@@ -556,7 +584,71 @@ class WrbFrSnapshotParser {
         return out
     }
 
+    private fun routeThinkState(delta: String): List<StreamEvent> {
+        val events = mutableListOf<StreamEvent>()
+        var rem = delta
+        while (rem.isNotEmpty()) {
+            if (!inThink) {
+                val openIdx = rem.indexOf("<think>")
+                if (openIdx < 0) {
+                    events += StreamEvent.ContentDelta(rem)
+                    break
+                }
+                if (openIdx > 0) {
+                    events += StreamEvent.ContentDelta(rem.substring(0, openIdx))
+                }
+                inThink = true
+                rem = rem.substring(openIdx + 7)
+            } else {
+                val closeIdx = rem.indexOf("</think>")
+                if (closeIdx < 0) {
+                    events += StreamEvent.ReasoningDelta(rem)
+                    break
+                }
+                if (closeIdx > 0) {
+                    events += StreamEvent.ReasoningDelta(rem.substring(0, closeIdx))
+                }
+                inThink = false
+                rem = rem.substring(closeIdx + 8)
+            }
+        }
+        return events
+    }
+
     companion object {
+        private val CODE_EXEC_MARKERS = listOf(
+            "```python?code_reference",
+            "```javascript?code_reference",
+            "```text?code_stdout",
+            "```text?code_reference"
+        )
+
+        /**
+         * Strips internal Gemini Web code execution blocks (` ```python?code_reference...``` `
+         * and ` ```text?code_stdout...``` `), including unclosed trailing blocks mid-stream
+         * so `prevText` prefix matching never breaks.
+         */
+        fun cleanGeminiCodeBlocks(raw: String): String {
+            var out = raw
+            for (marker in CODE_EXEC_MARKERS) {
+                while (true) {
+                    val start = out.indexOf(marker)
+                    if (start < 0) break
+                    val after = start + marker.length
+                    val closeRel = out.indexOf("```", startIndex = after)
+                    if (closeRel >= 0) {
+                        var end = closeRel + 3
+                        while (end < out.length && out[end] == '\n') end++
+                        out = out.removeRange(start, end)
+                    } else {
+                        out = out.substring(0, start)
+                        break
+                    }
+                }
+            }
+            return out
+        }
+
         fun computeSnapshotDelta(prev: String, snap: String): String {
             if (prev.isEmpty()) return snap
             if (snap.length > prev.length && snap.startsWith(prev)) {
@@ -574,14 +666,6 @@ class WrbFrSnapshotParser {
                 }
             }
             return ""
-        }
-
-        private fun splitThinkAndContent(delta: String): List<StreamEvent> {
-            if (!delta.contains("<think>") && !delta.contains("</think>")) {
-                return listOf(StreamEvent.ContentDelta(delta))
-            }
-            val cleaned = delta.replace("<think>", "").replace("</think>", "")
-            return if (cleaned.isNotEmpty()) listOf(StreamEvent.ContentDelta(cleaned)) else emptyList()
         }
     }
 }
