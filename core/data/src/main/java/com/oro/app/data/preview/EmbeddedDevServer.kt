@@ -371,6 +371,13 @@ class EmbeddedDevServer(
             normalizedPath = normalizedPath.substring(0, queryIndex)
         }
 
+        // Markdown documents the preview shows as pages; a plain request for
+        // a .md file (a site fetching its own content) still gets the raw text.
+        if (normalizedPath.startsWith(PreviewArtifacts.MARKDOWN_ROUTE)) {
+            serveMarkdown(normalizedPath.removePrefix(PreviewArtifacts.MARKDOWN_ROUTE), output)
+            return
+        }
+
         // Handle root path
         if (normalizedPath.isEmpty() || normalizedPath == "/") {
             normalizedPath = "index.html"
@@ -413,6 +420,26 @@ class EmbeddedDevServer(
 
         // Serve the file with transformation if needed
         serveFile(targetFile, normalizedPath, output)
+    }
+
+    /** A Markdown file of the project, rendered as a themed page (same traversal and hidden-folder rules as any file). */
+    private fun serveMarkdown(relativePath: String, output: BufferedOutputStream) {
+        val file = File(projectRoot, relativePath)
+        val inside = runCatching {
+            file.canonicalPath.startsWith(projectRoot.canonicalPath + File.separator)
+        }.getOrDefault(false)
+        val hidden = relativePath.split('/').any { it.startsWith(".") }
+        if (!inside || hidden || !file.isFile || PreviewArtifacts.kindOf(file.name) != ArtifactKind.MARKDOWN) {
+            sendError(output, HTTP_NOT_FOUND, "File not found: $relativePath")
+            return
+        }
+        try {
+            val page = injectHotReload(MiniMarkdown.page(file.name, file.readText()))
+            sendResponse(output, HTTP_OK, "text/html; charset=utf-8", page.toByteArray())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error rendering markdown: ${file.path}", e)
+            sendError(output, HTTP_SERVER_ERROR, "Error reading file")
+        }
     }
 
     private fun serveFile(file: File, requestPath: String, output: BufferedOutputStream) {
