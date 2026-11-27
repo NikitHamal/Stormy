@@ -150,10 +150,21 @@ object ModelProfiles {
 
     fun forModel(model: AiModel): ModelProfile = forIds(model.provider, model.id)
 
+    private val FRONTIER_COMMUNITY_PROVIDERS = setOf(
+        AiProvider.ANTIGRAVITY,
+        AiProvider.GEMINI4_HYDROGEN,
+        AiProvider.GEMINI4_DIRECT,
+        AiProvider.MYCHAT_CLOUD,
+        AiProvider.CLAUDE5_PROXY,
+        AiProvider.NIM_CLOUD,
+        AiProvider.SUPA_VIP
+    )
+
     fun forIds(provider: AiProvider, modelId: String): ModelProfile {
         val id = familyId(provider, modelId)
         return when {
             provider == AiProvider.MERCURY || provider == AiProvider.INCEPTION -> MERCURY
+            provider in FRONTIER_COMMUNITY_PROVIDERS && FRONTIER_IDS.any { it.containsMatchIn(id) } -> FRONTIER
             // A guest bridge's limits are the site's, whatever model it names (Ptero
             // answers its "mercury" ids with another model altogether).
             provider.isCommunity -> COMMUNITY

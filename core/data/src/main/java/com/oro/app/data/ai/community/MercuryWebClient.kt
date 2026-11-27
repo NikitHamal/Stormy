@@ -172,17 +172,22 @@ class MercuryWebClient(private val base: String = "https://chat.inceptionlabs.ai
         }
     }
 
-    private fun browserHeaders(builder: Request.Builder): Request.Builder = builder
-        .header("User-Agent", USER_AGENT)
-        .header("Accept-Language", "en-US,en;q=0.9")
-        .header("Origin", base)
-        .header("Referer", "$base/")
-        .header("sec-ch-ua", SEC_CH_UA)
-        .header("sec-ch-ua-mobile", "?0")
-        .header("sec-ch-ua-platform", "\"Windows\"")
-        .header("sec-fetch-dest", "empty")
-        .header("sec-fetch-mode", "cors")
-        .header("sec-fetch-site", "same-origin")
+    private fun browserHeaders(builder: Request.Builder): Request.Builder {
+        val ip = KeylessCrypto.fakeIpv4()
+        return builder
+            .header("User-Agent", USER_AGENT)
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Origin", base)
+            .header("Referer", "$base/")
+            .header("sec-ch-ua", SEC_CH_UA)
+            .header("sec-ch-ua-mobile", "?0")
+            .header("sec-ch-ua-platform", "\"Windows\"")
+            .header("sec-fetch-dest", "empty")
+            .header("sec-fetch-mode", "cors")
+            .header("sec-fetch-site", "same-origin")
+            .header("X-Forwarded-For", ip)
+            .header("X-Real-IP", ip)
+    }
 
     // --------------------------------------------------------------- browser
 

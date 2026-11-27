@@ -99,6 +99,10 @@ class OpenAiCompatibleProvider(
 
             if (apiKey.isNotBlank()) {
                 httpRequestBuilder.addHeader("Authorization", "Bearer $apiKey")
+            } else if (provider == AiProvider.KILOCODE) {
+                val ip = com.oro.app.data.ai.community.KeylessCrypto.fakeIpv4()
+                httpRequestBuilder.addHeader("X-Forwarded-For", ip)
+                httpRequestBuilder.addHeader("X-Real-IP", ip)
             }
 
             val httpRequest = httpRequestBuilder.build()
