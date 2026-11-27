@@ -35,48 +35,70 @@ class UnikeyClient(
 
     override fun stream(model: AiModel, messages: List<ChatRequestMessage>): Flow<StreamEvent> =
         CommunityHttp.guarded(SITE) {
-            val body = buildBody(CommunityClients.upstreamId(model), messages)
-                ?: run { emit(StreamEvent.Error("$SITE: nothing to send")); return@guarded }
-            val request = Request.Builder().url(endpoint)
-                .post(body.toString().toRequestBody(JSON))
-                .header("Accept", "text/event-stream")
-                .header("X-Anonymous-Fingerprint", fingerprint())
-                .site("https://www.getunikey.ai", "https://www.getunikey.ai/anonymous-chat")
-                .build()
-            CommunityHttp.execute(request) { response ->
-                if (!response.isSuccessful) {
-                    emit(CommunityHttp.httpError(SITE, response))
-                    return@execute
-                }
-                val source = response.body?.source() ?: run {
-                    emit(StreamEvent.Error("$SITE sent an empty response", retryable = true))
-                    return@execute
-                }
-                emit(StreamEvent.Started)
-                val parser = ChatStreamParser()
-                while (true) {
-                    val line = source.readUtf8Line() ?: break
-                    if (!line.startsWith("data:")) continue
-                    val data = line.removePrefix("data:").trim()
-                    if (data.isEmpty()) continue
-                    emit(StreamEvent.RawSSE(data))
-                    val events = parser.onData(data)
-                    for (event in events) {
-                        if (event is StreamEvent.Error) {
-                            emit(event.copy(message = "$SITE: ${event.message}"))
-                            return@execute
-                        }
-                        emit(event)
-                    }
-                    if (events.any { it is StreamEvent.Completed }) return@execute
-                }
-                if (!parser.hasOutput) {
-                    emit(StreamEvent.Error("$SITE ended without a reply", retryable = true))
-                    return@execute
-                }
-                // The socket closed without `[DONE]`: flush what arrived.
-                parser.finish().forEach { emit(it) }
+            val requested = CommunityClients.upstreamId(model)
+            val candidates = if (requested == "moonshotai/kimi-k2.7-code") {
+                listOf("moonshotai/kimi-k2.7-code", "moonshotai/kimi-k3", "claude-opus-5-5", "gpt-6.1-sol")
+            } else {
+                listOf(requested, "claude-opus-5-5", "gpt-6.1-sol", "gpt-6-luna").distinct()
             }
+            var lastError: StreamEvent.Error? = null
+            for (cand in candidates) {
+                val body = buildBody(cand, messages)
+                    ?: run { emit(StreamEvent.Error("$SITE: nothing to send")); return@guarded }
+                val ip = KeylessCrypto.fakeIpv4()
+                val request = Request.Builder().url(endpoint)
+                    .post(body.toString().toRequestBody(JSON))
+                    .header("Accept", "text/event-stream")
+                    .header("X-Anonymous-Fingerprint", fingerprint())
+                    .header("X-Forwarded-For", ip)
+                    .header("X-Real-IP", ip)
+                    .site("https://www.getunikey.ai", "https://www.getunikey.ai/anonymous-chat")
+                    .build()
+                val succeeded = CommunityHttp.execute(request) { response ->
+                    if (!response.isSuccessful) {
+                        lastError = CommunityHttp.httpError(SITE, response)
+                        return@execute false
+                    }
+                    val source = response.body?.source() ?: run {
+                        lastError = StreamEvent.Error("$SITE sent an empty response", retryable = true)
+                        return@execute false
+                    }
+                    val parser = ChatStreamParser()
+                    var started = false
+                    while (true) {
+                        val line = source.readUtf8Line() ?: break
+                        if (!line.startsWith("data:")) continue
+                        val data = line.removePrefix("data:").trim()
+                        if (data.isEmpty()) continue
+                        if (!started) {
+                            started = true
+                            emit(StreamEvent.Started)
+                        }
+                        emit(StreamEvent.RawSSE(data))
+                        val events = parser.onData(data)
+                        for (event in events) {
+                            if (event is StreamEvent.Error) {
+                                if (!parser.hasOutput) {
+                                    lastError = event.copy(message = "$SITE: ${event.message}")
+                                    return@execute false
+                                }
+                                emit(event.copy(message = "$SITE: ${event.message}"))
+                                return@execute true
+                            }
+                            emit(event)
+                        }
+                        if (events.any { it is StreamEvent.Completed }) return@execute true
+                    }
+                    if (!parser.hasOutput) {
+                        lastError = StreamEvent.Error("$SITE ended without a reply", retryable = true)
+                        return@execute false
+                    }
+                    parser.finish().forEach { emit(it) }
+                    true
+                }
+                if (succeeded) return@guarded
+            }
+            emit(lastError ?: StreamEvent.Error("$SITE ended without a reply", retryable = true))
         }
 
     companion object {

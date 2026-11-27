@@ -112,6 +112,17 @@ object ReasoningControls {
             )
             // The on/off switch Poolside's demo exposes (default on).
             AiProvider.LAGUNA -> ReasoningControl("Reasoning", levels("off", "on"), "on", ReasoningWire.CLIENT)
+            // Google Antigravity & Gemini 4 Mesh expose effort levels on Gemini 4 & Claude 5.5 models.
+            AiProvider.ANTIGRAVITY, AiProvider.GEMINI4_HYDROGEN, AiProvider.GEMINI4_DIRECT, AiProvider.GEMINI_WEB -> when {
+                id.startsWith("gemini-4-hydrogen") || id.startsWith("gemini-4-neon") ->
+                    ReasoningControl(EFFORT, levels("low", "medium", "high", "xhigh"), "high", ReasoningWire.CLIENT)
+                id.startsWith("gemini-4-carbon") || id.startsWith("gemini-4-argon") || id.startsWith("gemini-3.8-flash") ->
+                    ReasoningControl(EFFORT, levels("low", "medium", "high"), "high", ReasoningWire.CLIENT)
+                id.startsWith("claude-opus-5-5") || id.startsWith("claude-sonnet-5-5") ->
+                    ReasoningControl(EFFORT, levels("low", "medium", "high"), "high", ReasoningWire.CLIENT)
+                else -> null
+            }
+            AiProvider.MOTIF -> ReasoningControl(EFFORT, levels("low", "medium", "high"), "high", ReasoningWire.CLIENT)
             AiProvider.GROQ -> when {
                 id.startsWith("gpt-oss") -> effort("medium", "low", "medium", "high")
                 id.startsWith("qwen3.8") -> effort("default", "none", "default", "low", "medium", "high")

@@ -317,7 +317,31 @@ object RateLimits {
         // route; Cloudflare caps each model per minute across its playground.
         AiProvider.HY3 to RateLimit(requestsPerMinute = 15, tokensPerMinute = 600_000),
         AiProvider.LAGUNA to RateLimit(requestsPerMinute = 6, tokensPerMinute = 300_000),
-        AiProvider.CLOUDFLARE_PLAYGROUND to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000)
+        AiProvider.CLOUDFLARE_PLAYGROUND to RateLimit(requestsPerMinute = 8, tokensPerMinute = 400_000),
+        AiProvider.ANTIGRAVITY to RateLimit(requestsPerMinute = 30, tokensPerMinute = 1_000_000),
+        AiProvider.GEMINI4_HYDROGEN to RateLimit(requestsPerMinute = 35, tokensPerMinute = 1_000_000),
+        AiProvider.GEMINI4_DIRECT to RateLimit(requestsPerMinute = 35, tokensPerMinute = 1_000_000),
+        AiProvider.GEMINI_WEB to RateLimit(requestsPerMinute = 30, tokensPerMinute = 1_000_000),
+        AiProvider.MYCHAT_CLOUD to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.CLAUDE5_PROXY to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000),
+        AiProvider.NIM_CLOUD to RateLimit(requestsPerMinute = 45, tokensPerMinute = 1_000_000),
+        AiProvider.BLOCKRUN to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.FREELLM_HUB to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.AI_BRIDGE to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.HF_ROUTER to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.LITELLM_HUB to RateLimit(requestsPerMinute = 35, tokensPerMinute = 800_000),
+        AiProvider.SUPA_VIP to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000),
+        AiProvider.SHANNIAN_VIP to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.AGNES_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000),
+        AiProvider.ZHIPU_LONGCAT to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.OPENCODE_ZEN_FREE to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000),
+        AiProvider.VIREONIX to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.COLIBRI_QWEN to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.GEMMA4_CLUSTER to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.FRONTIER_LAB to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.DEEPAI to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.MOTIF to RateLimit(requestsPerMinute = 20, tokensPerMinute = 500_000),
+        AiProvider.CHATJIMMY to RateLimit(requestsPerMinute = 40, tokensPerMinute = 800_000)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */
@@ -327,10 +351,20 @@ object RateLimits {
 /** Which model families accept images. Matched on id; wrong-but-permissive costs a 400. */
 object VisionSupport {
     private val PATTERNS = listOf(
-        "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "claude", "gemini", "gemma-3", "llama-4", "pixtral",
+        "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "claude", "gemini", "gemma-3", "gemma-4", "llama-4", "pixtral",
         "mistral-medium", "mistral-small-3", "qwen-vl", "qwen2.5-vl", "qwen3-vl", "vl-", "-vl", "vision",
-        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "nemotron-nano-vl"
+        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "glm-4v", "nemotron-nano-vl", "omni"
     )
+    private val VISION_CAPABLE_COMMUNITY = setOf(
+        AiProvider.ANTIGRAVITY,
+        AiProvider.GEMINI4_HYDROGEN,
+        AiProvider.CLAUDE5_PROXY,
+        AiProvider.NIM_CLOUD,
+        AiProvider.BLOCKRUN,
+        AiProvider.ZHIPU_LONGCAT,
+        AiProvider.GEMMA4_CLUSTER
+    )
+
     fun supports(modelId: String): Boolean {
         val id = modelId.lowercase()
         return PATTERNS.any { it in id }
@@ -338,9 +372,9 @@ object VisionSupport {
 
     /**
      * Whether images actually reach [model]. Community web bridges carry text
-     * only, so a vision-capable id behind one (UniKey's Claude, say) would get
-     * the caption and never the picture.
+     * only unless their gateway supports multimodal parts ([VISION_CAPABLE_COMMUNITY]).
      */
     fun supports(model: AiModel): Boolean =
-        !model.provider.isCommunity && supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
+        (!model.provider.isCommunity || model.provider in VISION_CAPABLE_COMMUNITY) &&
+            supports(com.oro.app.data.ai.providers.ModelIds.upstream(model.id))
 }

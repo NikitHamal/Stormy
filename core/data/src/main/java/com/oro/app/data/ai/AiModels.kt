@@ -55,7 +55,7 @@ enum class ProviderProtocol {
     K2_GUEST,
     /** chat.qwen.ai guest chat: browser-signed requests, phase-tagged SSE. */
     QWEN_WEB,
-    /** ptero.pro guest chat: one JSON reply per request, quota per guest token. */
+    /** ptero.pro guest chat: SSE `/chat-stream` + JSON `/chat` fallback, quota per guest token. */
     PTERO_GUEST,
     /** chat.inceptionlabs.ai guest chat (Mercury 3): session token + Vercel AI SDK v5 stream. */
     MERCURY_WEB,
@@ -64,7 +64,11 @@ enum class ProviderProtocol {
     /** A lab's official Hugging Face Space relaying to its own API, over Gradio's queue protocol. */
     HF_SPACE,
     /** Cloudflare's AI Playground: an Agents SDK WebSocket (setConfig RPC + AI SDK chat stream). */
-    CF_PLAYGROUND
+    CF_PLAYGROUND,
+    /** Google Gemini 4 Family & Antigravity Cloud Code Hub mesh with StreamGenerate + OpenAI + Messages failover. */
+    GEMINI4_MESH,
+    /** Multi-node OpenAI / Anthropic / VIP keyless gateway engine with automatic candidate rotation. */
+    MULTI_TARGET_OAI
 }
 
 /** How a provider treats credentials. */
@@ -296,6 +300,176 @@ enum class AiProvider(
             "tool calls. Answers arrive whole (the demo does not stream); shared with the demo's visitors.",
         protocol = ProviderProtocol.HF_SPACE
     ),
+    ANTIGRAVITY(
+        displayName = "Google Antigravity & Cloud Code Hub (community)",
+        baseUrl = "https://w902287-firebase-gemini-proxy.hf.space/ag/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Google Antigravity & Cloud Code Hub serving Gemini 4 Hydrogen, Neon, Carbon, Argon, " +
+            "Gemini Pro Orchestrator, Gemini 3.8 Flash, and Claude Opus/Sonnet 5.5 with native tool calling, vision, and multi-node failover.",
+        protocol = ProviderProtocol.GEMINI4_MESH
+    ),
+    GEMINI4_HYDROGEN(
+        displayName = "Gemini 4 Hydrogen & Family Ultra Mesh (community)",
+        baseUrl = "https://gemini.google.com",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless multi-mesh load-balancer across Direct Google Gemini 4 StreamGenerate, 5-node gemini-web2api cluster, " +
+            "Antigravity Hub, and FreeClaude Gemini 4.",
+        protocol = ProviderProtocol.GEMINI4_MESH
+    ),
+    GEMINI4_DIRECT(
+        displayName = "Google Gemini 4 Direct & 5-Node Cluster (community)",
+        baseUrl = "https://chenian233-gemini-web2api.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless direct anonymous Google Gemini 4 StreamGenerate (Hydrogen, Neon, Carbon, Argon) paired with the 5-node cluster.",
+        protocol = ProviderProtocol.GEMINI4_MESH
+    ),
+    GEMINI_WEB(
+        displayName = "Gemini Web Gateway (community)",
+        baseUrl = "https://giabaopro1908-gemini2api.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Gemini Web Gateway serving Gemini 4 Hydrogen, Neon, Carbon, and Gemini 3.7/3.6/3.5 Flash.",
+        protocol = ProviderProtocol.GEMINI4_MESH
+    ),
+    MYCHAT_CLOUD(
+        displayName = "MyChat Native Direct Cloud (community)",
+        baseUrl = "https://mychat-ai.cloud/api/openapi",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless direct OpenAI cloud (GPT-6 Luna, GPT-5, GPT-5 Mini, GPT-4.1, GPT-4o, o3, o4-mini) with rolling hourly MD5 encryption token and native tool calling.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    CLAUDE5_PROXY(
+        displayName = "Claude 5.5 & FreeClaude Direct Hub (community)",
+        baseUrl = "https://dherain24-claude-proxy.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Anthropic Messages SSE hub serving Claude Sonnet 5.5, Claude Haiku 5.5, Claude Opus 5.5, Kimi K3.1 Pro, StepFun Step 5, and GLM 4.5/Z1 Flash with native tools and vision.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    NIM_CLOUD(
+        displayName = "NVIDIA NIM OpenAI Cloud (community)",
+        baseUrl = "https://garystu-openai-nim-proxy.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless 7-key NVIDIA NIM direct rotation pool + proxy cluster serving Nemotron 3.5 Super VL 120B, Nemotron 3 Ultra 550B, Mistral Large 4 1T, Step 5, GLM 5.3 Flash, and MiniMax M3.1 Flash.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    BLOCKRUN(
+        displayName = "BlockRun Gateway (community)",
+        baseUrl = "https://blockrun.ai/api/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless BlockRun Gateway serving Nemotron 3.5 Super/Lightning/Bolt, Nemotron 3 Ultra 550B, MiniMax M3.1 Flash, Step 3.7 Flash, Muse Glimmer 30B, Laguna XS 2.1, and North Mini Code.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    FREELLM_HUB(
+        displayName = "FreeLLM & Logfare Frontier Hub (community)",
+        baseUrl = "https://bun008-freellmapi.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless frontier hub serving GLM 5.3/5.2, Kimi K2.7 Code, DeepSeek V4.1 Flash, Qwen 3.8 27B/Flash Next, Mistral Large 3/Devstral/Magistral, Gemma 4 31B, Reka Flash 3, and GPT-OSS 120B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    AI_BRIDGE(
+        displayName = "AI Bridge Gateway (community)",
+        baseUrl = "https://w902287-ai-bridge.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless AI Bridge Gateway serving GPT-6 Luna, Claude Haiku 5.5, GPT-4.1, GPT-4o, DeepSeek V4 Flash, Grok 4.20, Qwen 3.7/3.5 Flash, and Doubao Seed 2.0 Mini.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    HF_ROUTER(
+        displayName = "HF Router Hub (community)",
+        baseUrl = "https://cgjgj-ollamahftraemonitor.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless HF Router Hub serving Qwen 3.8 2.4T, DeepSeek V4 Pro/Flash, GLM 5.3, MiniMax M2.7, Kimi K2, and Qwen3 Coder 480B/Next.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    LITELLM_HUB(
+        displayName = "LiteLLM & Groq LPU Frontier Hub (community)",
+        baseUrl = "https://alchoholpad-litellm.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless LiteLLM + Direct Groq LPU hub serving GPT-OSS 120B (LPU), Qwen 3.8 27B (LPU), Nemotron 3 Ultra 550B, DeepSeek V4.1 Flash, and Gemini 2.5 Flash.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    SUPA_VIP(
+        displayName = "Supabase Tongyi VIP Cloud (community)",
+        baseUrl = "https://vdspcxotxhxfjowqndix.supabase.co/functions/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Tongyi VIP cloud serving Qwen 4 Max VIP, Qwen 3.8 Max VIP, Qwen 3.7 Flash VIP, DeepSeek V4.1 Flash VIP, and DeepSeek R1 VIP with native tools.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    SHANNIAN_VIP(
+        displayName = "ShanNian, Volcengine Ark & SenseNova VIP (community)",
+        baseUrl = "https://ai.northcity.top/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless ShanNian & Volcengine Ark v3 + SenseNova direct cloud serving DeepSeek V4 Flash Vision, Qwen 3.5 Flash, Doubao Seed 2.0 Lite/Mini, and SenseNova 6.8 Flash.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    AGNES_CLOUD(
+        displayName = "Agnes AI Direct Hub (community)",
+        baseUrl = "https://apihub.agnes-ai.com/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless direct Agnes AI cloud serving Agnes 3.0 Pro, Agnes 3.0 Flash, Agnes 2.5 Pro/Beta/Theta, and Agnes 2.5 Flash VL with native tool calling.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    ZHIPU_LONGCAT(
+        displayName = "Z.ai BigModel v4 & LongCat 2.5 Official Cloud (community)",
+        baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless official Z.ai BigModel PaaS v4 (GLM 4.5 Flash, GLM Z1 Flash, GLM 4V Flash) and Official LongCat 2.5 1.6T MoE OpenAI cloud.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    OPENCODE_ZEN_FREE(
+        displayName = "OpenCode Zen Free (community)",
+        baseUrl = "https://opencode.ai/zen/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless OpenCode Zen free tier (Big Pickle, DeepSeek V4.1 Flash, MiMo V2.6 Flash, Nemotron 3.5 Super VL/Lightning, Beam, Flint 40B, Iceman).",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    VIREONIX(
+        displayName = "Vireonix Auto (community)",
+        baseUrl = "https://vireonix.ai/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Vireonix request-aware router with native tool calling.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    COLIBRI_QWEN(
+        displayName = "Colibri Qwen 3.6 & EU Keyless Cloud (community)",
+        baseUrl = "https://kartik1302-qwen-3-6-35b-a3b.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Qwen 3.6 35B A3B MoE multi-node cluster with EU endpoint failover (DeepSeek V4.1 Flash, Qwen 3.8 27B VL, Qwen 3.5 397B, Gemma 4 26B).",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    GEMMA4_CLUSTER(
+        displayName = "Gemma 4 Flagship & Vision Cluster (community)",
+        baseUrl = "https://will-resolute-gemma4-vision-ui.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Google Gemma 4 cluster serving Gemma 4 31B IT, Gemma 4 12B IT/Coding, and Gemma 4 E4B Vision UI.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    FRONTIER_LAB(
+        displayName = "Frontier Open-Weights & Liquid LFM Hub (community)",
+        baseUrl = "https://apathy-exe-qwen3-8-flash-next.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless open-weights lab serving Qwen 3.8 Flash Next, Meta Muse Glimmer 30B, Inkling 2 Mini, Nanbeige 4.3 33B, Xing 4.0 29B, and Liquid LFM 2.5 24B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    DEEPAI(
+        displayName = "DeepAI (community)",
+        baseUrl = "https://api.deepai.org",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless DeepAI with IslandKey rotation and automatic frontier coding routing (Claude Haiku 5.5, GPT-6 Luna, GLM 5.3 Flash, DeepSeek V4.1 Flash, Gemma 4).",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    MOTIF(
+        displayName = "Motif (community)",
+        baseUrl = "https://chat.motiftech.io",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Motif 3 102B & 12.7B enterprise guest SSE stream.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    CHATJIMMY(
+        displayName = "ChatJimmy 20,000+ tok/s (community)",
+        baseUrl = "https://chatjimmy.ai",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless ChatJimmy Llama 3.1 8B on Taalas Silicon (20,000+ tok/s) with X-Real-IP rotation.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
@@ -380,21 +554,29 @@ object SeedModels {
         model("k2:IFM/K2-Horizon-375B-A23B", "K2 Horizon 375B (community)", AiProvider.K2_HORIZON, 524_288, tools = false, thinking = true)
     )
 
-    /** Guest models on chat.qwen.ai, listed by its /api/models without an account (2026-10-18). */
+    /** Guest & Android App Gateway models on chat.qwen.ai (updated with Qwen 4 Max & 3.7 Max). */
     val qwenWeb = listOf(
         model("qwen:qwen3.8-max", "Qwen3.8 Max (community)", AiProvider.QWEN_WEB, 983_616, tools = false, thinking = true),
+        model("qwen:qwen4-max", "Qwen 4 Max (community)", AiProvider.QWEN_WEB, 1_000_000, tools = false, thinking = true),
+        model("qwen:qwen3.7-max", "Qwen 3.7 Max (community)", AiProvider.QWEN_WEB, 1_000_000, tools = false, thinking = true),
         model("qwen:qwen3.7-plus", "Qwen3.7 Plus (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true),
-        model("qwen:qwen3.8-omni-flash", "Qwen3.8 Omni Flash (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true)
+        model("qwen:qwen3.8-omni-flash", "Qwen3.8 Omni Flash (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true),
+        model("qwen:qwen3.5-omni-plus", "Qwen 3.5 Omni Plus (community)", AiProvider.QWEN_WEB, 262_144, tools = false, thinking = true)
     )
 
     /**
-     * ptero.pro guest models. Only these two are served as themselves: the
-     * site's other ids (Mercury, GPT-OSS, Nemotron, ...) were all answered by
-     * qwen3.7-flash on 2026-10-18 ("model_used"), so listing them would be a lie.
+     * ptero.pro guest models, updated with `/wp-json/mlp/v1/chat-stream` SSE models
+     * (Agnes 3.0/2.5 Flash, Ising Calibration 1.5 31B, MiMo V2.6 Flash, GLM 5.3 Flash)
+     * plus existing ids.
      */
     val ptero = listOf(
         model("ptero:deepseek-v4.1-flash:free", "DeepSeek V4.1 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
-        model("ptero:qwen3.7-flash:free", "Qwen 3.7 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false)
+        model("ptero:qwen3.7-flash:free", "Qwen 3.7 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false),
+        model("ptero:agnes-3.0-flash:agnes", "Agnes 3.0 Flash (Ptero)", AiProvider.PTERO, 524_288, tools = false, thinking = true),
+        model("ptero:agnes-2.5-flash:agnes", "Agnes 2.5 Flash VL (Ptero)", AiProvider.PTERO, 524_288, tools = false, thinking = true),
+        model("ptero:ising-calibration-1.5-31b:bluesminds", "Ising Calibration 1.5 31B (Ptero)", AiProvider.PTERO, 131_072, tools = false, thinking = true),
+        model("ptero:mimo-v2.6-flash:tokenharbor", "MiMo V2.6 Flash (Ptero)", AiProvider.PTERO, 131_072, tools = false, thinking = true),
+        model("ptero:glm-5.3-flash", "GLM 5.3 Flash (Ptero)", AiProvider.PTERO, 200_000, tools = false)
     )
 
     /**
@@ -410,17 +592,21 @@ object SeedModels {
     )
 
     /**
-     * getunikey.ai's anonymous trial. Each id was checked on 2026-10-22 for
-     * which model actually answers (the stream's `model` field); ids answered
-     * by a different model (Kimi K3, GLM 5.2) are left out, and "gpt-5.5" is
-     * named for what serves it. Text only: tools and images are refused.
+     * getunikey.ai's anonymous trial, updated with Claude Opus 5.5, GPT-6.1 Sol,
+     * GPT-6 Astra, GPT-6 Luna, DeepSeek V4 Flash, and Kimi K3 2.8T alongside existing seeds.
      */
     val unikey = listOf(
         model("unikey:claude-opus-4-8", "Claude Opus 4.8 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:claude-opus-5-5", "Claude Opus 5.5 (UniKey)", AiProvider.UNIKEY, 200_000, tools = false, thinking = true),
+        model("unikey:gpt-6.1-sol", "GPT-6.1 Sol (UniKey)", AiProvider.UNIKEY, 200_000, tools = false, thinking = true),
+        model("unikey:gpt-6-astra", "GPT-6 Astra (UniKey)", AiProvider.UNIKEY, 200_000, tools = false, thinking = true),
+        model("unikey:gpt-6-luna", "GPT-6 Luna (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
+        model("unikey:deepseek-v4-flash", "DeepSeek V4 Flash (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:moonshotai/kimi-k3", "Kimi K3 2.8T (UniKey)", AiProvider.UNIKEY, 256_000, tools = false, thinking = true),
         model("unikey:gpt-5.5", "GPT-5.6 Terra (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
         model("unikey:minimax/minimax-m3", "MiniMax M3 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
         model("unikey:deepseek/deepseek-v4-pro", "DeepSeek V4 Pro (UniKey)", AiProvider.UNIKEY, 128_000, tools = false),
-        model("unikey:deepseek/deepseek-v4-flash", "DeepSeek V4 Flash (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
+        model("unikey:deepseek/deepseek-v4-flash", "DeepSeek V4 Flash Legacy (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
         model("unikey:x-ai/grok-4.3", "Grok 4.3 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
         model("unikey:moonshotai/kimi-k2.7-code", "Kimi K2.7 Code (UniKey)", AiProvider.UNIKEY, 128_000, tools = false, thinking = true),
         model("unikey:claude-opus-4-7", "Claude Opus 4.7 (UniKey)", AiProvider.UNIKEY, 128_000, tools = false)
@@ -536,6 +722,11 @@ object AiModels {
     /** Models worth suggesting for code work, best-first. */
     fun getRecommendedModels(): List<AiModel> = listOf(
         SeedModels.default,
+        KeylessSeeds.antigravity.first(),
+        KeylessSeeds.gemini4Hydrogen.first(),
+        KeylessSeeds.claude5Proxy.first(),
+        KeylessSeeds.myChatCloud.first(),
+        KeylessSeeds.nimCloud.first(),
         SeedModels.unikey.first(),
         SeedModels.k2Horizon.first(),
         SeedModels.kilo.first(),

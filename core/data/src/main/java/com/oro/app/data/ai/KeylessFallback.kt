@@ -31,20 +31,53 @@ import java.util.concurrent.ConcurrentHashMap
 object KeylessFallback {
 
     private val ORDER = listOf(
-        // Tencent's Hy3 demo: native tool calls, 256K, ~2 s to the first token (2026-10-23). In the
-        // live eval (docs/research/live-eval.md) it built and self-checked a landing page, an app and
-        // a game in 5 to 10 minutes each.
+        // Tencent's Hy3 demo: native tool calls, 256K, ~2 s to the first token (2026-10-23).
         "hy3:hy3",
-        // Kilo's free pool, all native tools: 550B, 1M context -- but on agent-sized prompts its
-        // upstream often times out before the first token ("Upstream idle timeout exceeded").
+        // Kilo's free pool, all native tools: 550B, 1M context.
         "nvidia/nemotron-3-ultra-550b-a55b:free",
+        // Google Antigravity & Gemini 4 Family (1M context, native tools & vision, multi-node failover).
+        "ag:gemini-4-hydrogen-xhigh",
+        "ag:gemini-4-hydrogen-high",
+        "ag:gemini-4-hydrogen-medium",
+        "ag:gemini-4-carbon-high",
+        "ag:gemini-4-neon-high",
+        "ag:gemini-4-argon-high",
+        "ag:gemini-pro-orchestrator",
+        "ag:claude-opus-5-5-high",
+        "ag:claude-sonnet-5-5-high",
+        "g4h:gemini-4-hydrogen",
+        "g4:gemini-4-hydrogen",
+        "gemweb:gemini-4-hydrogen",
+        // Flagship native-tool keyless clouds from ZeusDesigns.
+        "mychat:gpt-6-luna",
+        "mychat:gpt-5",
+        "claude5:claude-sonnet-5-5",
+        "claude5:claude-opus-5-5",
+        "nim:nvidia/nemotron-3.5-super-vl-120b-a12b",
+        "nim:mistralai/mistral-large-4-1t-a52b",
+        "blockrun:nvidia/nemotron-3-super-120b",
+        "freellm:glm-5.3",
+        "aibridge:gpt-6-luna",
+        "hfrouter:qwen3.8",
+        "litellm:groq/gpt-oss-120b",
+        "supavip:qwen4-max",
+        "shannian:deepseek-v4-flash-vision-exp",
+        "agnescloud:agnes-3.0-pro",
+        "zhipu:LongCat-2.5",
+        "zenfree:deepseek-v4.1-flash-free",
+        "vireonix:auto",
+        "colibri:Qwen3.6-35B-A3B",
+        "gemma4:gemma-4-31b-it",
+        "frontier:qwen3.8-flash-next",
+        "deepai:gpt-6-luna",
         "kilo-auto/free",
         "cohere/north-mini-code:free",
         "dots-studio/dots-3-note-preview:free",
         "nvidia/nemotron-3.5-super-vl:free",
         "openrouter/free",
-        // Claude Opus 4.8 answering in ~3 s (2026-10-22): the strongest free stand-in for text-mode runs.
+        // Claude Opus 4.8 / 5.5 via UniKey for text-mode runs.
         "unikey:claude-opus-4-8",
+        "unikey:claude-opus-5-5",
         // Mercury 3 (the default): over 1,000 tokens/s when its site lets the phone through.
         "mercury:mercury-3",
         "poolside/laguna-s-2.1:free",
@@ -54,10 +87,11 @@ object KeylessFallback {
         "unikey:minimax/minimax-m3",
         "reflection/beam-free",
         "recursive/flint-v1.0:free",
-        // Text-mode stand-in found 2026-10-23: Cloudflare's playground (per-minute
-        // caps shared by all its visitors).
+        // Text-mode stand-ins: Cloudflare's playground, K2 Horizon, Motif, ChatJimmy, Ptero, Qwen.
         "cfai:@cf/google/gemma-4-26b-a4b-it",
         "k2:IFM/K2-Horizon-375B-A23B",
+        "motif:motif-3-102b",
+        "chatjimmy:llama3.1-8b",
         "ptero:deepseek-v4.1-flash:free",
         "qwen:qwen3.7-plus"
     )
