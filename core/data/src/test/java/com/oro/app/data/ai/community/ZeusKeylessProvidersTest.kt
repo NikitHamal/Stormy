@@ -170,4 +170,40 @@ class ZeusKeylessProvidersTest {
         assertThat(MultiTargetOaiClient.supportsNativeOaiTools("https://w902287-ai-bridge.hf.space/v1/chat/completions", "gpt-6-luna")).isTrue()
         assertThat(MultiTargetOaiClient.supportsNativeOaiTools("https://w902287-ai-bridge.hf.space/v1/chat/completions", "claude-haiku-5-5")).isFalse()
     }
+
+    @Test
+    fun `all 45 keyless providers and extended reasoning stream formats are wired`() {
+        val newlyPorted = listOf(
+            AiProvider.VOLC_ARK,
+            AiProvider.LOGFARE_HUB,
+            AiProvider.FREECC,
+            AiProvider.TOGETHER_FRONTIER,
+            AiProvider.LIQUID_AI,
+            AiProvider.GEMMA4_VL,
+            AiProvider.BONSAI_CLOUD,
+            AiProvider.UNSLOTH_CLOUD,
+            AiProvider.KOBOLD_CLOUD,
+            AiProvider.HF_CLUSTER,
+            AiProvider.PHI4_CLOUD,
+            AiProvider.LLAMACPP_CLOUD,
+            AiProvider.OLLAMA_CLOUD,
+            AiProvider.AI_HORDE,
+            AiProvider.APIS_FREE_LLM,
+            AiProvider.YQ_CLOUD,
+            AiProvider.LONGCAT_WEB
+        )
+        newlyPorted.forEach { p ->
+            assertThat(p.worksWithoutKey).isTrue()
+            assertThat(AiModels.getModelsForProvider(p)).isNotEmpty()
+            assertThat(KeylessFallback.order.any { id -> AiModels.findModelById(id)?.provider == p }).isTrue()
+        }
+
+        val parser = com.oro.app.data.ai.ChatStreamParser()
+        val evs = parser.onData("""{"choices":[{"delta":{"reasoning_details":[{"text":"Step A. "},{"thinking":"Step B."}],"function_call":{"name":"read_file","arguments":"{\"path\":\"a.kt\"}"}}}]}""") +
+            parser.finish()
+        assertThat(evs.filterIsInstance<StreamEvent.ReasoningDelta>().single().reasoning).isEqualTo("Step A. Step B.")
+        val call = evs.filterIsInstance<StreamEvent.ToolCalls>().single().toolCalls.single()
+        assertThat(call.function.name).isEqualTo("read_file")
+        assertThat(call.function.arguments).isEqualTo("""{"path":"a.kt"}""")
+    }
 }

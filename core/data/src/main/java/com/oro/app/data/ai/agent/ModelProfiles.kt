@@ -156,8 +156,11 @@ object ModelProfiles {
         AiProvider.GEMINI4_DIRECT,
         AiProvider.MYCHAT_CLOUD,
         AiProvider.CLAUDE5_PROXY,
+        AiProvider.FREECC,
         AiProvider.NIM_CLOUD,
-        AiProvider.SUPA_VIP
+        AiProvider.SUPA_VIP,
+        AiProvider.AGNES_CLOUD,
+        AiProvider.TOGETHER_FRONTIER
     )
 
     fun forIds(provider: AiProvider, modelId: String): ModelProfile {
@@ -189,9 +192,10 @@ object ModelProfiles {
         Regex("""^gemini-(2\.5|[3-9])"""),
         Regex("""^grok-[4-9]"""),
         Regex("""^deepseek-v[4-9]"""),
-        Regex("""^qwen3\.[5-9]-max|^qwen3-max"""),
+        Regex("""^qwen[34](\.[5-9])?-max|^qwen3-max"""),
         Regex("""^kimi-k(2\.[5-9]|[3-9])"""),
         Regex("""^glm-[5-9]"""),
         Regex("""^minimax-m[3-9]"""),
+        Regex("""^agnes-3"""),
     )
 }

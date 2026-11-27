@@ -341,7 +341,24 @@ object RateLimits {
         AiProvider.FRONTIER_LAB to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
         AiProvider.DEEPAI to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
         AiProvider.MOTIF to RateLimit(requestsPerMinute = 20, tokensPerMinute = 500_000),
-        AiProvider.CHATJIMMY to RateLimit(requestsPerMinute = 40, tokensPerMinute = 800_000)
+        AiProvider.CHATJIMMY to RateLimit(requestsPerMinute = 40, tokensPerMinute = 800_000),
+        AiProvider.VOLC_ARK to RateLimit(requestsPerMinute = 35, tokensPerMinute = 800_000),
+        AiProvider.LOGFARE_HUB to RateLimit(requestsPerMinute = 30, tokensPerMinute = 800_000),
+        AiProvider.FREECC to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000),
+        AiProvider.TOGETHER_FRONTIER to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000),
+        AiProvider.LIQUID_AI to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.GEMMA4_VL to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.BONSAI_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.UNSLOTH_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.KOBOLD_CLOUD to RateLimit(requestsPerMinute = 20, tokensPerMinute = 500_000),
+        AiProvider.HF_CLUSTER to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.PHI4_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.LLAMACPP_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.OLLAMA_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.AI_HORDE to RateLimit(requestsPerMinute = 20, tokensPerMinute = 500_000),
+        AiProvider.APIS_FREE_LLM to RateLimit(requestsPerMinute = 30, tokensPerMinute = 600_000),
+        AiProvider.YQ_CLOUD to RateLimit(requestsPerMinute = 25, tokensPerMinute = 600_000),
+        AiProvider.LONGCAT_WEB to RateLimit(requestsPerMinute = 25, tokensPerMinute = 800_000)
     )
 
     /** Budget for a provider, or null when it is not rate limited by us. */
@@ -353,16 +370,20 @@ object VisionSupport {
     private val PATTERNS = listOf(
         "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "claude", "gemini", "gemma-3", "gemma-4", "llama-4", "pixtral",
         "mistral-medium", "mistral-small-3", "qwen-vl", "qwen2.5-vl", "qwen3-vl", "vl-", "-vl", "vision",
-        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "glm-4v", "nemotron-nano-vl", "omni"
+        "grok-4", "kimi-k2.5", "glm-4.5v", "glm-4.6v", "glm-4v", "nemotron-nano-vl", "omni", "smolvlm", "moondream"
     )
     private val VISION_CAPABLE_COMMUNITY = setOf(
         AiProvider.ANTIGRAVITY,
         AiProvider.GEMINI4_HYDROGEN,
         AiProvider.CLAUDE5_PROXY,
+        AiProvider.FREECC,
         AiProvider.NIM_CLOUD,
         AiProvider.BLOCKRUN,
         AiProvider.ZHIPU_LONGCAT,
-        AiProvider.GEMMA4_CLUSTER
+        AiProvider.GEMMA4_CLUSTER,
+        AiProvider.GEMMA4_VL,
+        AiProvider.LLAMACPP_CLOUD,
+        AiProvider.OLLAMA_CLOUD
     )
 
     fun supports(modelId: String): Boolean {

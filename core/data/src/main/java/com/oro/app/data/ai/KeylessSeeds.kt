@@ -98,6 +98,7 @@ object KeylessSeeds {
         model("ag:gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite (Antigravity)", AiProvider.ANTIGRAVITY, 1_048_576),
         model("ag:gemini-2.5-flash-thinking", "Gemini 2.5 Flash Thinking (Antigravity)", AiProvider.ANTIGRAVITY, 1_048_576, thinking = true),
         model("ag:gemini-2.5-flash", "Gemini 2.5 Flash (Antigravity)", AiProvider.ANTIGRAVITY, 1_048_576),
+        model("ag:gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite (Antigravity)", AiProvider.ANTIGRAVITY, 1_048_576),
         model("ag:gpt-oss-120b-medium", "GPT-OSS 120B Medium (Antigravity)", AiProvider.ANTIGRAVITY, 131_072, thinking = true)
     )
 
@@ -109,16 +110,26 @@ object KeylessSeeds {
         model("g4h:gemini-4-hydrogen-medium", "Gemini 4 Hydrogen Medium (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-hydrogen-low", "Gemini 4 Hydrogen Low (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576),
         model("g4h:gemini-4-hydrogen-sonar", "Gemini 4 Hydrogen Sonar (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-4-hydrogen-tiered-xhigh", "Gemini 4 Hydrogen Tiered XHigh (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-4-hydrogen-tiered-high", "Gemini 4 Hydrogen Tiered High (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-hydrogen-thinking", "Gemini 4 Hydrogen Thinking (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-hydrogen", "Gemini Hydrogen Fast Alias (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576),
         model("g4h:gemini-4-neon-xhigh", "Gemini 4 Neon XHigh (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-neon-high", "Gemini 4 Neon High (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-neon-medium", "Gemini 4 Neon Medium (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-4-neon-low", "Gemini 4 Neon Low (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576),
         model("g4h:gemini-4-neon-thinking", "Gemini 4 Neon Thinking (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-carbon-high", "Gemini 4 Carbon High (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-carbon-medium", "Gemini 4 Carbon Medium (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-4-carbon-low", "Gemini 4 Carbon Low (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576),
         model("g4h:gemini-4-argon-high", "Gemini 4 Argon High (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
         model("g4h:gemini-4-argon-medium", "Gemini 4 Argon Medium (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
-        model("g4h:gemini-pro-orchestrator", "Gemini 4 Pro Orchestrator (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true)
+        model("g4h:gemini-4-argon-low", "Gemini 4 Argon Low (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576),
+        model("g4h:gemini-pro-orchestrator", "Gemini 4 Pro Orchestrator (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-pro-orchestrator-argon", "Gemini 4 Pro Orchestrator Argon (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-pro-orchestrator-neon", "Gemini 4 Pro Orchestrator Neon (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-3.8-flash-high", "Gemini 3.8 Flash High (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true),
+        model("g4h:gemini-flash-worker-agy", "Gemini 4 Flash Worker AGY (Mesh)", AiProvider.GEMINI4_HYDROGEN, 1_048_576, thinking = true)
     )
 
     /** Google Gemini 4 Direct & 5-Node Cluster. */
@@ -129,12 +140,15 @@ object KeylessSeeds {
         model("g4:gemini-4-neon-thinking", "Gemini 4 Neon Thinking Direct", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
         model("g4:gemini-4-carbon", "Gemini 4 Carbon Direct", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
         model("g4:gemini-4-argon", "Gemini 4 Argon Direct", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
+        model("g4:gemini-hydrogen", "Gemini Hydrogen Short Alias", AiProvider.GEMINI4_DIRECT, 1_048_576),
+        model("g4:gemini-neon", "Gemini Neon Short Alias", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
         model("g4:gemini-auto", "Gemini 4 Auto Router", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
         model("g4:gemini-3.7-flash", "Gemini 3.7 Flash (Hydrogen Route)", AiProvider.GEMINI4_DIRECT, 1_048_576),
         model("g4:gemini-3.6-flash", "Gemini 3.6 Flash (Hydrogen Route)", AiProvider.GEMINI4_DIRECT, 1_048_576),
         model("g4:gemini-3.5-flash", "Gemini 3.5 Flash (Hydrogen Route)", AiProvider.GEMINI4_DIRECT, 1_048_576),
         model("g4:gemini-3.5-flash-thinking", "Gemini 3.5 Flash Thinking (Neon Route)", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
         model("g4:gemini-3.1-pro", "Gemini 3.1 Pro (Carbon Route)", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
+        model("g4:gemini-3.5-flash-thinking-lite", "Gemini 4 Dynamic Thinking", AiProvider.GEMINI4_DIRECT, 1_048_576, thinking = true),
         model("g4:gemini-flash-lite", "Gemini 4 Flash Lite", AiProvider.GEMINI4_DIRECT, 1_048_576)
     )
 
@@ -143,8 +157,14 @@ object KeylessSeeds {
         model("gemweb:gemini-4-hydrogen", "Gemini 4 Hydrogen (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576),
         model("gemweb:gemini-4-hydrogen-thinking", "Gemini 4 Hydrogen Thinking (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576, thinking = true),
         model("gemweb:gemini-4-neon", "Gemini 4 Neon (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576, thinking = true),
+        model("gemweb:gemini-4-neon-thinking", "Gemini 4 Neon Thinking (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576, thinking = true),
         model("gemweb:gemini-4-carbon", "Gemini 4 Carbon (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576, thinking = true),
-        model("gemweb:gemini-3.7-flash", "Gemini 3.7 Flash (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576)
+        model("gemweb:gemini-3.7-flash", "Gemini 3.7 Flash (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576),
+        model("gemweb:gemini-3.6-flash", "Gemini 3.6 Flash (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576),
+        model("gemweb:gemini-3.5-flash", "Gemini 3.5 Flash (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576),
+        model("gemweb:gemini-3.5-flash-thinking", "Gemini 3.5 Flash Thinking (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576, thinking = true),
+        model("gemweb:gemini-3.1-pro", "Gemini 3.1 Pro (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576, thinking = true),
+        model("gemweb:gemini-flash-lite", "Gemini Flash-Lite (Web Gateway)", AiProvider.GEMINI_WEB, 1_048_576)
     )
 
     /** MyChat Native Direct Cloud. */
@@ -334,7 +354,10 @@ object KeylessSeeds {
         model("gemma4:gemma-4-31b-it", "Gemma 4 31B IT Flagship", AiProvider.GEMMA4_CLUSTER, 131_072, thinking = true),
         model("gemma4:gemma-4-12b-it", "Gemma 4 12B IT", AiProvider.GEMMA4_CLUSTER, 131_072, thinking = true),
         model("gemma4:gemma-4-12b-coding", "Gemma 4 12B Coding", AiProvider.GEMMA4_CLUSTER, 131_072, thinking = true),
-        model("gemma4:gemma-4-e4b-vision-q4", "Gemma 4 E4B Vision UI", AiProvider.GEMMA4_CLUSTER, 131_072)
+        model("gemma4:gemma-4-e4b-vision-q4", "Gemma 4 E4B Vision UI", AiProvider.GEMMA4_CLUSTER, 131_072),
+        model("gemma4:gemma-4-e4b-ud-q5", "Gemma 4 E4B VL (UD-Q5_K_XL)", AiProvider.GEMMA4_CLUSTER, 131_072),
+        model("gemma4:gemma-4-e4b-qat", "Gemma 4 E4B QAT", AiProvider.GEMMA4_CLUSTER, 131_072),
+        model("gemma4:gemma-4-ollama", "Gemma 4 Latest", AiProvider.GEMMA4_CLUSTER, 131_072)
     )
 
     /** Frontier Open-Weights & Liquid LFM Hub. */
@@ -342,7 +365,10 @@ object KeylessSeeds {
         model("frontier:qwen3.8-flash-next", "Qwen 3.8 Flash Next", AiProvider.FRONTIER_LAB, 131_072, thinking = true),
         model("frontier:muse-glimmer-30b", "Meta Muse Glimmer 30B", AiProvider.FRONTIER_LAB, 131_072, thinking = true),
         model("frontier:inkling-2-mini", "Thinking Machines Inkling 2 Mini", AiProvider.FRONTIER_LAB, 131_072, thinking = true),
-        model("frontier:nanbeige4.3-33b", "Nanbeige 4.3 33B", AiProvider.FRONTIER_LAB, 131_072, thinking = true)
+        model("frontier:nanbeige4.3-33b", "Nanbeige 4.3 33B", AiProvider.FRONTIER_LAB, 131_072, thinking = true),
+        model("frontier:xing4.0-29b-a4b", "Xing 4.0 29B A4B MoE", AiProvider.FRONTIER_LAB, 131_072, thinking = true),
+        model("frontier:mellum2-12b-thinking", "JetBrains Mellum 2 12B Thinking", AiProvider.FRONTIER_LAB, 131_072, thinking = true),
+        model("frontier:nanbeige4.2-3b", "Nanbeige 4.2 3B", AiProvider.FRONTIER_LAB, 131_072, thinking = true)
     )
 
     /** DeepAI. */
@@ -352,7 +378,8 @@ object KeylessSeeds {
         model("deepai:glm-5.3-flash", "GLM 5.3 Flash (DeepAI)", AiProvider.DEEPAI, 128_000, thinking = true),
         model("deepai:deepseek-v4.1-flash", "DeepSeek V4.1 Flash (DeepAI)", AiProvider.DEEPAI, 128_000),
         model("deepai:qwen3.8-flash", "Qwen 3.8 Flash (DeepAI)", AiProvider.DEEPAI, 128_000),
-        model("deepai:gemma-4", "Gemma 4 (DeepAI)", AiProvider.DEEPAI, 128_000)
+        model("deepai:gemma-4", "Gemma 4 (DeepAI)", AiProvider.DEEPAI, 128_000),
+        model("deepai:standard", "DeepAI Standard", AiProvider.DEEPAI, 128_000)
     )
 
     /** Motif. */
@@ -364,6 +391,154 @@ object KeylessSeeds {
     /** ChatJimmy 20,000+ tok/s. */
     val chatJimmy = listOf(
         model("chatjimmy:llama3.1-8b", "Llama 3.1 8B Taalas Silicon (20,000+ tok/s)", AiProvider.CHATJIMMY, 131_072, thinking = false, tools = false)
+    )
+
+    /** Volcengine Ark & SenseNova Direct Cloud. */
+    val volcArk = listOf(
+        model("volcark:doubao-seed-2-0-lite-260428", "Doubao Seed 2.0 Lite Direct", AiProvider.VOLC_ARK, 131_072, thinking = true),
+        model("volcark:doubao-seed-2-0-mini-260428", "Doubao Seed 2.0 Mini Direct", AiProvider.VOLC_ARK, 131_072, thinking = true),
+        model("volcark:sensenova-6.8-flash", "SenseNova 6.8 Flash Direct", AiProvider.VOLC_ARK, 131_072, thinking = true),
+        model("volcark:sensenova-6.8-flash-lite", "SenseNova 6.8 Flash Lite Direct", AiProvider.VOLC_ARK, 131_072)
+    )
+
+    /** Logfare, Mistral & Reka Frontier Hub. */
+    val logfareHub = listOf(
+        model("logfare:devstral-latest", "Mistral Devstral Latest", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:magistral-medium-latest", "Mistral Magistral Medium", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:codestral-latest", "Mistral Codestral Latest", AiProvider.LOGFARE_HUB, 262_144),
+        model("logfare:reka-flash-3", "Reka Flash 3", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:reka-edge-2603", "Reka Edge 2603", AiProvider.LOGFARE_HUB, 131_072),
+        model("logfare:zai-glm-4.7", "Z.ai GLM 4.7 (Cerebras WSE)", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:DeepSeek-V3.1-cb", "DeepSeek V3.1 Reasoning (SambaNova)", AiProvider.LOGFARE_HUB, 163_840, thinking = true),
+        model("logfare:meta-llama/llama-4-scout-17b-16e-instruct", "Llama 4 Scout 17B 16E (Groq LPU)", AiProvider.LOGFARE_HUB, 131_072),
+        model("logfare:phoenix-1.0", "Logfare Phoenix 1.0", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:clef", "Logfare Clef", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:clef-flash", "Logfare Clef Flash", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:gemma-4-26b", "Google Gemma 4 26B A4B", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:MinerU2.5-Pro", "MinerU 2.5 Pro", AiProvider.LOGFARE_HUB, 131_072, thinking = true),
+        model("logfare:DeepSeek-V4-Flash-Vision-Exp", "DeepSeek V4 Flash Vision", AiProvider.LOGFARE_HUB, 1_048_576, thinking = true)
+    )
+
+    /** FreeClaude & Gemini 4 Hub. */
+    val freeCc = listOf(
+        model("freecc:claude-3-freecc-no-thinking/gemini/models/gemini-4-hydrogen", "Gemini 4 Hydrogen (FreeClaude)", AiProvider.FREECC, 1_048_576, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/gemini/models/gemini-3-flash-preview", "Gemini 3 Flash VL (FreeClaude)", AiProvider.FREECC, 1_048_576, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/gemini/models/gemini-3.5-flash", "Gemini 3.5 Flash VL (FreeClaude)", AiProvider.FREECC, 1_048_576, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/gemini/models/gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite VL (FreeClaude)", AiProvider.FREECC, 1_048_576),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/moonshotai/kimi-k3.1-pro", "Kimi K3.1 Pro (FreeClaude)", AiProvider.FREECC, 262_144, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/stepfun-ai/step-5-preview", "StepFun Step 5 Preview (FreeClaude)", AiProvider.FREECC, 262_144, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/nvidia/nemotron-3.5-super-vl-120b-a12b", "Nemotron 3.5 Super VL 120B (FreeClaude)", AiProvider.FREECC, 262_144, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "Nemotron 3 Nano Omni 30B VL (FreeClaude)", AiProvider.FREECC, 256_000, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra 550B (FreeClaude)", AiProvider.FREECC, 262_144, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b", "Nemotron 3.5 Lightning 30B (FreeClaude)", AiProvider.FREECC, 262_144, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/nvidia/nemotron-3.5-bolt-e4b", "Nemotron 3.5 Bolt E4B (FreeClaude)", AiProvider.FREECC, 262_144, thinking = true),
+        model("freecc:claude-3-freecc-no-thinking/nvidia_nim/poolside/laguna-xs-2.1", "Poolside Laguna XS 2.1 (FreeClaude)", AiProvider.FREECC, 131_072)
+    )
+
+    /** Together Frontier. */
+    val togetherFrontier = listOf(
+        model("together2api:glm-5.3", "GLM 5.3 (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 1_000_000, thinking = true),
+        model("together2api:glm-5.3-flash", "GLM 5.3 Flash (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 1_000_000, thinking = true),
+        model("together2api:kimi-k3", "Kimi K3 2.8T (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 1_048_576, thinking = true),
+        model("together2api:muse-glimmer-30b", "Muse Glimmer 30B (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 131_072, thinking = true),
+        model("together2api:gpt-oss-120b", "GPT-OSS 120B (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 131_072, thinking = true),
+        model("together2api:glm-5.2", "GLM 5.2 (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 1_000_000, thinking = true),
+        model("together2api:qwen3.5-9b", "Qwen 3.5 9B (Together Frontier)", AiProvider.TOGETHER_FRONTIER, 262_144, thinking = true)
+    )
+
+    /** Liquid AI LFM Gateway. */
+    val liquidAi = listOf(
+        model("liquidai:lfm2.5-24b-a2b", "Liquid LFM 2.5 24B A2B (Q8_0)", AiProvider.LIQUID_AI, 131_072, thinking = true),
+        model("liquidai:lfm2.5-8b-a1b", "Liquid LFM 2.5 8B A1B (Q4_K_M)", AiProvider.LIQUID_AI, 131_072, thinking = true),
+        model("liquidai:lfm3-1.7b", "Liquid LFM 3 1.7B", AiProvider.LIQUID_AI, 131_072),
+        model("liquidai:lfm2.5-2.6b", "Liquid LFM 2.5 2.6B", AiProvider.LIQUID_AI, 131_072)
+    )
+
+    /** Gemma 4 Vision & QAT Studio. */
+    val gemma4Vl = listOf(
+        model("gemma4vl:gemma-4-e4b-vision-q4", "Gemma 4 E4B Vision UI (Q4_K_M)", AiProvider.GEMMA4_VL, 131_072),
+        model("gemma4vl:gemma-4-e2b-q6k-aggressive", "Gemma 4 E2B Uncensored (Q6_K_P)", AiProvider.GEMMA4_VL, 131_072, thinking = true),
+        model("gemma4vl:gemma-4-e2b-qat-q4", "Gemma 4 E2B QAT (Q4_0)", AiProvider.GEMMA4_VL, 131_072, thinking = true),
+        model("gemma4vl:gemma-4-e2b-qat-mobile", "Gemma 4 E2B QAT Mobile (UD-Q2_K_XL)", AiProvider.GEMMA4_VL, 131_072),
+        model("gemma4vl:gemma-4-e2b-it-fast", "Gemma 4 E2B IT Fast", AiProvider.GEMMA4_VL, 131_072)
+    )
+
+    /** Bonsai & Ternary Frontier. */
+    val bonsaiCloud = listOf(
+        model("bonsaicloud:ternary-bonsai-2-27b", "Ternary Bonsai 2 27B (PTQ1_0)", AiProvider.BONSAI_CLOUD, 131_072, thinking = true),
+        model("bonsaicloud:bonsai-8b", "Ternary Bonsai 8B", AiProvider.BONSAI_CLOUD, 131_072),
+        model("bonsaicloud:vibethinker-3b-q4", "VibeThinker 3B Reasoning", AiProvider.BONSAI_CLOUD, 131_072, thinking = true)
+    )
+
+    /** Unsloth Qwen 3.5 & Gemma 4 Cloud. */
+    val unslothCloud = listOf(
+        model("unslothcloud:qwen3.5-4b-q6", "Qwen 3.5 4B (Q6_K)", AiProvider.UNSLOTH_CLOUD, 262_144, thinking = true),
+        model("unslothcloud:gemma-4-e2b-ud-q4", "Gemma 4 E2B IT (UD-Q4_K_XL)", AiProvider.UNSLOTH_CLOUD, 131_072, thinking = true),
+        model("unslothcloud:gemma-4-e2b-qat-ud", "Gemma 4 E2B QAT (UD-Q4_K_XL)", AiProvider.UNSLOTH_CLOUD, 131_072, thinking = true),
+        model("unslothcloud:gemma-4-e2b-q4ks", "Gemma 4 E2B IT (Q4_K_S)", AiProvider.UNSLOTH_CLOUD, 131_072)
+    )
+
+    /** KoboldAI Multi-Node Cloud. */
+    val koboldCloud = listOf(
+        model("koboldcloud:koboldcpp/Gemma4-E2B", "Gemma 4 E2B (Official KoboldAI)", AiProvider.KOBOLD_CLOUD, 131_072),
+        model("koboldcloud:koboldcpp/gemma-2-9b-it-Q5_K_M", "Gemma 2 9B IT (Q5_K_M)", AiProvider.KOBOLD_CLOUD, 131_072),
+        model("koboldcloud:koboldcpp/gemma-3n-E2B-it", "Gemma 3n E2B IT", AiProvider.KOBOLD_CLOUD, 131_072)
+    )
+
+    /** HF Frontier Cluster. */
+    val hfCluster = listOf(
+        model("hfcluster:qwen3.8-27b-q8", "Qwen 3.8 27B (UD-Q8_K_XL)", AiProvider.HF_CLUSTER, 262_144, thinking = true),
+        model("hfcluster:gemma-4-e4b-q5", "Gemma 4 E4B IT (Q5_K_P)", AiProvider.HF_CLUSTER, 131_072),
+        model("hfcluster:gemma-4-e2b-q8", "Gemma 4 E2B IT (Q8_0)", AiProvider.HF_CLUSTER, 131_072)
+    )
+
+    /** Phi-4 & Llama 3.1 Abliterated Cloud. */
+    val phi4Cloud = listOf(
+        model("phi4cloud:phi-4-14b-gguf", "Microsoft Phi-4 14B", AiProvider.PHI4_CLOUD, 131_072, thinking = true),
+        model("phi4cloud:llama-3.1-8b-abliterated", "Llama 3.1 8B Abliterated (Q4_K_M)", AiProvider.PHI4_CLOUD, 131_072),
+        model("phi4cloud:llama-cpp-fast", "Llama.cpp Fast GGUF", AiProvider.PHI4_CLOUD, 131_072)
+    )
+
+    /** Llama.cpp LFM & SmolVLM Cloud. */
+    val llamaCppCloud = listOf(
+        model("llamacppcloud:lfm2.5-2.6b-uncensored", "Liquid LFM 2.5 2.6B Uncensored", AiProvider.LLAMACPP_CLOUD, 131_072),
+        model("llamacppcloud:lfm3-1.7b-gguf", "Liquid LFM 3 1.7B GGUF", AiProvider.LLAMACPP_CLOUD, 131_072, thinking = true),
+        model("llamacppcloud:smolvlm-500m-instruct", "SmolVLM 500M Vision (Q8_0)", AiProvider.LLAMACPP_CLOUD, 131_072),
+        model("llamacppcloud:lfm2.5-230m-instant", "Liquid LFM 2.5 230M Instant", AiProvider.LLAMACPP_CLOUD, 131_072)
+    )
+
+    /** Ollama Multi-Model Cloud. */
+    val ollamaCloud = listOf(
+        model("ollamacloud:deepseek-r1:1.5b", "DeepSeek R1 1.5B Reasoning", AiProvider.OLLAMA_CLOUD, 163_840, thinking = true),
+        model("ollamacloud:gemma:7b-instruct", "Google Gemma 7B Instruct", AiProvider.OLLAMA_CLOUD, 131_072),
+        model("ollamacloud:qwen2.5:1.5b", "Qwen 2.5 1.5B Instruct", AiProvider.OLLAMA_CLOUD, 131_072),
+        model("ollamacloud:qwen-coder-0.5b", "Qwen 2.5 Coder Fast", AiProvider.OLLAMA_CLOUD, 131_072),
+        model("ollamacloud:moondream:latest", "Moondream 2 Vision", AiProvider.OLLAMA_CLOUD, 131_072)
+    )
+
+    /** AI Horde. */
+    val aiHorde = listOf(
+        model("aihorde:Qwen/Qwen3.8-Flash-Next", "Qwen 3.8 Flash Next (AI Horde)", AiProvider.AI_HORDE, 262_144),
+        model("aihorde:koboldcpp/Qwen/Qwen3.8-27B", "Qwen 3.8 27B (AI Horde)", AiProvider.AI_HORDE, 262_144),
+        model("aihorde:llamacpp/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive", "Qwen 3.6 35B MoE (AI Horde)", AiProvider.AI_HORDE, 262_144),
+        model("aihorde:koboldcpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q2_K_P", "Gemma 4 E4B (AI Horde)", AiProvider.AI_HORDE, 131_072),
+        model("aihorde:koboldcpp/Cydonia-24B-v4zg-Q4_K_M", "Cydonia 24B (AI Horde)", AiProvider.AI_HORDE, 131_072),
+        model("aihorde:koboldcpp/Llama-3.2-3B-Instruct", "Llama 3.2 3B Instruct (AI Horde)", AiProvider.AI_HORDE, 131_072)
+    )
+
+    /** APIsFreeLLM. */
+    val apisFreeLlm = listOf(
+        model("apisfreellm:free-ai", "Free-AI 9B Uncensored", AiProvider.APIS_FREE_LLM, 131_072)
+    )
+
+    /** YQCloud Stream. */
+    val yqCloud = listOf(
+        model("yqcloud:yqcloud-default", "YQCloud GPT Stream", AiProvider.YQ_CLOUD, 131_072)
+    )
+
+    /** LongCat Oversea V2. */
+    val longCatWeb = listOf(
+        model("longcat:longcat-2.5", "LongCat 2.5 (Oversea V2)", AiProvider.LONGCAT_WEB, 131_072, thinking = true)
     )
 
     private val byProvider: Map<AiProvider, List<AiModel>> = mapOf(
@@ -394,7 +569,24 @@ object KeylessSeeds {
         AiProvider.FRONTIER_LAB to frontierLab,
         AiProvider.DEEPAI to deepAi,
         AiProvider.MOTIF to motif,
-        AiProvider.CHATJIMMY to chatJimmy
+        AiProvider.CHATJIMMY to chatJimmy,
+        AiProvider.VOLC_ARK to volcArk,
+        AiProvider.LOGFARE_HUB to logfareHub,
+        AiProvider.FREECC to freeCc,
+        AiProvider.TOGETHER_FRONTIER to togetherFrontier,
+        AiProvider.LIQUID_AI to liquidAi,
+        AiProvider.GEMMA4_VL to gemma4Vl,
+        AiProvider.BONSAI_CLOUD to bonsaiCloud,
+        AiProvider.UNSLOTH_CLOUD to unslothCloud,
+        AiProvider.KOBOLD_CLOUD to koboldCloud,
+        AiProvider.HF_CLUSTER to hfCluster,
+        AiProvider.PHI4_CLOUD to phi4Cloud,
+        AiProvider.LLAMACPP_CLOUD to llamaCppCloud,
+        AiProvider.OLLAMA_CLOUD to ollamaCloud,
+        AiProvider.AI_HORDE to aiHorde,
+        AiProvider.APIS_FREE_LLM to apisFreeLlm,
+        AiProvider.YQ_CLOUD to yqCloud,
+        AiProvider.LONGCAT_WEB to longCatWeb
     )
 
     operator fun get(provider: AiProvider): List<AiModel> = byProvider[provider].orEmpty()

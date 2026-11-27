@@ -61,6 +61,7 @@ class MultiTargetOaiClient : CommunityChatClient {
 
     @Volatile private var shanNianToken: String? = null
     @Volatile private var shanNianExpiresAt: Long = 0L
+    @Volatile private var motifConversationId: String? = null
 
     override fun takesTools(provider: AiProvider): Boolean =
         provider != AiProvider.MOTIF && provider != AiProvider.CHATJIMMY
@@ -80,22 +81,36 @@ class MultiTargetOaiClient : CommunityChatClient {
         val upstream = CommunityClients.upstreamId(model)
         val ok = when (model.provider) {
             AiProvider.MYCHAT_CLOUD -> streamMyChatCloud(upstream, messages, tools, reasoningLevel)
-            AiProvider.CLAUDE5_PROXY -> streamClaude5Proxy(upstream, messages, tools, reasoningLevel)
+            AiProvider.CLAUDE5_PROXY, AiProvider.FREECC -> streamClaude5Proxy(upstream, messages, tools, reasoningLevel)
             AiProvider.NIM_CLOUD -> streamNimCloud(upstream, messages, tools, reasoningLevel)
             AiProvider.BLOCKRUN -> streamBlockRun(upstream, messages, tools, reasoningLevel)
-            AiProvider.FREELLM_HUB -> streamFreeLlmHub(upstream, messages, tools, reasoningLevel)
+            AiProvider.FREELLM_HUB, AiProvider.LOGFARE_HUB -> streamFreeLlmHub(upstream, messages, tools, reasoningLevel)
             AiProvider.AI_BRIDGE -> streamAiBridge(upstream, messages, tools, reasoningLevel)
             AiProvider.HF_ROUTER -> streamHfRouter(upstream, messages, tools, reasoningLevel)
             AiProvider.LITELLM_HUB -> streamLiteLlmHub(upstream, messages, tools, reasoningLevel)
             AiProvider.SUPA_VIP -> streamSupaVip(upstream, messages, tools)
-            AiProvider.SHANNIAN_VIP -> streamShanNianVip(upstream, messages, tools)
+            AiProvider.SHANNIAN_VIP, AiProvider.VOLC_ARK -> streamShanNianVip(upstream, messages, tools)
             AiProvider.AGNES_CLOUD -> streamAgnesCloud(upstream, messages, tools)
             AiProvider.ZHIPU_LONGCAT -> streamZhipuLongCat(upstream, messages, tools)
+            AiProvider.LONGCAT_WEB -> streamLongCatWeb(upstream, messages, tools)
             AiProvider.OPENCODE_ZEN_FREE -> streamOpenCodeZenFree(upstream, messages, tools, reasoningLevel)
             AiProvider.VIREONIX -> streamVireonix(messages, tools)
             AiProvider.COLIBRI_QWEN -> streamColibriQwen(upstream, messages, tools)
+            AiProvider.TOGETHER_FRONTIER -> streamTogetherFrontier(upstream, messages, tools)
             AiProvider.GEMMA4_CLUSTER -> streamGemma4Cluster(upstream, messages, tools)
+            AiProvider.GEMMA4_VL -> streamGemma4Vl(upstream, messages, tools)
             AiProvider.FRONTIER_LAB -> streamFrontierLab(upstream, messages, tools)
+            AiProvider.LIQUID_AI -> streamLiquidAi(upstream, messages, tools)
+            AiProvider.BONSAI_CLOUD -> streamBonsaiCloud(upstream, messages, tools)
+            AiProvider.UNSLOTH_CLOUD -> streamUnslothCloud(upstream, messages, tools)
+            AiProvider.KOBOLD_CLOUD -> streamKoboldCloud(upstream, messages, tools)
+            AiProvider.HF_CLUSTER -> streamHfCluster(upstream, messages, tools)
+            AiProvider.PHI4_CLOUD -> streamPhi4Cloud(upstream, messages, tools)
+            AiProvider.LLAMACPP_CLOUD -> streamLlamaCppCloud(upstream, messages, tools)
+            AiProvider.OLLAMA_CLOUD -> streamOllamaCloud(upstream, messages, tools)
+            AiProvider.AI_HORDE -> streamAiHorde(upstream, messages, tools)
+            AiProvider.APIS_FREE_LLM -> streamApisFreeLlm(upstream, messages, tools)
+            AiProvider.YQ_CLOUD -> streamYqCloud(messages, tools)
             AiProvider.DEEPAI -> streamDeepAi(upstream, messages, tools)
             AiProvider.MOTIF -> streamMotif(upstream, messages, reasoningLevel)
             AiProvider.CHATJIMMY -> streamChatJimmy(messages)
@@ -169,16 +184,24 @@ class MultiTargetOaiClient : CommunityChatClient {
             return streamZhipuLongCat(upstream, messages, tools)
         }
         val anthCandidates = buildList {
-            when (upstream) {
-                "claude-opus-5-5" -> {
+            when {
+                upstream.startsWith("claude-3-freecc-no-thinking/") -> {
+                    if (upstream.contains("/gemini/")) {
+                        add("https://calkotter-free-claude-code.hf.space/v1/messages" to upstream)
+                    } else {
+                        add("https://dherain24-claude-proxy.hf.space/v1/messages" to upstream)
+                        add("https://calkotter-free-claude-code.hf.space/v1/messages" to upstream)
+                    }
+                }
+                upstream == "claude-opus-5-5" -> {
                     add("https://dherain24-claude-proxy.hf.space/v1/messages" to "claude-sonnet-5-5")
                     add("https://calkotter-free-claude-code.hf.space/v1/messages" to "claude-sonnet-5-5")
                 }
-                "kimi-k3.1-pro" -> {
+                upstream == "kimi-k3.1-pro" -> {
                     add("https://dherain24-claude-proxy.hf.space/v1/messages" to "claude-3-freecc-no-thinking/nvidia_nim/moonshotai/kimi-k3.1-pro")
                     add("https://calkotter-free-claude-code.hf.space/v1/messages" to "claude-3-freecc-no-thinking/nvidia_nim/moonshotai/kimi-k3.1-pro")
                 }
-                "step-5-preview" -> {
+                upstream == "step-5-preview" -> {
                     add("https://calkotter-free-claude-code.hf.space/v1/messages" to "claude-3-freecc-no-thinking/nvidia_nim/stepfun-ai/step-5-preview")
                 }
                 else -> {
@@ -572,12 +595,471 @@ class MultiTargetOaiClient : CommunityChatClient {
         messages: List<ChatRequestMessage>,
         tools: List<Tool>?
     ): Boolean {
+        val primary = when (upstream) {
+            "inkling-2-mini" ->
+                Target("https://bananamort-inkling-2-mini.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--unsloth--Inkling-2-Mini-GGUF/snapshots/45fd08764f2b0bf16b03a5483a80e5c7aaec8772/Inkling-2-Mini-UD-Q4_K_XL.gguf")
+            "nanbeige4.3-33b" ->
+                Target("https://apathy-exe-nanbeige4-3-33b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--bartowski--Nanbeige_Nanbeige4.3-33B-GGUF/snapshots/9beb68421fdf7be095093a6888325fa2c83ddd38/Nanbeige_Nanbeige4.3-33B-Q4_K_M.gguf")
+            "muse-glimmer-30b" ->
+                Target("https://apathy-exe-muse-glimmer-30b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--meta-models--Muse-Glimmer-30B-GGUF/snapshots/b44f1072cf75e918a1b82a3a17b45c4389b076e7/Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf")
+            "xing4.0-29b-a4b" ->
+                Target("https://apathy-exe-xing4-0-29b-a4b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--XingChen-AGI--Xing4.0-29B-A4B-GGUF/snapshots/006904bc1d05ae2c37f938a4abdffee27e488544/xing4_0-29b-IQ4_NL.gguf")
+            "mellum2-12b-thinking" ->
+                Target("https://usermma-mellum2-12b-a2-5b-thinking-abliterated.hf.space/v1/chat/completions", "Mellum2-12B-A2.5B-Thinking-Abliterated-Q6_K.gguf")
+            "nanbeige4.2-3b" ->
+                Target("https://apathy-exe-nanbeige4-2-3b.hf.space/v1/chat/completions", "/app/nanbeige4.2-3b-Q4_K_M.gguf")
+            else ->
+                Target("https://apathy-exe-qwen3-8-flash-next.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--AtomicChat--Qwen3.8-Flash-Next-GGUF/snapshots/f5b0b790eebb89033c48091c26abf74c1b385940/Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00003.gguf")
+        }
         val targets = listOf(
+            primary,
             Target("https://apathy-exe-qwen3-8-flash-next.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--AtomicChat--Qwen3.8-Flash-Next-GGUF/snapshots/f5b0b790eebb89033c48091c26abf74c1b385940/Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00003.gguf"),
             Target("https://blockrun.ai/api/v1/chat/completions", if (upstream == "muse-glimmer-30b") "nvidia/muse-glimmer-30b" else "nvidia/nemotron-3.5-lightning", bearer = null),
             Target("https://bun008-freellmapi.hf.space/v1/chat/completions", "Qwen3.8-Flash-Next", bearer = null)
-        )
+        ).distinct()
         return tryTargets(targets, messages, tools, null)
+    }
+
+    // --------------------------------------------------- LongCat Oversea V2
+    private suspend fun FlowCollector<StreamEvent>.streamLongCatWeb(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val lcTargets = listOf(
+            Target("https://api.longcat.chat/openai/v1/chat/completions", "LongCat-2.5", bearer = LONGCAT_DIRECT_KEY),
+            Target("https://api.longcat.chat/openai/v1/chat/completions", "LongCat-2.5-Preview", bearer = LONGCAT_DIRECT_KEY)
+        )
+        if (tryTargets(lcTargets, messages, tools, null, maxTokens = 16384)) return true
+
+        val textMode = if (!tools.isNullOrEmpty()) Gemini4MeshClient.injectTextTools(messages, tools) else messages
+        val turns = Transcript.turns(textMode)
+        if (turns.isEmpty()) return false
+        val sysText = turns.filter { it.role == "system" }.joinToString("\n\n") { it.text }.take(18_000)
+        val nonSys = turns.filter { it.role != "system" }
+        val lastUser = nonSys.lastOrNull()?.text.orEmpty()
+        if (lastUser.isBlank()) return false
+        val content = if (sysText.isBlank()) lastUser else "$sysText\n\n$lastUser"
+        val rng = ThreadLocalRandom.current()
+        val payload = buildJsonObject {
+            put("content", content)
+            put("agentId", "1")
+            putJsonArray("messages") {
+                nonSys.dropLast(1).forEach { m ->
+                    val role = if (m.role == "assistant") "assistant" else "user"
+                    val evType = if (role == "assistant") "content" else "userMsg"
+                    addJsonObject {
+                        put("role", role)
+                        putJsonArray("events") {
+                            addJsonObject {
+                                put("type", evType)
+                                put("content", m.text.take(16_000))
+                                put("status", "FINISHED")
+                            }
+                        }
+                        put("chatStatus", "FINISHED")
+                        put("messageId", 10_000_000 + rng.nextInt(89_000_000))
+                        put("idType", "custom")
+                    }
+                }
+                addJsonObject {
+                    put("role", "user")
+                    putJsonArray("events") {
+                        addJsonObject {
+                            put("type", "userMsg")
+                            put("content", content)
+                            put("status", "FINISHED")
+                        }
+                    }
+                    put("chatStatus", "FINISHED")
+                    put("messageId", 10_000_000 + rng.nextInt(89_000_000))
+                    put("idType", "custom")
+                }
+                addJsonObject {
+                    put("role", "assistant")
+                    putJsonArray("events") {}
+                    put("chatStatus", "LOADING")
+                    put("messageId", 10_000_000 + rng.nextInt(89_000_000))
+                    put("idType", "custom")
+                }
+            }
+            put("reasonEnabled", 1)
+            put("searchEnabled", 0)
+            put("regenerate", 0)
+        }
+        val req = Request.Builder()
+            .url("https://longcat.chat/api/v1/chat-completion-oversea-V2")
+            .post(payload.toString().toRequestBody(JSON))
+            .header("Accept", "text/event-stream,application/json")
+            .header("Content-Type", "application/json")
+            .header("x-requested-with", "XMLHttpRequest")
+            .header("X-Client-Language", "en")
+            .header("m-appkey", "fe_com.sankuai.friday.fe.longcat")
+            .site("https://longcat.chat", "https://longcat.chat/t")
+            .build()
+        val ok = runCatching {
+            CommunityHttp.execute(req) { resp ->
+                if (!resp.isSuccessful) return@execute false
+                val source = resp.body?.source() ?: return@execute false
+                var started = false
+                var sawText = false
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val raw = line.removePrefix("data:").trim()
+                    val ev = runCatching { AiHttp.json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: continue
+                    val eventObj = ev["event"] as? JsonObject ?: continue
+                    val etype = (eventObj["type"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                    val c = (eventObj["content"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+                    when (etype) {
+                        "reason", "think", "thinking" -> if (c.isNotEmpty()) {
+                            if (!started) { started = true; emit(StreamEvent.Started) }
+                            emit(StreamEvent.ReasoningDelta(c))
+                        }
+                        "content" -> if (c.isNotEmpty()) {
+                            if (!started) { started = true; emit(StreamEvent.Started) }
+                            sawText = true
+                            emit(StreamEvent.ContentDelta(c))
+                        }
+                        "finish" -> break
+                    }
+                }
+                if (!sawText) return@execute false
+                emit(StreamEvent.FinishReason("stop"))
+                emit(StreamEvent.Completed)
+                true
+            }
+        }.getOrDefault(false)
+        return ok || streamZhipuLongCat(upstream, messages, tools)
+    }
+
+    // --------------------------------------------------- Together Frontier
+    private suspend fun FlowCollector<StreamEvent>.streamTogetherFrontier(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val effModel = if (upstream in setOf("glm-5.3", "glm-5.3-flash", "kimi-k3", "muse-glimmer-30b", "gpt-oss-120b", "glm-5.2", "qwen3.5-9b")) {
+            upstream
+        } else "glm-5.3"
+        val targets = listOf(
+            Target("https://lolmaobruhhh-test.hf.space/v1/chat/completions", effModel, bearer = null)
+        )
+        if (tryTargets(targets, messages, tools, null, maxTokens = 16384)) return true
+        return when (effModel) {
+            "kimi-k3" -> streamFreeLlmHub("kimi-k2.7-code", messages, tools, null)
+            "muse-glimmer-30b" -> streamFrontierLab("muse-glimmer-30b", messages, tools)
+            "gpt-oss-120b" -> streamLiteLlmHub("groq/gpt-oss-120b", messages, tools, null)
+            else -> streamFreeLlmHub("glm-5.3", messages, tools, null)
+        }
+    }
+
+    // ----------------------------------------------- Gemma 4 Vision & QAT
+    private suspend fun FlowCollector<StreamEvent>.streamGemma4Vl(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "gemma-4-e2b-q6k-aggressive" -> listOf(
+                Target("https://titoo3-gemma-4-e4b-uncensored-hauhaucs-aggressive-q5-k-p.hf.space/v1/chat/completions", "/app/Gemma-4-E2B-Uncensored-HauhauCS-Aggressive-Q6_K_P.gguf"),
+                Target("https://will-resolute-gemma4-vision-ui.hf.space/v1/chat/completions", "/models/gemma-4-E4B-it-Q4_K_M.gguf")
+            )
+            "gemma-4-e2b-qat-q4" -> listOf(
+                Target("https://hispa-nico-gemma4-e2b-qat.hf.space/v1/chat/completions", "huihui-ai/Huihui-gemma-4-E2B-it-qat-q4_0-unquantized-abliterated-GGUF:Q4_0"),
+                Target("https://elseodelasgalletas-gemma4-e2b-qat-mobile.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-qat-mobile-GGUF:UD-Q2_K_XL")
+            )
+            "gemma-4-e2b-qat-mobile" -> listOf(
+                Target("https://elseodelasgalletas-gemma4-e2b-qat-mobile.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-qat-mobile-GGUF:UD-Q2_K_XL"),
+                Target("https://hispa-nico-gemma4-e2b-qat.hf.space/v1/chat/completions", "huihui-ai/Huihui-gemma-4-E2B-it-qat-q4_0-unquantized-abliterated-GGUF:Q4_0")
+            )
+            "gemma-4-e2b-it-fast" -> listOf(
+                Target("https://gefdsv-gemma-4-e2b-it.hf.space/v1/chat/completions", "model.gguf"),
+                Target("https://elseodelasgalletas-gemma4-e2b-qat-mobile.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-qat-mobile-GGUF:UD-Q2_K_XL")
+            )
+            else -> listOf(
+                Target("https://will-resolute-gemma4-vision-ui.hf.space/v1/chat/completions", "/models/gemma-4-E4B-it-Q4_K_M.gguf"),
+                Target("https://rikunarita-gemma-4-e4b-it-gguf-ud-q5-k-xl.hf.space/v1/chat/completions", "/app/gemma-4-E4B-it-UD-Q5_K_XL.gguf")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamGemma4Cluster(upstream, messages, tools)
+    }
+
+    // --------------------------------------------------- Liquid AI LFM
+    private suspend fun FlowCollector<StreamEvent>.streamLiquidAi(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "lfm2.5-8b-a1b" -> listOf(
+                Target("https://usermma-lfm2-5-8b-a1b-abliterated-q3.hf.space/v1/chat/completions", "Huihui-LFM2.5-8B-A1B-abliterated.Q4_K_M.gguf"),
+                Target("https://apathy-exe-lfm2-5-24b-a2b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--unsloth--LFM2.5-24B-A2B-GGUF/snapshots/aacc77834f6aa568c93b4dbd6d295059736be98c/LFM2.5-24B-A2B-Q8_0.gguf")
+            )
+            "lfm3-1.7b" -> listOf(
+                Target("https://apathy-exe-lfm3-1-7b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--LiquidAI--LFM3-1.7B-GGUF/snapshots/cd0c74c575b5c416f3011b5b4c298077f26ca8c2/LFM3-1.7B-QAD-Q4_0.gguf"),
+                Target("https://l0d0v1c-lfm3-1-7b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--LiquidAI--LFM3-1.7B-GGUF/snapshots/cd0c74c575b5c416f3011b5b4c298077f26ca8c2/LFM3-1.7B-QAD-Q4_0.gguf")
+            )
+            "lfm2.5-2.6b" -> listOf(
+                Target("https://apathy-exe-lfm2-5-2-6b.hf.space/v1/chat/completions", "/LFM2.5-2.6B-Q4_K_M.gguf"),
+                Target("https://apathy-exe-lfm2-5-24b-a2b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--unsloth--LFM2.5-24B-A2B-GGUF/snapshots/aacc77834f6aa568c93b4dbd6d295059736be98c/LFM2.5-24B-A2B-Q8_0.gguf")
+            )
+            else -> listOf(
+                Target("https://apathy-exe-lfm2-5-24b-a2b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--unsloth--LFM2.5-24B-A2B-GGUF/snapshots/aacc77834f6aa568c93b4dbd6d295059736be98c/LFM2.5-24B-A2B-Q8_0.gguf"),
+                Target("https://apathy-exe-lfm3-1-7b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--LiquidAI--LFM3-1.7B-GGUF/snapshots/cd0c74c575b5c416f3011b5b4c298077f26ca8c2/LFM3-1.7B-QAD-Q4_0.gguf")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamFrontierLab("qwen3.8-flash-next", messages, tools)
+    }
+
+    // --------------------------------------------------- Bonsai & Ternary
+    private suspend fun FlowCollector<StreamEvent>.streamBonsaiCloud(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "bonsai-8b" -> listOf(
+                Target("https://mikeee-bonsai-8b.hf.space/v1/chat/completions", "bonsai-8b"),
+                Target("https://bananamort-ternary-bonsai-2-27b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--prism-ml--Ternary-Bonsai-2-27B-gguf/snapshots/839bd57023c1558945afea70a74fa83c054f35f9/Ternary-Bonsai-2-27B-PTQ1_0.gguf")
+            )
+            "vibethinker-3b-q4" -> listOf(
+                Target("https://mikeee-llama-cpp-server.hf.space/v1/chat/completions", "vibethinker-3b-q4"),
+                Target("https://mikeee-bonsai-8b.hf.space/v1/chat/completions", "bonsai-8b")
+            )
+            else -> listOf(
+                Target("https://bananamort-ternary-bonsai-2-27b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--prism-ml--Ternary-Bonsai-2-27B-gguf/snapshots/839bd57023c1558945afea70a74fa83c054f35f9/Ternary-Bonsai-2-27B-PTQ1_0.gguf"),
+                Target("https://mikeee-bonsai-8b.hf.space/v1/chat/completions", "bonsai-8b")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamFrontierLab("qwen3.8-flash-next", messages, tools)
+    }
+
+    // --------------------------------------------------- Unsloth Cloud
+    private suspend fun FlowCollector<StreamEvent>.streamUnslothCloud(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "gemma-4-e2b-qat-ud" -> listOf(
+                Target("https://elseodelasgalletas-gemma4-e2b-qat.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-qat-GGUF:UD-Q4_K_XL"),
+                Target("https://elseodelasgalletas-gemma4-e2b.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-GGUF:UD-Q4_K_XL")
+            )
+            "gemma-4-e2b-q4ks" -> listOf(
+                Target("https://bleak-openai-compatible-server-gemma4.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-GGUF:Q4_K_S"),
+                Target("https://elseodelasgalletas-gemma4-e2b.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-GGUF:UD-Q4_K_XL")
+            )
+            "qwen3.5-4b-q6" -> listOf(
+                Target("https://bleak-openai-compatible-server.hf.space/v1/chat/completions", "unsloth/Qwen3.5-4B-GGUF:Q6_K"),
+                Target("https://elseodelasgalletas-gemma4-e2b.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-GGUF:UD-Q4_K_XL")
+            )
+            else -> listOf(
+                Target("https://elseodelasgalletas-gemma4-e2b.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-GGUF:UD-Q4_K_XL"),
+                Target("https://bleak-openai-compatible-server-gemma4.hf.space/v1/chat/completions", "unsloth/gemma-4-E2B-it-GGUF:Q4_K_S")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamGemma4Cluster(upstream, messages, tools)
+    }
+
+    // --------------------------------------------------- KoboldAI Cloud
+    private suspend fun FlowCollector<StreamEvent>.streamKoboldCloud(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = listOf(
+            Target("https://nxdev-org-koboldcpp-tiefighter.hf.space/v1/chat/completions", "koboldcpp/gemma-3n-E2B-it"),
+            Target("https://nanoph-koboldcpp-tiefighter.hf.space/v1/chat/completions", "koboldcpp/gemma-2-9b-it-Q5_K_M"),
+            Target("https://koboldai-koboldcpp-tiefighter.hf.space/v1/chat/completions", "koboldcpp/Gemma4-E2B"),
+            Target("https://will-resolute-gemma4-vision-ui.hf.space/v1/chat/completions", "/models/gemma-4-E4B-it-Q4_K_M.gguf")
+        )
+        return tryTargets(targets, messages, tools, null) || streamGemma4Cluster(upstream, messages, tools)
+    }
+
+    // --------------------------------------------------- HF Frontier Cluster
+    private suspend fun FlowCollector<StreamEvent>.streamHfCluster(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "gemma-4-e4b-q5" -> listOf(
+                Target("https://amirkazim-qwen-7b-chat.hf.space/v1/chat/completions", "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q5_K_P.gguf"),
+                Target("https://agrawal-prateek-gemma4-e4b-ablitereted-server.hf.space/v1/chat/completions", "gemma4-e4b")
+            )
+            "gemma-4-e2b-q8" -> listOf(
+                Target("https://rabu1234-gemma-4-e2b-it-gguf.hf.space/v1/chat/completions", "gemma-4-e2b-it-Q8_0.gguf"),
+                Target("https://agrawal-prateek-gemma4-e4b-ablitereted-server.hf.space/v1/chat/completions", "gemma4-e4b")
+            )
+            else -> listOf(
+                Target("https://apathy-exe-qwen3-8-27b.hf.space/v1/chat/completions", "/root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4af51b3542f775b0a8e4b310bfb3f17e01c306c9/Qwen3.8-27B-UD-Q8_K_XL.gguf"),
+                Target("https://wanyamaelis-qwen3-8-27b.hf.space/v1/chat/completions", "/home/user/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-GGUF/snapshots/4af51b3542f775b0a8e4b310bfb3f17e01c306c9/Qwen3.8-27B-UD-Q8_K_XL.gguf"),
+                Target("https://amirkazim-qwen-7b-chat.hf.space/v1/chat/completions", "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q5_K_P.gguf")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamFreeLlmHub("Qwen3.8-27B", messages, tools, null)
+    }
+
+    // --------------------------------------------------- Phi-4 & Llama 3.1 Cloud
+    private suspend fun FlowCollector<StreamEvent>.streamPhi4Cloud(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = listOf(
+            Target("https://deleriousson-llama-cpp.hf.space/v1/chat/completions", "model.gguf"),
+            Target("https://hircoir-llamacpp.hf.space/v1/chat/completions", "/home/app/llama-model.gguf"),
+            Target("https://5fp-phi-4-gguf.hf.space/v1/chat/completions", "/data/model.gguf"),
+            Target("https://fggaerg-llama-abliterated-api.hf.space/v1/chat/completions", "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M")
+        )
+        return tryTargets(targets, messages, tools, null) || streamFrontierLab(upstream, messages, tools)
+    }
+
+    // --------------------------------------------------- Llama.cpp LFM & SmolVLM
+    private suspend fun FlowCollector<StreamEvent>.streamLlamaCppCloud(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "smolvlm-500m-instruct" -> listOf(
+                Target("https://will-resolute-gemma4-vision-ui.hf.space/v1/chat/completions", "/models/gemma-4-E4B-it-Q4_K_M.gguf"),
+                Target("https://aliroohan179-llama-server.hf.space/v1/chat/completions", "/home/brewuser/.cache/llama.cpp/ggml-org_SmolVLM-500M-Instruct-GGUF_SmolVLM-500M-Instruct-Q8_0.gguf")
+            )
+            else -> listOf(
+                Target("https://ramedde-gemma4cpu.hf.space/v1/chat/completions", "ngquocvinh/LFM3-1.7B-GGUF"),
+                Target("https://apathy-exe-lfm2-5-230m.hf.space/v1/chat/completions", "/model.gguf"),
+                Target("https://hircoir-llamacpp.hf.space/v1/chat/completions", "/home/app/llama-model.gguf")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamLiquidAi("lfm3-1.7b", messages, tools)
+    }
+
+    // --------------------------------------------------- Ollama Multi-Model Cloud
+    private suspend fun FlowCollector<StreamEvent>.streamOllamaCloud(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val targets = when (upstream) {
+            "moondream:latest" -> listOf(
+                Target("https://will-resolute-gemma4-vision-ui.hf.space/v1/chat/completions", "/models/gemma-4-E4B-it-Q4_K_M.gguf"),
+                Target("https://clarasu-ollama-server.hf.space/v1/chat/completions", "moondream:latest")
+            )
+            else -> listOf(
+                Target("https://amarbruhman-ollama-server.hf.space/v1/chat/completions", "qwen-coder-0.5b"),
+                Target("https://qweret6565-ollama-server.hf.space/v1/chat/completions", "gemma:7b-instruct"),
+                Target("https://deepak7376-ollama-server.hf.space/v1/chat/completions", "deepseek-r1:1.5b")
+            )
+        }
+        return tryTargets(targets, messages, tools, null) || streamGemma4Cluster(upstream, messages, tools)
+    }
+
+    // --------------------------------------------------- AI Horde
+    private suspend fun FlowCollector<StreamEvent>.streamAiHorde(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val effModel = upstream.ifBlank { "Qwen/Qwen3.8-Flash-Next" }
+        val textMode = if (!tools.isNullOrEmpty()) Gemini4MeshClient.injectTextTools(messages, tools) else messages
+        val turns = Transcript.turns(textMode)
+        if (turns.isEmpty()) return false
+        val payload = buildJsonObject {
+            put("model", effModel)
+            put("max_tokens", 4096)
+            putJsonArray("messages") {
+                turns.forEach { t ->
+                    addJsonObject {
+                        put("role", t.role)
+                        put("content", t.text)
+                    }
+                }
+            }
+        }
+        val req = Request.Builder()
+            .url("https://oai.aihorde.net/v1/chat/completions")
+            .post(payload.toString().toRequestBody(JSON))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer 0000000000")
+            .build()
+        val ok = runCatching {
+            CommunityHttp.execute(req) { resp ->
+                if (!resp.isSuccessful) return@execute false
+                val obj = AiHttp.json.parseToJsonElement(resp.body?.string().orEmpty()) as? JsonObject ?: return@execute false
+                val text = (((obj["choices"] as? JsonArray)?.firstOrNull() as? JsonObject)
+                    ?.get("message") as? JsonObject)
+                    ?.get("content")
+                    ?.let { (it as? JsonPrimitive)?.contentOrNull }
+                    ?.trim()
+                    .orEmpty()
+                if (text.isEmpty()) return@execute false
+                emit(StreamEvent.Started)
+                emit(StreamEvent.ContentDelta(text))
+                emit(StreamEvent.FinishReason("stop"))
+                emit(StreamEvent.Completed)
+                true
+            }
+        }.getOrDefault(false)
+        return ok || streamFrontierLab("qwen3.8-flash-next", messages, tools)
+    }
+
+    // --------------------------------------------------- APIsFreeLLM
+    private suspend fun FlowCollector<StreamEvent>.streamApisFreeLlm(
+        upstream: String,
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val effModel = upstream.ifBlank { "free-ai" }
+        val targets = listOf(
+            Target("https://api.apisfreellm.com/v1/chat/completions", effModel, bearer = null)
+        )
+        return tryTargets(targets, messages, tools, null) || streamAiBridge("gpt-6-luna", messages, tools, null)
+    }
+
+    // --------------------------------------------------- YQCloud Stream
+    private suspend fun FlowCollector<StreamEvent>.streamYqCloud(
+        messages: List<ChatRequestMessage>,
+        tools: List<Tool>?
+    ): Boolean {
+        val textMode = if (!tools.isNullOrEmpty()) Gemini4MeshClient.injectTextTools(messages, tools) else messages
+        val turns = Transcript.turns(textMode)
+        if (turns.isEmpty()) return false
+        val sysText = turns.filter { it.role == "system" }.joinToString("\n\n") { it.text }.take(18_000)
+        val nonSys = turns.filter { it.role != "system" }
+        val prompt = nonSys.mapIndexed { idx, t ->
+            if (idx == 0) t.text else "${if (t.role == "assistant") "Assistant" else "User"}: ${t.text}"
+        }.joinToString("\n\n")
+        if (prompt.isBlank()) return false
+        val payload = buildJsonObject {
+            put("prompt", prompt)
+            put("userId", "#/chat/${System.currentTimeMillis()}")
+            put("network", false)
+            put("system", sysText)
+            put("withoutContext", false)
+            put("stream", true)
+        }
+        val req = Request.Builder()
+            .url("https://api.binjie.fun/api/generateStream")
+            .post(payload.toString().toRequestBody(JSON))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/plain, */*")
+            .site("https://chat9.yqcloud.top", "https://chat9.yqcloud.top/")
+            .build()
+        val ok = runCatching {
+            CommunityHttp.execute(req) { resp ->
+                if (!resp.isSuccessful) return@execute false
+                val text = resp.body?.string().orEmpty().trim()
+                if (text.isEmpty() || KeylessCrypto.isUpstreamErrorText(text)) return@execute false
+                emit(StreamEvent.Started)
+                emit(StreamEvent.ContentDelta(text))
+                emit(StreamEvent.FinishReason("stop"))
+                emit(StreamEvent.Completed)
+                true
+            }
+        }.getOrDefault(false)
+        return ok || streamAiBridge("gpt-6-luna", messages, tools, null)
     }
 
     // ---------------------------------------------------------------- DeepAI
@@ -596,7 +1078,7 @@ class MultiTargetOaiClient : CommunityChatClient {
             if (routed) return true
         }
         val effModel = when (upstream) {
-            "claude-haiku-5-5", "gpt-6-luna", "glm-5.3-flash", "gemma-4", "qwen3.8-flash", "deepseek-v4.1-flash" -> upstream
+            "claude-haiku-5-5", "gpt-6-luna", "glm-5.3-flash", "gemma-4", "qwen3.8-flash", "deepseek-v4.1-flash", "standard" -> upstream
             else -> "gpt-6-luna"
         }
         val turns = Transcript.turns(messages)
@@ -607,35 +1089,42 @@ class MultiTargetOaiClient : CommunityChatClient {
                 put("content", t.text)
             }
         }).toString()
-        val apiKey = KeylessCrypto.generateDeepAiIslandKey()
-        val multipart = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("chatHistory", historyJson)
-            .addFormDataPart("model", effModel)
-            .addFormDataPart("session_uuid", UUID.randomUUID().toString())
-            .addFormDataPart("sensitivity_request_id", UUID.randomUUID().toString())
-            .addFormDataPart("tool_activity_support", "1")
-            .addFormDataPart("thinking_image_tool_support", "1")
-            .addFormDataPart("hacker_is_stinky", "very_stinky")
-            .build()
-        val req = Request.Builder()
-            .url("https://api.deepai.org/hacking_is_a_serious_crime")
-            .post(multipart)
-            .header("api-key", apiKey)
-            .site("https://deepai.org", "https://deepai.org/chat/")
-            .build()
-        return runCatching {
-            CommunityHttp.execute(req) { response ->
-                if (!response.isSuccessful) return@execute false
-                val text = response.body?.string().orEmpty().substringBefore('\u001c').trim()
-                if (text.isEmpty() || KeylessCrypto.isUpstreamErrorText(text)) return@execute false
-                emit(StreamEvent.Started)
-                emit(StreamEvent.ContentDelta(text))
-                emit(StreamEvent.FinishReason("stop"))
-                emit(StreamEvent.Completed)
-                true
-            }
-        }.getOrDefault(false) || streamAiBridge("gpt-6-luna", messages, tools, null)
+        val candidateKeys = listOf(
+            KeylessCrypto.generateDeepAiIslandKey(),
+            KeylessCrypto.generateDeepAiTryitKey()
+        )
+        for (apiKey in candidateKeys) {
+            val multipart = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("chatHistory", historyJson)
+                .addFormDataPart("model", effModel)
+                .addFormDataPart("session_uuid", UUID.randomUUID().toString())
+                .addFormDataPart("sensitivity_request_id", UUID.randomUUID().toString())
+                .addFormDataPart("tool_activity_support", "1")
+                .addFormDataPart("thinking_image_tool_support", "1")
+                .addFormDataPart("hacker_is_stinky", "very_stinky")
+                .build()
+            val req = Request.Builder()
+                .url("https://api.deepai.org/hacking_is_a_serious_crime")
+                .post(multipart)
+                .header("api-key", apiKey)
+                .site("https://deepai.org", "https://deepai.org/chat/")
+                .build()
+            val ok = runCatching {
+                CommunityHttp.execute(req) { response ->
+                    if (!response.isSuccessful) return@execute false
+                    val text = response.body?.string().orEmpty().substringBefore('\u001c').trim()
+                    if (text.isEmpty() || KeylessCrypto.isUpstreamErrorText(text)) return@execute false
+                    emit(StreamEvent.Started)
+                    emit(StreamEvent.ContentDelta(text))
+                    emit(StreamEvent.FinishReason("stop"))
+                    emit(StreamEvent.Completed)
+                    true
+                }
+            }.getOrDefault(false)
+            if (ok) return true
+        }
+        return streamAiBridge("gpt-6-luna", messages, tools, null)
     }
 
     // ----------------------------------------------------------------- Motif
@@ -652,11 +1141,14 @@ class MultiTargetOaiClient : CommunityChatClient {
             "medium" -> "medium"
             else -> "high"
         }
+        val userTurnsCount = messages.count { it.role == "user" }
+        if (userTurnsCount <= 1) motifConversationId = null
         val query = QwenWebClient.flatten(messages)
         if (query.isBlank()) return false
         val payload = buildJsonObject {
             put("query", query)
-            put("conversation_id", JsonNull)
+            val convId = motifConversationId
+            if (convId != null) put("conversation_id", convId) else put("conversation_id", JsonNull)
             put("project_id", JsonNull)
             put("template_id", JsonNull)
             putJsonArray("forced_skill_names") {}
@@ -688,6 +1180,11 @@ class MultiTargetOaiClient : CommunityChatClient {
                     val type = (ev["type"] as? JsonPrimitive)?.contentOrNull.orEmpty()
                     val data = (ev["data"] as? JsonPrimitive)?.contentOrNull.orEmpty()
                     when (type) {
+                        "shared.conversation" -> {
+                            val cid = ((ev["data"] as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull
+                                ?: data.takeIf { it.isNotBlank() }
+                            if (!cid.isNullOrBlank()) motifConversationId = cid
+                        }
                         "chat.reasoning", "chat.thinking", "chat.thought" -> if (data.isNotEmpty()) {
                             if (!started) { started = true; emit(StreamEvent.Started) }
                             emit(StreamEvent.ReasoningDelta(data))
@@ -796,12 +1293,18 @@ class MultiTargetOaiClient : CommunityChatClient {
             if (!target.bearer.isNullOrBlank()) {
                 rb.header("Authorization", "Bearer ${target.bearer}")
             }
-            if (executeOpenAiStream(rb.build())) return true
+            if (executeOpenAiStream(rb.build(), target, targetMsgs, if (supportsTools) tools else null, maxTokens)) return true
         }
         return false
     }
 
-    private suspend fun FlowCollector<StreamEvent>.executeOpenAiStream(request: Request): Boolean =
+    private suspend fun FlowCollector<StreamEvent>.executeOpenAiStream(
+        request: Request,
+        continuationTarget: Target? = null,
+        continuationMsgs: List<ChatRequestMessage>? = null,
+        continuationTools: List<Tool>? = null,
+        maxTokens: Int = 8192
+    ): Boolean =
         runCatching {
             CommunityHttp.execute(request) { response ->
                 if (!response.isSuccessful) return@execute false
@@ -809,6 +1312,8 @@ class MultiTargetOaiClient : CommunityChatClient {
                 val parser = ChatStreamParser()
                 var started = false
                 var rejected = false
+                var sawVisibleOrTools = false
+                val reasoningText = StringBuilder()
                 val firstText = StringBuilder()
                 while (true) {
                     val line = source.readUtf8Line() ?: break
@@ -826,12 +1331,21 @@ class MultiTargetOaiClient : CommunityChatClient {
                             if (!started) rejected = true
                             break
                         }
-                        if (ev is StreamEvent.ContentDelta && firstText.length < 160) {
-                            firstText.append(ev.content)
-                            if (KeylessCrypto.isUpstreamErrorText(firstText.toString()) && !started) {
-                                rejected = true
-                                break
+                        if (ev is StreamEvent.ReasoningDelta && reasoningText.length < 1_600) {
+                            reasoningText.append(ev.reasoning)
+                        }
+                        if (ev is StreamEvent.ContentDelta) {
+                            sawVisibleOrTools = true
+                            if (firstText.length < 160) {
+                                firstText.append(ev.content)
+                                if (KeylessCrypto.isUpstreamErrorText(firstText.toString()) && !started) {
+                                    rejected = true
+                                    break
+                                }
                             }
+                        }
+                        if (ev is StreamEvent.ToolCalls) {
+                            sawVisibleOrTools = true
                         }
                         if (!started) {
                             started = true
@@ -842,8 +1356,74 @@ class MultiTargetOaiClient : CommunityChatClient {
                     if (rejected) break
                 }
                 if (rejected || !parser.hasOutput) return@execute false
+                val finishEvents = parser.finish()
+                if (finishEvents.any { it is StreamEvent.ToolCalls }) {
+                    sawVisibleOrTools = true
+                }
+                // Reasoning-only continuation recovery: if an upstream reasoning model cut off right after
+                // emitting reasoning_content without visible content or tool calls, issue an immediate
+                // continuation request so the user always gets a complete answer.
+                if (!sawVisibleOrTools && reasoningText.isNotBlank() && continuationTarget != null && continuationMsgs != null) {
+                    val contMsgs = continuationMsgs + listOf(
+                        ChatRequestMessage("assistant", "Thought summary: ${reasoningText.toString().take(1_200)}"),
+                        ChatRequestMessage(
+                            "user",
+                            "You finished your internal reasoning. Now output your complete visible answer to the user (or the next tool call if a workspace action is required)."
+                        )
+                    )
+                    val contReq = ChatCompletionRequest(
+                        model = continuationTarget.model,
+                        messages = contMsgs,
+                        stream = true,
+                        temperature = null,
+                        maxTokens = maxTokens,
+                        tools = continuationTools,
+                        toolChoice = if (!continuationTools.isNullOrEmpty()) "auto" else null
+                    )
+                    val ip2 = KeylessCrypto.fakeIpv4()
+                    val rb2 = Request.Builder()
+                        .url(continuationTarget.endpoint)
+                        .post(encodeChatRequest(AiHttp.json, contReq).toRequestBody(JSON))
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "text/event-stream, application/json")
+                        .header("User-Agent", CommunityHeaders.USER_AGENT)
+                        .header("X-Forwarded-For", ip2)
+                        .header("X-Real-IP", ip2)
+                    if (!continuationTarget.bearer.isNullOrBlank()) {
+                        rb2.header("Authorization", "Bearer ${continuationTarget.bearer}")
+                    }
+                    runCatching {
+                        CommunityHttp.execute(rb2.build()) { r2 ->
+                            if (r2.isSuccessful) {
+                                val src2 = r2.body?.source()
+                                val p2 = ChatStreamParser()
+                                while (src2 != null) {
+                                    val l2 = src2.readUtf8Line() ?: break
+                                    val t2 = l2.trim()
+                                    val d2 = when {
+                                        t2.startsWith("data:") -> t2.removePrefix("data:").trim()
+                                        t2.startsWith("{") -> t2
+                                        else -> continue
+                                    }
+                                    if (d2.isEmpty()) continue
+                                    if (d2 == "[DONE]") break
+                                    for (ev2 in p2.onData(d2)) {
+                                        if (ev2 is StreamEvent.ContentDelta || ev2 is StreamEvent.ToolCalls) {
+                                            if (!started) {
+                                                started = true
+                                                emit(StreamEvent.Started)
+                                            }
+                                            emit(ev2)
+                                        }
+                                    }
+                                }
+                                p2.finish().filterIsInstance<StreamEvent.ToolCalls>().forEach { emit(it) }
+                            }
+                        }
+                    }
+                }
                 if (!started) emit(StreamEvent.Started)
-                parser.finish().forEach { emit(it) }
+                finishEvents.forEach { emit(it) }
                 true
             }
         }.getOrDefault(false)
@@ -943,6 +1523,7 @@ class MultiTargetOaiClient : CommunityChatClient {
                 endpoint.contains("api.longcat.chat") ||
                 endpoint.contains("garystu-openai-nim-proxy") ||
                 endpoint.contains("mmoranguito-openai-nim-proxy") ||
+                endpoint.contains("lolmaobruhhh-test") ||
                 endpoint.contains("vireonix.ai") ||
                 endpoint.contains("blockrun.ai") ||
                 endpoint.contains("opencode.ai/zen") ||

@@ -470,6 +470,125 @@ enum class AiProvider(
         keyNote = "Keyless ChatJimmy Llama 3.1 8B on Taalas Silicon (20,000+ tok/s) with X-Real-IP rotation.",
         protocol = ProviderProtocol.MULTI_TARGET_OAI
     ),
+    VOLC_ARK(
+        displayName = "Volcengine Ark & SenseNova Direct Cloud (community)",
+        baseUrl = "https://ark.cn-beijing.volces.com/api/v3",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless ByteDance Volcengine Ark v3 (Doubao Seed 2.0 Lite/Mini) and SenseTime SenseNova 6.8 Flash direct cloud with native tool calling.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    LOGFARE_HUB(
+        displayName = "Logfare, Mistral & Reka Frontier Hub (community)",
+        baseUrl = "https://bun008-freellmapi.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Logfare, Mistral & Reka hub serving Devstral Latest, Magistral Medium, Codestral Latest, Reka Flash 3/Edge, GLM 4.7 Cerebras WSE, Logfare Phoenix/Clef, and Gemma 4 26B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    FREECC(
+        displayName = "FreeClaude & Gemini 4 Hub (community)",
+        baseUrl = "https://calkotter-free-claude-code.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Anthropic Messages SSE hub serving Gemini 4 Hydrogen, Gemini 3.5/3.1 Flash VL, Kimi K3.1 Pro, StepFun Step 5, and Nemotron 3.5 Super VL/Ultra 550B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    TOGETHER_FRONTIER(
+        displayName = "Together Frontier (community)",
+        baseUrl = "https://lolmaobruhhh-test.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Together Frontier gateway serving GLM 5.3/5.3 Flash/5.2, Kimi K3 2.8T, Muse Glimmer 30B, GPT-OSS 120B, and Qwen 3.5 9B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    LIQUID_AI(
+        displayName = "Liquid AI LFM Gateway (community)",
+        baseUrl = "https://apathy-exe-lfm2-5-24b-a2b.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Liquid AI LFM gateway serving LFM 2.5 24B A2B (Q8_0), LFM 2.5 8B A1B, LFM 3 1.7B, and LFM 2.5 2.6B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    GEMMA4_VL(
+        displayName = "Gemma 4 Vision & QAT Studio (community)",
+        baseUrl = "https://will-resolute-gemma4-vision-ui.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Google Gemma 4 Vision & QAT studio serving Gemma 4 E4B Vision UI, Gemma 4 E2B Uncensored Q6_K_P, and Gemma 4 E2B QAT Mobile.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    BONSAI_CLOUD(
+        displayName = "Bonsai & Ternary Frontier (community)",
+        baseUrl = "https://bananamort-ternary-bonsai-2-27b.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Prism-ML Ternary Bonsai 2 27B (PTQ1_0), Bonsai 8B, and VibeThinker 3B reasoning cloud.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    UNSLOTH_CLOUD(
+        displayName = "Unsloth Qwen 3.5 & Gemma 4 Cloud (community)",
+        baseUrl = "https://elseodelasgalletas-gemma4-e2b.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Unsloth Dynamic Qwen 3.5 4B (Q6_K) and Gemma 4 E2B IT/QAT (UD-Q4_K_XL) cloud.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    KOBOLD_CLOUD(
+        displayName = "KoboldAI Multi-Node Cloud (community)",
+        baseUrl = "https://nxdev-org-koboldcpp-tiefighter.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless KoboldAI multi-node cloud serving Gemma 4 E2B, Gemma 2 9B IT, and Gemma 3n E2B IT.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    HF_CLUSTER(
+        displayName = "HF Frontier Cluster (community)",
+        baseUrl = "https://apathy-exe-qwen3-8-27b.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Hugging Face Frontier Cluster serving Qwen 3.8 27B (UD-Q8_K_XL), Gemma 4 E4B IT (Q5_K_P), and Gemma 4 E2B IT (Q8_0).",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    PHI4_CLOUD(
+        displayName = "Phi-4 & Llama 3.1 Abliterated Cloud (community)",
+        baseUrl = "https://5fp-phi-4-gguf.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Microsoft Phi-4 14B and Llama 3.1 8B Abliterated (Q4_K_M) multi-node GGUF cloud.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    LLAMACPP_CLOUD(
+        displayName = "Llama.cpp LFM & SmolVLM Cloud (community)",
+        baseUrl = "https://ramedde-gemma4cpu.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless llama.cpp cloud serving Liquid LFM 2.5 2.6B Uncensored, LFM 3 1.7B, SmolVLM 500M Vision, and LFM 2.5 230M Instant.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    OLLAMA_CLOUD(
+        displayName = "Ollama Multi-Model Cloud (community)",
+        baseUrl = "https://amarbruhman-ollama-server.hf.space/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless Ollama multi-model cloud serving DeepSeek R1 1.5B, Gemma 7B Instruct, Qwen 2.5 1.5B/Coder, and Moondream 2 Vision.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    AI_HORDE(
+        displayName = "AI Horde (community)",
+        baseUrl = "https://oai.aihorde.net/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless AI Horde distributed worker pool serving Qwen 3.8 Flash Next/27B, Qwen 3.6 35B MoE, Gemma 4 E4B, and Cydonia 24B.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    APIS_FREE_LLM(
+        displayName = "APIsFreeLLM (community)",
+        baseUrl = "https://api.apisfreellm.com/v1",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless APIsFreeLLM zero-key OpenAI stream (10,000 requests/day).",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    YQ_CLOUD(
+        displayName = "YQCloud Stream (community)",
+        baseUrl = "https://api.binjie.fun/api",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless YQCloud high-availability stream with automatic frontier failover.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
+    LONGCAT_WEB(
+        displayName = "LongCat Oversea V2 (community)",
+        baseUrl = "https://longcat.chat",
+        apiKeyRequirement = ApiKeyRequirement.NONE,
+        keyNote = "Keyless LongCat 2.5 1.6T MoE official OpenAI API and oversea-V2 web stream.",
+        protocol = ProviderProtocol.MULTI_TARGET_OAI
+    ),
     CUSTOM(
         displayName = "Custom (OpenAI-compatible)",
         baseUrl = "",
