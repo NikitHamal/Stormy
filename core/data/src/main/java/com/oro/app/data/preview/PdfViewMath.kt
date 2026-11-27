@@ -117,7 +117,7 @@ object PdfViewMath {
 }
 
 /** Where a PDF comes from, decided from the string it was handed. */
-enum class PdfSourceType { DATA_URI, HTTP_URL, CONTENT_URI, FILE_URI, FILE_PATH }
+enum class PdfSourceType { DATA_URI, HTTP_URL, CONTENT_URI, FILE_URI, BLOB_URL, FILE_PATH }
 
 /** A `data:` URI split into its type and (still encoded) payload. */
 data class DataUri(val mimeType: String, val isBase64: Boolean, val payload: String)
@@ -131,8 +131,26 @@ object PdfSources {
             s.startsWith("http://", ignoreCase = true) || s.startsWith("https://", ignoreCase = true) -> PdfSourceType.HTTP_URL
             s.startsWith("content://", ignoreCase = true) -> PdfSourceType.CONTENT_URI
             s.startsWith("file://", ignoreCase = true) -> PdfSourceType.FILE_URI
+            s.startsWith("blob:", ignoreCase = true) -> PdfSourceType.BLOB_URL
             else -> PdfSourceType.FILE_PATH
         }
+    }
+
+    /**
+     * Brings the forms an agent or a page hands over to one shape: a bare
+     * base64 string (`JVBERi0x...`, which is what `%PDF-1` encodes to, with
+     * or without line breaks) becomes a `data:application/pdf;base64,` URI;
+     * everything else is only trimmed.
+     */
+    fun normalize(source: String): String {
+        val s = source.trim()
+        if (s.startsWith("JVBERi", ignoreCase = false) && s.length >= 16) {
+            val compact = s.filterNot { it.isWhitespace() }
+            if (compact.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '-' || it == '_' || it == '=' }) {
+                return "data:application/pdf;base64,$compact"
+            }
+        }
+        return s
     }
 
     /** Splits `data:application/pdf;base64,....`; null if it is not a data URI. */
@@ -162,7 +180,7 @@ object PdfSources {
 
     /** A readable file name for the viewer's title bar, whatever the source. */
     fun displayName(source: String, fallback: String = "Document.pdf"): String {
-        if (classify(source) == PdfSourceType.DATA_URI) return fallback
+        if (classify(source) == PdfSourceType.DATA_URI || classify(source) == PdfSourceType.BLOB_URL) return fallback
         val last = source.trim().substringBefore('#').substringBefore('?').trimEnd('/')
             .substringAfterLast('/').substringAfterLast('\\')
         val decoded = runCatching { java.net.URLDecoder.decode(last.replace("+", "%2B"), "UTF-8") }.getOrDefault(last)

@@ -56,7 +56,7 @@ internal object PdfSourceLoader {
     suspend fun load(context: Context, source: String): File = withContext(Dispatchers.IO) {
         val dir = cacheDir(context)
         prune(dir)
-        val s = source.trim()
+        val s = PdfSources.normalize(source)
         if (s.isEmpty()) throw PdfSourceException("There is no PDF to show.")
         val file = when (PdfSources.classify(s)) {
             PdfSourceType.FILE_PATH -> File(s)
@@ -71,6 +71,7 @@ internal object PdfSourceLoader {
             }
             PdfSourceType.HTTP_URL -> download(dir, s)
             PdfSourceType.DATA_URI -> decodeDataUri(dir, s)
+            PdfSourceType.BLOB_URL -> throw PdfSourceException("This PDF lives inside the page and can't be opened from its link. Open it from the preview.")
         }
         if (!file.isFile) throw PdfSourceException("The file doesn't exist any more.")
         val head = ByteArray(1024)
@@ -144,10 +145,15 @@ internal object PdfSourceLoader {
         val payload = if ('%' in data.payload) {
             runCatching { URLDecoder.decode(data.payload.replace("+", "%2B"), "UTF-8") }.getOrDefault(data.payload)
         } else data.payload
+        // Standard base64 first; web-safe base64 (- and _) is what some encoders emit.
         val bytes = try {
             Base64.decode(payload, Base64.DEFAULT)
         } catch (e: IllegalArgumentException) {
-            throw PdfSourceException("The PDF data is damaged.")
+            try {
+                Base64.decode(payload, Base64.URL_SAFE)
+            } catch (e2: IllegalArgumentException) {
+                throw PdfSourceException("The PDF data is damaged.")
+            }
         }
         val out = File.createTempFile("doc", ".pdf", dir)
         out.writeBytes(bytes)

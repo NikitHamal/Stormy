@@ -1,5 +1,28 @@
 package com.oro.app.ui.screens.pdf
 
+import androidx.compose.foundation.focusable
+import androidx.compose.material.icons.outlined.Contrast
+import androidx.compose.material3.Slider
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.oro.app.data.preview.PdfCommand
+import com.oro.app.data.preview.PdfInfo
+import com.oro.app.data.preview.PdfReadingMode
+import com.oro.app.data.preview.PdfShortcuts
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -148,13 +171,13 @@ class PdfViewerActivity : ComponentActivity() {
                     source = source,
                     titleHint = title,
                     onBack = { finish() },
-                    onImmersive = ::setImmersive
+                    onImmersive = ::applyImmersive
                 )
             }
         }
     }
 
-    private fun setImmersive(on: Boolean) {
+    private fun applyImmersive(on: Boolean) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         if (on) {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -172,7 +195,8 @@ class PdfViewerActivity : ComponentActivity() {
         /** Big `data:` URIs wait here: an Intent extra over about 1 MB fails outright. */
         private val stash = ConcurrentHashMap<String, String>()
 
-        fun createIntent(context: Context, source: String, title: String? = null): Intent {
+        fun createIntent(context: Context, rawSource: String, title: String? = null): Intent {
+            val source = PdfSources.normalize(rawSource)
             val carried = if (source.length > 100_000 && PdfSources.classify(source) == PdfSourceType.DATA_URI) {
                 val token = System.nanoTime().toString(36)
                 stash[token] = source
@@ -239,6 +263,8 @@ private fun PdfViewerScreen(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var showMenu by remember { mutableStateOf(false) }
     var showGoTo by remember { mutableStateOf(false) }
+    var readingMode by remember { mutableStateOf(PdfReadingMode.ORIGINAL) }
+    val focusRequester = remember { FocusRequester() }
 
     fun setImmersiveMode(on: Boolean) {
         immersive = on
@@ -248,6 +274,7 @@ private fun PdfViewerScreen(
     DisposableEffect(Unit) { onDispose { onImmersive(false) } }
 
     val document = (load as? PdfLoad.Ready)?.document
+    val fileSize = remember(document) { document?.file?.length() ?: 0L }
     val density = LocalDensity.current
     val marginPx = with(density) { PAGE_MARGIN.toPx() }
     val baseWidthPx = max(1f, viewport.width - 2 * marginPx)
@@ -289,13 +316,68 @@ private fun PdfViewerScreen(
         fit = PdfFit.CUSTOM
     }
 
+    fun cycleReadingMode() {
+        readingMode = readingMode.next()
+        Toast.makeText(context, "Reading mode: ${readingMode.label}", Toast.LENGTH_SHORT).show()
+    }
+
+    fun runCommand(command: PdfCommand) {
+        val doc = document ?: return
+        val last = doc.pageCount - 1
+        when (command) {
+            PdfCommand.PREVIOUS_PAGE -> scope.launch { listState.animateScrollToItem((currentPage - 1).coerceAtLeast(0)) }
+            PdfCommand.NEXT_PAGE -> scope.launch { listState.animateScrollToItem((currentPage + 1).coerceAtMost(last)) }
+            PdfCommand.FIRST_PAGE -> scope.launch { listState.animateScrollToItem(0) }
+            PdfCommand.LAST_PAGE -> scope.launch { listState.animateScrollToItem(last) }
+            PdfCommand.ZOOM_IN -> stepZoom(true)
+            PdfCommand.ZOOM_OUT -> stepZoom(false)
+            PdfCommand.ZOOM_RESET -> { custom = 1f; fit = PdfFit.CUSTOM }
+            PdfCommand.FULLSCREEN -> setImmersiveMode(!immersive)
+            PdfCommand.CYCLE_READING_MODE -> cycleReadingMode()
+        }
+    }
+
+    // Keys work while the viewer holds focus: take it when a document opens and after the page jumper closes.
+    LaunchedEffect(document, showGoTo) {
+        if (document != null && !showGoTo) runCatching { focusRequester.requestFocus() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val name = event.pdfKeyName() ?: return@onPreviewKeyEvent false
+                val command = PdfShortcuts.resolve(
+                    name,
+                    ctrl = event.isCtrlPressed || event.isMetaPressed,
+                    alt = event.isAltPressed,
+                    shift = event.isShiftPressed
+                ) ?: return@onPreviewKeyEvent false
+                runCommand(command)
+                true
+            }
+    ) {
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             if (!immersive) {
                 TopAppBar(
                     title = {
-                        Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Column {
+                            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (document != null) {
+                                Text(
+                                    text = PdfInfo.summary(document.pageCount, fileSize),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -304,6 +386,15 @@ private fun PdfViewerScreen(
                     },
                     actions = {
                         if (document != null) {
+                            IconButton(onClick = { cycleReadingMode() }) {
+                                Icon(
+                                    Icons.Outlined.Contrast,
+                                    contentDescription = "Reading mode: ${readingMode.label}",
+                                    tint = if (readingMode == PdfReadingMode.ORIGINAL) MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                             IconButton(onClick = { rotation = PdfViewMath.rotate(rotation, clockwise = true) }) {
                                 Icon(Icons.Outlined.RotateRight, contentDescription = "Rotate clockwise", modifier = Modifier.size(22.dp))
                             }
@@ -360,7 +451,9 @@ private fun PdfViewerScreen(
                     onZoomOut = { stepZoom(false) },
                     onZoomIn = { stepZoom(true) },
                     onZoomPreset = { custom = it; fit = PdfFit.CUSTOM },
-                    onFit = { fit = it }
+                    onFit = { fit = it },
+                    onScrub = { target -> scope.launch { listState.scrollToItem(target.coerceIn(0, document.pageCount - 1)) } },
+                    onToggleFit = { fit = if (fit == PdfFit.WIDTH) PdfFit.PAGE else PdfFit.WIDTH }
                 )
             }
         }
@@ -389,10 +482,12 @@ private fun PdfViewerScreen(
                     baseWidthPx = baseWidthPx,
                     zoom = zoom,
                     rotation = rotation,
+                    readingMode = readingMode,
                     onTap = { setImmersiveMode(!immersive) }
                 )
             }
         }
+    }
     }
 
     if (showGoTo && document != null) {
@@ -419,6 +514,7 @@ private fun PdfPages(
     baseWidthPx: Float,
     zoom: Float,
     rotation: Int,
+    readingMode: PdfReadingMode,
     onTap: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -442,14 +538,14 @@ private fun PdfPages(
             contentPadding = PaddingValues(vertical = PAGE_MARGIN)
         ) {
             items(count = document.pageCount, key = { it }) { index ->
-                PdfPage(document, index, pageWidthPx, rotation)
+                PdfPage(document, index, pageWidthPx, rotation, readingMode)
             }
         }
     }
 }
 
 @Composable
-private fun PdfPage(document: PdfDocumentHandle, index: Int, widthPx: Int, rotation: Int) {
+private fun PdfPage(document: PdfDocumentHandle, index: Int, widthPx: Int, rotation: Int, readingMode: PdfReadingMode) {
     val density = LocalDensity.current
     val (pageW, pageH) = document.pageSizes[index].let { PdfViewMath.rotatedSize(it.first, it.second, rotation) }
     val heightPx = max(1, (widthPx * pageH / pageW).roundToInt())
@@ -478,16 +574,24 @@ private fun PdfPage(document: PdfDocumentHandle, index: Int, widthPx: Int, rotat
         modifier = Modifier
             .width(with(density) { widthPx.toDp() })
             .height(with(density) { heightPx.toDp() })
-            .background(Color.White),
+            .background(
+                when (readingMode) {
+                    PdfReadingMode.ORIGINAL -> Color.White
+                    PdfReadingMode.DARK -> Color(0xFF121212)
+                    PdfReadingMode.SEPIA -> Color(0xFFF4ECD8)
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
+        val filter = remember(readingMode) { readingMode.matrix?.let { ColorFilter.colorMatrix(ColorMatrix(it)) } }
         val shown = bitmap
         if (shown != null) {
             Image(
                 bitmap = shown.asImageBitmap(),
                 contentDescription = "Page ${index + 1}",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.FillBounds
+                contentScale = ContentScale.FillBounds,
+                colorFilter = filter
             )
         } else {
             CircularProgressIndicator(Modifier.size(28.dp), color = Color(0xFF9E9E9E), strokeWidth = 2.dp)
@@ -507,10 +611,38 @@ private fun PdfControlBar(
     onZoomOut: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomPreset: (Float) -> Unit,
-    onFit: (PdfFit) -> Unit
+    onFit: (PdfFit) -> Unit,
+    onScrub: (Int) -> Unit,
+    onToggleFit: () -> Unit
 ) {
     var zoomMenu by remember { mutableStateOf(false) }
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, tonalElevation = 2.dp) {
+        Column {
+        if (pageCount > 1) {
+            // Quick page scrubber, with the fit toggle at its end.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Slider(
+                    value = page.toFloat().coerceIn(0f, (pageCount - 1).toFloat()),
+                    onValueChange = { onScrub(it.roundToInt()) },
+                    valueRange = 0f..(pageCount - 1).toFloat(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { contentDescription = "Page scrubber" }
+                )
+                IconButton(onClick = onToggleFit) {
+                    Icon(
+                        Icons.Outlined.FitScreen,
+                        contentDescription = if (fit == PdfFit.WIDTH) "Fit page" else "Fit width",
+                        tint = if (fit == PdfFit.CUSTOM) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -567,7 +699,24 @@ private fun PdfControlBar(
                 }
             }
         }
+        }
     }
+}
+
+/** The key's name as [PdfShortcuts] knows it, or null for keys the viewer ignores. */
+private fun KeyEvent.pdfKeyName(): String? = when (key) {
+    Key.DirectionLeft -> "ArrowLeft"
+    Key.DirectionRight -> "ArrowRight"
+    Key.PageUp -> "PageUp"
+    Key.PageDown -> "PageDown"
+    Key.MoveHome -> "Home"
+    Key.MoveEnd -> "End"
+    Key.Plus, Key.Equals, Key.NumPadAdd -> "+"
+    Key.Minus, Key.NumPadSubtract -> "-"
+    Key.Zero, Key.NumPad0 -> "0"
+    Key.F -> "f"
+    Key.M -> "m"
+    else -> null
 }
 
 @Composable
