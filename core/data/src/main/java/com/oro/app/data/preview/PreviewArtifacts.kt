@@ -19,6 +19,12 @@ enum class ArtifactKind {
     PDF,
     /** `.md` / `.markdown`: rendered as a document by the preview server. */
     MARKDOWN,
+    /** `.csv` / `.tsv`: drawn as a sortable table by the preview server. */
+    CSV,
+    /** `.json`: drawn as a collapsible tree by the preview server. */
+    JSON,
+    /** `.txt` / `.log`: drawn as a document by the preview server. */
+    TEXT,
     OTHER
 }
 
@@ -42,6 +48,13 @@ object PreviewArtifacts {
     /** The dev server renders a Markdown file as a page at `<base>/__oro/md/<path>`. */
     const val MARKDOWN_ROUTE = "__oro/md/"
 
+    /** SVG, CSV, JSON and text files open as pages at `<base>/__oro/view/<path>`; a plain request still gets the raw file. */
+    const val VIEW_ROUTE = "__oro/view/"
+
+    /** True for files the server draws as a page of its own instead of serving as they are. */
+    fun hasViewerPage(kind: ArtifactKind): Boolean =
+        kind == ArtifactKind.SVG || kind == ArtifactKind.CSV || kind == ArtifactKind.JSON || kind == ArtifactKind.TEXT
+
     private val SKIPPED_DIRS = setOf("node_modules", "dist", "build", "uploads")
 
     fun kindOf(path: String): ArtifactKind {
@@ -55,6 +68,9 @@ object PreviewArtifacts {
             "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico" -> ArtifactKind.IMAGE
             "pdf" -> ArtifactKind.PDF
             "md", "markdown" -> ArtifactKind.MARKDOWN
+            "csv", "tsv" -> ArtifactKind.CSV
+            "json", "geojson" -> ArtifactKind.JSON
+            "txt", "log" -> ArtifactKind.TEXT
             else -> ArtifactKind.OTHER
         }
     }
@@ -62,7 +78,8 @@ object PreviewArtifacts {
     fun actionFor(path: String): ArtifactAction = when (kindOf(path)) {
         ArtifactKind.PDF -> ArtifactAction.PDF_VIEWER
         ArtifactKind.WEB_PAGE, ArtifactKind.STYLE, ArtifactKind.SCRIPT,
-        ArtifactKind.SVG, ArtifactKind.MARKDOWN -> ArtifactAction.LIVE_PREVIEW
+        ArtifactKind.SVG, ArtifactKind.MARKDOWN, ArtifactKind.CSV, ArtifactKind.JSON,
+        ArtifactKind.TEXT -> ArtifactAction.LIVE_PREVIEW
         ArtifactKind.IMAGE, ArtifactKind.OTHER -> ArtifactAction.NONE
     }
 
@@ -98,7 +115,12 @@ object PreviewArtifacts {
             URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
         }
         val base = baseUrl.trimEnd('/')
-        val route = if (kindOf(clean) == ArtifactKind.MARKDOWN) MARKDOWN_ROUTE else ""
+        val kind = kindOf(clean)
+        val route = when {
+            kind == ArtifactKind.MARKDOWN -> MARKDOWN_ROUTE
+            hasViewerPage(kind) -> VIEW_ROUTE
+            else -> ""
+        }
         return "$base/$route$encoded"
     }
 
@@ -113,6 +135,7 @@ object PreviewArtifacts {
         var rest = url.removePrefix(base).substringBefore('#').substringBefore('?').trimStart('/')
         rest = runCatching { URLDecoder.decode(rest.replace("+", "%2B"), "UTF-8") }.getOrDefault(rest)
         if (rest.startsWith(MARKDOWN_ROUTE)) rest = rest.removePrefix(MARKDOWN_ROUTE)
+        else if (rest.startsWith(VIEW_ROUTE)) rest = rest.removePrefix(VIEW_ROUTE)
         if (rest.isEmpty() || rest.endsWith("/")) rest += "index.html"
         return rest
     }
