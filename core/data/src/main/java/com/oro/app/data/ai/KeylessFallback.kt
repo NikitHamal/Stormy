@@ -221,12 +221,42 @@ object KeylessFallback {
      * follows with stronger stand-ins.
      */
     internal fun sameFamily(model: AiModel): List<String> {
-        val qwen = model.provider == AiProvider.QWEN_WEB ||
-            com.oro.app.data.ai.providers.ModelIds.upstream(model.id).contains("qwen", ignoreCase = true)
-        return if (qwen) QWEN_FAMILY else emptyList()
+        val upstream = com.oro.app.data.ai.providers.ModelIds.upstream(model.id).lowercase()
+        val qwen = model.provider == AiProvider.QWEN_WEB || upstream.contains("qwen")
+        return when {
+            qwen -> QWEN_FAMILY
+            upstream.contains("gemini-4") || model.provider in setOf(AiProvider.ANTIGRAVITY, AiProvider.GEMINI4_HYDROGEN, AiProvider.GEMINI4_DIRECT, AiProvider.GEMINI_WEB) ->
+                GEMINI4_FAMILY
+            upstream.contains("claude-opus-5") || upstream.contains("claude-sonnet-5") ->
+                CLAUDE5_FAMILY
+            upstream.contains("gpt-6") ->
+                GPT6_FAMILY
+            else -> emptyList()
+        }
     }
 
     private val QWEN_FAMILY = listOf("ptero:qwen3.7-flash:free")
+    private val GEMINI4_FAMILY = listOf(
+        "ag:gemini-4-hydrogen-xhigh",
+        "ag:gemini-4-hydrogen-high",
+        "ag:gemini-4-hydrogen-medium",
+        "g4h:gemini-4-hydrogen",
+        "g4:gemini-4-hydrogen",
+        "gemweb:gemini-4-hydrogen"
+    )
+    private val CLAUDE5_FAMILY = listOf(
+        "claude5:claude-sonnet-5-5",
+        "claude5:claude-opus-5-5",
+        "ag:claude-opus-5-5-high",
+        "ag:claude-sonnet-5-5-high",
+        "unikey:claude-opus-5-5"
+    )
+    private val GPT6_FAMILY = listOf(
+        "mychat:gpt-6-luna",
+        "aibridge:gpt-6-luna",
+        "deepai:gpt-6-luna",
+        "unikey:gpt-6.1-sol"
+    )
 
     /** Ids in fallback order, for tests and diagnostics. */
     internal val order: List<String> get() = ORDER

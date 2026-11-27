@@ -128,6 +128,10 @@ class QwenWebClient(private val base: String = "https://chat.qwen.ai") : Communi
                     }
                 }
             }
+            // Try the Qwen Android App Gateway before falling back to the hidden WebView
+            if (base == "https://chat.qwen.ai" && with(QwenAppGateway) { tryStream(upstream, prompt, thinking) }) {
+                return@guarded
+            }
             if (bridge == null) {
                 emit(challengeError(if (challenged) "plain requests were refused" else "no in-app browser"))
                 return@guarded
