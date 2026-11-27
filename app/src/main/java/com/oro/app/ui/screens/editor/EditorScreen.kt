@@ -176,6 +176,17 @@ fun EditorScreen(
     val assetDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val gitDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // Lets tool cards in the chat open what the agent wrote: a page in the
+    // live preview, a PDF in the built-in viewer.
+    val artifactOpener: ((String) -> Unit)? = remember(uiState.project?.id, uiState.project?.rootPath) {
+        uiState.project?.let { project ->
+            { relativePath: String ->
+                com.oro.app.ui.screens.preview.ArtifactLauncher.open(
+                    context, project.id, project.rootPath, relativePath
+                )
+            }
+        }
+    }
 
     // Track target path for import operations
     var importTargetPath by remember { mutableStateOf("") }
@@ -434,7 +445,8 @@ fun EditorScreen(
                         ) { tab ->
                             when (tab) {
                                 EditorTab.CHAT -> androidx.compose.runtime.CompositionLocalProvider(
-                                    com.oro.app.ui.genui.LocalGenUiActions provides viewModel::sendText
+                                    com.oro.app.ui.genui.LocalGenUiActions provides viewModel::sendText,
+                                    com.oro.app.ui.screens.preview.LocalArtifactOpener provides artifactOpener
                                 ) { ChatTab(
                                     sessionsState = sessionsState,
                                     sessionActions = sessionActions,
@@ -498,7 +510,9 @@ fun EditorScreen(
                                         )
                                     }
 
-                                    CodeTab(
+                                    androidx.compose.runtime.CompositionLocalProvider(
+                                        com.oro.app.ui.screens.preview.LocalArtifactOpener provides artifactOpener
+                                    ) { CodeTab(
                                         currentFile = uiState.currentFile,
                                         fileContent = uiState.fileContent,
                                         isModified = uiState.isFileModified,
@@ -510,7 +524,7 @@ fun EditorScreen(
                                         onAiEditRequest = { request ->
                                             viewModel.handleAiCodeEdit(request)
                                         }
-                                    )
+                                    ) }
                                 }
                             }
                         }

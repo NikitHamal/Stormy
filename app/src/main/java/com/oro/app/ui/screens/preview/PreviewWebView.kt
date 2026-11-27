@@ -1,5 +1,6 @@
 package com.oro.app.ui.screens.preview
 
+import com.oro.app.ui.screens.pdf.PdfViewerActivity
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
@@ -151,7 +152,11 @@ internal fun PreviewWebView(
                                 return when (uri.scheme?.lowercase()) {
                                     "http", "https" -> {
                                         // The project's own pages stay here; other sites open in a browser.
-                                        if (!req.isForMainFrame || isLocalHost(uri.host) || uri.host == Uri.parse(view?.url.orEmpty()).host) {
+                                        if (req.isForMainFrame && isPdfUrl(uri)) {
+                                            // A PDF link opens in Oro's own viewer, wherever it points.
+                                            PdfViewerActivity.open(ctx, uri.toString())
+                                            true
+                                        } else if (!req.isForMainFrame || isLocalHost(uri.host) || uri.host == Uri.parse(view?.url.orEmpty()).host) {
                                             false
                                         } else {
                                             openOutside(ctx, uri)
@@ -307,9 +312,13 @@ internal fun PreviewWebView(
                             }
                         }
 
-                        setDownloadListener { url, _, _, _, _ ->
+                        setDownloadListener { url, _, _, mimetype, _ ->
                             val uri = Uri.parse(url)
-                            if (uri.scheme == "http" || uri.scheme == "https") {
+                            val isPdf = mimetype?.contains("pdf", ignoreCase = true) == true ||
+                                isPdfUrl(uri) || url.startsWith("data:application/pdf", ignoreCase = true)
+                            if (isPdf && (uri.scheme == "http" || uri.scheme == "https" || uri.scheme == "data")) {
+                                PdfViewerActivity.open(ctx, url)
+                            } else if (uri.scheme == "http" || uri.scheme == "https") {
                                 openOutside(ctx, uri)
                             } else {
                                 notice("Files the page makes itself (${uri.scheme}: links) can't be saved from the preview. Open the page in a browser to save one.")
@@ -440,6 +449,8 @@ private fun WebView.loadPreview(url: String, projectPath: String) {
 private const val NO_INDEX_PAGE =
     "<html><body style=\"font-family:sans-serif;padding:24px\"><h2>No index.html yet</h2>" +
         "<p>Add an index.html to the project to preview it.</p></body></html>"
+
+private fun isPdfUrl(uri: Uri): Boolean = uri.path?.endsWith(".pdf", ignoreCase = true) == true
 
 private fun isLocalHost(host: String?): Boolean =
     host == null || host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"

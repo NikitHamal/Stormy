@@ -20,7 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -47,6 +50,10 @@ import com.oro.app.R
 import com.oro.app.domain.model.FileTreeNode
 import com.oro.app.ui.screens.editor.assets.ImageMetadata
 import com.oro.app.ui.screens.editor.assets.ImageOptimizer
+import com.oro.app.data.preview.ArtifactKind
+import com.oro.app.data.preview.PreviewArtifacts
+import com.oro.app.ui.screens.preview.ArtifactLauncher
+import com.oro.app.ui.screens.preview.LocalArtifactOpener
 import com.oro.app.ui.theme.OroTheme
 import com.oro.app.utils.FileUtils
 import java.io.File
@@ -77,8 +84,19 @@ fun CodeTab(
     } else {
         // Check if this is an image file that should show preview
         val isImageFile = currentFile.extension.lowercase() in IMAGE_PREVIEW_EXTENSIONS
+        // Pages, styles, scripts, SVG and Markdown can be watched in the live
+        // preview; a PDF is shown by the built-in viewer.
+        val openArtifact = LocalArtifactOpener.current
+        val artifactLabel = ArtifactLauncher.label(currentFile.path)
+        val isPdf = PreviewArtifacts.kindOf(currentFile.path) == ArtifactKind.PDF
 
-        if (isImageFile) {
+        if (isPdf) {
+            PdfFileContent(
+                file = currentFile,
+                onOpen = { openArtifact?.invoke(currentFile.path) },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (isImageFile) {
             // Show image preview for image files
             ImagePreviewContent(
                 file = currentFile,
@@ -103,6 +121,23 @@ fun CodeTab(
                         .background(extendedColors.editorBackground)
                 )
 
+                // Preview: the page itself, or the page this style or script belongs to.
+                if (artifactLabel != null && openArtifact != null) {
+                    SmallFloatingActionButton(
+                        onClick = { openArtifact(currentFile.path) },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.PlayArrow,
+                            contentDescription = artifactLabel
+                        )
+                    }
+                }
+
                 // Save FAB - only shown when file is modified
                 if (isModified) {
                     SmallFloatingActionButton(
@@ -120,6 +155,44 @@ fun CodeTab(
                     }
                 }
             }
+        }
+    }
+}
+
+/** A PDF in the file tree: its details and a button for the built-in viewer. */
+@Composable
+private fun PdfFileContent(
+    file: FileTreeNode.FileNode,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.PictureAsPdf,
+            contentDescription = null,
+            modifier = Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = file.name,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = FileUtils.formatFileSize(file.size),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(onClick = onOpen) {
+            Text("View PDF", maxLines = 1)
         }
     }
 }

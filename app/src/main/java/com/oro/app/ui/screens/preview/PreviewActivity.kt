@@ -140,6 +140,7 @@ import com.oro.app.ui.components.inspector.StyleChangeRequest
 import com.oro.app.ui.components.inspector.TextChangeRequest
 import com.oro.app.ui.components.inspector.VisualElementInspector
 import com.oro.app.data.preview.FrameworkType
+import com.oro.app.data.preview.PreviewArtifacts
 import com.oro.app.data.repository.LiteMode
 import com.oro.app.ui.theme.DevicePerformance
 import com.oro.app.data.preview.PreviewServerManager
@@ -177,6 +178,7 @@ class PreviewActivity : ComponentActivity() {
 
         projectId = intent.getStringExtra(EXTRA_PROJECT_ID) ?: ""
         projectPath = intent.getStringExtra(EXTRA_PROJECT_PATH) ?: ""
+        val startPath = intent.getStringExtra(EXTRA_START_PATH)?.takeIf { it.isNotBlank() }
 
         setContent {
             // Same Lite mode resolution as MainActivity, so the preview's
@@ -188,6 +190,7 @@ class PreviewActivity : ComponentActivity() {
                 PreviewScreen(
                     projectId = projectId,
                     projectPath = projectPath,
+                    startPath = startPath,
                     onBackClick = { finish() },
                     onWebViewCreated = { webView = it }
                 )
@@ -223,6 +226,8 @@ class PreviewActivity : ComponentActivity() {
 
         const val EXTRA_PROJECT_ID = "extra_project_id"
         const val EXTRA_PROJECT_PATH = "extra_project_path"
+        /** A project-relative file to open the preview on (a page, an SVG, a Markdown file). */
+        const val EXTRA_START_PATH = "extra_start_path"
 
         // Result extras for agent edit mode
         const val RESULT_AGENT_PROMPT = "result_agent_prompt"
@@ -408,6 +413,7 @@ class InspectorJsInterface(
 private fun PreviewScreen(
     projectId: String,
     projectPath: String,
+    startPath: String?,
     onBackClick: () -> Unit,
     onWebViewCreated: (WebView) -> Unit
 ) {
@@ -435,6 +441,17 @@ private fun PreviewScreen(
     val serverState by serverManager.serverState.collectAsStateWithLifecycle()
     var previewUrl by remember { mutableStateOf<String?>(null) }
 
+    // Page picker and local address bar.
+    var showPages by remember { mutableStateOf(false) }
+    var showAddress by remember { mutableStateOf(false) }
+    val serverOrigin = remember(previewUrl) {
+        previewUrl?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?.let { u -> Uri.parse(u).let { "${it.scheme}://${it.authority}" } }
+    }
+    val previewEntries by produceState(emptyList<String>(), projectPath, showPages) {
+        value = if (showPages) withContext(Dispatchers.IO) { listPreviewEntries(File(projectPath)) } else emptyList()
+    }
+
     // Detect framework type. Off the main thread: detection reads
     // package.json and, failing that, walks the whole project tree (up to
     // three times, node_modules included), which used to block the first
@@ -449,8 +466,12 @@ private fun PreviewScreen(
     // Start server for framework projects
     LaunchedEffect(projectPath) {
         if (projectPath.isNotEmpty()) {
-            val url = serverManager.getPreviewUrl(projectPath)
-            previewUrl = url
+            // Opened on one file (a page, an SVG, a Markdown document): serve the
+            // project and point at that file; otherwise the project's own entry page.
+            val onFile = startPath?.let { path ->
+                serverManager.startServerForProject(projectPath)?.let { PreviewArtifacts.urlFor(it, path) }
+            }
+            previewUrl = onFile ?: serverManager.getPreviewUrl(projectPath)
         }
     }
 
@@ -637,6 +658,31 @@ private fun PreviewScreen(
         }
     }
 
+    if (showPages && serverOrigin != null) {
+        PagePickerDialog(
+            entries = previewEntries,
+            current = PreviewArtifacts.relativeOf(serverOrigin, webView?.url),
+            onPick = { path ->
+                showPages = false
+                webView?.loadUrl(PreviewArtifacts.urlFor(serverOrigin, path))
+            },
+            onDismiss = { showPages = false }
+        )
+    }
+    if (showAddress) {
+        LocalAddressDialog(
+            onGo = { url ->
+                showAddress = false
+                webView?.loadUrl(url)
+            },
+            onProject = {
+                showAddress = false
+                previewUrl?.let { webView?.loadUrl(it) }
+            },
+            onDismiss = { showAddress = false }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -745,6 +791,21 @@ private fun PreviewScreen(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Pages") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showPages = true
+                                },
+                                enabled = serverOrigin != null
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Open local address") },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showAddress = true
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Open in browser") },
                                 onClick = {
