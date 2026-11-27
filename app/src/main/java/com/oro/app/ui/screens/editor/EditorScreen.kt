@@ -188,6 +188,16 @@ fun EditorScreen(
         }
     }
 
+    // "Fix with Stormy" and "Send to chat" in the preview land in the message box.
+    val pendingPrompt by com.oro.app.data.preview.ChatPromptBridge.pending.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingPrompt, uiState.project?.id) {
+        val item = pendingPrompt ?: return@LaunchedEffect
+        if (item.projectId != uiState.project?.id) return@LaunchedEffect
+        viewModel.updateChatInput(com.oro.app.data.preview.ChatPromptBridge.compose(uiState.chatInput, item.text))
+        if (uiState.selectedTab != EditorTab.CHAT) viewModel.selectTab(EditorTab.CHAT)
+        com.oro.app.data.preview.ChatPromptBridge.consume(item)
+    }
+
     // Track target path for import operations
     var importTargetPath by remember { mutableStateOf("") }
 
